@@ -1,44 +1,605 @@
-Campaign
-Text
-HQ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campaign Text HQ</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh}
+a{color:#818cf8;text-decoration:none}
+/* Sidebar */
+.sidebar{width:220px;background:#1e293b;border-right:1px solid #334155;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:10}
+.sidebar-logo{padding:20px;font-size:18px;font-weight:700;color:#818cf8;border-bottom:1px solid #334155}
+.sidebar-logo span{color:#f472b6}
+.sidebar-section{padding:12px 16px 4px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:1px}
+.sidebar-nav{flex:1;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;transition:background .15s;font-size:14px;color:#94a3b8}
+.nav-item:hover{background:#334155}
+.nav-item.active{background:#334155;color:#818cf8;border-right:3px solid #818cf8}
+.nav-item .icon{width:20px;text-align:center}
+.conn-status{padding:16px 20px;border-top:1px solid #334155;font-size:12px}
+.conn-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.conn-dot.off{background:#ef4444}
+.conn-dot.on{background:#22c55e}
+/* Main */
+.main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{background:#1e293b;border-bottom:1px solid #334155;padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
+.topbar h2{font-size:18px;font-weight:600}
+.content{flex:1;padding:24px;overflow-y:auto}
+/* Cards */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px}
+.stat-card .label{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+.stat-card .value{font-size:28px;font-weight:700;color:#f8fafc}
+.stat-card .sub{font-size:12px;color:#64748b;margin-top:4px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;margin-bottom:20px}
+.card h3{margin-bottom:16px;font-size:16px;font-weight:600}
+/* Forms */
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px;font-weight:500}
+.form-group input,.form-group textarea,.form-group select{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none;transition:border .2s}
+.form-group input:focus,.form-group textarea:focus{border-color:#818cf8}
+.form-group textarea{resize:vertical;min-height:100px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:#818cf8;color:#fff}
+.btn-success{background:#22c55e;color:#fff}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-secondary{background:#334155;color:#e2e8f0}
+.btn-sm{padding:6px 14px;font-size:13px}
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;padding:10px 12px;background:#0f172a;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #334155}
+td{padding:10px 12px;border-bottom:1px solid #1e293b}
+tr:hover td{background:#1e293b80}
+/* Alerts */
+.alert{padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:14px}
+.alert-success{background:#052e16;border:1px solid #166534;color:#4ade80}
+.alert-error{background:#450a0a;border:1px solid #991b1b;color:#fca5a5}
+.alert-info{background:#0c1a3d;border:1px solid #1e3a5f;color:#93c5fd}
+/* Badge */
+.badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
+.badge-green{background:#052e16;color:#4ade80}
+.badge-red{background:#450a0a;color:#fca5a5}
+.badge-yellow{background:#422006;color:#fcd34d}
+/* Message bubbles */
+.msg-list{max-height:400px;overflow-y:auto}
+.msg-item{padding:12px;border-bottom:1px solid #334155}
+.msg-item .phone{font-weight:600;color:#818cf8;font-size:13px}
+.msg-item .body{margin-top:4px;color:#e2e8f0}
+.msg-item .time{font-size:11px;color:#64748b;margin-top:4px}
+.msg-item .reply-box{margin-top:8px;display:flex;gap:8px}
+.msg-item .reply-box input{flex:1}
+/* Contacts table actions */
+.contact-actions{display:flex;gap:6px}
+/* Activity log */
+.log-entry{padding:8px 0;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
+.log-entry .log-time{color:#64748b;font-size:11px}
+/* Hide pages */
+.page{display:none}
+.page.active{display:block}
+/* Responsive */
+@media(max-width:768px){
+  .sidebar{width:60px}
+  .sidebar-logo,.sidebar-section,.nav-item span:not(.icon){display:none}
+  .nav-item{justify-content:center;padding:12px}
+  .main{margin-left:60px}
+  .form-row{grid-template-columns:1fr}
+  .stats-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
 
-Not Connected
-⚙ Settings
-CAMPAIGN
-📊
-Dashboard
-✉️
-Compose & Send
-👥
-Contacts
-🗓
-Scheduled
-RESPONSES
-💬
-Inbox
+<div class="sidebar">
+  <div class="sidebar-logo">Campaign<span>Text</span> HQ</div>
+  <div class="sidebar-nav">
+    <div class="sidebar-section">Campaign</div>
+    <div class="nav-item active" data-page="dashboard"><span class="icon">&#128202;</span><span>Dashboard</span></div>
+    <div class="nav-item" data-page="compose"><span class="icon">&#9993;&#65039;</span><span>Compose &amp; Send</span></div>
+    <div class="nav-item" data-page="contacts"><span class="icon">&#128101;</span><span>Contacts</span></div>
+    <div class="sidebar-section">Responses</div>
+    <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
+    <div class="sidebar-section">System</div>
+    <div class="nav-item" data-page="twilio"><span class="icon">&#128273;</span><span>Twilio Setup</span></div>
+    <div class="nav-item" data-page="autoreply"><span class="icon">&#129302;</span><span>Auto-Reply AI</span></div>
+  </div>
+  <div class="conn-status" id="connStatus">
+    <span class="conn-dot off" id="connDot"></span>
+    <span id="connLabel">Not Connected</span>
+  </div>
+</div>
 
-🤖
-Auto-Reply AI
-SYSTEM
-🔑
-Twilio Setup
-⚖️
-Compliance
-Campaign Overview
-TOTAL SENT
-0
-Across all campaigns
-DELIVERED
-0
-0% rate
-RESPONSES
-0
-0% response rate
-CONTACTS
-0
-Loaded in system
-CAMPAIGN ACTIVITY LOG
-📋
-No activity yet. Send your first campaign to get started.
-QUICK SCHEDULED MESSAGES
-No messages scheduled yet.
+<div class="main">
+  <div class="topbar">
+    <h2 id="pageTitle">Dashboard</h2>
+    <div style="font-size:12px;color:#64748b" id="lastUpdated"></div>
+  </div>
+  <div class="content">
+
+    <!-- DASHBOARD -->
+    <div class="page active" id="page-dashboard">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">Total Sent</div>
+          <div class="value" id="statSent">0</div>
+          <div class="sub">Across all campaigns</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Delivered</div>
+          <div class="value" id="statDelivered">0</div>
+          <div class="sub" id="statDeliveredRate">0% rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Responses</div>
+          <div class="value" id="statResponses">0</div>
+          <div class="sub" id="statResponseRate">0% response rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Contacts</div>
+          <div class="value" id="statContacts">0</div>
+          <div class="sub">Loaded in system</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Campaign Activity Log</h3>
+        <div id="activityLog">
+          <div class="log-entry" style="color:#64748b">No activity yet. Send your first campaign to get started.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TWILIO SETUP -->
+    <div class="page" id="page-twilio">
+      <div class="card">
+        <h3>Twilio Configuration</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Enter your Twilio credentials to connect. Find them at console.twilio.com.</p>
+        <div id="twilioAlert"></div>
+        <div class="form-group">
+          <label>Account SID</label>
+          <input type="text" id="accountSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+        </div>
+        <div class="form-group">
+          <label>Auth Token</label>
+          <input type="password" id="authToken" placeholder="Your auth token">
+        </div>
+        <div class="form-group">
+          <label>From Phone Number</label>
+          <input type="text" id="fromNumber" placeholder="+1234567890">
+        </div>
+        <button class="btn btn-primary" id="btnTestConnection">Test Connection</button>
+        <button class="btn btn-secondary" id="btnSaveCredentials" style="margin-left:8px">Save Credentials</button>
+      </div>
+    </div>
+
+    <!-- CONTACTS -->
+    <div class="page" id="page-contacts">
+      <div class="card">
+        <h3>Manage Contacts</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Add contacts manually or paste from a CSV. Required: phone. Optional: firstName, lastName, city.</p>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group">
+            <label>Phone</label>
+            <input type="text" id="cPhone" placeholder="+1234567890">
+          </div>
+          <div class="form-group">
+            <label>First Name</label>
+            <input type="text" id="cFirst" placeholder="John">
+          </div>
+        </div>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group">
+            <label>Last Name</label>
+            <input type="text" id="cLast" placeholder="Doe">
+          </div>
+          <div class="form-group">
+            <label>City</label>
+            <input type="text" id="cCity" placeholder="Austin">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnAddContact">Add Contact</button>
+        <button class="btn btn-secondary btn-sm" id="btnImportCSV" style="margin-left:8px">Paste CSV Import</button>
+        <input type="file" id="csvFileInput" accept=".csv" style="display:none">
+      </div>
+      <div class="card" id="csvImportCard" style="display:none">
+        <h3>CSV Import</h3>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Paste CSV with headers: phone, firstName, lastName, city (one per line). Phone is required.</p>
+        <div class="form-group">
+          <textarea id="csvData" rows="8" placeholder="phone,firstName,lastName,city
++15125551234,John,Doe,Austin
++15125555678,Jane,Smith,Dallas"></textarea>
+        </div>
+        <button class="btn btn-success btn-sm" id="btnParseCSV">Import Contacts</button>
+        <button class="btn btn-secondary btn-sm" id="btnCancelCSV" style="margin-left:8px">Cancel</button>
+      </div>
+      <div class="card">
+        <h3>Contact List <span class="badge badge-green" id="contactCount">0</span></h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Phone</th><th>First Name</th><th>Last Name</th><th>City</th><th>Actions</th></tr></thead>
+            <tbody id="contactsBody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn btn-danger btn-sm" id="btnClearContacts">Clear All</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPOSE & SEND -->
+    <div class="page" id="page-compose">
+      <div class="card">
+        <h3>Compose Campaign Message</h3>
+        <div id="composeAlert"></div>
+        <div class="alert alert-info">Use <strong>{firstName}</strong>, <strong>{lastName}</strong>, <strong>{city}</strong> as merge tags to personalize messages.</div>
+        <div class="form-group">
+          <label>Message Template</label>
+          <textarea id="messageTemplate" placeholder="Hi {firstName}! This is a reminder about the upcoming event in {city}. We'd love to see you there!"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Opt-Out Footer</label>
+          <input type="text" id="optOutFooter" value="Reply STOP to opt out.">
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:13px;color:#94a3b8">Sending to: <strong id="sendToCount">0</strong> contacts</div>
+        </div>
+        <button class="btn btn-success" id="btnSendCampaign">Send Campaign</button>
+      </div>
+      <div class="card" id="sendResultCard" style="display:none">
+        <h3>Send Results</h3>
+        <div id="sendResults"></div>
+      </div>
+    </div>
+
+    <!-- INBOX -->
+    <div class="page" id="page-inbox">
+      <div class="card">
+        <h3>Incoming Messages</h3>
+        <button class="btn btn-secondary btn-sm" id="btnRefreshInbox" style="margin-bottom:16px">Refresh</button>
+        <div class="msg-list" id="inboxMessages">
+          <div style="color:#64748b;font-size:14px">No messages yet. Messages will appear here when contacts reply.</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Opted Out Numbers</h3>
+        <div id="optedOutList" style="color:#64748b;font-size:14px">No opted-out numbers.</div>
+      </div>
+    </div>
+
+    <!-- AUTO-REPLY -->
+    <div class="page" id="page-autoreply">
+      <div class="card">
+        <h3>Auto-Reply AI Settings</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">The system automatically replies to common keywords. Here are the active auto-reply rules:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Keywords</th><th>Auto-Reply Message</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge badge-green">poll, polling, vote, where, location</span></td><td>Find your polling location at vote.gov. Polls open 7am-7pm on Election Day!</td></tr>
+              <tr><td><span class="badge badge-green">time, open, close, hours, when</span></td><td>Polls are open 7:00 AM - 7:00 PM on Election Day. Check vote.gov for early voting!</td></tr>
+              <tr><td><span class="badge badge-green">register, registration</span></td><td>Register or check your status at vote.org. Don't miss the deadline!</td></tr>
+              <tr><td><span class="badge badge-yellow">stop, unsubscribe, cancel, quit, end</span></td><td>You've been removed from our list. (Auto opt-out)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="color:#64748b;margin-top:16px;font-size:13px">Auto-reply rules are configured server-side. Contact your admin to modify.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ---- STATE ----
+let state = {
+  credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}'),
+  contacts: JSON.parse(localStorage.getItem('contacts') || '[]'),
+  connected: false,
+  stats: { sent: 0, delivered: 0, responses: 0 },
+  activityLog: JSON.parse(localStorage.getItem('activityLog') || '[]')
+};
+
+// ---- NAV ----
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    document.getElementById('pageTitle').textContent = item.querySelector('span:last-child').textContent;
+  });
+});
+
+// ---- TWILIO SETUP ----
+function loadCredentials() {
+  const c = state.credentials;
+  if (c.accountSid) document.getElementById('accountSid').value = c.accountSid;
+  if (c.authToken) document.getElementById('authToken').value = c.authToken;
+  if (c.fromNumber) document.getElementById('fromNumber').value = c.fromNumber;
+  if (c.connected) setConnected(true, c.accountName);
+}
+
+function setConnected(yes, name) {
+  state.connected = yes;
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  if (yes) {
+    dot.className = 'conn-dot on';
+    label.textContent = name || 'Connected';
+  } else {
+    dot.className = 'conn-dot off';
+    label.textContent = 'Not Connected';
+  }
+}
+
+document.getElementById('btnTestConnection').addEventListener('click', async () => {
+  const sid = document.getElementById('accountSid').value.trim();
+  const token = document.getElementById('authToken').value.trim();
+  const el = document.getElementById('twilioAlert');
+  if (!sid || !token) { el.innerHTML = '<div class="alert alert-error">Please enter Account SID and Auth Token.</div>'; return; }
+  el.innerHTML = '<div class="alert alert-info">Testing connection...</div>';
+  try {
+    const res = await fetch('/test-connection', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ accountSid: sid, authToken: token })
+    });
+    const data = await res.json();
+    if (data.success) {
+      el.innerHTML = '<div class="alert alert-success">Connected to: ' + data.accountName + ' (Status: ' + data.status + ')</div>';
+      setConnected(true, data.accountName);
+      state.credentials.accountSid = sid;
+      state.credentials.authToken = token;
+      state.credentials.connected = true;
+      state.credentials.accountName = data.accountName;
+    } else {
+      el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
+      setConnected(false);
+    }
+  } catch (err) {
+    el.innerHTML = '<div class="alert alert-error">Connection failed: ' + err.message + '</div>';
+    setConnected(false);
+  }
+});
+
+document.getElementById('btnSaveCredentials').addEventListener('click', () => {
+  state.credentials.accountSid = document.getElementById('accountSid').value.trim();
+  state.credentials.authToken = document.getElementById('authToken').value.trim();
+  state.credentials.fromNumber = document.getElementById('fromNumber').value.trim();
+  localStorage.setItem('twilioCredentials', JSON.stringify(state.credentials));
+  document.getElementById('twilioAlert').innerHTML = '<div class="alert alert-success">Credentials saved locally.</div>';
+});
+
+// ---- CONTACTS ----
+function renderContacts() {
+  const tbody = document.getElementById('contactsBody');
+  document.getElementById('contactCount').textContent = state.contacts.length;
+  document.getElementById('statContacts').textContent = state.contacts.length;
+  document.getElementById('sendToCount').textContent = state.contacts.length;
+  if (state.contacts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No contacts added yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.contacts.map((c, i) =>
+    '<tr><td>' + c.phone + '</td><td>' + (c.firstName||'') + '</td><td>' + (c.lastName||'') + '</td><td>' + (c.city||'') + '</td><td><button class="btn btn-danger btn-sm" onclick="removeContact(' + i + ')">Remove</button></td></tr>'
+  ).join('');
+}
+
+window.removeContact = function(i) {
+  state.contacts.splice(i, 1);
+  localStorage.setItem('contacts', JSON.stringify(state.contacts));
+  renderContacts();
+};
+
+document.getElementById('btnAddContact').addEventListener('click', () => {
+  const phone = document.getElementById('cPhone').value.trim();
+  if (!phone) return;
+  state.contacts.push({
+    phone,
+    firstName: document.getElementById('cFirst').value.trim(),
+    lastName: document.getElementById('cLast').value.trim(),
+    city: document.getElementById('cCity').value.trim()
+  });
+  localStorage.setItem('contacts', JSON.stringify(state.contacts));
+  document.getElementById('cPhone').value = '';
+  document.getElementById('cFirst').value = '';
+  document.getElementById('cLast').value = '';
+  document.getElementById('cCity').value = '';
+  renderContacts();
+});
+
+document.getElementById('btnImportCSV').addEventListener('click', () => {
+  document.getElementById('csvImportCard').style.display = 'block';
+});
+document.getElementById('btnCancelCSV').addEventListener('click', () => {
+  document.getElementById('csvImportCard').style.display = 'none';
+});
+
+document.getElementById('btnParseCSV').addEventListener('click', () => {
+  const raw = document.getElementById('csvData').value.trim();
+  if (!raw) return;
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  const header = lines[0].toLowerCase().split(',').map(h => h.trim());
+  const pi = header.indexOf('phone');
+  if (pi === -1) { alert('CSV must have a "phone" column.'); return; }
+  const fi = header.indexOf('firstname');
+  const li = header.indexOf('lastname');
+  const ci = header.indexOf('city');
+  let added = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim());
+    if (cols[pi]) {
+      state.contacts.push({
+        phone: cols[pi],
+        firstName: fi >= 0 ? cols[fi] || '' : '',
+        lastName: li >= 0 ? cols[li] || '' : '',
+        city: ci >= 0 ? cols[ci] || '' : ''
+      });
+      added++;
+    }
+  }
+  localStorage.setItem('contacts', JSON.stringify(state.contacts));
+  renderContacts();
+  document.getElementById('csvImportCard').style.display = 'none';
+  document.getElementById('csvData').value = '';
+  addLog('Imported ' + added + ' contacts via CSV.');
+});
+
+document.getElementById('btnClearContacts').addEventListener('click', () => {
+  if (confirm('Remove all contacts?')) {
+    state.contacts = [];
+    localStorage.setItem('contacts', JSON.stringify(state.contacts));
+    renderContacts();
+  }
+});
+
+// ---- COMPOSE & SEND ----
+document.getElementById('btnSendCampaign').addEventListener('click', async () => {
+  const el = document.getElementById('composeAlert');
+  const c = state.credentials;
+  if (!c.accountSid || !c.authToken || !c.fromNumber) {
+    el.innerHTML = '<div class="alert alert-error">Set up Twilio credentials first (Twilio Setup page).</div>';
+    return;
+  }
+  if (state.contacts.length === 0) {
+    el.innerHTML = '<div class="alert alert-error">No contacts loaded. Add contacts first.</div>';
+    return;
+  }
+  const msg = document.getElementById('messageTemplate').value.trim();
+  if (!msg) { el.innerHTML = '<div class="alert alert-error">Write a message first.</div>'; return; }
+  if (!confirm('Send to ' + state.contacts.length + ' contacts?')) return;
+
+  el.innerHTML = '<div class="alert alert-info">Sending campaign...</div>';
+  document.getElementById('btnSendCampaign').disabled = true;
+
+  try {
+    const res = await fetch('/send', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        accountSid: c.accountSid,
+        authToken: c.authToken,
+        from: c.fromNumber,
+        contacts: state.contacts,
+        messageTemplate: msg,
+        optOutFooter: document.getElementById('optOutFooter').value.trim()
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.stats.sent += data.sent;
+      state.stats.delivered += data.sent;
+      updateStats();
+      el.innerHTML = '<div class="alert alert-success">Campaign sent! ' + data.sent + ' delivered, ' + data.failed + ' failed.</div>';
+      const rc = document.getElementById('sendResultCard');
+      rc.style.display = 'block';
+      let html = '<p><strong>Sent:</strong> ' + data.sent + ' / ' + data.totalContacts + '</p>';
+      if (data.failed > 0 && data.errors.length > 0) {
+        html += '<p style="color:#fca5a5;margin-top:8px"><strong>Errors:</strong></p><ul style="margin-left:16px;color:#fca5a5">';
+        data.errors.forEach(e => { html += '<li>' + e.phone + ': ' + e.reason + '</li>'; });
+        html += '</ul>';
+      }
+      document.getElementById('sendResults').innerHTML = html;
+      addLog('Campaign sent: ' + data.sent + '/' + data.totalContacts + ' delivered.');
+    } else {
+      el.innerHTML = '<div class="alert alert-error">' + (data.error || 'Send failed.') + '</div>';
+    }
+  } catch (err) {
+    el.innerHTML = '<div class="alert alert-error">Error: ' + err.message + '</div>';
+  }
+  document.getElementById('btnSendCampaign').disabled = false;
+});
+
+// ---- INBOX ----
+async function loadInbox() {
+  try {
+    const res = await fetch('/messages');
+    const data = await res.json();
+    const el = document.getElementById('inboxMessages');
+    state.stats.responses = data.messages.length;
+    updateStats();
+    if (data.messages.length === 0) {
+      el.innerHTML = '<div style="color:#64748b;font-size:14px">No messages yet.</div>';
+    } else {
+      el.innerHTML = data.messages.map(m =>
+        '<div class="msg-item"><div class="phone">' + m.phone + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
+        '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + m.phone.replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + m.phone + '\')">Reply</button></div></div>'
+      ).join('');
+    }
+    const optEl = document.getElementById('optedOutList');
+    if (data.optedOut.length === 0) {
+      optEl.textContent = 'No opted-out numbers.';
+    } else {
+      optEl.innerHTML = data.optedOut.map(n => '<span class="badge badge-red" style="margin:2px">' + n + '</span>').join(' ');
+    }
+  } catch (err) {
+    console.error('Failed to load inbox:', err);
+  }
+}
+
+window.sendReply = async function(phone) {
+  const c = state.credentials;
+  if (!c.accountSid || !c.authToken || !c.fromNumber) { alert('Set up Twilio first.'); return; }
+  const input = document.getElementById('reply-' + phone.replace(/\+/g,''));
+  const body = input.value.trim();
+  if (!body) return;
+  try {
+    await fetch('/reply', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber, to: phone, body })
+    });
+    input.value = '';
+    addLog('Replied to ' + phone);
+  } catch (err) { alert('Reply failed: ' + err.message); }
+};
+
+document.getElementById('btnRefreshInbox').addEventListener('click', loadInbox);
+
+// ---- STATS & LOG ----
+function updateStats() {
+  document.getElementById('statSent').textContent = state.stats.sent;
+  document.getElementById('statDelivered').textContent = state.stats.delivered;
+  document.getElementById('statResponses').textContent = state.stats.responses;
+  const dRate = state.stats.sent > 0 ? Math.round(state.stats.delivered / state.stats.sent * 100) : 0;
+  const rRate = state.stats.sent > 0 ? Math.round(state.stats.responses / state.stats.sent * 100) : 0;
+  document.getElementById('statDeliveredRate').textContent = dRate + '% rate';
+  document.getElementById('statResponseRate').textContent = rRate + '% response rate';
+}
+
+function addLog(msg) {
+  state.activityLog.unshift({ msg, time: new Date().toISOString() });
+  if (state.activityLog.length > 50) state.activityLog.pop();
+  localStorage.setItem('activityLog', JSON.stringify(state.activityLog));
+  renderLog();
+}
+
+function renderLog() {
+  const el = document.getElementById('activityLog');
+  if (state.activityLog.length === 0) {
+    el.innerHTML = '<div class="log-entry" style="color:#64748b">No activity yet.</div>';
+    return;
+  }
+  el.innerHTML = state.activityLog.map(l =>
+    '<div class="log-entry"><span class="log-time">' + new Date(l.time).toLocaleString() + '</span> &mdash; ' + l.msg + '</div>'
+  ).join('');
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ---- INIT ----
+loadCredentials();
+renderContacts();
+renderLog();
+updateStats();
+document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
+</script>
+</body>
+</html>
