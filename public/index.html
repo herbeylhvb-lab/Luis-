@@ -28,7 +28,7 @@ a{color:#818cf8;text-decoration:none}
 .topbar h2{font-size:18px;font-weight:600}
 .content{flex:1;padding:24px;overflow-y:auto}
 /* Cards */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px}
 .stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px}
 .stat-card .label{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
 .stat-card .value{font-size:28px;font-weight:700;color:#f8fafc}
@@ -39,9 +39,10 @@ a{color:#818cf8;text-decoration:none}
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px;font-weight:500}
 .form-group input,.form-group textarea,.form-group select{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none;transition:border .2s}
-.form-group input:focus,.form-group textarea:focus{border-color:#818cf8}
+.form-group input:focus,.form-group textarea:focus,.form-group select:focus{border-color:#818cf8}
 .form-group textarea{resize:vertical;min-height:100px}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s}
 .btn:hover{opacity:.85}
@@ -50,7 +51,9 @@ a{color:#818cf8;text-decoration:none}
 .btn-success{background:#22c55e;color:#fff}
 .btn-danger{background:#ef4444;color:#fff}
 .btn-secondary{background:#334155;color:#e2e8f0}
+.btn-warning{background:#f59e0b;color:#000}
 .btn-sm{padding:6px 14px;font-size:13px}
+.btn-xs{padding:4px 10px;font-size:12px}
 /* Table */
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -67,6 +70,9 @@ tr:hover td{background:#1e293b80}
 .badge-green{background:#052e16;color:#4ade80}
 .badge-red{background:#450a0a;color:#fca5a5}
 .badge-yellow{background:#422006;color:#fcd34d}
+.badge-blue{background:#0c1a3d;color:#93c5fd}
+.badge-purple{background:#2e1065;color:#c4b5fd}
+.badge-gray{background:#1e293b;color:#94a3b8}
 /* Message bubbles */
 .msg-list{max-height:400px;overflow-y:auto}
 .msg-item{padding:12px;border-bottom:1px solid #334155}
@@ -75,11 +81,27 @@ tr:hover td{background:#1e293b80}
 .msg-item .time{font-size:11px;color:#64748b;margin-top:4px}
 .msg-item .reply-box{margin-top:8px;display:flex;gap:8px}
 .msg-item .reply-box input{flex:1}
-/* Contacts table actions */
-.contact-actions{display:flex;gap:6px}
 /* Activity log */
 .log-entry{padding:8px 0;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
 .log-entry .log-time{color:#64748b;font-size:11px}
+/* Progress bar */
+.progress-bar{background:#334155;border-radius:8px;height:12px;overflow:hidden;margin:8px 0}
+.progress-fill{height:100%;border-radius:8px;transition:width .3s}
+.progress-fill.green{background:#22c55e}
+.progress-fill.blue{background:#818cf8}
+/* Back button */
+.back-btn{cursor:pointer;color:#818cf8;font-size:14px;margin-bottom:16px;display:inline-flex;align-items:center;gap:4px}
+.back-btn:hover{text-decoration:underline}
+/* Inline select */
+.inline-select{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:4px 8px;color:#e2e8f0;font-size:12px}
+/* Event cards */
+.event-card{background:#0f172a;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.event-card .event-info h4{font-size:16px;margin-bottom:4px}
+.event-card .event-meta{font-size:13px;color:#94a3b8}
+/* Checkbox list */
+.check-list{max-height:200px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px}
+.check-item{display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:13px}
+.check-item input[type=checkbox]{accent-color:#818cf8}
 /* Hide pages */
 .page{display:none}
 .page.active{display:block}
@@ -89,7 +111,7 @@ tr:hover td{background:#1e293b80}
   .sidebar-logo,.sidebar-section,.nav-item span:not(.icon){display:none}
   .nav-item{justify-content:center;padding:12px}
   .main{margin-left:60px}
-  .form-row{grid-template-columns:1fr}
+  .form-row,.form-row-3{grid-template-columns:1fr}
   .stats-grid{grid-template-columns:1fr 1fr}
 }
 </style>
@@ -103,6 +125,10 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item active" data-page="dashboard"><span class="icon">&#128202;</span><span>Dashboard</span></div>
     <div class="nav-item" data-page="compose"><span class="icon">&#9993;&#65039;</span><span>Compose &amp; Send</span></div>
     <div class="nav-item" data-page="contacts"><span class="icon">&#128101;</span><span>Contacts</span></div>
+    <div class="sidebar-section">Field</div>
+    <div class="nav-item" data-page="walks"><span class="icon">&#128694;</span><span>Block Walk</span></div>
+    <div class="nav-item" data-page="voters"><span class="icon">&#128209;</span><span>Voter File</span></div>
+    <div class="nav-item" data-page="events"><span class="icon">&#128197;</span><span>Events</span></div>
     <div class="sidebar-section">Responses</div>
     <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
     <div class="sidebar-section">System</div>
@@ -122,132 +148,75 @@ tr:hover td{background:#1e293b80}
   </div>
   <div class="content">
 
-    <!-- DASHBOARD -->
+    <!-- ==================== DASHBOARD ==================== -->
     <div class="page active" id="page-dashboard">
       <div class="stats-grid">
-        <div class="stat-card">
-          <div class="label">Total Sent</div>
-          <div class="value" id="statSent">0</div>
-          <div class="sub">Across all campaigns</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Delivered</div>
-          <div class="value" id="statDelivered">0</div>
-          <div class="sub" id="statDeliveredRate">0% rate</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Responses</div>
-          <div class="value" id="statResponses">0</div>
-          <div class="sub" id="statResponseRate">0% response rate</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Contacts</div>
-          <div class="value" id="statContacts">0</div>
-          <div class="sub">Loaded in system</div>
-        </div>
+        <div class="stat-card"><div class="label">Total Sent</div><div class="value" id="statSent">0</div><div class="sub">Across all campaigns</div></div>
+        <div class="stat-card"><div class="label">Responses</div><div class="value" id="statResponses">0</div><div class="sub" id="statResponseRate">0% response rate</div></div>
+        <div class="stat-card"><div class="label">Contacts</div><div class="value" id="statContacts">0</div><div class="sub">Loaded in system</div></div>
+        <div class="stat-card"><div class="label">Doors Knocked</div><div class="value" id="statDoors">0</div><div class="sub" id="statWalks">0 block walks</div></div>
+        <div class="stat-card"><div class="label">Voter File</div><div class="value" id="statVoters">0</div><div class="sub">Voters loaded</div></div>
+        <div class="stat-card"><div class="label">Events</div><div class="value" id="statEvents">0</div><div class="sub">Upcoming</div></div>
       </div>
       <div class="card">
         <h3>Campaign Activity Log</h3>
-        <div id="activityLog">
-          <div class="log-entry" style="color:#64748b">No activity yet. Send your first campaign to get started.</div>
-        </div>
+        <div id="activityLog"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
       </div>
     </div>
 
-    <!-- TWILIO SETUP -->
+    <!-- ==================== TWILIO SETUP ==================== -->
     <div class="page" id="page-twilio">
       <div class="card">
         <h3>Twilio Configuration</h3>
         <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Enter your Twilio credentials to connect. Find them at console.twilio.com.</p>
         <div id="twilioAlert"></div>
-        <div class="form-group">
-          <label>Account SID</label>
-          <input type="text" id="accountSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
-        </div>
-        <div class="form-group">
-          <label>Auth Token</label>
-          <input type="password" id="authToken" placeholder="Your auth token">
-        </div>
-        <div class="form-group">
-          <label>From Phone Number</label>
-          <input type="text" id="fromNumber" placeholder="+1234567890">
-        </div>
+        <div class="form-group"><label>Account SID</label><input type="text" id="accountSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
+        <div class="form-group"><label>Auth Token</label><input type="password" id="authToken" placeholder="Your auth token"></div>
+        <div class="form-group"><label>From Phone Number</label><input type="text" id="fromNumber" placeholder="+1234567890"></div>
         <button class="btn btn-primary" id="btnTestConnection">Test Connection</button>
         <button class="btn btn-secondary" id="btnSaveCredentials" style="margin-left:8px">Save Credentials</button>
       </div>
     </div>
 
-    <!-- CONTACTS -->
+    <!-- ==================== CONTACTS ==================== -->
     <div class="page" id="page-contacts">
       <div class="card">
         <h3>Manage Contacts</h3>
         <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Add contacts manually or paste from a CSV. Required: phone. Optional: firstName, lastName, city.</p>
         <div class="form-row" style="margin-bottom:16px">
-          <div class="form-group">
-            <label>Phone</label>
-            <input type="text" id="cPhone" placeholder="+1234567890">
-          </div>
-          <div class="form-group">
-            <label>First Name</label>
-            <input type="text" id="cFirst" placeholder="John">
-          </div>
+          <div class="form-group"><label>Phone</label><input type="text" id="cPhone" placeholder="+1234567890"></div>
+          <div class="form-group"><label>First Name</label><input type="text" id="cFirst" placeholder="John"></div>
         </div>
         <div class="form-row" style="margin-bottom:16px">
-          <div class="form-group">
-            <label>Last Name</label>
-            <input type="text" id="cLast" placeholder="Doe">
-          </div>
-          <div class="form-group">
-            <label>City</label>
-            <input type="text" id="cCity" placeholder="Austin">
-          </div>
+          <div class="form-group"><label>Last Name</label><input type="text" id="cLast" placeholder="Doe"></div>
+          <div class="form-group"><label>City</label><input type="text" id="cCity" placeholder="Austin"></div>
         </div>
         <button class="btn btn-primary btn-sm" id="btnAddContact">Add Contact</button>
         <button class="btn btn-secondary btn-sm" id="btnImportCSV" style="margin-left:8px">Paste CSV Import</button>
-        <input type="file" id="csvFileInput" accept=".csv" style="display:none">
       </div>
       <div class="card" id="csvImportCard" style="display:none">
         <h3>CSV Import</h3>
-        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Paste CSV with headers: phone, firstName, lastName, city (one per line). Phone is required.</p>
-        <div class="form-group">
-          <textarea id="csvData" rows="8" placeholder="phone,firstName,lastName,city
-+15125551234,John,Doe,Austin
-+15125555678,Jane,Smith,Dallas"></textarea>
-        </div>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Paste CSV with headers: phone, firstName, lastName, city (one per line).</p>
+        <div class="form-group"><textarea id="csvData" rows="8" placeholder="phone,firstName,lastName,city&#10;+15125551234,John,Doe,Austin"></textarea></div>
         <button class="btn btn-success btn-sm" id="btnParseCSV">Import Contacts</button>
         <button class="btn btn-secondary btn-sm" id="btnCancelCSV" style="margin-left:8px">Cancel</button>
       </div>
       <div class="card">
         <h3>Contact List <span class="badge badge-green" id="contactCount">0</span></h3>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Phone</th><th>First Name</th><th>Last Name</th><th>City</th><th>Actions</th></tr></thead>
-            <tbody id="contactsBody"></tbody>
-          </table>
-        </div>
-        <div style="margin-top:12px">
-          <button class="btn btn-danger btn-sm" id="btnClearContacts">Clear All</button>
-        </div>
+        <div class="table-wrap"><table><thead><tr><th>Phone</th><th>First Name</th><th>Last Name</th><th>City</th><th>Actions</th></tr></thead><tbody id="contactsBody"></tbody></table></div>
+        <div style="margin-top:12px"><button class="btn btn-danger btn-sm" id="btnClearContacts">Clear All</button></div>
       </div>
     </div>
 
-    <!-- COMPOSE & SEND -->
+    <!-- ==================== COMPOSE & SEND ==================== -->
     <div class="page" id="page-compose">
       <div class="card">
         <h3>Compose Campaign Message</h3>
         <div id="composeAlert"></div>
-        <div class="alert alert-info">Use <strong>{firstName}</strong>, <strong>{lastName}</strong>, <strong>{city}</strong> as merge tags to personalize messages.</div>
-        <div class="form-group">
-          <label>Message Template</label>
-          <textarea id="messageTemplate" placeholder="Hi {firstName}! This is a reminder about the upcoming event in {city}. We'd love to see you there!"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Opt-Out Footer</label>
-          <input type="text" id="optOutFooter" value="Reply STOP to opt out.">
-        </div>
-        <div style="margin-bottom:16px">
-          <div style="font-size:13px;color:#94a3b8">Sending to: <strong id="sendToCount">0</strong> contacts</div>
-        </div>
+        <div class="alert alert-info">Use <strong>{firstName}</strong>, <strong>{lastName}</strong>, <strong>{city}</strong> as merge tags.</div>
+        <div class="form-group"><label>Message Template</label><textarea id="messageTemplate" placeholder="Hi {firstName}! This is a reminder about the upcoming event in {city}."></textarea></div>
+        <div class="form-group"><label>Opt-Out Footer</label><input type="text" id="optOutFooter" value="Reply STOP to opt out."></div>
+        <div style="margin-bottom:16px"><div style="font-size:13px;color:#94a3b8">Sending to: <strong id="sendToCount">0</strong> contacts</div></div>
         <button class="btn btn-success" id="btnSendCampaign">Send Campaign</button>
       </div>
       <div class="card" id="sendResultCard" style="display:none">
@@ -256,14 +225,12 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
-    <!-- INBOX -->
+    <!-- ==================== INBOX ==================== -->
     <div class="page" id="page-inbox">
       <div class="card">
         <h3>Incoming Messages</h3>
         <button class="btn btn-secondary btn-sm" id="btnRefreshInbox" style="margin-bottom:16px">Refresh</button>
-        <div class="msg-list" id="inboxMessages">
-          <div style="color:#64748b;font-size:14px">No messages yet. Messages will appear here when contacts reply.</div>
-        </div>
+        <div class="msg-list" id="inboxMessages"><div style="color:#64748b;font-size:14px">No messages yet.</div></div>
       </div>
       <div class="card">
         <h3>Opted Out Numbers</h3>
@@ -271,23 +238,211 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
-    <!-- AUTO-REPLY -->
+    <!-- ==================== AUTO-REPLY ==================== -->
     <div class="page" id="page-autoreply">
       <div class="card">
         <h3>Auto-Reply AI Settings</h3>
-        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">The system automatically replies to common keywords. Here are the active auto-reply rules:</p>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Keywords</th><th>Auto-Reply Message</th></tr></thead>
-            <tbody>
-              <tr><td><span class="badge badge-green">poll, polling, vote, where, location</span></td><td>Find your polling location at vote.gov. Polls open 7am-7pm on Election Day!</td></tr>
-              <tr><td><span class="badge badge-green">time, open, close, hours, when</span></td><td>Polls are open 7:00 AM - 7:00 PM on Election Day. Check vote.gov for early voting!</td></tr>
-              <tr><td><span class="badge badge-green">register, registration</span></td><td>Register or check your status at vote.org. Don't miss the deadline!</td></tr>
-              <tr><td><span class="badge badge-yellow">stop, unsubscribe, cancel, quit, end</span></td><td>You've been removed from our list. (Auto opt-out)</td></tr>
-            </tbody>
-          </table>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">The system automatically replies to common keywords.</p>
+        <div class="table-wrap"><table><thead><tr><th>Keywords</th><th>Auto-Reply Message</th></tr></thead><tbody>
+          <tr><td><span class="badge badge-green">poll, polling, vote, where, location</span></td><td>Find your polling location at vote.gov.</td></tr>
+          <tr><td><span class="badge badge-green">time, open, close, hours, when</span></td><td>Polls are open 7:00 AM - 7:00 PM on Election Day.</td></tr>
+          <tr><td><span class="badge badge-green">register, registration</span></td><td>Register or check your status at vote.org.</td></tr>
+          <tr><td><span class="badge badge-yellow">stop, unsubscribe, cancel, quit, end</span></td><td>You've been removed from our list. (Auto opt-out)</td></tr>
+        </tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ==================== BLOCK WALK ==================== -->
+    <div class="page" id="page-walks">
+      <!-- WALK LIST VIEW -->
+      <div id="walks-list-view">
+        <div class="card">
+          <h3>Block Walk / Canvassing</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Create walk lists, assign volunteers, and track door-knock results.</p>
+          <div class="form-row" style="margin-bottom:16px">
+            <div class="form-group"><label>Walk Name</label><input type="text" id="walkName" placeholder="Precinct 42 - Main St"></div>
+            <div class="form-group"><label>Assign To</label><input type="text" id="walkAssign" placeholder="Volunteer name"></div>
+          </div>
+          <div class="form-group"><label>Description</label><input type="text" id="walkDesc" placeholder="3 blocks around Main & 5th"></div>
+          <button class="btn btn-primary" id="btnCreateWalk">Create Walk</button>
         </div>
-        <p style="color:#64748b;margin-top:16px;font-size:13px">Auto-reply rules are configured server-side. Contact your admin to modify.</p>
+        <div class="card">
+          <h3>Walk Lists</h3>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Assigned To</th><th>Status</th><th>Progress</th><th>Actions</th></tr></thead><tbody id="walksBody"></tbody></table></div>
+        </div>
+      </div>
+      <!-- WALK DETAIL VIEW -->
+      <div id="walks-detail-view" style="display:none">
+        <div class="back-btn" onclick="showWalkList()">&#8592; Back to Walks</div>
+        <div class="card">
+          <h3 id="walkDetailName"></h3>
+          <div class="form-row" style="margin-bottom:16px">
+            <div><strong style="color:#94a3b8;font-size:13px">Assigned to:</strong> <span id="walkDetailAssign"></span></div>
+            <div><strong style="color:#94a3b8;font-size:13px">Status:</strong> <select class="inline-select" id="walkDetailStatus" onchange="updateWalkStatus()"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
+          </div>
+          <div class="stats-grid" id="walkResultStats"></div>
+          <div class="progress-bar"><div class="progress-fill green" id="walkProgress" style="width:0%"></div></div>
+          <div style="font-size:12px;color:#64748b;margin-bottom:16px" id="walkProgressLabel">0 / 0 doors knocked</div>
+        </div>
+        <div class="card">
+          <h3>Add Addresses</h3>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Paste addresses, one per line. Format: address, unit, city, zip, voter name (only address is required).</p>
+          <div class="form-group"><textarea id="walkAddressInput" rows="5" placeholder="123 Main St, , Austin, 78701, John Doe&#10;456 Oak Ave, Apt 2, Austin, 78701, Jane Smith"></textarea></div>
+          <button class="btn btn-success btn-sm" id="btnAddWalkAddresses">Add Addresses</button>
+        </div>
+        <div class="card">
+          <h3>Door List</h3>
+          <div class="table-wrap"><table><thead><tr><th>Address</th><th>Unit</th><th>Voter</th><th>Result</th><th>Notes</th><th>Knocked</th><th></th></tr></thead><tbody id="walkAddressBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VOTER FILE ==================== -->
+    <div class="page" id="page-voters">
+      <!-- VOTER LIST VIEW -->
+      <div id="voters-list-view">
+        <div class="card">
+          <h3>Voter File</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Search, import, and manage voter records.</p>
+          <div class="form-row-3" style="margin-bottom:16px">
+            <div class="form-group"><label>Search</label><input type="text" id="voterSearch" placeholder="Name, address, or phone..." onkeyup="searchVotersDebounced()"></div>
+            <div class="form-group"><label>Party</label><select id="voterPartyFilter" onchange="searchVoters()"><option value="">All</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
+            <div class="form-group"><label>Support</label><select id="voterSupportFilter" onchange="searchVoters()"><option value="">All</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnAddVoter">Add Voter</button>
+          <button class="btn btn-secondary btn-sm" id="btnImportVoters" style="margin-left:8px">Import CSV</button>
+        </div>
+        <!-- Add voter form -->
+        <div class="card" id="addVoterCard" style="display:none">
+          <h3>Add Voter</h3>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>First Name</label><input type="text" id="vFirst"></div>
+            <div class="form-group"><label>Last Name</label><input type="text" id="vLast"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Phone</label><input type="text" id="vPhone"></div>
+            <div class="form-group"><label>Email</label><input type="text" id="vEmail"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Address</label><input type="text" id="vAddress"></div>
+            <div class="form-group"><label>City</label><input type="text" id="vCity"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>ZIP</label><input type="text" id="vZip"></div>
+            <div class="form-group"><label>Party</label><select id="vParty"><option value="">--</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
+          </div>
+          <button class="btn btn-success btn-sm" onclick="saveNewVoter()">Save Voter</button>
+          <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="document.getElementById('addVoterCard').style.display='none'">Cancel</button>
+        </div>
+        <!-- Import voters CSV -->
+        <div class="card" id="importVotersCard" style="display:none">
+          <h3>Import Voters CSV</h3>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Headers: first_name, last_name, phone, email, address, city, zip, party, support_level, tags</p>
+          <div class="form-group"><textarea id="voterCsvData" rows="8" placeholder="first_name,last_name,phone,address,city,zip,party&#10;John,Doe,+15125551234,123 Main St,Austin,78701,D"></textarea></div>
+          <button class="btn btn-success btn-sm" onclick="importVotersCsv()">Import</button>
+          <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="document.getElementById('importVotersCard').style.display='none'">Cancel</button>
+        </div>
+        <div class="card">
+          <h3>Voters <span class="badge badge-blue" id="voterCount">0</span></h3>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Party</th><th>Support</th><th>Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
+        </div>
+      </div>
+      <!-- VOTER DETAIL VIEW -->
+      <div id="voters-detail-view" style="display:none">
+        <div class="back-btn" onclick="showVoterList()">&#8592; Back to Voter File</div>
+        <div class="card">
+          <h3>Voter Record</h3>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>First Name</label><input type="text" id="vdFirst"></div>
+            <div class="form-group"><label>Last Name</label><input type="text" id="vdLast"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Phone</label><input type="text" id="vdPhone"></div>
+            <div class="form-group"><label>Email</label><input type="text" id="vdEmail"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Address</label><input type="text" id="vdAddress"></div>
+            <div class="form-group"><label>City</label><input type="text" id="vdCity"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>ZIP</label><input type="text" id="vdZip"></div>
+            <div class="form-group"><label>Party</label><select id="vdParty"><option value="">--</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Support Level</label><select id="vdSupport"><option value="unknown">Unknown</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option></select></div>
+            <div class="form-group"><label>Tags</label><input type="text" id="vdTags" placeholder="volunteer, donor, ..."></div>
+          </div>
+          <div class="form-group"><label>Notes</label><textarea id="vdNotes" rows="3"></textarea></div>
+          <button class="btn btn-primary" onclick="saveVoterDetail()">Save Changes</button>
+        </div>
+        <div class="card">
+          <h3>Contact History</h3>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Type</label><select id="vcType"><option value="door">Door Knock</option><option value="phone">Phone Call</option><option value="text">Text</option><option value="event">Event</option></select></div>
+            <div class="form-group"><label>Result</label><input type="text" id="vcResult" placeholder="Supportive, Not Home, etc."></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Notes</label><input type="text" id="vcNotes" placeholder="Talked about education policy"></div>
+            <div class="form-group"><label>Contacted By</label><input type="text" id="vcBy" placeholder="Volunteer name"></div>
+          </div>
+          <button class="btn btn-success btn-sm" onclick="logVoterContact()">Log Contact</button>
+          <div class="table-wrap" style="margin-top:16px"><table><thead><tr><th>Date</th><th>Type</th><th>Result</th><th>Notes</th><th>By</th></tr></thead><tbody id="voterContactsBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== EVENTS ==================== -->
+    <div class="page" id="page-events">
+      <!-- EVENT LIST VIEW -->
+      <div id="events-list-view">
+        <div class="card">
+          <h3>Campaign Events</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Plan rallies, canvass launches, and fundraisers. Send text invites and track RSVPs.</p>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Event Title</label><input type="text" id="eventTitle" placeholder="Downtown Rally"></div>
+            <div class="form-group"><label>Location</label><input type="text" id="eventLocation" placeholder="City Hall Plaza"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Date</label><input type="date" id="eventDate"></div>
+            <div class="form-group"><label>Time</label><input type="time" id="eventTime"></div>
+          </div>
+          <div class="form-group"><label>Description</label><input type="text" id="eventDesc" placeholder="Join us for a community rally!"></div>
+          <button class="btn btn-primary" id="btnCreateEvent">Create Event</button>
+        </div>
+        <div class="card">
+          <h3>Events</h3>
+          <div id="eventsList"></div>
+        </div>
+      </div>
+      <!-- EVENT DETAIL VIEW -->
+      <div id="events-detail-view" style="display:none">
+        <div class="back-btn" onclick="showEventList()">&#8592; Back to Events</div>
+        <div class="card">
+          <h3 id="eventDetailTitle"></h3>
+          <div class="form-row" style="margin-bottom:12px">
+            <div><strong style="color:#94a3b8;font-size:13px">Date:</strong> <span id="eventDetailDate"></span></div>
+            <div><strong style="color:#94a3b8;font-size:13px">Time:</strong> <span id="eventDetailTime"></span></div>
+          </div>
+          <div style="margin-bottom:12px"><strong style="color:#94a3b8;font-size:13px">Location:</strong> <span id="eventDetailLocation"></span></div>
+          <div style="margin-bottom:12px"><strong style="color:#94a3b8;font-size:13px">Description:</strong> <span id="eventDetailDesc"></span></div>
+          <div class="form-group"><label>Status</label><select class="inline-select" id="eventDetailStatus" onchange="updateEventStatus()"><option value="upcoming">Upcoming</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+        </div>
+        <div class="card">
+          <h3>Send Text Invites</h3>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Select contacts to invite via SMS.</p>
+          <div class="check-list" id="inviteContactList"></div>
+          <div style="margin-top:12px">
+            <button class="btn btn-sm btn-secondary" onclick="toggleAllInvites(true)">Select All</button>
+            <button class="btn btn-sm btn-secondary" style="margin-left:4px" onclick="toggleAllInvites(false)">Deselect All</button>
+            <button class="btn btn-sm btn-success" style="margin-left:8px" onclick="sendEventInvites()">Send Invites</button>
+          </div>
+          <div id="inviteAlert" style="margin-top:12px"></div>
+        </div>
+        <div class="card">
+          <h3>RSVPs <span class="badge badge-blue" id="rsvpCount">0</span></h3>
+          <div class="stats-grid" style="margin-bottom:16px" id="rsvpStats"></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Phone</th><th>Status</th><th>Invited</th></tr></thead><tbody id="rsvpBody"></tbody></table></div>
+        </div>
       </div>
     </div>
 
@@ -295,16 +450,52 @@ tr:hover td{background:#1e293b80}
 </div>
 
 <script>
-// ---- STATE ----
+// ===================== STATE =====================
 let state = {
   credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}'),
-  contacts: JSON.parse(localStorage.getItem('contacts') || '[]'),
+  contacts: [],
   connected: false,
-  stats: { sent: 0, delivered: 0, responses: 0 },
-  activityLog: JSON.parse(localStorage.getItem('activityLog') || '[]')
+  currentWalkId: null,
+  currentVoterId: null,
+  currentEventId: null
 };
+let searchTimeout = null;
 
-// ---- NAV ----
+// ===================== HELPERS =====================
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  return res.json();
+}
+async function apiPost(path, body) {
+  return api(path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
+async function apiPut(path, body) {
+  return api(path, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
+async function apiDelete(path) {
+  return api(path, { method: 'DELETE' });
+}
+function partyBadge(p) {
+  const colors = { D: 'badge-blue', R: 'badge-red', I: 'badge-purple', NP: 'badge-gray' };
+  const names = { D: 'Dem', R: 'Rep', I: 'Ind', NP: 'NP' };
+  return p ? '<span class="badge ' + (colors[p]||'badge-gray') + '">' + (names[p]||p) + '</span>' : '';
+}
+function supportBadge(s) {
+  const colors = { strong_support:'badge-green', lean_support:'badge-green', undecided:'badge-yellow', lean_oppose:'badge-red', strong_oppose:'badge-red', unknown:'badge-gray' };
+  const names = { strong_support:'Strong Sup', lean_support:'Lean Sup', undecided:'Undecided', lean_oppose:'Lean Opp', strong_oppose:'Strong Opp', unknown:'Unknown' };
+  return '<span class="badge ' + (colors[s]||'badge-gray') + '">' + (names[s]||s||'Unknown') + '</span>';
+}
+function resultBadge(r) {
+  const colors = { not_visited:'badge-gray', not_home:'badge-yellow', supportive:'badge-green', undecided:'badge-yellow', opposed:'badge-red', moved:'badge-gray', refused:'badge-red', come_back:'badge-blue' };
+  return '<span class="badge ' + (colors[r]||'badge-gray') + '">' + (r||'').replace(/_/g,' ') + '</span>';
+}
+function statusBadge(s) {
+  const colors = { pending:'badge-yellow', in_progress:'badge-blue', completed:'badge-green', upcoming:'badge-blue', cancelled:'badge-red' };
+  return '<span class="badge ' + (colors[s]||'badge-gray') + '">' + (s||'').replace(/_/g,' ') + '</span>';
+}
+
+// ===================== NAV =====================
 document.querySelectorAll('.nav-item').forEach(item => {
   item.addEventListener('click', () => {
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -313,10 +504,17 @@ document.querySelectorAll('.nav-item').forEach(item => {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById('page-' + page).classList.add('active');
     document.getElementById('pageTitle').textContent = item.querySelector('span:last-child').textContent;
+    // Load data when switching pages
+    if (page === 'contacts') loadContacts();
+    if (page === 'walks') { showWalkList(); loadWalks(); }
+    if (page === 'voters') { showVoterList(); searchVoters(); }
+    if (page === 'events') { showEventList(); loadEvents(); }
+    if (page === 'inbox') loadInbox();
+    if (page === 'dashboard') loadDashboard();
   });
 });
 
-// ---- TWILIO SETUP ----
+// ===================== TWILIO SETUP =====================
 function loadCredentials() {
   const c = state.credentials;
   if (c.accountSid) document.getElementById('accountSid').value = c.accountSid;
@@ -324,20 +522,11 @@ function loadCredentials() {
   if (c.fromNumber) document.getElementById('fromNumber').value = c.fromNumber;
   if (c.connected) setConnected(true, c.accountName);
 }
-
 function setConnected(yes, name) {
   state.connected = yes;
-  const dot = document.getElementById('connDot');
-  const label = document.getElementById('connLabel');
-  if (yes) {
-    dot.className = 'conn-dot on';
-    label.textContent = name || 'Connected';
-  } else {
-    dot.className = 'conn-dot off';
-    label.textContent = 'Not Connected';
-  }
+  document.getElementById('connDot').className = yes ? 'conn-dot on' : 'conn-dot off';
+  document.getElementById('connLabel').textContent = yes ? (name || 'Connected') : 'Not Connected';
 }
-
 document.getElementById('btnTestConnection').addEventListener('click', async () => {
   const sid = document.getElementById('accountSid').value.trim();
   const token = document.getElementById('authToken').value.trim();
@@ -345,261 +534,444 @@ document.getElementById('btnTestConnection').addEventListener('click', async () 
   if (!sid || !token) { el.innerHTML = '<div class="alert alert-error">Please enter Account SID and Auth Token.</div>'; return; }
   el.innerHTML = '<div class="alert alert-info">Testing connection...</div>';
   try {
-    const res = await fetch('/test-connection', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ accountSid: sid, authToken: token })
-    });
-    const data = await res.json();
+    const data = await apiPost('/test-connection', { accountSid: sid, authToken: token });
     if (data.success) {
-      el.innerHTML = '<div class="alert alert-success">Connected to: ' + data.accountName + ' (Status: ' + data.status + ')</div>';
+      el.innerHTML = '<div class="alert alert-success">Connected to: ' + data.accountName + '</div>';
       setConnected(true, data.accountName);
-      state.credentials.accountSid = sid;
-      state.credentials.authToken = token;
-      state.credentials.connected = true;
-      state.credentials.accountName = data.accountName;
+      state.credentials.accountSid = sid; state.credentials.authToken = token;
+      state.credentials.connected = true; state.credentials.accountName = data.accountName;
     } else {
-      el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>';
-      setConnected(false);
+      el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>'; setConnected(false);
     }
-  } catch (err) {
-    el.innerHTML = '<div class="alert alert-error">Connection failed: ' + err.message + '</div>';
-    setConnected(false);
-  }
+  } catch (err) { el.innerHTML = '<div class="alert alert-error">Failed: ' + err.message + '</div>'; setConnected(false); }
 });
-
 document.getElementById('btnSaveCredentials').addEventListener('click', () => {
   state.credentials.accountSid = document.getElementById('accountSid').value.trim();
   state.credentials.authToken = document.getElementById('authToken').value.trim();
   state.credentials.fromNumber = document.getElementById('fromNumber').value.trim();
   localStorage.setItem('twilioCredentials', JSON.stringify(state.credentials));
-  document.getElementById('twilioAlert').innerHTML = '<div class="alert alert-success">Credentials saved locally.</div>';
+  document.getElementById('twilioAlert').innerHTML = '<div class="alert alert-success">Credentials saved.</div>';
 });
 
-// ---- CONTACTS ----
+// ===================== CONTACTS (server-side) =====================
+async function loadContacts() {
+  const data = await api('/api/contacts');
+  state.contacts = data.contacts || [];
+  renderContacts();
+}
 function renderContacts() {
   const tbody = document.getElementById('contactsBody');
   document.getElementById('contactCount').textContent = state.contacts.length;
-  document.getElementById('statContacts').textContent = state.contacts.length;
   document.getElementById('sendToCount').textContent = state.contacts.length;
-  if (state.contacts.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No contacts added yet.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = state.contacts.map((c, i) =>
-    '<tr><td>' + c.phone + '</td><td>' + (c.firstName||'') + '</td><td>' + (c.lastName||'') + '</td><td>' + (c.city||'') + '</td><td><button class="btn btn-danger btn-sm" onclick="removeContact(' + i + ')">Remove</button></td></tr>'
+  if (state.contacts.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No contacts.</td></tr>'; return; }
+  tbody.innerHTML = state.contacts.map(c =>
+    '<tr><td>' + escHtml(c.phone) + '</td><td>' + escHtml(c.first_name) + '</td><td>' + escHtml(c.last_name) + '</td><td>' + escHtml(c.city) + '</td><td><button class="btn btn-danger btn-xs" onclick="removeContact(' + c.id + ')">Remove</button></td></tr>'
   ).join('');
 }
-
-window.removeContact = function(i) {
-  state.contacts.splice(i, 1);
-  localStorage.setItem('contacts', JSON.stringify(state.contacts));
-  renderContacts();
+window.removeContact = async function(id) {
+  await apiDelete('/api/contacts/' + id);
+  loadContacts();
 };
-
-document.getElementById('btnAddContact').addEventListener('click', () => {
+document.getElementById('btnAddContact').addEventListener('click', async () => {
   const phone = document.getElementById('cPhone').value.trim();
   if (!phone) return;
-  state.contacts.push({
-    phone,
-    firstName: document.getElementById('cFirst').value.trim(),
-    lastName: document.getElementById('cLast').value.trim(),
-    city: document.getElementById('cCity').value.trim()
-  });
-  localStorage.setItem('contacts', JSON.stringify(state.contacts));
-  document.getElementById('cPhone').value = '';
-  document.getElementById('cFirst').value = '';
-  document.getElementById('cLast').value = '';
-  document.getElementById('cCity').value = '';
-  renderContacts();
+  await apiPost('/api/contacts', { phone, firstName: document.getElementById('cFirst').value.trim(), lastName: document.getElementById('cLast').value.trim(), city: document.getElementById('cCity').value.trim() });
+  document.getElementById('cPhone').value = ''; document.getElementById('cFirst').value = '';
+  document.getElementById('cLast').value = ''; document.getElementById('cCity').value = '';
+  loadContacts();
 });
-
-document.getElementById('btnImportCSV').addEventListener('click', () => {
-  document.getElementById('csvImportCard').style.display = 'block';
-});
-document.getElementById('btnCancelCSV').addEventListener('click', () => {
-  document.getElementById('csvImportCard').style.display = 'none';
-});
-
-document.getElementById('btnParseCSV').addEventListener('click', () => {
+document.getElementById('btnImportCSV').addEventListener('click', () => { document.getElementById('csvImportCard').style.display = 'block'; });
+document.getElementById('btnCancelCSV').addEventListener('click', () => { document.getElementById('csvImportCard').style.display = 'none'; });
+document.getElementById('btnParseCSV').addEventListener('click', async () => {
   const raw = document.getElementById('csvData').value.trim();
   if (!raw) return;
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
   const header = lines[0].toLowerCase().split(',').map(h => h.trim());
-  const pi = header.indexOf('phone');
-  if (pi === -1) { alert('CSV must have a "phone" column.'); return; }
-  const fi = header.indexOf('firstname');
-  const li = header.indexOf('lastname');
-  const ci = header.indexOf('city');
-  let added = 0;
+  const pi = header.indexOf('phone'); if (pi === -1) { alert('CSV must have a "phone" column.'); return; }
+  const fi = header.indexOf('firstname'), li = header.indexOf('lastname'), ci = header.indexOf('city');
+  const contacts = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim());
-    if (cols[pi]) {
-      state.contacts.push({
-        phone: cols[pi],
-        firstName: fi >= 0 ? cols[fi] || '' : '',
-        lastName: li >= 0 ? cols[li] || '' : '',
-        city: ci >= 0 ? cols[ci] || '' : ''
-      });
-      added++;
-    }
+    if (cols[pi]) contacts.push({ phone: cols[pi], firstName: fi >= 0 ? cols[fi] : '', lastName: li >= 0 ? cols[li] : '', city: ci >= 0 ? cols[ci] : '' });
   }
-  localStorage.setItem('contacts', JSON.stringify(state.contacts));
-  renderContacts();
-  document.getElementById('csvImportCard').style.display = 'none';
-  document.getElementById('csvData').value = '';
-  addLog('Imported ' + added + ' contacts via CSV.');
+  if (contacts.length) { await apiPost('/api/contacts/import', { contacts }); loadContacts(); }
+  document.getElementById('csvImportCard').style.display = 'none'; document.getElementById('csvData').value = '';
+});
+document.getElementById('btnClearContacts').addEventListener('click', async () => {
+  if (confirm('Remove all contacts?')) { await apiDelete('/api/contacts'); loadContacts(); }
 });
 
-document.getElementById('btnClearContacts').addEventListener('click', () => {
-  if (confirm('Remove all contacts?')) {
-    state.contacts = [];
-    localStorage.setItem('contacts', JSON.stringify(state.contacts));
-    renderContacts();
-  }
-});
-
-// ---- COMPOSE & SEND ----
+// ===================== COMPOSE & SEND =====================
 document.getElementById('btnSendCampaign').addEventListener('click', async () => {
   const el = document.getElementById('composeAlert');
   const c = state.credentials;
-  if (!c.accountSid || !c.authToken || !c.fromNumber) {
-    el.innerHTML = '<div class="alert alert-error">Set up Twilio credentials first (Twilio Setup page).</div>';
-    return;
-  }
-  if (state.contacts.length === 0) {
-    el.innerHTML = '<div class="alert alert-error">No contacts loaded. Add contacts first.</div>';
-    return;
-  }
+  if (!c.accountSid || !c.authToken || !c.fromNumber) { el.innerHTML = '<div class="alert alert-error">Set up Twilio credentials first.</div>'; return; }
+  if (state.contacts.length === 0) { el.innerHTML = '<div class="alert alert-error">No contacts loaded.</div>'; return; }
   const msg = document.getElementById('messageTemplate').value.trim();
   if (!msg) { el.innerHTML = '<div class="alert alert-error">Write a message first.</div>'; return; }
   if (!confirm('Send to ' + state.contacts.length + ' contacts?')) return;
-
-  el.innerHTML = '<div class="alert alert-info">Sending campaign...</div>';
+  el.innerHTML = '<div class="alert alert-info">Sending...</div>';
   document.getElementById('btnSendCampaign').disabled = true;
-
   try {
-    const res = await fetch('/send', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        accountSid: c.accountSid,
-        authToken: c.authToken,
-        from: c.fromNumber,
-        contacts: state.contacts,
-        messageTemplate: msg,
-        optOutFooter: document.getElementById('optOutFooter').value.trim()
-      })
-    });
-    const data = await res.json();
+    const data = await apiPost('/send', { accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber, contacts: state.contacts, messageTemplate: msg, optOutFooter: document.getElementById('optOutFooter').value.trim() });
     if (data.success) {
-      state.stats.sent += data.sent;
-      state.stats.delivered += data.sent;
-      updateStats();
-      el.innerHTML = '<div class="alert alert-success">Campaign sent! ' + data.sent + ' delivered, ' + data.failed + ' failed.</div>';
-      const rc = document.getElementById('sendResultCard');
-      rc.style.display = 'block';
+      el.innerHTML = '<div class="alert alert-success">Sent! ' + data.sent + ' delivered, ' + data.failed + ' failed.</div>';
+      const rc = document.getElementById('sendResultCard'); rc.style.display = 'block';
       let html = '<p><strong>Sent:</strong> ' + data.sent + ' / ' + data.totalContacts + '</p>';
-      if (data.failed > 0 && data.errors.length > 0) {
-        html += '<p style="color:#fca5a5;margin-top:8px"><strong>Errors:</strong></p><ul style="margin-left:16px;color:#fca5a5">';
-        data.errors.forEach(e => { html += '<li>' + e.phone + ': ' + e.reason + '</li>'; });
-        html += '</ul>';
-      }
+      if (data.errors && data.errors.length > 0) { html += '<ul style="margin-left:16px;color:#fca5a5">'; data.errors.forEach(e => html += '<li>' + e.phone + ': ' + e.reason + '</li>'); html += '</ul>'; }
       document.getElementById('sendResults').innerHTML = html;
-      addLog('Campaign sent: ' + data.sent + '/' + data.totalContacts + ' delivered.');
-    } else {
-      el.innerHTML = '<div class="alert alert-error">' + (data.error || 'Send failed.') + '</div>';
-    }
-  } catch (err) {
-    el.innerHTML = '<div class="alert alert-error">Error: ' + err.message + '</div>';
-  }
+    } else { el.innerHTML = '<div class="alert alert-error">' + (data.error || 'Failed.') + '</div>'; }
+  } catch (err) { el.innerHTML = '<div class="alert alert-error">' + err.message + '</div>'; }
   document.getElementById('btnSendCampaign').disabled = false;
 });
 
-// ---- INBOX ----
+// ===================== INBOX =====================
 async function loadInbox() {
   try {
-    const res = await fetch('/messages');
-    const data = await res.json();
+    const data = await api('/api/messages');
     const el = document.getElementById('inboxMessages');
-    state.stats.responses = data.messages.length;
-    updateStats();
-    if (data.messages.length === 0) {
-      el.innerHTML = '<div style="color:#64748b;font-size:14px">No messages yet.</div>';
-    } else {
+    if (!data.messages || data.messages.length === 0) { el.innerHTML = '<div style="color:#64748b;font-size:14px">No messages yet.</div>'; }
+    else {
       el.innerHTML = data.messages.map(m =>
-        '<div class="msg-item"><div class="phone">' + m.phone + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
-        '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + m.phone.replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + m.phone + '\')">Reply</button></div></div>'
+        '<div class="msg-item"><div class="phone">' + escHtml(m.phone) + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
+        '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + (m.phone||'').replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + m.phone + '\')">Reply</button></div></div>'
       ).join('');
     }
     const optEl = document.getElementById('optedOutList');
-    if (data.optedOut.length === 0) {
-      optEl.textContent = 'No opted-out numbers.';
-    } else {
-      optEl.innerHTML = data.optedOut.map(n => '<span class="badge badge-red" style="margin:2px">' + n + '</span>').join(' ');
-    }
-  } catch (err) {
-    console.error('Failed to load inbox:', err);
-  }
+    if (!data.optedOut || data.optedOut.length === 0) { optEl.textContent = 'No opted-out numbers.'; }
+    else { optEl.innerHTML = data.optedOut.map(n => '<span class="badge badge-red" style="margin:2px">' + escHtml(n) + '</span>').join(' '); }
+  } catch (err) { console.error('Inbox load failed:', err); }
 }
-
 window.sendReply = async function(phone) {
   const c = state.credentials;
   if (!c.accountSid || !c.authToken || !c.fromNumber) { alert('Set up Twilio first.'); return; }
   const input = document.getElementById('reply-' + phone.replace(/\+/g,''));
-  const body = input.value.trim();
-  if (!body) return;
-  try {
-    await fetch('/reply', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber, to: phone, body })
-    });
-    input.value = '';
-    addLog('Replied to ' + phone);
-  } catch (err) { alert('Reply failed: ' + err.message); }
+  const body = input.value.trim(); if (!body) return;
+  try { await apiPost('/reply', { accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber, to: phone, body }); input.value = ''; } catch (err) { alert('Reply failed.'); }
 };
-
 document.getElementById('btnRefreshInbox').addEventListener('click', loadInbox);
 
-// ---- STATS & LOG ----
-function updateStats() {
-  document.getElementById('statSent').textContent = state.stats.sent;
-  document.getElementById('statDelivered').textContent = state.stats.delivered;
-  document.getElementById('statResponses').textContent = state.stats.responses;
-  const dRate = state.stats.sent > 0 ? Math.round(state.stats.delivered / state.stats.sent * 100) : 0;
-  const rRate = state.stats.sent > 0 ? Math.round(state.stats.responses / state.stats.sent * 100) : 0;
-  document.getElementById('statDeliveredRate').textContent = dRate + '% rate';
-  document.getElementById('statResponseRate').textContent = rRate + '% response rate';
+// ===================== DASHBOARD =====================
+async function loadDashboard() {
+  try {
+    const data = await api('/api/stats');
+    document.getElementById('statSent').textContent = data.sent || 0;
+    document.getElementById('statResponses').textContent = data.responses || 0;
+    document.getElementById('statContacts').textContent = data.contacts || 0;
+    document.getElementById('statDoors').textContent = data.doorsKnocked || 0;
+    document.getElementById('statWalks').textContent = (data.walks || 0) + ' block walks';
+    document.getElementById('statVoters').textContent = data.voters || 0;
+    document.getElementById('statEvents').textContent = data.upcomingEvents || 0;
+    const rRate = data.sent > 0 ? Math.round(data.responses / data.sent * 100) : 0;
+    document.getElementById('statResponseRate').textContent = rRate + '% response rate';
+  } catch (err) {}
+  try {
+    const data = await api('/api/activity');
+    const el = document.getElementById('activityLog');
+    if (!data.logs || data.logs.length === 0) { el.innerHTML = '<div class="log-entry" style="color:#64748b">No activity yet.</div>'; }
+    else { el.innerHTML = data.logs.map(l => '<div class="log-entry"><span class="log-time">' + new Date(l.created_at).toLocaleString() + '</span> &mdash; ' + escHtml(l.message) + '</div>').join(''); }
+  } catch (err) {}
+  document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
 }
 
-function addLog(msg) {
-  state.activityLog.unshift({ msg, time: new Date().toISOString() });
-  if (state.activityLog.length > 50) state.activityLog.pop();
-  localStorage.setItem('activityLog', JSON.stringify(state.activityLog));
-  renderLog();
+// ===================== BLOCK WALK =====================
+function showWalkList() { document.getElementById('walks-list-view').style.display = 'block'; document.getElementById('walks-detail-view').style.display = 'none'; }
+function showWalkDetail(id) { state.currentWalkId = id; document.getElementById('walks-list-view').style.display = 'none'; document.getElementById('walks-detail-view').style.display = 'block'; loadWalkDetail(id); }
+window.showWalkList = showWalkList;
+window.showWalkDetail = showWalkDetail;
+
+async function loadWalks() {
+  const data = await api('/api/walks');
+  const tbody = document.getElementById('walksBody');
+  if (!data.walks || data.walks.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No walks created yet.</td></tr>'; return; }
+  tbody.innerHTML = data.walks.map(w => {
+    const pct = w.totalAddresses > 0 ? Math.round(w.knocked / w.totalAddresses * 100) : 0;
+    return '<tr><td><a href="#" onclick="showWalkDetail(' + w.id + ');return false">' + escHtml(w.name) + '</a></td><td>' + escHtml(w.assigned_to) + '</td><td>' + statusBadge(w.status) + '</td><td><div class="progress-bar" style="width:120px"><div class="progress-fill green" style="width:' + pct + '%"></div></div><span style="font-size:11px;color:#64748b">' + w.knocked + '/' + w.totalAddresses + '</span></td><td><button class="btn btn-danger btn-xs" onclick="deleteWalk(' + w.id + ')">Delete</button></td></tr>';
+  }).join('');
 }
 
-function renderLog() {
-  const el = document.getElementById('activityLog');
-  if (state.activityLog.length === 0) {
-    el.innerHTML = '<div class="log-entry" style="color:#64748b">No activity yet.</div>';
-    return;
-  }
-  el.innerHTML = state.activityLog.map(l =>
-    '<div class="log-entry"><span class="log-time">' + new Date(l.time).toLocaleString() + '</span> &mdash; ' + l.msg + '</div>'
+async function loadWalkDetail(id) {
+  const data = await api('/api/walks/' + id);
+  const w = data.walk;
+  document.getElementById('walkDetailName').textContent = w.name;
+  document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
+  document.getElementById('walkDetailStatus').value = w.status;
+  // Result stats
+  const results = ['not_visited','not_home','supportive','undecided','opposed','moved','refused','come_back'];
+  const statsHtml = results.map(r => '<div class="stat-card" style="padding:12px"><div class="label">' + r.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + (w.resultStats[r] || 0) + '</div></div>').join('');
+  document.getElementById('walkResultStats').innerHTML = statsHtml;
+  // Progress
+  const total = w.addresses.length;
+  const knocked = w.addresses.filter(a => a.result !== 'not_visited').length;
+  const pct = total > 0 ? Math.round(knocked / total * 100) : 0;
+  document.getElementById('walkProgress').style.width = pct + '%';
+  document.getElementById('walkProgressLabel').textContent = knocked + ' / ' + total + ' doors knocked (' + pct + '%)';
+  // Address table
+  const tbody = document.getElementById('walkAddressBody');
+  if (w.addresses.length === 0) { tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center">No addresses added yet.</td></tr>'; return; }
+  tbody.innerHTML = w.addresses.map(a =>
+    '<tr><td>' + escHtml(a.address) + '</td><td>' + escHtml(a.unit) + '</td><td>' + escHtml(a.voter_name) + '</td>' +
+    '<td><select class="inline-select" onchange="updateDoorResult(' + a.id + ',this.value)" data-addr="' + a.id + '">' +
+    ['not_visited','not_home','supportive','undecided','opposed','moved','refused','come_back'].map(r => '<option value="' + r + '"' + (a.result === r ? ' selected' : '') + '>' + r.replace(/_/g,' ') + '</option>').join('') +
+    '</select></td><td><input type="text" class="inline-select" style="width:120px" value="' + escHtml(a.notes) + '" onchange="updateDoorNotes(' + a.id + ',this.value)"></td>' +
+    '<td style="font-size:11px;color:#64748b">' + (a.knocked_at ? new Date(a.knocked_at).toLocaleString() : '-') + '</td>' +
+    '<td><button class="btn btn-danger btn-xs" onclick="deleteWalkAddr(' + a.id + ')">X</button></td></tr>'
   ).join('');
 }
 
-function escHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
+window.updateDoorResult = async function(addrId, result) {
+  await apiPut('/api/walks/' + state.currentWalkId + '/addresses/' + addrId, { result });
+  loadWalkDetail(state.currentWalkId);
+};
+window.updateDoorNotes = async function(addrId, notes) {
+  await apiPut('/api/walks/' + state.currentWalkId + '/addresses/' + addrId, { notes });
+};
+window.updateWalkStatus = async function() {
+  await apiPut('/api/walks/' + state.currentWalkId, { status: document.getElementById('walkDetailStatus').value });
+};
+window.deleteWalkAddr = async function(addrId) {
+  await apiDelete('/api/walks/' + state.currentWalkId + '/addresses/' + addrId);
+  loadWalkDetail(state.currentWalkId);
+};
+window.deleteWalk = async function(id) {
+  if (confirm('Delete this walk and all its addresses?')) { await apiDelete('/api/walks/' + id); loadWalks(); }
+};
+
+document.getElementById('btnCreateWalk').addEventListener('click', async () => {
+  const name = document.getElementById('walkName').value.trim();
+  if (!name) return;
+  await apiPost('/api/walks', { name, description: document.getElementById('walkDesc').value.trim(), assigned_to: document.getElementById('walkAssign').value.trim() });
+  document.getElementById('walkName').value = ''; document.getElementById('walkDesc').value = ''; document.getElementById('walkAssign').value = '';
+  loadWalks();
+});
+
+document.getElementById('btnAddWalkAddresses').addEventListener('click', async () => {
+  const raw = document.getElementById('walkAddressInput').value.trim();
+  if (!raw) return;
+  const addresses = raw.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const parts = l.split(',').map(p => p.trim());
+    return { address: parts[0] || '', unit: parts[1] || '', city: parts[2] || '', zip: parts[3] || '', voter_name: parts[4] || '' };
+  });
+  await apiPost('/api/walks/' + state.currentWalkId + '/addresses', { addresses });
+  document.getElementById('walkAddressInput').value = '';
+  loadWalkDetail(state.currentWalkId);
+});
+
+// ===================== VOTER FILE =====================
+function showVoterList() { document.getElementById('voters-list-view').style.display = 'block'; document.getElementById('voters-detail-view').style.display = 'none'; }
+function showVoterDetail(id) { state.currentVoterId = id; document.getElementById('voters-list-view').style.display = 'none'; document.getElementById('voters-detail-view').style.display = 'block'; loadVoterDetail(id); }
+window.showVoterList = showVoterList;
+window.showVoterDetail = showVoterDetail;
+
+function searchVotersDebounced() { clearTimeout(searchTimeout); searchTimeout = setTimeout(searchVoters, 300); }
+window.searchVotersDebounced = searchVotersDebounced;
+
+async function searchVoters() {
+  const q = (document.getElementById('voterSearch') || {}).value || '';
+  const party = (document.getElementById('voterPartyFilter') || {}).value || '';
+  const support = (document.getElementById('voterSupportFilter') || {}).value || '';
+  let url = '/api/voters?';
+  if (q) url += 'q=' + encodeURIComponent(q) + '&';
+  if (party) url += 'party=' + party + '&';
+  if (support) url += 'support=' + support + '&';
+  const data = await api(url);
+  const voters = data.voters || [];
+  document.getElementById('voterCount').textContent = voters.length;
+  const tbody = document.getElementById('votersBody');
+  if (voters.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No voters found.</td></tr>'; return; }
+  tbody.innerHTML = voters.map(v =>
+    '<tr><td><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td>' + escHtml(v.address) + '</td><td>' + escHtml(v.phone) + '</td><td>' + partyBadge(v.party) + '</td><td>' + supportBadge(v.support_level) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>'
+  ).join('');
+}
+window.searchVoters = searchVoters;
+
+async function loadVoterDetail(id) {
+  const data = await api('/api/voters/' + id);
+  const v = data.voter;
+  document.getElementById('vdFirst').value = v.first_name || '';
+  document.getElementById('vdLast').value = v.last_name || '';
+  document.getElementById('vdPhone').value = v.phone || '';
+  document.getElementById('vdEmail').value = v.email || '';
+  document.getElementById('vdAddress').value = v.address || '';
+  document.getElementById('vdCity').value = v.city || '';
+  document.getElementById('vdZip').value = v.zip || '';
+  document.getElementById('vdParty').value = v.party || '';
+  document.getElementById('vdSupport').value = v.support_level || 'unknown';
+  document.getElementById('vdTags').value = v.tags || '';
+  document.getElementById('vdNotes').value = v.notes || '';
+  // Contact history
+  const tbody = document.getElementById('voterContactsBody');
+  if (!v.contactHistory || v.contactHistory.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b">No contact history.</td></tr>'; }
+  else {
+    tbody.innerHTML = v.contactHistory.map(c =>
+      '<tr><td style="font-size:12px">' + new Date(c.contacted_at).toLocaleString() + '</td><td>' + resultBadge(c.contact_type) + '</td><td>' + escHtml(c.result) + '</td><td>' + escHtml(c.notes) + '</td><td>' + escHtml(c.contacted_by) + '</td></tr>'
+    ).join('');
+  }
 }
 
-// ---- INIT ----
-loadCredentials();
-renderContacts();
-renderLog();
-updateStats();
-document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
+window.saveVoterDetail = async function() {
+  await apiPut('/api/voters/' + state.currentVoterId, {
+    first_name: document.getElementById('vdFirst').value, last_name: document.getElementById('vdLast').value,
+    phone: document.getElementById('vdPhone').value, email: document.getElementById('vdEmail').value,
+    address: document.getElementById('vdAddress').value, city: document.getElementById('vdCity').value,
+    zip: document.getElementById('vdZip').value, party: document.getElementById('vdParty').value,
+    support_level: document.getElementById('vdSupport').value, tags: document.getElementById('vdTags').value,
+    notes: document.getElementById('vdNotes').value
+  });
+  alert('Voter saved.');
+};
+
+window.logVoterContact = async function() {
+  await apiPost('/api/voters/' + state.currentVoterId + '/contacts', {
+    contact_type: document.getElementById('vcType').value, result: document.getElementById('vcResult').value,
+    notes: document.getElementById('vcNotes').value, contacted_by: document.getElementById('vcBy').value
+  });
+  document.getElementById('vcResult').value = ''; document.getElementById('vcNotes').value = '';
+  loadVoterDetail(state.currentVoterId);
+};
+
+window.deleteVoter = async function(id) {
+  if (confirm('Delete this voter?')) { await apiDelete('/api/voters/' + id); searchVoters(); }
+};
+
+window.saveNewVoter = async function() {
+  await apiPost('/api/voters', {
+    first_name: document.getElementById('vFirst').value, last_name: document.getElementById('vLast').value,
+    phone: document.getElementById('vPhone').value, email: document.getElementById('vEmail').value,
+    address: document.getElementById('vAddress').value, city: document.getElementById('vCity').value,
+    zip: document.getElementById('vZip').value, party: document.getElementById('vParty').value
+  });
+  document.getElementById('addVoterCard').style.display = 'none';
+  ['vFirst','vLast','vPhone','vEmail','vAddress','vCity','vZip'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('vParty').value = '';
+  searchVoters();
+};
+
+window.importVotersCsv = async function() {
+  const raw = document.getElementById('voterCsvData').value.trim();
+  if (!raw) return;
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  const header = lines[0].toLowerCase().split(',').map(h => h.trim());
+  const voters = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim());
+    const v = {};
+    header.forEach((h, idx) => { v[h] = cols[idx] || ''; });
+    voters.push(v);
+  }
+  if (voters.length) { await apiPost('/api/voters/import', { voters }); searchVoters(); }
+  document.getElementById('importVotersCard').style.display = 'none'; document.getElementById('voterCsvData').value = '';
+};
+
+document.getElementById('btnAddVoter').addEventListener('click', () => { document.getElementById('addVoterCard').style.display = 'block'; });
+document.getElementById('btnImportVoters').addEventListener('click', () => { document.getElementById('importVotersCard').style.display = 'block'; });
+
+// ===================== EVENTS =====================
+function showEventList() { document.getElementById('events-list-view').style.display = 'block'; document.getElementById('events-detail-view').style.display = 'none'; }
+function showEventDetail(id) { state.currentEventId = id; document.getElementById('events-list-view').style.display = 'none'; document.getElementById('events-detail-view').style.display = 'block'; loadEventDetail(id); }
+window.showEventList = showEventList;
+window.showEventDetail = showEventDetail;
+
+async function loadEvents() {
+  const data = await api('/api/events');
+  const el = document.getElementById('eventsList');
+  if (!data.events || data.events.length === 0) { el.innerHTML = '<div style="color:#64748b;font-size:14px">No events yet.</div>'; return; }
+  el.innerHTML = data.events.map(e => {
+    const s = e.rsvpStats || {};
+    return '<div class="event-card"><div class="event-info"><h4><a href="#" onclick="showEventDetail(' + e.id + ');return false">' + escHtml(e.title) + '</a></h4><div class="event-meta">' + e.event_date + (e.event_time ? ' at ' + e.event_time : '') + ' &mdash; ' + escHtml(e.location || 'TBD') + '</div><div style="margin-top:6px">' + statusBadge(e.status) + ' <span style="font-size:12px;color:#64748b;margin-left:8px">' + (s.total || 0) + ' invited, ' + (s.confirmed || 0) + ' confirmed</span></div></div><div><button class="btn btn-danger btn-xs" onclick="deleteEvent(' + e.id + ')">Delete</button></div></div>';
+  }).join('');
+}
+
+async function loadEventDetail(id) {
+  const data = await api('/api/events/' + id);
+  const e = data.event;
+  document.getElementById('eventDetailTitle').textContent = e.title;
+  document.getElementById('eventDetailDate').textContent = e.event_date;
+  document.getElementById('eventDetailTime').textContent = e.event_time || 'TBD';
+  document.getElementById('eventDetailLocation').textContent = e.location || 'TBD';
+  document.getElementById('eventDetailDesc').textContent = e.description || '';
+  document.getElementById('eventDetailStatus').value = e.status;
+  // RSVP stats
+  const rsvps = e.rsvps || [];
+  const counts = { invited: 0, confirmed: 0, declined: 0, attended: 0, no_show: 0 };
+  rsvps.forEach(r => { counts[r.rsvp_status] = (counts[r.rsvp_status] || 0) + 1; });
+  document.getElementById('rsvpCount').textContent = rsvps.length;
+  document.getElementById('rsvpStats').innerHTML = Object.keys(counts).map(k =>
+    '<div class="stat-card" style="padding:12px"><div class="label">' + k.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + counts[k] + '</div></div>'
+  ).join('');
+  // RSVP table
+  const tbody = document.getElementById('rsvpBody');
+  if (rsvps.length === 0) { tbody.innerHTML = '<tr><td colspan="4" style="color:#64748b">No RSVPs yet. Send invites below.</td></tr>'; }
+  else {
+    tbody.innerHTML = rsvps.map(r =>
+      '<tr><td>' + escHtml(r.contact_name) + '</td><td>' + escHtml(r.contact_phone) + '</td><td><select class="inline-select" onchange="updateRsvp(' + r.id + ',this.value)">' +
+      ['invited','confirmed','declined','attended','no_show'].map(s => '<option value="' + s + '"' + (r.rsvp_status === s ? ' selected' : '') + '>' + s.replace(/_/g,' ') + '</option>').join('') +
+      '</select></td><td style="font-size:11px;color:#64748b">' + new Date(r.invited_at).toLocaleString() + '</td></tr>'
+    ).join('');
+  }
+  // Contact list for invites
+  await loadContacts();
+  const cl = document.getElementById('inviteContactList');
+  if (state.contacts.length === 0) { cl.innerHTML = '<div style="color:#64748b;font-size:13px">No contacts. Add contacts first.</div>'; }
+  else {
+    cl.innerHTML = state.contacts.map(c =>
+      '<div class="check-item"><input type="checkbox" value="' + c.id + '" class="invite-check"><span>' + escHtml(c.first_name + ' ' + c.last_name) + ' (' + escHtml(c.phone) + ')</span></div>'
+    ).join('');
+  }
+}
+
+window.updateRsvp = async function(rsvpId, status) {
+  await apiPut('/api/events/' + state.currentEventId + '/rsvps/' + rsvpId, { rsvp_status: status });
+};
+window.updateEventStatus = async function() {
+  await apiPut('/api/events/' + state.currentEventId, { status: document.getElementById('eventDetailStatus').value });
+};
+window.deleteEvent = async function(id) {
+  if (confirm('Delete this event?')) { await apiDelete('/api/events/' + id); loadEvents(); }
+};
+window.toggleAllInvites = function(check) {
+  document.querySelectorAll('.invite-check').forEach(cb => cb.checked = check);
+};
+window.sendEventInvites = async function() {
+  const c = state.credentials;
+  if (!c.accountSid || !c.authToken || !c.fromNumber) { alert('Set up Twilio first.'); return; }
+  const selected = [...document.querySelectorAll('.invite-check:checked')].map(cb => parseInt(cb.value));
+  if (selected.length === 0) { alert('Select contacts to invite.'); return; }
+  const el = document.getElementById('inviteAlert');
+  el.innerHTML = '<div class="alert alert-info">Sending invites...</div>';
+  const data = await apiPost('/api/events/' + state.currentEventId + '/invite', { accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber, contactIds: selected });
+  el.innerHTML = '<div class="alert alert-success">Sent ' + data.sent + ' invites!</div>';
+  loadEventDetail(state.currentEventId);
+};
+
+document.getElementById('btnCreateEvent').addEventListener('click', async () => {
+  const title = document.getElementById('eventTitle').value.trim();
+  const date = document.getElementById('eventDate').value;
+  if (!title || !date) { alert('Title and date are required.'); return; }
+  await apiPost('/api/events', { title, location: document.getElementById('eventLocation').value.trim(), event_date: date, event_time: document.getElementById('eventTime').value, description: document.getElementById('eventDesc').value.trim() });
+  document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
+  document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
+  document.getElementById('eventDesc').value = '';
+  loadEvents();
+});
+
+// ===================== MIGRATE localStorage contacts (one-time) =====================
+async function migrateLocalStorage() {
+  const old = JSON.parse(localStorage.getItem('contacts') || '[]');
+  if (old.length > 0) {
+    await apiPost('/api/contacts/import', { contacts: old });
+    localStorage.removeItem('contacts');
+    localStorage.removeItem('activityLog');
+  }
+}
+
+// ===================== INIT =====================
+(async function init() {
+  loadCredentials();
+  await migrateLocalStorage();
+  await loadContacts();
+  await loadDashboard();
+})();
 </script>
 </body>
 </html>

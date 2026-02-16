@@ -2,22 +2,60 @@ const express = require('express');
 const twilio  = require('twilio');
 const cors    = require('cors');
 const path    = require('path');
+const db      = require('./db');
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-let incomingMessages = [];
-let optedOutNumbers = new Set();
 const STOP_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
+
+// --- Mount API routes ---
+app.use('/api', require('./routes/contacts'));
+app.use('/api', require('./routes/walks'));
+app.use('/api', require('./routes/voters'));
+app.use('/api', require('./routes/events'));
+
+// --- Core endpoints ---
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// --- Stats ---
+app.get('/api/stats', (req, res) => {
+  const contacts = db.prepare('SELECT COUNT(*) as c FROM contacts').get().c;
+  const sent = db.prepare("SELECT COUNT(*) as c FROM messages WHERE direction = 'outbound'").get().c;
+  const responses = db.prepare("SELECT COUNT(*) as c FROM messages WHERE direction = 'inbound'").get().c;
+  const optedOut = db.prepare('SELECT COUNT(*) as c FROM opt_outs').get().c;
+  const walks = db.prepare('SELECT COUNT(*) as c FROM block_walks').get().c;
+  const doorsKnocked = db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited'").get().c;
+  const voters = db.prepare('SELECT COUNT(*) as c FROM voters').get().c;
+  const upcomingEvents = db.prepare("SELECT COUNT(*) as c FROM events WHERE status = 'upcoming'").get().c;
+  res.json({ contacts, sent, responses, optedOut, walks, doorsKnocked, voters, upcomingEvents });
+});
+
+// --- Activity log ---
+app.get('/api/activity', (req, res) => {
+  const logs = db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT 50').all();
+  res.json({ logs });
+});
+
+app.post('/api/activity', (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: 'Message required.' });
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(message);
+  res.json({ success: true });
+});
+
+// --- Twilio test connection ---
 app.post('/test-connection', async (req, res) => {
   const { accountSid, authToken } = req.body;
   if (!accountSid || !authToken) return res.status(400).json({ error: 'Missing credentials.' });
@@ -30,6 +68,7 @@ app.post('/test-connection', async (req, res) => {
   }
 });
 
+// --- Send campaign ---
 app.post('/send', async (req, res) => {
   const { accountSid, authToken, from, contacts, messageTemplate, optOutFooter } = req.body;
   if (!accountSid || !authToken || !from) return res.status(400).json({ error: 'Missing Twilio credentials.' });
@@ -38,16 +77,19 @@ app.post('/send', async (req, res) => {
 
   const client = twilio(accountSid, authToken);
   const results = { sent: 0, failed: 0, errors: [] };
+  const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
+  const optedOutSet = new Set(optedOut);
 
   for (const contact of contacts) {
     try {
-      if (optedOutNumbers.has(contact.phone)) { results.failed++; continue; }
+      if (optedOutSet.has(contact.phone)) { results.failed++; continue; }
       let body = messageTemplate
-        .replace(/{firstName}/g, contact.firstName || '')
-        .replace(/{lastName}/g,  contact.lastName  || '')
+        .replace(/{firstName}/g, contact.firstName || contact.first_name || '')
+        .replace(/{lastName}/g,  contact.lastName  || contact.last_name  || '')
         .replace(/{city}/g,      contact.city      || '');
       body += '\n' + (optOutFooter || 'Reply STOP to opt out.');
       await client.messages.create({ body, from, to: contact.phone });
+      db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(contact.phone, body);
       results.sent++;
       await new Promise(resolve => setTimeout(resolve, 50));
     } catch (err) {
@@ -55,19 +97,24 @@ app.post('/send', async (req, res) => {
       results.errors.push({ phone: contact.phone, reason: err.message });
     }
   }
+
+  db.prepare('INSERT INTO campaigns (message_template, sent_count, failed_count) VALUES (?, ?, ?)').run(messageTemplate, results.sent, results.failed);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Campaign sent: ' + results.sent + '/' + contacts.length + ' delivered.');
+
   res.json({ success: true, totalContacts: contacts.length, sent: results.sent, failed: results.failed, errors: results.errors.slice(0, 20) });
 });
 
+// --- Incoming webhook (Twilio) ---
 app.post('/incoming', (req, res) => {
   const { From, Body } = req.body;
   const msgText = (Body || '').trim().toLowerCase();
   if (STOP_KEYWORDS.includes(msgText)) {
-    optedOutNumbers.add(From);
+    db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(From);
     const twiml = new twilio.twiml.MessagingResponse();
     twiml.message("You've been removed from our list. -- Campaign HQ");
     return res.type('text/xml').send(twiml.toString());
   }
-  incomingMessages.push({ phone: From, body: Body, timestamp: new Date().toISOString() });
+  db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'inbound')").run(From, Body);
   const autoReply = generateAutoReply(msgText);
   if (autoReply) {
     const twiml = new twilio.twiml.MessagingResponse();
@@ -77,19 +124,70 @@ app.post('/incoming', (req, res) => {
   res.type('text/xml').send('<Response></Response>');
 });
 
-app.get('/messages', (req, res) => {
-  res.json({ messages: incomingMessages, optedOut: [...optedOutNumbers] });
+// --- Messages & opt-outs ---
+app.get('/api/messages', (req, res) => {
+  const messages = db.prepare("SELECT * FROM messages WHERE direction = 'inbound' ORDER BY id DESC LIMIT 200").all();
+  const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
+  res.json({ messages, optedOut });
 });
 
+// Keep old path for backward compat
+app.get('/messages', (req, res) => {
+  const messages = db.prepare("SELECT * FROM messages WHERE direction = 'inbound' ORDER BY id DESC LIMIT 200").all();
+  const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
+  res.json({ messages, optedOut });
+});
+
+// --- Reply ---
 app.post('/reply', async (req, res) => {
   const { accountSid, authToken, from, to, body } = req.body;
   try {
     const client = twilio(accountSid, authToken);
     await client.messages.create({ body, from, to });
+    db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(to, body);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// --- Send event invites via text ---
+app.post('/api/events/:id/invite', async (req, res) => {
+  const { accountSid, authToken, from, contactIds, messageTemplate } = req.body;
+  if (!accountSid || !authToken || !from) return res.status(400).json({ error: 'Missing Twilio credentials.' });
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  const contacts = [];
+  for (const cid of (contactIds || [])) {
+    const c = db.prepare('SELECT * FROM contacts WHERE id = ?').get(cid);
+    if (c) contacts.push(c);
+  }
+  if (contacts.length === 0) return res.status(400).json({ error: 'No contacts selected.' });
+
+  const client = twilio(accountSid, authToken);
+  let sent = 0;
+  const rsvpInsert = db.prepare('INSERT INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, \'invited\')');
+
+  for (const c of contacts) {
+    try {
+      let body = (messageTemplate || 'You\'re invited to {title} on {date} at {location}!')
+        .replace(/{title}/g, event.title)
+        .replace(/{date}/g, event.event_date)
+        .replace(/{time}/g, event.event_time || '')
+        .replace(/{location}/g, event.location || '')
+        .replace(/{firstName}/g, c.first_name || '')
+        .replace(/{lastName}/g, c.last_name || '');
+      body += '\nReply STOP to opt out.';
+      await client.messages.create({ body, from, to: c.phone });
+      rsvpInsert.run(req.params.id, c.phone, (c.first_name + ' ' + c.last_name).trim());
+      sent++;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } catch (err) { /* skip failed */ }
+  }
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Invited ' + sent + ' contacts to: ' + event.title);
+  res.json({ success: true, sent });
 });
 
 function generateAutoReply(msg) {
