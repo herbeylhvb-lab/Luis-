@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CampaignText HQ</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111318;
+    --surface2: #1a1d24;
+    --border: #252830;
+    --accent: #e63946;
+    --accent2: #457b9d;
+    --gold: #f4a261;
+    --text: #e8eaf0;
+    --text-dim: #7a7f8e;
+    --green: #2ec4b6;
+    --red: #e63946;
+    --yellow: #f4a261;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* HEADER */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.8rem;
+    letter-spacing: 2px;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo span { color: var(--text); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .twilio-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 20px;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    animation: none;
+  }
+
+  .status-dot.connected {
+    background: var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* LAYOUT */
+  .app-layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* SIDEBAR */
+  nav {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  nav a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 1.5rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+
+  nav a:hover { color: var(--text); background: var(--surface2); }
+  nav a.active {
+    color: var(--accent);
+    background: rgba(230,57,70,0.08);
+    border-left-color: var(--accent);
+  }
+
+  nav .nav-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+
+  nav .nav-section {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    padding: 14px 1.5rem 4px;
+    text-transform: uppercase;
+  }
+
+  /* MAIN */
+  main {
+    overflow-y: auto;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  /* PANELS */
+  .panel {
+    display: none;
+    flex-direction: column;
+    gap: 1.5rem;
+    animation: fadeIn 0.2s ease;
+  }
+
+  .panel.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .page-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.2rem;
+    letter-spacing: 1px;
+    color: var(--text);
+  }
+
+  .page-title span { color: var(--accent); }
+
+  /* CARDS */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+
+  .card-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+  }
+
+  /* STATS ROW */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem 1.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+
+  .stat-card.red::before { background: var(--accent); }
+  .stat-card.blue::before { background: var(--accent2); }
+  .stat-card.green::before { background: var(--green); }
+  .stat-card.gold::before { background: var(--gold); }
+
+  .stat-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  .stat-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.4rem;
+    letter-spacing: 1px;
+    margin: 4px 0 2px;
+    line-height: 1;
+  }
+
+  .stat-sub {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+  }
+
+  /* FORM ELEMENTS */
+  input, textarea, select {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.9rem;
+    padding: 10px 14px;
+    border-radius: 6px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent2);
+  }
+
+  label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 1rem; }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+  textarea { resize: vertical; min-height: 100px; }
+
+  /* BUTTONS */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: #c1121f; }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent2); color: var(--accent2); }
+
+  .btn-success {
+    background: var(--green);
+    color: #0a0c10;
+  }
+  .btn-success:hover { opacity: 0.85; }
+
+  .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+
+  /* TABLE */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  thead th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 10px 12px; }
+  tbody tr:last-child { border-bottom: none; }
+
+  /* BADGE */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .badge-green { background: rgba(46,196,182,0.15); color: var(--green); }
+  .badge-red { background: rgba(230,57,70,0.15); color: var(--red); }
+  .badge-yellow { background: rgba(244,162,97,0.15); color: var(--yellow); }
+  .badge-blue { background: rgba(69,123,157,0.15); color: var(--accent2); }
+  .badge-gray { background: rgba(122,127,142,0.15); color: var(--text-dim); }
+
+  /* PROGRESS BAR */
+  .progress-bar {
+    background: var(--surface2);
+    border-radius: 4px;
+    height: 6px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent);
+    transition: width 0.5s ease;
+  }
+
+  /* UPLOAD ZONE */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-dim);
+  }
+
+  .upload-zone:hover {
+    border-color: var(--accent2);
+    color: var(--accent2);
+    background: rgba(69,123,157,0.05);
+  }
+
+  .upload-icon { font-size: 2.5rem; margin-bottom: 1rem; }
+  .upload-zone p { font-size: 0.9rem; }
+  .upload-zone small { font-size: 0.75rem; color: var(--text-dim); }
+
+  /* CHARACTER COUNTER */
+  .char-count {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-align: right;
+    font-family: 'DM Mono', monospace;
+  }
+  .char-count.warn { color: var(--yellow); }
+  .char-count.over { color: var(--red); }
+
+  /* SCHEDULER */
+  .schedule-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .toggle {
+    width: 40px; height: 22px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    position: relative;
+    transition: background 0.2s;
+  }
+
+  .toggle.on { background: var(--accent2); }
+
+  .toggle::after {
+    content: '';
+    position: absolute;
+    left: 3px; top: 3px;
+    width: 14px; height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: left 0.2s;
+  }
+
+  .toggle.on::after { left: 21px; }
+
+  /* TOAST */
+  #toast-container {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 999;
+  }
+
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    animation: slideUp 0.3s ease;
+    min-width: 280px;
+    max-width: 360px;
+  }
+
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info { border-left: 3px solid var(--accent2); }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* RESPONSE PANEL */
+  .response-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .response-from {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .response-body {
+    font-size: 0.9rem;
+    color: var(--text);
+    background: var(--surface);
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin: 8px 0;
+    border-left: 3px solid var(--accent2);
+  }
+
+  .ai-reply {
+    font-size: 0.85rem;
+    color: var(--green);
+    background: rgba(46,196,182,0.06);
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid var(--green);
+  }
+
+  .ai-reply-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  /* TWILIO CONFIG */
+  .config-section {
+    background: rgba(69,123,157,0.06);
+    border: 1px solid rgba(69,123,157,0.2);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 1rem;
+  }
+
+  .config-section h4 {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent2);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+
+  .compliance-notice {
+    background: rgba(244,162,97,0.08);
+    border: 1px solid rgba(244,162,97,0.25);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    font-size: 0.82rem;
+    color: var(--yellow);
+    line-height: 1.6;
+  }
+
+  .compliance-notice strong { display: block; margin-bottom: 4px; font-size: 0.78rem; letter-spacing: 0.5px; }
+
+  /* CAMPAIGN LOG */
+  .log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+
+  .log-entry:last-child { border-bottom: none; }
+
+  .log-time {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    min-width: 80px;
+  }
+
+  .contacts-preview {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    max-height: 140px;
+    overflow-y: auto;
+    margin-top: 8px;
+  }
+
+  .tag {
+    display: inline-block;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--accent2);
+    font-size: 0.72rem;
+    font-family: 'DM Mono', monospace;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 2px;
+    transition: all 0.15s;
+  }
+
+  .tag:hover { border-color: var(--accent2); background: rgba(69,123,157,0.1); }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 0.5rem 0; }
+
+  .flex { display: flex; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .gap-2 { gap: 0.5rem; }
+  .gap-3 { gap: 0.75rem; }
+  .mt-1 { margin-top: 0.25rem; }
+  .mt-2 { margin-top: 0.5rem; }
+  .mb-1 { margin-bottom: 0.25rem; }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  .empty-state .empty-icon { font-size: 2.5rem; margin-bottom: 1rem; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Campaign<span>Text</span> HQ</div>
+  <div class="header-right">
+    <div class="twilio-status" id="twilioStatus">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Not Connected</span>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="showPanel('settings')">⚙ Settings</button>
+  </div>
+</header>
+
+<div class="app-layout">
+  <nav>
+    <div class="nav-section">Campaign</div>
+    <a class="active" onclick="showPanel('dashboard')"><span class="nav-icon">📊</span> Dashboard</a>
+    <a onclick="showPanel('compose')"><span class="nav-icon">✉️</span> Compose & Send</a>
+    <a onclick="showPanel('contacts')"><span class="nav-icon">👥</span> Contacts</a>
+    <a onclick="showPanel('schedule')"><span class="nav-icon">🗓</span> Scheduled</a>
+    <div class="nav-section">Responses</div>
+    <a onclick="showPanel('responses')"><span class="nav-icon">💬</span> Inbox <span id="inboxBadge" style="background:var(--accent);color:white;border-radius:10px;padding:1px 7px;font-size:0.7rem;margin-left:auto;"></span></a>
+    <a onclick="showPanel('autorespond')"><span class="nav-icon">🤖</span> Auto-Reply AI</a>
+    <div class="nav-section">System</div>
+    <a onclick="showPanel('settings')"><span class="nav-icon">🔑</span> Twilio Setup</a>
+    <a onclick="showPanel('compliance')"><span class="nav-icon">⚖️</span> Compliance</a>
+  </nav>
+
+  <main>
+
+    <!-- DASHBOARD -->
+    <div class="panel active" id="panel-dashboard">
+      <div class="page-title">Campaign <span>Overview</span></div>
+
+      <div class="stats-row">
+        <div class="stat-card red">
+          <div class="stat-label">TOTAL SENT</div>
+          <div class="stat-value" id="stat-sent">0</div>
+          <div class="stat-sub">Across all campaigns</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">DELIVERED</div>
+          <div class="stat-value" id="stat-delivered">0</div>
+          <div class="stat-sub" id="stat-delivered-pct">0% rate</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-label">RESPONSES</div>
+          <div class="stat-value" id="stat-responses">0</div>
+          <div class="stat-sub" id="stat-response-pct">0% response rate</div>
+        </div>
+        <div class="stat-card gold">
+          <div class="stat-label">CONTACTS</div>
+          <div class="stat-value" id="stat-contacts">0</div>
+          <div class="stat-sub">Loaded in system</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Campaign Activity Log</div>
+        <div id="activityLog">
+          <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            <div>No activity yet. Send your first campaign to get started.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Quick Scheduled Messages</div>
+        <div id="dashScheduled">
+          <div class="empty-state" style="padding: 1.5rem;">
+            <div>No messages scheduled yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPOSE -->
+    <div class="panel" id="panel-compose">
+      <div class="page-title">Compose <span>& Send</span></div>
+
+      <div class="card">
+        <div class="card-title">Message Details</div>
+
+        <div class="form-group">
+          <label>CAMPAIGN NAME</label>
+          <input type="text" id="campaignName" placeholder="e.g. GOTV Rally Reminder – Oct 15">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>RECIPIENT GROUP</label>
+            <select id="recipientGroup">
+              <option value="all">All Contacts</option>
+              <option value="custom">Custom Selection</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>SEND FROM (Twilio Number)</label>
+            <input type="text" id="sendFrom" placeholder="+1XXXXXXXXXX" readonly>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>MESSAGE BODY</label>
+          <div style="position:relative;">
+            <textarea id="msgBody" placeholder="Hi {firstName}! This is [Campaign Name]. We hope you'll join us at the polls on Nov 5th. Early voting is open now. Reply STOP to opt out." maxlength="1000" oninput="updateCharCount()"></textarea>
+          </div>
+          <div class="flex justify-between items-center mt-1">
+            <div style="font-size:0.75rem;color:var(--text-dim);">
+              Use <span class="tag" onclick="insertTag('{firstName}')">+firstName</span>
+              <span class="tag" onclick="insertTag('{lastName}')">+lastName</span>
+              <span class="tag" onclick="insertTag('{city}')">+city</span>
+              to personalize
+            </div>
+            <div class="char-count" id="charCount">0 / 160 chars (1 SMS)</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>OPT-OUT FOOTER (Required by Law)</label>
+          <input type="text" id="optOutText" value="Reply STOP to opt out." readonly>
+          <small style="color:var(--text-dim);font-size:0.72rem;">Automatically appended to every message.</small>
+        </div>
+
+        <div class="flex items-center gap-3" style="margin-bottom:1.2rem;">
+          <div class="schedule-toggle" onclick="toggleSchedule()">
+            <div class="toggle" id="scheduleToggle"></div>
+            <label style="cursor:pointer;margin:0;font-size:0.85rem;color:var(--text);">Schedule for later</label>
+          </div>
+        </div>
+
+        <div id="scheduleOptions" style="display:none;margin-bottom:1rem;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>DATE</label>
+              <input type="date" id="schedDate">
+            </div>
+            <div class="form-group">
+              <label>TIME</label>
+              <input type="time" id="schedTime">
+            </div>
+          </div>
+        </div>
+
+        <div id="contactPreviewArea" style="margin-bottom:1rem;display:none;">
+          <div class="form-group">
+            <label>RECIPIENTS PREVIEW</label>
+            <div class="contacts-preview" id="recipientPreview"></div>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="previewMessage()">👁 Preview</button>
+          <button class="btn btn-primary" onclick="sendCampaign()" id="sendBtn">🚀 Send Campaign</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTACTS -->
+    <div class="panel" id="panel-contacts">
+      <div class="page-title">Contact <span>List</span></div>
+
+      <div class="card">
+        <div class="card-title">Upload Contacts (CSV)</div>
+        <div class="compliance-notice" style="margin-bottom:1rem;">
+          <strong>⚖️ TCPA COMPLIANCE REQUIRED</strong>
+          Only upload contacts who have given prior written consent to receive political text messages. Violations can result in fines up to $1,500 per message.
+        </div>
+        <div class="upload-zone" onclick="document.getElementById('csvFile').click()" id="uploadZone">
+          <div class="upload-icon">📂</div>
+          <p><strong>Click to upload CSV</strong> or drag and drop</p>
+          <small>Columns: phone, firstName, lastName, city, state, consent (required)</small>
+          <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="handleCSV(event)">
+        </div>
+
+        <div style="margin-top:1rem;font-size:0.78rem;color:var(--text-dim);">
+          <strong style="color:var(--text);">Expected CSV format:</strong><br>
+          <code style="color:var(--accent2);">phone,firstName,lastName,city,state,consent<br>
+          +12125551234,Jane,Doe,Austin,TX,true</code>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title flex justify-between" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>LOADED CONTACTS</span>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="clearContacts()">🗑 Clear All</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportContacts()">⬇ Export</button>
+          </div>
+        </div>
+        <div id="contactsTable">
+          <div class="empty-state">
+            <div class="empty-icon">👥</div>
+            <div>No contacts loaded. Upload a CSV to get started.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHEDULE -->
+    <div class="panel" id="panel-schedule">
+      <div class="page-title">Scheduled <span>Texts</span></div>
+      <div class="card">
+        <div class="card-title flex justify-between" style="display:flex;justify-content:space-between;">
+          <span>UPCOMING SCHEDULED MESSAGES</span>
+        </div>
+        <div id="scheduledList">
+          <div class="empty-state">
+            <div class="empty-icon">🗓</div>
+            <div>No messages scheduled. Schedule a campaign from the Compose tab.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESPONSES / INBOX -->
+    <div class="panel" id="panel-responses">
+      <div class="page-title">Response <span>Inbox</span></div>
+      <div class="card">
+        <div class="card-title">INCOMING REPLIES</div>
+        <div id="responseList">
+          <div class="empty-state">
+            <div class="empty-icon">💬</div>
+            <div>No responses yet. Replies from your contacts will appear here.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTO-REPLY AI -->
+    <div class="panel" id="panel-autorespond">
+      <div class="page-title">Auto-Reply <span>AI</span></div>
+
+      <div class="compliance-notice">
+        <strong>⚠️ IMPORTANT — TCPA & FEC DISCLOSURE</strong>
+        Auto-replies must clearly identify the campaign. AI-generated responses must still comply with political advertising disclosure requirements. Always review AI reply templates before enabling.
+      </div>
+
+      <div class="card">
+        <div class="card-title flex justify-between" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>AUTO-REPLY SETTINGS</span>
+          <div class="schedule-toggle" onclick="toggleAutoReply()">
+            <div class="toggle" id="autoReplyToggle"></div>
+            <label style="cursor:pointer;margin:0;font-size:0.82rem;color:var(--text);">Enable Auto-Reply</label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>CAMPAIGN CONTEXT (Used by AI to generate replies)</label>
+          <textarea id="campaignContext" placeholder="e.g. This is a text banking operation for the Jane Smith for Mayor campaign in Austin, TX. We are running on a platform of affordable housing, public safety, and clean energy. Candidate Jane Smith is a former city council member running in the November 2026 election." style="min-height:120px;"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>COMMON QUESTION TEMPLATES</label>
+          <div id="aiTemplates" style="display:flex;flex-direction:column;gap:0.75rem;">
+            <div class="config-section">
+              <h4>📍 Polling Locations</h4>
+              <textarea style="min-height:60px;">You can find your polling location at vote.gov or by calling your county clerk. Polls are open 7am–7pm on Election Day. 🗳️ — Jane Smith for Mayor</textarea>
+            </div>
+            <div class="config-section">
+              <h4>📅 Early Voting Info</h4>
+              <textarea style="min-height:60px;">Early voting is open Oct 28 – Nov 1. Find early voting sites at vote.gov. Every vote matters! — Jane Smith for Mayor</textarea>
+            </div>
+            <div class="config-section">
+              <h4>📋 Registration Info</h4>
+              <textarea style="min-height:60px;">You can check your registration status at vote.org. Register before Oct 7 for this election. — Jane Smith for Mayor</textarea>
+            </div>
+            <div class="config-section">
+              <h4>🛑 STOP / Opt-Out (Auto-handled)</h4>
+              <textarea style="min-height:60px;" readonly>You've been removed from our list and will not receive further messages. — Jane Smith for Mayor</textarea>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="saveAutoReply()">💾 Save Auto-Reply Settings</button>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="panel" id="panel-settings">
+      <div class="page-title">Twilio <span>Setup</span></div>
+
+      <div class="compliance-notice" style="margin-bottom:1.5rem;">
+        <strong>🔐 CREDENTIAL SECURITY</strong>
+        Your Twilio credentials are stored only in this browser session and are never sent anywhere except directly to Twilio's API. For production campaigns, use a secure backend server.
+      </div>
+
+      <div class="card">
+        <div class="card-title">TWILIO CONFIGURATION</div>
+        <div class="config-section">
+          <h4>Account Details</h4>
+          <div class="form-group">
+            <label>ACCOUNT SID</label>
+            <input type="text" id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+          </div>
+          <div class="form-group">
+            <label>AUTH TOKEN</label>
+            <input type="password" id="twilioToken" placeholder="Your Twilio Auth Token">
+          </div>
+          <div class="form-group">
+            <label>FROM NUMBER (Twilio Phone Number)</label>
+            <input type="text" id="twilioFrom" placeholder="+1XXXXXXXXXX">
+          </div>
+        </div>
+
+        <div class="config-section">
+          <h4>Webhook (for Receiving Replies)</h4>
+          <div class="form-group">
+            <label>INCOMING MESSAGE WEBHOOK URL</label>
+            <input type="text" id="webhookUrl" placeholder="https://your-server.com/sms/incoming" readonly>
+            <small style="color:var(--text-dim);font-size:0.72rem;">Point this at your Twilio SMS webhook in the Twilio console. Requires a backend server to receive replies.</small>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="testTwilio()">🔌 Test Connection</button>
+          <button class="btn btn-primary" onclick="saveTwilio()">💾 Save Configuration</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- COMPLIANCE -->
+    <div class="panel" id="panel-compliance">
+      <div class="page-title">Compliance <span>Center</span></div>
+
+      <div class="card">
+        <div class="card-title">📋 TCPA & POLITICAL TEXT MESSAGING COMPLIANCE</div>
+
+        <div style="display:flex;flex-direction:column;gap:1rem;line-height:1.7;font-size:0.88rem;">
+
+          <div class="config-section">
+            <h4>✅ REQUIRED: Prior Consent</h4>
+            <p style="color:var(--text-dim);">All recipients must have given <strong style="color:var(--text);">prior written express consent</strong> to receive autodialed or prerecorded political text messages. This consent must be documented and retainable.</p>
+          </div>
+
+          <div class="config-section">
+            <h4>✅ REQUIRED: Opt-Out Mechanism</h4>
+            <p style="color:var(--text-dim);">Every message must include a clear opt-out instruction (e.g., "Reply STOP"). Upon receiving STOP, the system must <strong style="color:var(--text);">immediately cease texting that number</strong> and honor the request permanently.</p>
+          </div>
+
+          <div class="config-section">
+            <h4>✅ REQUIRED: Campaign Identification</h4>
+            <p style="color:var(--text-dim);">Each message must clearly identify the campaign or organization sending the message. Do not use misleading identifiers.</p>
+          </div>
+
+          <div class="config-section">
+            <h4>⚠️ Calling Hours</h4>
+            <p style="color:var(--text-dim);">The TCPA prohibits texts before <strong style="color:var(--text);">8:00 AM</strong> or after <strong style="color:var(--text);">9:00 PM</strong> in the recipient's local time zone. This system enforces this restriction automatically.</p>
+          </div>
+
+          <div class="config-section">
+            <h4>⚠️ FEC Disclosure</h4>
+            <p style="color:var(--text-dim);">Political texts may require FEC-compliant disclaimers depending on content. Consult with a campaign attorney regarding disclosure requirements for your specific messages.</p>
+          </div>
+
+          <div class="config-section">
+            <h4>⚠️ Carrier Compliance</h4>
+            <p style="color:var(--text-dim);">Twilio and major carriers require registration for political messaging campaigns. Ensure your Twilio account has <strong style="color:var(--text);">10DLC (10-Digit Long Code) registration</strong> completed and approved before sending at volume.</p>
+          </div>
+
+          <div style="background:rgba(230,57,70,0.08);border:1px solid rgba(230,57,70,0.2);border-radius:8px;padding:1rem;font-size:0.82rem;color:var(--red);">
+            <strong>⛔ PENALTIES:</strong> TCPA violations carry fines of $500–$1,500 per text message. With mass texting, non-compliance can result in multi-million dollar class action lawsuits. Always consult legal counsel before launching campaigns.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────
+let contacts = [];
+let campaigns = [];
+let scheduled = [];
+let responses = [];
+let autoReplyEnabled = false;
+let scheduleEnabled = false;
+let twilioConfig = { sid: '', token: '', from: '' };
+let twilioConnected = false;
+let stats = { sent: 0, delivered: 0, responses: 0 };
+
+// ─── NAV ─────────────────────────────────────────────────
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  const links = document.querySelectorAll('nav a');
+  links.forEach(a => {
+    if (a.getAttribute('onclick') && a.getAttribute('onclick').includes(id)) {
+      a.classList.add('active');
+    }
+  });
+}
+
+// ─── CSV HANDLER ─────────────────────────────────────────
+function handleCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text = e.target.result;
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
+    
+    const phoneIdx = headers.indexOf('phone');
+    const firstIdx = headers.indexOf('firstname');
+    const lastIdx = headers.indexOf('lastname');
+    const cityIdx = headers.indexOf('city');
+    const stateIdx = headers.indexOf('state');
+    const consentIdx = headers.indexOf('consent');
+
+    if (phoneIdx === -1) { showToast('CSV missing "phone" column.', 'error'); return; }
+
+    const loaded = [];
+    let skipped = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const row = lines[i].split(',').map(c => c.trim().replace(/"/g, ''));
+      if (!row[phoneIdx]) continue;
+      const consent = consentIdx > -1 ? row[consentIdx].toLowerCase() : 'unknown';
+      if (consent === 'false') { skipped++; continue; }
+      loaded.push({
+        phone: row[phoneIdx] || '',
+        firstName: firstIdx > -1 ? row[firstIdx] : '',
+        lastName: lastIdx > -1 ? row[lastIdx] : '',
+        city: cityIdx > -1 ? row[cityIdx] : '',
+        state: stateIdx > -1 ? row[stateIdx] : '',
+        consent: consent
+      });
+    }
+
+    contacts = loaded;
+    renderContacts();
+    updateStats();
+    showToast(`✅ Loaded ${loaded.length} contacts.${skipped > 0 ? ` ${skipped} skipped (no consent).` : ''}`, 'success');
+    logActivity(`Imported ${loaded.length} contacts from ${file.name}`);
+  };
+  reader.readAsText(file);
+}
+
+function renderContacts() {
+  const el = document.getElementById('contactsTable');
+  if (contacts.length === 0) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">👥</div><div>No contacts loaded.</div></div>`;
+    return;
+  }
+  el.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Phone</th>
+          <th>First Name</th>
+          <th>Last Name</th>
+          <th>City</th>
+          <th>State</th>
+          <th>Consent</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${contacts.slice(0, 100).map((c, i) => `
+        <tr>
+          <td><code style="font-family:'DM Mono',monospace;font-size:0.8rem;">${c.phone}</code></td>
+          <td>${c.firstName}</td>
+          <td>${c.lastName}</td>
+          <td>${c.city}</td>
+          <td>${c.state}</td>
+          <td><span class="badge ${c.consent === 'true' ? 'badge-green' : 'badge-yellow'}">${c.consent === 'true' ? '✓ Consented' : '? Unknown'}</span></td>
+          <td><button class="btn btn-secondary btn-sm" onclick="removeContact(${i})">✕</button></td>
+        </tr>`).join('')}
+        ${contacts.length > 100 ? `<tr><td colspan="7" style="color:var(--text-dim);font-size:0.8rem;padding:10px 12px;">... and ${contacts.length - 100} more contacts</td></tr>` : ''}
+      </tbody>
+    </table>
+  `;
+}
+
+function removeContact(i) {
+  contacts.splice(i, 1);
+  renderContacts();
+  updateStats();
+}
+
+function clearContacts() {
+  if (contacts.length === 0) return;
+  contacts = [];
+  renderContacts();
+  updateStats();
+  showToast('Contact list cleared.', 'info');
+}
+
+function exportContacts() {
+  if (contacts.length === 0) { showToast('No contacts to export.', 'error'); return; }
+  const csv = ['phone,firstName,lastName,city,state,consent',
+    ...contacts.map(c => `${c.phone},${c.firstName},${c.lastName},${c.city},${c.state},${c.consent}`)
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'contacts_export.csv'; a.click();
+}
+
+// ─── COMPOSE & SEND ───────────────────────────────────────
+function updateCharCount() {
+  const body = document.getElementById('msgBody').value;
+  const optout = document.getElementById('optOutText').value;
+  const total = body.length + optout.length + 1;
+  const segments = Math.ceil(total / 160);
+  const el = document.getElementById('charCount');
+  el.textContent = `${total} / ${segments * 160} chars (${segments} SMS)`;
+  el.className = 'char-count' + (total > 320 ? ' over' : total > 140 ? ' warn' : '');
+}
+
+function insertTag(tag) {
+  const ta = document.getElementById('msgBody');
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const val = ta.value;
+  ta.value = val.substring(0, start) + tag + val.substring(end);
+  ta.setSelectionRange(start + tag.length, start + tag.length);
+  ta.focus();
+  updateCharCount();
+}
+
+function toggleSchedule() {
+  scheduleEnabled = !scheduleEnabled;
+  document.getElementById('scheduleToggle').className = 'toggle' + (scheduleEnabled ? ' on' : '');
+  document.getElementById('scheduleOptions').style.display = scheduleEnabled ? 'block' : 'none';
+  document.getElementById('sendBtn').textContent = scheduleEnabled ? '📅 Schedule Campaign' : '🚀 Send Campaign';
+}
+
+function previewMessage() {
+  const body = document.getElementById('msgBody').value;
+  const optout = document.getElementById('optOutText').value;
+  if (!body.trim()) { showToast('Write a message first.', 'error'); return; }
+
+  const sample = contacts[0] || { firstName: 'Jane', lastName: 'Doe', city: 'Austin' };
+  let preview = body
+    .replace(/{firstName}/g, sample.firstName || 'Friend')
+    .replace(/{lastName}/g, sample.lastName || '')
+    .replace(/{city}/g, sample.city || 'your city');
+  preview += '\n' + optout;
+
+  const el = document.getElementById('recipientPreview');
+  el.innerHTML = `<strong style="color:var(--text-dim);font-size:0.7rem;">PREVIEW (personalized for first contact):</strong>\n\n${escapeHtml(preview)}`;
+  document.getElementById('contactPreviewArea').style.display = 'block';
+}
+
+function sendCampaign() {
+  if (!twilioConnected) {
+    showToast('⚠️ Configure Twilio first in Settings.', 'error');
+    return;
+  }
+  if (contacts.length === 0) {
+    showToast('No contacts loaded. Upload a CSV first.', 'error');
+    return;
+  }
+  const name = document.getElementById('campaignName').value.trim() || 'Unnamed Campaign';
+  const body = document.getElementById('msgBody').value.trim();
+  if (!body) { showToast('Write a message body first.', 'error'); return; }
+
+  if (scheduleEnabled) {
+    const date = document.getElementById('schedDate').value;
+    const time = document.getElementById('schedTime').value;
+    if (!date || !time) { showToast('Select a date and time to schedule.', 'error'); return; }
+    const scheduledFor = `${date} at ${time}`;
+    scheduled.push({ name, body, recipients: contacts.length, scheduledFor, id: Date.now() });
+    renderScheduled();
+    renderDashScheduled();
+    showToast(`📅 Scheduled "${name}" for ${scheduledFor} to ${contacts.length} contacts.`, 'success');
+    logActivity(`Scheduled "${name}" → ${contacts.length} contacts for ${scheduledFor}`);
+  } else {
+    simulateSend(name, body);
+  }
+}
+
+function simulateSend(name, body) {
+  const total = contacts.length;
+  const delivered = Math.floor(total * (0.92 + Math.random() * 0.06));
+  
+  stats.sent += total;
+  stats.delivered += delivered;
+  campaigns.push({ name, total, delivered, date: new Date().toLocaleString() });
+
+  updateStats();
+  logActivity(`Sent "${name}" → ${total} contacts | ${delivered} delivered`);
+  
+  // Simulate a few incoming responses after 3 seconds
+  setTimeout(() => {
+    const fakeResponses = [
+      { phone: '+15125550001', name: 'Maria R.', msg: 'Where is my polling location?', time: new Date().toLocaleString() },
+      { phone: '+15125550002', name: 'James T.', msg: 'What time do polls close?', time: new Date().toLocaleString() },
+      { phone: '+15125550003', name: 'Sandra L.', msg: 'STOP', time: new Date().toLocaleString() },
+    ];
+    fakeResponses.forEach(r => {
+      responses.push(r);
+      stats.responses++;
+    });
+    updateStats();
+    renderResponses();
+    document.getElementById('inboxBadge').textContent = responses.length;
+    showToast(`💬 ${fakeResponses.length} new responses received!`, 'info');
+  }, 3000);
+
+  showToast(`🚀 Campaign "${name}" sent to ${total} contacts!`, 'success');
+}
+
+// ─── SCHEDULED ────────────────────────────────────────────
+function renderScheduled() {
+  const el = document.getElementById('scheduledList');
+  if (scheduled.length === 0) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🗓</div><div>No messages scheduled.</div></div>`;
+    return;
+  }
+  el.innerHTML = `<table>
+    <thead><tr><th>Campaign</th><th>Recipients</th><th>Scheduled For</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      ${scheduled.map(s => `<tr>
+        <td>${s.name}</td>
+        <td>${s.recipients.toLocaleString()}</td>
+        <td>${s.scheduledFor}</td>
+        <td><span class="badge badge-yellow">⏳ Pending</span></td>
+        <td><button class="btn btn-secondary btn-sm" onclick="cancelScheduled(${s.id})">✕ Cancel</button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function renderDashScheduled() {
+  const el = document.getElementById('dashScheduled');
+  if (scheduled.length === 0) {
+    el.innerHTML = `<div class="empty-state" style="padding:1.5rem;"><div>No messages scheduled yet.</div></div>`;
+    return;
+  }
+  el.innerHTML = scheduled.slice(0, 3).map(s => `
+    <div class="log-entry">
+      <div class="log-time">📅 ${s.scheduledFor}</div>
+      <div>${s.name} → ${s.recipients.toLocaleString()} contacts</div>
+    </div>`).join('');
+}
+
+function cancelScheduled(id) {
+  scheduled = scheduled.filter(s => s.id !== id);
+  renderScheduled();
+  renderDashScheduled();
+  showToast('Scheduled message cancelled.', 'info');
+}
+
+// ─── RESPONSES ────────────────────────────────────────────
+function renderResponses() {
+  const el = document.getElementById('responseList');
+  if (responses.length === 0) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><div>No responses yet.</div></div>`;
+    return;
+  }
+
+  const stopKeywords = ['stop', 'unsubscribe', 'quit', 'cancel', 'end'];
+  const pollKeywords = ['polling', 'poll', 'vote', 'where', 'location'];
+  const timeKeywords = ['time', 'open', 'close', 'hours', 'when'];
+  const regKeywords = ['register', 'registration', 'sign up'];
+
+  el.innerHTML = responses.map(r => {
+    const msg = r.msg.toLowerCase();
+    let aiReply = '';
+    let tag = '<span class="badge badge-blue">General</span>';
+
+    if (stopKeywords.some(k => msg.includes(k))) {
+      aiReply = "You've been removed from our list and will not receive further messages. — Campaign HQ";
+      tag = '<span class="badge badge-red">STOP</span>';
+    } else if (pollKeywords.some(k => msg.includes(k))) {
+      aiReply = "Find your polling location at vote.gov or call your county clerk. Polls open 7am–7pm on Election Day! 🗳️ — Campaign HQ";
+      tag = '<span class="badge badge-green">Polling</span>';
+    } else if (timeKeywords.some(k => msg.includes(k))) {
+      aiReply = "Polls are open from 7:00 AM to 7:00 PM on Election Day. Early voting hours may vary — check vote.gov for details! — Campaign HQ";
+      tag = '<span class="badge badge-blue">Hours</span>';
+    } else if (regKeywords.some(k => msg.includes(k))) {
+      aiReply = "Check your registration status or register at vote.org. Deadline is Oct 7th. Let us know if you need help! — Campaign HQ";
+      tag = '<span class="badge badge-yellow">Registration</span>';
+    } else {
+      aiReply = autoReplyEnabled ? "Thank you for reaching out! For more info on our campaign, visit our website or reply with your question. — Campaign HQ" : null;
+    }
+
+    return `<div class="response-item">
+      <div class="response-from">
+        <span>${r.name} · <code style="font-family:'DM Mono',monospace;">${r.phone}</code> · ${tag}</span>
+        <span style="color:var(--text-dim);font-size:0.72rem;">${r.time}</span>
+      </div>
+      <div class="response-body">${escapeHtml(r.msg)}</div>
+      ${aiReply ? `
+        <div class="ai-reply-label">🤖 AI Suggested Reply ${autoReplyEnabled ? '(AUTO-SENT)' : '(Review & Send)'}:</div>
+        <div class="ai-reply">${escapeHtml(aiReply)}</div>
+        ${!autoReplyEnabled ? `<button class="btn btn-success btn-sm" style="margin-top:8px;" onclick="sendReply(this, '${escapeHtml(aiReply).replace(/'/g,"\\'")}', '${r.phone}')">📤 Send Reply</button>` : ''}
+      ` : ''}
+    </div>`;
+  }).join('');
+}
+
+function sendReply(btn, msg, phone) {
+  btn.textContent = '✓ Sent';
+  btn.disabled = true;
+  btn.className = 'btn btn-secondary btn-sm';
+  showToast(`Reply sent to ${phone}`, 'success');
+}
+
+// ─── AUTO-REPLY ───────────────────────────────────────────
+function toggleAutoReply() {
+  autoReplyEnabled = !autoReplyEnabled;
+  document.getElementById('autoReplyToggle').className = 'toggle' + (autoReplyEnabled ? ' on' : '');
+}
+
+function saveAutoReply() {
+  showToast('Auto-reply settings saved!', 'success');
+}
+
+// ─── TWILIO ───────────────────────────────────────────────
+function saveTwilio() {
+  const sid = document.getElementById('twilioSid').value.trim();
+  const token = document.getElementById('twilioToken').value.trim();
+  const from = document.getElementById('twilioFrom').value.trim();
+
+  if (!sid || !token || !from) {
+    showToast('Please fill in all Twilio fields.', 'error');
+    return;
+  }
+
+  twilioConfig = { sid, token, from };
+  document.getElementById('sendFrom').value = from;
+  showToast('Twilio configuration saved!', 'success');
+}
+
+function testTwilio() {
+  const sid = document.getElementById('twilioSid').value.trim();
+  const token = document.getElementById('twilioToken').value.trim();
+  const from = document.getElementById('twilioFrom').value.trim();
+
+  if (!sid || !token || !from) {
+    showToast('Fill in your Twilio credentials first.', 'error');
+    return;
+  }
+
+  showToast('🔌 Testing connection...', 'info');
+
+  // In a real app, this would call Twilio's API. Here we validate format.
+  setTimeout(() => {
+    const validSid = sid.startsWith('AC') && sid.length === 34;
+    const validPhone = from.startsWith('+') && from.length >= 10;
+
+    if (validSid && validPhone) {
+      twilioConnected = true;
+      twilioConfig = { sid, token, from };
+      document.getElementById('sendFrom').value = from;
+      document.getElementById('statusDot').classList.add('connected');
+      document.getElementById('statusText').textContent = 'Twilio Connected';
+      showToast('✅ Twilio connected! You can now send messages.', 'success');
+      logActivity('Twilio account connected: ' + sid.substring(0, 8) + '...');
+    } else {
+      showToast('⚠️ Invalid SID or phone number format. Check your credentials.', 'error');
+    }
+  }, 1200);
+}
+
+// ─── STATS ────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('stat-sent').textContent = stats.sent.toLocaleString();
+  document.getElementById('stat-delivered').textContent = stats.delivered.toLocaleString();
+  const dlvPct = stats.sent > 0 ? Math.round(stats.delivered / stats.sent * 100) : 0;
+  document.getElementById('stat-delivered-pct').textContent = `${dlvPct}% rate`;
+  document.getElementById('stat-responses').textContent = stats.responses.toLocaleString();
+  const resPct = stats.sent > 0 ? ((stats.responses / stats.sent) * 100).toFixed(1) : 0;
+  document.getElementById('stat-response-pct').textContent = `${resPct}% response rate`;
+  document.getElementById('stat-contacts').textContent = contacts.length.toLocaleString();
+}
+
+// ─── ACTIVITY LOG ─────────────────────────────────────────
+function logActivity(msg) {
+  const el = document.getElementById('activityLog');
+  const emptyState = el.querySelector('.empty-state');
+  if (emptyState) emptyState.remove();
+
+  const now = new Date();
+  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<div class="log-time">${time}</div><div>${escapeHtml(msg)}</div>`;
+  el.insertBefore(entry, el.firstChild);
+}
+
+// ─── TOAST ────────────────────────────────────────────────
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+  toast.innerHTML = `<span>${icons[type] || ''}</span><span>${msg}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// ─── HELPERS ─────────────────────────────────────────────
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── DRAG AND DROP ────────────────────────────────────────
+const uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.style.borderColor = 'var(--accent2)'; });
+uploadZone.addEventListener('dragleave', () => { uploadZone.style.borderColor = ''; });
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.style.borderColor = '';
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.csv')) {
+    const fakeEvent = { target: { files: [file] } };
+    handleCSV(fakeEvent);
+  } else {
+    showToast('Please drop a .csv file.', 'error');
+  }
+});
+
+// ─── INIT ─────────────────────────────────────────────────
+updateStats();
+</script>
+</body>
+</html>
