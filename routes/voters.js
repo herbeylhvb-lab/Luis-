@@ -21,10 +21,10 @@ router.get('/voters', (req, res) => {
 
 // Add single voter
 router.post('/voters', (req, res) => {
-  const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes } = req.body;
+  const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number } = req.body;
   const result = db.prepare(
-    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(first_name || '', last_name || '', phone || '', email || '', address || '', city || '', zip || '', party || '', support_level || 'unknown', voter_score || 0, tags || '', notes || '');
+    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(first_name || '', last_name || '', phone || '', email || '', address || '', city || '', zip || '', party || '', support_level || 'unknown', voter_score || 0, tags || '', notes || '', registration_number || '');
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
@@ -33,12 +33,12 @@ router.post('/voters/import', (req, res) => {
   const { voters } = req.body;
   if (!voters || !voters.length) return res.status(400).json({ error: 'No voters provided.' });
   const insert = db.prepare(
-    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, tags, registration_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const importMany = db.transaction((list) => {
     let added = 0;
     for (const v of list) {
-      insert.run(v.first_name || '', v.last_name || '', v.phone || '', v.email || '', v.address || '', v.city || '', v.zip || '', v.party || '', v.support_level || 'unknown', v.tags || '');
+      insert.run(v.first_name || '', v.last_name || '', v.phone || '', v.email || '', v.address || '', v.city || '', v.zip || '', v.party || '', v.support_level || 'unknown', v.tags || '', v.registration_number || '');
       added++;
     }
     return added;
@@ -57,15 +57,16 @@ router.get('/voters/:id', (req, res) => {
 
 // Update voter
 router.put('/voters/:id', (req, res) => {
-  const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes } = req.body;
+  const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number } = req.body;
   db.prepare(`UPDATE voters SET
     first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
     phone = COALESCE(?, phone), email = COALESCE(?, email),
     address = COALESCE(?, address), city = COALESCE(?, city), zip = COALESCE(?, zip),
     party = COALESCE(?, party), support_level = COALESCE(?, support_level),
     voter_score = COALESCE(?, voter_score), tags = COALESCE(?, tags), notes = COALESCE(?, notes),
+    registration_number = COALESCE(?, registration_number),
     updated_at = datetime('now') WHERE id = ?`
-  ).run(first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, req.params.id);
+  ).run(first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, req.params.id);
   res.json({ success: true });
 });
 

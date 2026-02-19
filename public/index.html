@@ -114,7 +114,18 @@ tr:hover td{background:#1e293b80}
   .form-row,.form-row-3{grid-template-columns:1fr}
   .stats-grid{grid-template-columns:1fr 1fr}
 }
+/* Sentiment badges */
+.sentiment-positive{color:#4ade80}
+.sentiment-negative{color:#fca5a5}
+.sentiment-neutral{color:#94a3b8}
+/* QR Modal */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center}
+.modal-box h3{margin-bottom:16px}
+.modal-box canvas{margin:16px auto;display:block;border-radius:8px}
+.modal-close{position:absolute;top:12px;right:16px;background:none;border:none;color:#94a3b8;font-size:24px;cursor:pointer}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -134,6 +145,9 @@ tr:hover td{background:#1e293b80}
     <div class="sidebar-section">System</div>
     <div class="nav-item" data-page="twilio"><span class="icon">&#128273;</span><span>Twilio Setup</span></div>
     <div class="nav-item" data-page="autoreply"><span class="icon">&#129302;</span><span>Auto-Reply AI</span></div>
+    <div class="sidebar-section">P2P</div>
+    <div class="nav-item" data-page="p2p"><span class="icon">&#128241;</span><span>P2P Texting</span></div>
+    <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
   </div>
   <div class="conn-status" id="connStatus">
     <span class="conn-dot off" id="connDot"></span>
@@ -157,6 +171,7 @@ tr:hover td{background:#1e293b80}
         <div class="stat-card"><div class="label">Doors Knocked</div><div class="value" id="statDoors">0</div><div class="sub" id="statWalks">0 block walks</div></div>
         <div class="stat-card"><div class="label">Voter File</div><div class="value" id="statVoters">0</div><div class="sub">Voters loaded</div></div>
         <div class="stat-card"><div class="label">Events</div><div class="value" id="statEvents">0</div><div class="sub">Upcoming</div></div>
+        <div class="stat-card"><div class="label">Sentiment</div><div class="value" style="font-size:16px" id="statSentiment">--</div><div class="sub">Response mood</div></div>
       </div>
       <div class="card">
         <h3>Campaign Activity Log</h3>
@@ -252,6 +267,142 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ================= KNOWLEDGE BASE ================= -->
+    <div class="page" id="page-knowledge">
+      <div class="card">
+        <h3>AI Settings</h3>
+        <div class="form-group"><label>Anthropic API Key</label><input type="password" id="anthropicKey" placeholder="sk-ant-..."></div>
+        <button class="btn btn-primary btn-sm" id="btnSaveApiKey">Save API Key</button>
+        <span id="apiKeyStatus" style="margin-left:12px;font-size:13px;color:#64748b"></span>
+      </div>
+      <div class="card">
+        <h3>Campaign Details</h3>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group"><label>Campaign Name</label><input type="text" id="kdCampaignName" placeholder="Santos for District 4"></div>
+          <div class="form-group"><label>Election Date</label><input type="date" id="kdElectionDate"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group"><label>Website</label><input type="text" id="kdWebsite" placeholder="https://campaign.com"></div>
+          <div class="form-group"><label>Key Message / Slogan</label><input type="text" id="kdSlogan" placeholder="Putting families first"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnSaveCampaignDetails">Save Details</button>
+      </div>
+      <div class="card">
+        <h3>Candidate Bio</h3>
+        <div class="form-group"><textarea id="kdBio" rows="4" placeholder="Background, qualifications, experience..."></textarea></div>
+        <button class="btn btn-primary btn-sm" id="btnSaveBio">Save Bio</button>
+      </div>
+      <div class="card">
+        <h3>Policy Positions <button class="btn btn-primary btn-xs" style="margin-left:12px" id="btnAddPolicy">+ Add Policy</button></h3>
+        <div id="policiesList"></div>
+      </div>
+      <div class="card">
+        <h3>Response Scripts <button class="btn btn-primary btn-xs" style="margin-left:12px" id="btnAddScript">+ Add Script</button></h3>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Fallback responses when AI can't generate a confident reply.</p>
+        <div id="scriptsList"></div>
+      </div>
+    </div>
+
+    <!-- ================= P2P TEXTING ================= -->
+    <div class="page" id="page-p2p">
+      <div id="p2p-admin-view">
+        <div class="card">
+          <h3>Create P2P Session</h3>
+          <div class="form-row" style="margin-bottom:16px">
+            <div class="form-group"><label>Session Name</label><input type="text" id="p2pSessionName" placeholder="Voter Outreach Oct"></div>
+            <div class="form-group"><label>Assignment Mode</label>
+              <select id="p2pAssignMode" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+                <option value="auto_split">Auto-Split (even distribution)</option>
+                <option value="claim">Claim-Based (first-come)</option>
+                <option value="manual">Manual Assign</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group"><label>Message Template</label><textarea id="p2pTemplate" rows="3" placeholder="Hi {firstName}! This is a volunteer with the campaign..."></textarea></div>
+          <div class="form-group"><label>Select Contacts</label>
+            <div style="margin-bottom:8px"><button class="btn btn-secondary btn-xs" id="btnP2pSelectAll">Select All</button> <button class="btn btn-secondary btn-xs" id="btnP2pSelectNone">Select None</button> <span style="margin-left:8px;font-size:13px;color:#94a3b8" id="p2pSelectedCount">0 selected</span></div>
+            <div class="check-list" id="p2pContactList"></div>
+          </div>
+          <button class="btn btn-success" id="btnCreateP2pSession">Create Session</button>
+        </div>
+        <div class="card">
+          <h3>Active Sessions</h3>
+          <div id="p2pSessionsList"></div>
+        </div>
+      </div>
+      <div id="p2p-session-view" style="display:none">
+        <div class="back-btn" onclick="showP2pAdmin()">&#8592; Back to Sessions</div>
+        <div class="card">
+          <h3 id="p2pSessionTitle">Session</h3>
+          <div style="display:flex;gap:16px;margin-bottom:16px;font-size:14px;flex-wrap:wrap">
+            <span>Join Code: <strong id="p2pJoinCodeDisplay" style="color:#818cf8;font-size:18px">----</strong></span>
+            <span>Expires: <span id="p2pCodeExpires" style="color:#94a3b8"></span></span>
+            <span>Mode: <select class="inline-select" id="p2pModeSelect" onchange="updateP2pMode()"></select></span>
+          </div>
+          <div class="stats-grid" style="margin-bottom:16px">
+            <div class="stat-card"><div class="label">Total Sent</div><div class="value" id="p2pStatSent">0</div></div>
+            <div class="stat-card"><div class="label">Active Chats</div><div class="value" id="p2pStatChats">0</div></div>
+            <div class="stat-card"><div class="label">Remaining</div><div class="value" id="p2pStatRemaining">0</div></div>
+          </div>
+          <h3>Volunteers</h3>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Sent</th><th>Active Chats</th><th>Remaining</th></tr></thead><tbody id="p2pVolunteersBody"></tbody></table></div>
+          <div style="margin-top:12px"><button class="btn btn-danger btn-sm" id="btnCloseSession">Close Session</button></div>
+        </div>
+      </div>
+      <div id="p2p-volunteer-view" style="display:none">
+        <div class="back-btn" onclick="leaveP2pVolunteer()">&#8592; Leave Session</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <div><strong id="p2pVolName" style="color:#818cf8"></strong> &middot; <span id="p2pVolSession" style="color:#94a3b8"></span></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="p2pVolProgress" style="font-size:13px;color:#94a3b8"></span>
+            <button class="btn btn-secondary btn-sm" id="btnToggleOnline">Go Offline</button>
+          </div>
+        </div>
+        <div class="card" id="p2pQueueCard">
+          <div id="p2pContactInfo" style="margin-bottom:16px"></div>
+          <div class="form-group"><label>Message</label><textarea id="p2pMessage" rows="4"></textarea></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-success" id="btnP2pSend">&#9654; Send</button>
+            <button class="btn btn-secondary" id="btnP2pSkip">&#9197; Skip</button>
+          </div>
+        </div>
+        <div class="card" id="p2pConversationsCard" style="display:none">
+          <h3>Active Conversations <span class="badge badge-blue" id="p2pConvCount">0</span></h3>
+          <div id="p2pConversationsList"></div>
+        </div>
+        <div class="card" id="p2pReplyCard" style="display:none">
+          <div class="back-btn" onclick="closeP2pReply()">&#8592; Back to Queue</div>
+          <h3 id="p2pReplyHeader">Conversation</h3>
+          <div class="msg-list" id="p2pThread"></div>
+          <div id="p2pSuggestion" style="margin-top:12px;display:none">
+            <div style="font-size:12px;color:#64748b;margin-bottom:4px">&#129302; AI Suggested Reply <span id="p2pSuggestionSource" class="badge badge-gray"></span></div>
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-size:14px;color:#e2e8f0" id="p2pSuggestionText"></div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-success btn-sm" id="btnApproveSuggestion">&#9989; Approve &amp; Send</button>
+              <button class="btn btn-secondary btn-sm" id="btnEditSuggestion">&#9998; Edit</button>
+              <button class="btn btn-warning btn-sm" id="btnWriteOwn">Write Own</button>
+            </div>
+          </div>
+          <div id="p2pManualReply" style="margin-top:12px">
+            <div class="form-group"><textarea id="p2pReplyText" rows="2" placeholder="Type your reply..."></textarea></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-success btn-sm" id="btnSendReply">Send Reply</button>
+              <button class="btn btn-secondary btn-sm" id="btnMarkComplete">Mark Complete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="p2pJoinCard">
+        <h3>Join a P2P Session</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Enter the 4-digit code from your campaign admin to start texting.</p>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group"><label>Your Name</label><input type="text" id="p2pJoinName" placeholder="Maria"></div>
+          <div class="form-group"><label>Join Code</label><input type="text" id="p2pJoinCode" placeholder="1234" maxlength="4"></div>
+        </div>
+        <button class="btn btn-primary" id="btnJoinP2p">Join Session</button>
+      </div>
+    </div>
+
     <!-- ==================== BLOCK WALK ==================== -->
     <div class="page" id="page-walks">
       <!-- WALK LIST VIEW -->
@@ -331,6 +482,7 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>ZIP</label><input type="text" id="vZip"></div>
             <div class="form-group"><label>Party</label><select id="vParty"><option value="">--</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
           </div>
+          <div class="form-group" style="margin-bottom:12px"><label>Voter Registration #</label><input type="text" id="vRegNum" placeholder="Voter registration number"></div>
           <button class="btn btn-success btn-sm" onclick="saveNewVoter()">Save Voter</button>
           <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="document.getElementById('addVoterCard').style.display='none'">Cancel</button>
         </div>
@@ -344,7 +496,7 @@ tr:hover td{background:#1e293b80}
         </div>
         <div class="card">
           <h3>Voters <span class="badge badge-blue" id="voterCount">0</span></h3>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Party</th><th>Support</th><th>Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Reg #</th><th>Party</th><th>Support</th><th>Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
         </div>
       </div>
       <!-- VOTER DETAIL VIEW -->
@@ -372,6 +524,7 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Support Level</label><select id="vdSupport"><option value="unknown">Unknown</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option></select></div>
             <div class="form-group"><label>Tags</label><input type="text" id="vdTags" placeholder="volunteer, donor, ..."></div>
           </div>
+          <div class="form-group" style="margin-bottom:12px"><label>Voter Registration #</label><input type="text" id="vdRegNum" placeholder="Voter registration number"></div>
           <div class="form-group"><label>Notes</label><textarea id="vdNotes" rows="3"></textarea></div>
           <button class="btn btn-primary" onclick="saveVoterDetail()">Save Changes</button>
         </div>
@@ -426,6 +579,10 @@ tr:hover td{background:#1e293b80}
           <div style="margin-bottom:12px"><strong style="color:#94a3b8;font-size:13px">Location:</strong> <span id="eventDetailLocation"></span></div>
           <div style="margin-bottom:12px"><strong style="color:#94a3b8;font-size:13px">Description:</strong> <span id="eventDetailDesc"></span></div>
           <div class="form-group"><label>Status</label><select class="inline-select" id="eventDetailStatus" onchange="updateEventStatus()"><option value="upcoming">Upcoming</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+          <div style="margin-top:16px">
+            <button class="btn btn-primary btn-sm" onclick="showQrCode()">&#128274; Show QR Check-In Code</button>
+            <span style="font-size:12px;color:#64748b;margin-left:8px" id="checkinCount"></span>
+          </div>
         </div>
         <div class="card">
           <h3>Send Text Invites</h3>
@@ -476,6 +633,9 @@ async function apiPut(path, body) {
 async function apiDelete(path) {
   return api(path, { method: 'DELETE' });
 }
+async function apiPatch(path, body) {
+  return api(path, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
 function partyBadge(p) {
   const colors = { D: 'badge-blue', R: 'badge-red', I: 'badge-purple', NP: 'badge-gray' };
   const names = { D: 'Dem', R: 'Rep', I: 'Ind', NP: 'NP' };
@@ -511,6 +671,8 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'events') { showEventList(); loadEvents(); }
     if (page === 'inbox') loadInbox();
     if (page === 'dashboard') loadDashboard();
+    if (page === 'knowledge') loadKnowledge();
+    if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); }
   });
 });
 
@@ -632,10 +794,13 @@ async function loadInbox() {
     const el = document.getElementById('inboxMessages');
     if (!data.messages || data.messages.length === 0) { el.innerHTML = '<div style="color:#64748b;font-size:14px">No messages yet.</div>'; }
     else {
-      el.innerHTML = data.messages.map(m =>
-        '<div class="msg-item"><div class="phone">' + escHtml(m.phone) + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
-        '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + (m.phone||'').replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + m.phone + '\')">Reply</button></div></div>'
-      ).join('');
+      el.innerHTML = data.messages.map(m => {
+        const sBadge = m.sentiment === 'positive' ? '<span class="badge badge-green" style="margin-left:8px">Positive</span>'
+          : m.sentiment === 'negative' ? '<span class="badge badge-red" style="margin-left:8px">Negative</span>'
+          : m.sentiment ? '<span class="badge badge-gray" style="margin-left:8px">Neutral</span>' : '';
+        return '<div class="msg-item"><div class="phone">' + escHtml(m.phone) + sBadge + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
+        '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + (m.phone||'').replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + m.phone + '\')">Reply</button></div></div>';
+      }).join('');
     }
     const optEl = document.getElementById('optedOutList');
     if (!data.optedOut || data.optedOut.length === 0) { optEl.textContent = 'No opted-out numbers.'; }
@@ -672,6 +837,7 @@ async function loadDashboard() {
     else { el.innerHTML = data.logs.map(l => '<div class="log-entry"><span class="log-time">' + new Date(l.created_at).toLocaleString() + '</span> &mdash; ' + escHtml(l.message) + '</div>').join(''); }
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
+  loadSentimentStats();
 }
 
 // ===================== BLOCK WALK =====================
@@ -778,9 +944,9 @@ async function searchVoters() {
   const voters = data.voters || [];
   document.getElementById('voterCount').textContent = voters.length;
   const tbody = document.getElementById('votersBody');
-  if (voters.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No voters found.</td></tr>'; return; }
+  if (voters.length === 0) { tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center">No voters found.</td></tr>'; return; }
   tbody.innerHTML = voters.map(v =>
-    '<tr><td><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td>' + escHtml(v.address) + '</td><td>' + escHtml(v.phone) + '</td><td>' + partyBadge(v.party) + '</td><td>' + supportBadge(v.support_level) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>'
+    '<tr><td><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td>' + escHtml(v.address) + '</td><td>' + escHtml(v.phone) + '</td><td style="font-size:12px">' + escHtml(v.registration_number || '') + '</td><td>' + partyBadge(v.party) + '</td><td>' + supportBadge(v.support_level) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>'
   ).join('');
 }
 window.searchVoters = searchVoters;
@@ -798,6 +964,7 @@ async function loadVoterDetail(id) {
   document.getElementById('vdParty').value = v.party || '';
   document.getElementById('vdSupport').value = v.support_level || 'unknown';
   document.getElementById('vdTags').value = v.tags || '';
+  document.getElementById('vdRegNum').value = v.registration_number || '';
   document.getElementById('vdNotes').value = v.notes || '';
   // Contact history
   const tbody = document.getElementById('voterContactsBody');
@@ -816,7 +983,7 @@ window.saveVoterDetail = async function() {
     address: document.getElementById('vdAddress').value, city: document.getElementById('vdCity').value,
     zip: document.getElementById('vdZip').value, party: document.getElementById('vdParty').value,
     support_level: document.getElementById('vdSupport').value, tags: document.getElementById('vdTags').value,
-    notes: document.getElementById('vdNotes').value
+    registration_number: document.getElementById('vdRegNum').value, notes: document.getElementById('vdNotes').value
   });
   alert('Voter saved.');
 };
@@ -839,10 +1006,11 @@ window.saveNewVoter = async function() {
     first_name: document.getElementById('vFirst').value, last_name: document.getElementById('vLast').value,
     phone: document.getElementById('vPhone').value, email: document.getElementById('vEmail').value,
     address: document.getElementById('vAddress').value, city: document.getElementById('vCity').value,
-    zip: document.getElementById('vZip').value, party: document.getElementById('vParty').value
+    zip: document.getElementById('vZip').value, party: document.getElementById('vParty').value,
+    registration_number: document.getElementById('vRegNum').value
   });
   document.getElementById('addVoterCard').style.display = 'none';
-  ['vFirst','vLast','vPhone','vEmail','vAddress','vCity','vZip'].forEach(id => document.getElementById(id).value = '');
+  ['vFirst','vLast','vPhone','vEmail','vAddress','vCity','vZip','vRegNum'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('vParty').value = '';
   searchVoters();
 };
@@ -896,6 +1064,8 @@ async function loadEventDetail(id) {
   const counts = { invited: 0, confirmed: 0, declined: 0, attended: 0, no_show: 0 };
   rsvps.forEach(r => { counts[r.rsvp_status] = (counts[r.rsvp_status] || 0) + 1; });
   document.getElementById('rsvpCount').textContent = rsvps.length;
+  const checkedIn = rsvps.filter(r => r.checked_in_at).length;
+  document.getElementById('checkinCount').textContent = checkedIn > 0 ? checkedIn + ' checked in' : '';
   document.getElementById('rsvpStats').innerHTML = Object.keys(counts).map(k =>
     '<div class="stat-card" style="padding:12px"><div class="label">' + k.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + counts[k] + '</div></div>'
   ).join('');
@@ -963,6 +1133,528 @@ async function migrateLocalStorage() {
     localStorage.removeItem('contacts');
     localStorage.removeItem('activityLog');
   }
+}
+
+// ===================== QR CODE =====================
+window.showQrCode = function() {
+  const url = window.location.origin + '/checkin/' + state.currentEventId;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = '<div class="modal-box" style="position:relative"><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button><h3>Event QR Check-In</h3><p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Attendees scan this QR code to check in</p><canvas id="qrCanvas"></canvas><p style="font-size:12px;color:#64748b;margin:12px 0;word-break:break-all">' + escHtml(url) + '</p><div style="display:flex;gap:8px;justify-content:center"><button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + url + '\');this.textContent=\'Copied!\'">Copy Link</button><button class="btn btn-primary btn-sm" onclick="printQr()">Print QR</button></div></div>';
+  document.body.appendChild(overlay);
+  if (typeof QRCode !== 'undefined') {
+    QRCode.toCanvas(document.getElementById('qrCanvas'), url, { width: 256, margin: 2, color: { dark: '#000000', light: '#ffffff' } });
+  }
+};
+
+window.printQr = function() {
+  const canvas = document.getElementById('qrCanvas');
+  if (!canvas) return;
+  const win = window.open('', '_blank');
+  const img = canvas.toDataURL();
+  const link = window.location.origin + '/checkin/' + state.currentEventId;
+  win.document.open();
+  win.document.writeln('<html><head><title>QR Check-In</title></head><body style="font-family:sans-serif;text-align:center;padding:40px"><h1>Scan to Check In</h1><img src="' + img + '" width="300" height="300"><p>' + escHtml(link) + '</p></body></html>');
+  win.document.close();
+  win.onload = function() { win.print(); };
+};
+
+// ===================== SENTIMENT DASHBOARD =====================
+async function loadSentimentStats() {
+  try {
+    const data = await api('/api/stats/sentiment');
+    const total = (data.positive || 0) + (data.negative || 0) + (data.neutral || 0);
+    if (total === 0) { document.getElementById('statSentiment').textContent = 'No data'; return; }
+    document.getElementById('statSentiment').innerHTML =
+      '<span style="color:#4ade80">' + data.positive + '</span> / ' +
+      '<span style="color:#fca5a5">' + data.negative + '</span> / ' +
+      '<span style="color:#94a3b8">' + data.neutral + '</span>';
+  } catch (e) {}
+}
+
+// ===================== KNOWLEDGE BASE =====================
+async function loadKnowledge() {
+  // Load API key
+  try {
+    const d = await api('/api/settings/anthropic_api_key');
+    if (d.value) document.getElementById('anthropicKey').value = d.value;
+  } catch(e) {}
+  // Load knowledge entries
+  try {
+    const d = await api('/api/knowledge');
+    const entries = d.entries || [];
+    // Bio
+    const bio = entries.find(e => e.type === 'bio');
+    if (bio) document.getElementById('kdBio').value = bio.content;
+    // Campaign details
+    const details = entries.filter(e => e.type === 'details');
+    for (const det of details) {
+      if (det.title === 'Campaign Name') document.getElementById('kdCampaignName').value = det.content;
+      if (det.title === 'Election Date') document.getElementById('kdElectionDate').value = det.content;
+      if (det.title === 'Website') document.getElementById('kdWebsite').value = det.content;
+      if (det.title === 'Key Message') document.getElementById('kdSlogan').value = det.content;
+    }
+    // Policies
+    const policies = entries.filter(e => e.type === 'policy');
+    renderPolicies(policies);
+  } catch(e) {}
+  // Load scripts
+  try {
+    const d = await api('/api/scripts');
+    renderScripts(d.scripts || []);
+  } catch(e) {}
+}
+
+function renderPolicies(policies) {
+  const el = document.getElementById('policiesList');
+  if (policies.length === 0) { el.innerHTML = '<p style="color:#64748b;font-size:13px">No policies yet.</p>'; return; }
+  el.innerHTML = policies.map(p => `
+    <div class="knowledge-item" data-id="${p.id}" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 16px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong style="color:#e2e8f0">${escHtml(p.title)}</strong>
+        <button class="btn btn-danger btn-xs" onclick="deleteKnowledge(${p.id})">&#10005;</button>
+      </div>
+      <div style="color:#94a3b8;font-size:13px">${escHtml(p.content)}</div>
+    </div>
+  `).join('');
+}
+
+function renderScripts(scripts) {
+  const el = document.getElementById('scriptsList');
+  if (scripts.length === 0) { el.innerHTML = '<p style="color:#64748b;font-size:13px">No scripts yet.</p>'; return; }
+  el.innerHTML = scripts.map(s => `
+    <div class="script-item" data-id="${s.id}" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 16px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span><span class="badge badge-blue">${escHtml(s.scenario)}</span> <strong style="color:#e2e8f0;margin-left:6px">${escHtml(s.label)}</strong></span>
+        <button class="btn btn-danger btn-xs" onclick="deleteScript(${s.id})">&#10005;</button>
+      </div>
+      <div style="color:#94a3b8;font-size:13px">${escHtml(s.content)}</div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('btnSaveApiKey').addEventListener('click', async () => {
+  const val = document.getElementById('anthropicKey').value.trim();
+  if (!val) return;
+  await apiPut('/api/settings/anthropic_api_key', { value: val });
+  document.getElementById('apiKeyStatus').textContent = '✓ Saved';
+  setTimeout(() => document.getElementById('apiKeyStatus').textContent = '', 2000);
+});
+
+document.getElementById('btnSaveCampaignDetails').addEventListener('click', async () => {
+  const fields = [
+    { title: 'Campaign Name', el: 'kdCampaignName' },
+    { title: 'Election Date', el: 'kdElectionDate' },
+    { title: 'Website', el: 'kdWebsite' },
+    { title: 'Key Message', el: 'kdSlogan' }
+  ];
+  for (const f of fields) {
+    const val = document.getElementById(f.el).value.trim();
+    if (!val) continue;
+    // Check if exists
+    const d = await api('/api/knowledge');
+    const existing = (d.entries || []).find(e => e.type === 'details' && e.title === f.title);
+    if (existing) {
+      await apiPut('/api/knowledge/' + existing.id, { content: val });
+    } else {
+      await apiPost('/api/knowledge', { type: 'details', title: f.title, content: val });
+    }
+  }
+  alert('Campaign details saved!');
+});
+
+document.getElementById('btnSaveBio').addEventListener('click', async () => {
+  const val = document.getElementById('kdBio').value.trim();
+  if (!val) return;
+  const d = await api('/api/knowledge');
+  const existing = (d.entries || []).find(e => e.type === 'bio');
+  if (existing) {
+    await apiPut('/api/knowledge/' + existing.id, { content: val });
+  } else {
+    await apiPost('/api/knowledge', { type: 'bio', title: 'Candidate Bio', content: val });
+  }
+  alert('Bio saved!');
+});
+
+document.getElementById('btnAddPolicy').addEventListener('click', async () => {
+  const title = prompt('Policy title (e.g., "Healthcare")');
+  if (!title) return;
+  const content = prompt('Policy position details:');
+  if (!content) return;
+  await apiPost('/api/knowledge', { type: 'policy', title, content });
+  loadKnowledge();
+});
+
+async function deleteKnowledge(id) {
+  if (!confirm('Delete this entry?')) return;
+  await apiDelete('/api/knowledge/' + id);
+  loadKnowledge();
+}
+
+document.getElementById('btnAddScript').addEventListener('click', async () => {
+  const scenario = prompt('Scenario (e.g., "supporter_positive", "hostile", "undecided_question")');
+  if (!scenario) return;
+  const label = prompt('Short label for this script:');
+  if (!label) return;
+  const content = prompt('Script text (the response message):');
+  if (!content) return;
+  await apiPost('/api/scripts', { scenario, label, content });
+  loadKnowledge();
+});
+
+async function deleteScript(id) {
+  if (!confirm('Delete this script?')) return;
+  await apiDelete('/api/scripts/' + id);
+  loadKnowledge();
+}
+
+// ===================== P2P TEXTING =====================
+const p2pState = {
+  volunteerId: null,
+  sessionId: null,
+  sessionName: '',
+  isOnline: true,
+  currentAssignment: null,
+  pollTimer: null
+};
+
+function showP2pAdmin() {
+  document.getElementById('p2p-admin-view').style.display = '';
+  document.getElementById('p2p-session-view').style.display = 'none';
+  document.getElementById('p2p-volunteer-view').style.display = 'none';
+  if (p2pState.pollTimer) { clearInterval(p2pState.pollTimer); p2pState.pollTimer = null; }
+  loadP2pSessions();
+}
+
+async function loadP2pContacts() {
+  try {
+    const d = await api('/api/contacts');
+    const contacts = d.contacts || [];
+    const el = document.getElementById('p2pContactList');
+    el.innerHTML = contacts.map(c => `
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1e293b;font-size:14px;color:#e2e8f0;cursor:pointer">
+        <input type="checkbox" class="p2p-contact-cb" value="${c.id}" style="accent-color:#818cf8">
+        ${escHtml(c.first_name)} ${escHtml(c.last_name)} <span style="color:#64748b">${escHtml(c.phone)}</span>
+      </label>
+    `).join('');
+    updateP2pSelectedCount();
+    document.querySelectorAll('.p2p-contact-cb').forEach(cb => cb.addEventListener('change', updateP2pSelectedCount));
+  } catch(e) {}
+}
+
+function updateP2pSelectedCount() {
+  const checked = document.querySelectorAll('.p2p-contact-cb:checked').length;
+  document.getElementById('p2pSelectedCount').textContent = checked + ' selected';
+}
+
+document.getElementById('btnP2pSelectAll').addEventListener('click', () => {
+  document.querySelectorAll('.p2p-contact-cb').forEach(cb => cb.checked = true);
+  updateP2pSelectedCount();
+});
+document.getElementById('btnP2pSelectNone').addEventListener('click', () => {
+  document.querySelectorAll('.p2p-contact-cb').forEach(cb => cb.checked = false);
+  updateP2pSelectedCount();
+});
+
+document.getElementById('btnCreateP2pSession').addEventListener('click', async () => {
+  const name = document.getElementById('p2pSessionName').value.trim();
+  const message_template = document.getElementById('p2pTemplate').value.trim();
+  const assignment_mode = document.getElementById('p2pAssignMode').value;
+  const contact_ids = [...document.querySelectorAll('.p2p-contact-cb:checked')].map(cb => Number(cb.value));
+  if (!name || !message_template) return alert('Session name and message template required.');
+  if (contact_ids.length === 0) return alert('Select at least one contact.');
+  const d = await apiPost('/api/p2p/sessions', { name, message_template, assignment_mode, contact_ids });
+  if (d.error) return alert(d.error);
+  alert('Session created! Join code: ' + d.joinCode);
+  document.getElementById('p2pSessionName').value = '';
+  document.getElementById('p2pTemplate').value = '';
+  loadP2pSessions();
+});
+
+async function loadP2pSessions() {
+  try {
+    const d = await api('/api/p2p/sessions');
+    const sessions = d.sessions || [];
+    const el = document.getElementById('p2pSessionsList');
+    if (sessions.length === 0) { el.innerHTML = '<p style="color:#64748b;font-size:13px">No sessions yet.</p>'; return; }
+    el.innerHTML = sessions.map(s => `
+      <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px 18px;margin-bottom:10px;cursor:pointer" onclick="openP2pSession(${s.id})">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <strong style="color:#e2e8f0">${escHtml(s.name)}</strong>
+          ${statusBadge(s.status)}
+        </div>
+        <div style="display:flex;gap:16px;font-size:13px;color:#94a3b8">
+          <span>Code: <strong style="color:#818cf8">${s.join_code}</strong></span>
+          <span>${s.sent}/${s.totalContacts} sent</span>
+          <span>${s.onlineCount}/${s.volunteerCount} online</span>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {}
+}
+
+async function openP2pSession(id) {
+  document.getElementById('p2p-admin-view').style.display = 'none';
+  document.getElementById('p2p-session-view').style.display = '';
+  try {
+    const d = await api('/api/p2p/sessions/' + id);
+    const s = d.session;
+    document.getElementById('p2pSessionTitle').textContent = s.name;
+    document.getElementById('p2pJoinCodeDisplay').textContent = s.join_code;
+    document.getElementById('p2pCodeExpires').textContent = s.code_expires_at ? new Date(s.code_expires_at).toLocaleDateString() : '';
+    document.getElementById('p2pStatSent').textContent = s.totalSent || 0;
+    document.getElementById('p2pStatChats').textContent = s.totalReplies || 0;
+    document.getElementById('p2pStatRemaining').textContent = s.remaining || 0;
+
+    // Mode selector
+    const modeSelect = document.getElementById('p2pModeSelect');
+    modeSelect.innerHTML = '<option value="auto_split">Auto-Split</option><option value="claim">Claim</option><option value="manual">Manual</option>';
+    modeSelect.value = s.assignment_mode;
+    modeSelect.dataset.sessionId = s.id;
+
+    // Volunteers
+    const tbody = document.getElementById('p2pVolunteersBody');
+    tbody.innerHTML = (s.volunteers || []).map(v => `
+      <tr>
+        <td>${escHtml(v.name)}</td>
+        <td><span class="badge ${v.is_online ? 'badge-green' : 'badge-gray'}">${v.is_online ? 'Online' : 'Offline'}</span></td>
+        <td>${v.sent || 0}</td>
+        <td>${v.activeChats || 0}</td>
+        <td>${v.remaining || 0}</td>
+      </tr>
+    `).join('');
+
+    // Close session button
+    document.getElementById('btnCloseSession').onclick = async () => {
+      if (!confirm('Close this session?')) return;
+      await apiPatch('/api/p2p/sessions/' + s.id, { status: 'closed' });
+      showP2pAdmin();
+    };
+  } catch(e) { console.error(e); }
+}
+
+async function updateP2pMode() {
+  const sel = document.getElementById('p2pModeSelect');
+  await apiPatch('/api/p2p/sessions/' + sel.dataset.sessionId, { assignment_mode: sel.value });
+}
+
+// ===== VOLUNTEER JOIN =====
+document.getElementById('btnJoinP2p').addEventListener('click', async () => {
+  const name = document.getElementById('p2pJoinName').value.trim();
+  const code = document.getElementById('p2pJoinCode').value.trim();
+  if (!name || !code) return alert('Name and join code required.');
+  const d = await apiPost('/api/p2p/join', { name, code });
+  if (d.error) return alert(d.error);
+  p2pState.volunteerId = d.volunteerId;
+  p2pState.sessionId = d.sessionId;
+  p2pState.sessionName = d.sessionName;
+  p2pState.isOnline = true;
+  showP2pVolunteer();
+});
+
+function showP2pVolunteer() {
+  document.getElementById('p2p-admin-view').style.display = 'none';
+  document.getElementById('p2p-session-view').style.display = 'none';
+  document.getElementById('p2p-volunteer-view').style.display = '';
+  document.getElementById('p2pJoinCard').style.display = 'none';
+  document.getElementById('p2pVolName').textContent = document.getElementById('p2pJoinName').value;
+  document.getElementById('p2pVolSession').textContent = p2pState.sessionName;
+  document.getElementById('p2pReplyCard').style.display = 'none';
+  loadVolunteerQueue();
+  // Start polling
+  if (p2pState.pollTimer) clearInterval(p2pState.pollTimer);
+  p2pState.pollTimer = setInterval(loadVolunteerQueue, 5000);
+}
+
+function leaveP2pVolunteer() {
+  if (p2pState.pollTimer) { clearInterval(p2pState.pollTimer); p2pState.pollTimer = null; }
+  p2pState.volunteerId = null;
+  p2pState.sessionId = null;
+  document.getElementById('p2p-volunteer-view').style.display = 'none';
+  document.getElementById('p2pJoinCard').style.display = '';
+  showP2pAdmin();
+}
+
+async function loadVolunteerQueue() {
+  if (!p2pState.volunteerId) return;
+  try {
+    const d = await api('/api/p2p/volunteers/' + p2pState.volunteerId + '/queue');
+    // Progress
+    document.getElementById('p2pVolProgress').textContent = (d.stats.sent || 0) + ' sent / ' + (d.stats.remaining || 0) + ' remaining';
+
+    // Next contact in queue
+    const qCard = document.getElementById('p2pQueueCard');
+    if (d.assignment) {
+      qCard.style.display = '';
+      p2pState.currentAssignment = d.assignment;
+      document.getElementById('p2pContactInfo').innerHTML = `
+        <div style="font-size:16px;color:#e2e8f0;margin-bottom:4px"><strong>${escHtml(d.assignment.first_name)} ${escHtml(d.assignment.last_name)}</strong></div>
+        <div style="font-size:13px;color:#94a3b8">${escHtml(d.assignment.phone)}${d.assignment.city ? ' · ' + escHtml(d.assignment.city) : ''}</div>
+      `;
+      document.getElementById('p2pMessage').value = d.resolvedMessage || '';
+    } else {
+      qCard.style.display = 'none';
+      p2pState.currentAssignment = null;
+      if ((d.stats.remaining || 0) === 0) {
+        document.getElementById('p2pContactInfo').innerHTML = '<p style="color:#64748b">All contacts in your queue have been texted! 🎉</p>';
+      }
+    }
+
+    // Active conversations
+    const convCard = document.getElementById('p2pConversationsCard');
+    const convList = document.getElementById('p2pConversationsList');
+    if (d.activeConversations && d.activeConversations.length > 0) {
+      convCard.style.display = '';
+      document.getElementById('p2pConvCount').textContent = d.activeConversations.length;
+      convList.innerHTML = d.activeConversations.map(c => `
+        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="openP2pConversation(${c.id})">
+          <div>
+            <strong style="color:#e2e8f0">${escHtml(c.first_name)} ${escHtml(c.last_name)}</strong>
+            <span style="color:#64748b;font-size:13px;margin-left:8px">${escHtml(c.phone)}</span>
+          </div>
+          <span class="badge badge-blue">Reply</span>
+        </div>
+      `).join('');
+    } else {
+      convCard.style.display = 'none';
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ===== SEND / SKIP =====
+document.getElementById('btnP2pSend').addEventListener('click', async () => {
+  if (!p2pState.currentAssignment) return;
+  const message = document.getElementById('p2pMessage').value.trim();
+  if (!message) return alert('Message cannot be empty.');
+  const creds = state.credentials;
+  if (!creds.accountSid || !creds.authToken || !creds.fromNumber) return alert('Set up Twilio credentials first (Setup page).');
+  const d = await apiPost('/api/p2p/send', {
+    volunteerId: p2pState.volunteerId,
+    assignmentId: p2pState.currentAssignment.id,
+    message,
+    accountSid: creds.accountSid,
+    authToken: creds.authToken,
+    from: creds.fromNumber
+  });
+  if (d.error) return alert(d.error);
+  loadVolunteerQueue();
+});
+
+document.getElementById('btnP2pSkip').addEventListener('click', async () => {
+  if (!p2pState.currentAssignment) return;
+  await apiPatch('/api/p2p/assignments/' + p2pState.currentAssignment.id + '/skip');
+  loadVolunteerQueue();
+});
+
+// ===== ONLINE / OFFLINE TOGGLE =====
+document.getElementById('btnToggleOnline').addEventListener('click', async () => {
+  p2pState.isOnline = !p2pState.isOnline;
+  await apiPatch('/api/p2p/volunteers/' + p2pState.volunteerId + '/status', { is_online: p2pState.isOnline });
+  const btn = document.getElementById('btnToggleOnline');
+  btn.textContent = p2pState.isOnline ? 'Go Offline' : 'Go Online';
+  btn.className = p2pState.isOnline ? 'btn btn-secondary btn-sm' : 'btn btn-success btn-sm';
+  if (p2pState.isOnline) loadVolunteerQueue();
+});
+
+// ===== CONVERSATION THREAD =====
+async function openP2pConversation(assignmentId) {
+  document.getElementById('p2pQueueCard').style.display = 'none';
+  document.getElementById('p2pConversationsCard').style.display = 'none';
+  document.getElementById('p2pReplyCard').style.display = '';
+  try {
+    const d = await api('/api/p2p/conversations/' + assignmentId);
+    document.getElementById('p2pReplyHeader').textContent = (d.assignment.first_name || '') + ' ' + (d.assignment.last_name || '');
+    const thread = document.getElementById('p2pThread');
+    thread.innerHTML = (d.messages || []).map(m => `
+      <div style="padding:8px 12px;border-radius:8px;margin-bottom:6px;max-width:80%;${m.direction === 'outbound' ? 'background:#312e81;margin-left:auto;text-align:right' : 'background:#1e293b'}">
+        <div style="font-size:13px;color:#e2e8f0">${escHtml(m.body)}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">${m.direction === 'outbound' ? '↑ Sent' : '↓ Received'}${m.volunteer_name ? ' by ' + escHtml(m.volunteer_name) : ''}</div>
+      </div>
+    `).join('');
+    thread.scrollTop = thread.scrollHeight;
+
+    // Get AI suggestion for last inbound message
+    const lastInbound = (d.messages || []).filter(m => m.direction === 'inbound').pop();
+    if (lastInbound) {
+      getSuggestion(lastInbound.body, d.assignment.first_name, lastInbound.sentiment, assignmentId);
+    }
+
+    // Wire reply buttons
+    document.getElementById('btnSendReply').onclick = async () => {
+      const body = document.getElementById('p2pReplyText').value.trim();
+      if (!body) return alert('Type a reply.');
+      const creds = state.credentials;
+      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) return alert('Set up Twilio credentials first.');
+      await apiPost('/api/p2p/send', {
+        volunteerId: p2pState.volunteerId,
+        assignmentId,
+        message: body,
+        accountSid: creds.accountSid,
+        authToken: creds.authToken,
+        from: creds.fromNumber
+      });
+      openP2pConversation(assignmentId);
+    };
+
+    document.getElementById('btnMarkComplete').onclick = async () => {
+      await apiPatch('/api/p2p/assignments/' + assignmentId + '/complete');
+      closeP2pReply();
+      loadVolunteerQueue();
+    };
+  } catch(e) { console.error(e); }
+}
+
+function closeP2pReply() {
+  document.getElementById('p2pReplyCard').style.display = 'none';
+  document.getElementById('p2pQueueCard').style.display = '';
+  document.getElementById('p2pConversationsCard').style.display = '';
+  document.getElementById('p2pSuggestion').style.display = 'none';
+  document.getElementById('p2pReplyText').value = '';
+}
+
+// ===== AI SUGGESTIONS =====
+async function getSuggestion(voterMessage, voterName, sentiment, assignmentId) {
+  const sugEl = document.getElementById('p2pSuggestion');
+  sugEl.style.display = 'none';
+  try {
+    const d = await apiPost('/api/p2p/suggest-reply', {
+      voterMessage,
+      voterName: voterName || 'Voter',
+      sentiment: sentiment || 'neutral',
+      sessionName: p2pState.sessionName
+    });
+    if (d.suggestion) {
+      sugEl.style.display = '';
+      document.getElementById('p2pSuggestionText').textContent = d.suggestion;
+      document.getElementById('p2pSuggestionSource').textContent = d.source === 'ai' ? 'AI' : d.source === 'script' ? 'Script' : '';
+
+      document.getElementById('btnApproveSuggestion').onclick = async () => {
+        const creds = state.credentials;
+        if (!creds.accountSid || !creds.authToken || !creds.fromNumber) return alert('Set up Twilio credentials first.');
+        await apiPost('/api/p2p/send', {
+          volunteerId: p2pState.volunteerId,
+          assignmentId,
+          message: d.suggestion,
+          accountSid: creds.accountSid,
+          authToken: creds.authToken,
+          from: creds.fromNumber
+        });
+        openP2pConversation(assignmentId);
+      };
+
+      document.getElementById('btnEditSuggestion').onclick = () => {
+        document.getElementById('p2pReplyText').value = d.suggestion;
+        sugEl.style.display = 'none';
+      };
+
+      document.getElementById('btnWriteOwn').onclick = () => {
+        document.getElementById('p2pReplyText').value = '';
+        document.getElementById('p2pReplyText').focus();
+        sugEl.style.display = 'none';
+      };
+    }
+  } catch(e) { console.error(e); }
 }
 
 // ===================== INIT =====================

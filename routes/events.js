@@ -77,4 +77,27 @@ router.put('/events/:id/rsvps/:rsvpId', (req, res) => {
   res.json({ success: true });
 });
 
+// QR Code check-in (public endpoint, no auth needed)
+router.post('/events/:id/checkin', (req, res) => {
+  const { name, phone } = req.body;
+  if (!name || !phone) return res.status(400).json({ error: 'Name and phone are required.' });
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  // Check if already checked in
+  const existing = db.prepare('SELECT * FROM event_rsvps WHERE event_id = ? AND contact_phone = ?').get(req.params.id, phone);
+  if (existing) {
+    // Update to attended
+    db.prepare("UPDATE event_rsvps SET rsvp_status = 'attended', checked_in_at = datetime('now'), contact_name = COALESCE(?, contact_name) WHERE id = ?")
+      .run(name, existing.id);
+  } else {
+    // New walk-in attendee
+    db.prepare("INSERT INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status, checked_in_at) VALUES (?, ?, ?, 'attended', datetime('now'))")
+      .run(req.params.id, phone, name);
+  }
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(name + ' checked in to: ' + event.title);
+  res.json({ success: true, eventTitle: event.title });
+});
+
 module.exports = router;

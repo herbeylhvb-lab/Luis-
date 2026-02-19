@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Check-In</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    .logo { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    .event-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #00d4aa;
+      margin-bottom: 0.25rem;
+    }
+    .event-info {
+      font-size: 0.9rem;
+      color: #888;
+      margin-bottom: 1.5rem;
+    }
+    .form-group {
+      margin-bottom: 1rem;
+      text-align: left;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      color: #aaa;
+      margin-bottom: 0.3rem;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      background: #16213e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 1rem;
+      outline: none;
+    }
+    .form-group input:focus { border-color: #00d4aa; }
+    .btn-checkin {
+      width: 100%;
+      padding: 0.85rem;
+      background: #00d4aa;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+    .btn-checkin:hover { background: #00b894; }
+    .btn-checkin:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error-msg {
+      color: #ff6b6b;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+    .success-container {
+      display: none;
+      text-align: center;
+    }
+    .success-container .checkmark {
+      font-size: 4rem;
+      animation: pop 0.4s ease;
+    }
+    @keyframes pop {
+      0% { transform: scale(0); }
+      70% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+    .success-container h2 {
+      color: #00d4aa;
+      margin: 1rem 0 0.5rem;
+      font-size: 1.5rem;
+    }
+    .success-container p { color: #aaa; }
+    .loading-msg {
+      color: #888;
+      font-size: 1rem;
+      margin-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">&#127881;</div>
+
+    <div id="loading" class="loading-msg">Loading event info...</div>
+
+    <div id="checkin-form" style="display:none;">
+      <div class="event-title" id="eventTitle"></div>
+      <div class="event-info" id="eventInfo"></div>
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="nameInput" placeholder="John Doe" autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label>Phone Number</label>
+        <input type="tel" id="phoneInput" placeholder="(555) 123-4567" autocomplete="tel">
+      </div>
+      <button class="btn-checkin" id="checkinBtn" onclick="doCheckin()">Check In</button>
+      <div class="error-msg" id="errorMsg"></div>
+    </div>
+
+    <div class="success-container" id="success">
+      <div class="checkmark">&#9989;</div>
+      <h2>You're Checked In!</h2>
+      <p id="successMsg">Welcome to the event.</p>
+    </div>
+
+    <div id="not-found" style="display:none;">
+      <div style="font-size:3rem;">&#128533;</div>
+      <h2 style="color:#ff6b6b;margin-top:1rem;">Event Not Found</h2>
+      <p style="color:#888;margin-top:0.5rem;">This check-in link is no longer valid.</p>
+    </div>
+  </div>
+
+  <script>
+    const eventId = window.location.pathname.split('/').pop();
+
+    // Load event info
+    fetch('/api/events/' + eventId)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('loading').style.display = 'none';
+        if (data.error) {
+          document.getElementById('not-found').style.display = 'block';
+          return;
+        }
+        const e = data.event;
+        document.getElementById('eventTitle').textContent = e.title;
+        document.getElementById('eventInfo').textContent =
+          (e.event_date || '') + (e.event_time ? ' at ' + e.event_time : '') +
+          (e.location ? ' \u2022 ' + e.location : '');
+        document.getElementById('checkin-form').style.display = 'block';
+      })
+      .catch(() => {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('not-found').style.display = 'block';
+      });
+
+    function doCheckin() {
+      const name = document.getElementById('nameInput').value.trim();
+      const phone = document.getElementById('phoneInput').value.trim();
+      const errEl = document.getElementById('errorMsg');
+      const btn = document.getElementById('checkinBtn');
+
+      if (!name || !phone) {
+        errEl.textContent = 'Please enter your name and phone number.';
+        return;
+      }
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Checking in...';
+
+      fetch('/api/events/' + eventId + '/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone })
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            document.getElementById('checkin-form').style.display = 'none';
+            document.getElementById('successMsg').textContent = 'Welcome to ' + data.eventTitle + '!';
+            document.getElementById('success').style.display = 'block';
+          } else {
+            errEl.textContent = data.error || 'Check-in failed. Please try again.';
+            btn.disabled = false;
+            btn.textContent = 'Check In';
+          }
+        })
+        .catch(() => {
+          errEl.textContent = 'Network error. Please try again.';
+          btn.disabled = false;
+          btn.textContent = 'Check In';
+        });
+    }
+  </script>
+</body>
+</html>
