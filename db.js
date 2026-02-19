@@ -141,4 +141,81 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_rsvps_event ON event_rsvps(event_id);
 `);
 
+// --- Phase 2 migrations ---
+
+// Sentiment column on messages
+try { db.exec("ALTER TABLE messages ADD COLUMN sentiment TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+
+// Check-in timestamp on event RSVPs
+try { db.exec("ALTER TABLE event_rsvps ADD COLUMN checked_in_at TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+
+// Voter registration number
+try { db.exec("ALTER TABLE voters ADD COLUMN registration_number TEXT DEFAULT ''"); } catch (e) { /* already exists */ }
+
+// --- Phase 3: P2P Texting tables ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS p2p_sessions (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    message_template TEXT NOT NULL,
+    assignment_mode TEXT DEFAULT 'auto_split',
+    join_code TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    code_expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_p2p_sessions_code ON p2p_sessions(join_code);
+
+  CREATE TABLE IF NOT EXISTS p2p_volunteers (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES p2p_sessions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    is_online INTEGER DEFAULT 1,
+    joined_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_p2p_vol_session ON p2p_volunteers(session_id);
+
+  CREATE TABLE IF NOT EXISTS p2p_assignments (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES p2p_sessions(id) ON DELETE CASCADE,
+    volunteer_id INTEGER REFERENCES p2p_volunteers(id),
+    contact_id INTEGER NOT NULL REFERENCES contacts(id),
+    status TEXT DEFAULT 'pending',
+    original_volunteer_id INTEGER DEFAULT NULL,
+    assigned_at TEXT DEFAULT (datetime('now')),
+    sent_at TEXT,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_p2p_assign_vol ON p2p_assignments(volunteer_id);
+  CREATE INDEX IF NOT EXISTS idx_p2p_assign_session ON p2p_assignments(session_id);
+  CREATE INDEX IF NOT EXISTS idx_p2p_assign_contact ON p2p_assignments(contact_id);
+
+  CREATE TABLE IF NOT EXISTS campaign_knowledge (
+    id INTEGER PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS response_scripts (
+    id INTEGER PRIMARY KEY,
+    scenario TEXT NOT NULL,
+    label TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
+// P2P columns on messages
+try { db.exec("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL"); } catch (e) { /* already exists */ }
+try { db.exec("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+
 module.exports = db;
