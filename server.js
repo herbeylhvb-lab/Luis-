@@ -18,6 +18,9 @@ app.use('/api', require('./routes/contacts'));
 app.use('/api', require('./routes/walks'));
 app.use('/api', require('./routes/voters'));
 app.use('/api', require('./routes/events'));
+app.use('/api', require('./routes/knowledge'));
+app.use('/api', require('./routes/ai'));
+app.use('/api', require('./routes/p2p'));
 
 // --- Core endpoints ---
 
@@ -53,6 +56,19 @@ app.post('/api/activity', (req, res) => {
   if (!message) return res.status(400).json({ error: 'Message required.' });
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(message);
   res.json({ success: true });
+});
+
+// --- Sentiment stats ---
+app.get('/api/stats/sentiment', (req, res) => {
+  const positive = db.prepare("SELECT COUNT(*) as c FROM messages WHERE sentiment = 'positive'").get().c;
+  const negative = db.prepare("SELECT COUNT(*) as c FROM messages WHERE sentiment = 'negative'").get().c;
+  const neutral = db.prepare("SELECT COUNT(*) as c FROM messages WHERE sentiment = 'neutral'").get().c;
+  res.json({ positive, negative, neutral });
+});
+
+// --- QR Check-in page ---
+app.get('/checkin/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'checkin.html'));
 });
 
 // --- Twilio test connection ---
@@ -114,7 +130,24 @@ app.post('/incoming', (req, res) => {
     twiml.message("You've been removed from our list. -- Campaign HQ");
     return res.type('text/xml').send(twiml.toString());
   }
-  db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'inbound')").run(From, Body);
+  const sentiment = analyzeSentiment(Body);
+
+  // Check if this is a reply to an active P2P session
+  const p2pAssignment = db.prepare(`
+    SELECT a.*, s.id as sid FROM p2p_assignments a
+    JOIN p2p_sessions s ON a.session_id = s.id
+    JOIN contacts c ON a.contact_id = c.id
+    WHERE c.phone = ? AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
+    ORDER BY a.sent_at DESC LIMIT 1
+  `).get(From);
+
+  if (p2pAssignment) {
+    db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
+    db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id) VALUES (?, ?, 'inbound', ?, ?)").run(From, Body, sentiment, p2pAssignment.sid);
+    return res.type('text/xml').send('<Response></Response>');
+  }
+
+  db.prepare("INSERT INTO messages (phone, body, direction, sentiment) VALUES (?, ?, 'inbound', ?)").run(From, Body, sentiment);
   const autoReply = generateAutoReply(msgText);
   if (autoReply) {
     const twiml = new twilio.twiml.MessagingResponse();
@@ -189,6 +222,19 @@ app.post('/api/events/:id/invite', async (req, res) => {
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Invited ' + sent + ' contacts to: ' + event.title);
   res.json({ success: true, sent });
 });
+
+// --- Sentiment analysis ---
+function analyzeSentiment(text) {
+  const msg = (text || '').toLowerCase();
+  const positiveWords = ['yes', 'sure', 'support', 'agree', 'thanks', 'thank', 'great', 'love', 'count me in', 'absolutely', 'interested', 'definitely', 'of course', 'wonderful', 'awesome', 'perfect', 'good', 'ok', 'okay', 'yep', 'yea', 'yeah'];
+  const negativeWords = ['no', 'stop', 'disagree', 'oppose', 'hate', 'unsubscribe', 'leave me alone', 'not interested', 'remove', 'never', 'terrible', 'awful', 'worst', 'don\'t', 'wont', 'refuse', 'against', 'bad'];
+  let score = 0;
+  for (const word of positiveWords) { if (msg.includes(word)) score++; }
+  for (const word of negativeWords) { if (msg.includes(word)) score--; }
+  if (score > 0) return 'positive';
+  if (score < 0) return 'negative';
+  return 'neutral';
+}
 
 function generateAutoReply(msg) {
   if (['poll','polling','vote','where','location'].some(k => msg.includes(k)))
