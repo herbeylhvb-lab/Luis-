@@ -1450,7 +1450,7 @@ window.closeCanvassImport = closeCanvassImport;
 // ===================== ENRICH DATA =====================
 const ENRICH_COLUMN_MAP = {
   'voterid': 'voter_id', 'voter_id': 'voter_id', 'voter id': 'voter_id',
-  'vanid': 'voter_id', 'van id': 'voter_id', 'id': 'voter_id',
+  'vanid': 'voter_id', 'van id': 'voter_id',
   'registrationnumber': 'voter_id', 'registration_number': 'voter_id',
   'reg_num': 'voter_id', 'regnum': 'voter_id', 'voterregid': 'voter_id',
   'stateid': 'voter_id', 'state_id': 'voter_id', 'state id': 'voter_id',
@@ -1681,6 +1681,7 @@ window.executeEnrichment = async function() {
         rNew.type = 'radio'; rNew.name = 'conflict_' + i;
         rNew.value = c.new_phone;
         rNew.dataset.voterId = c.voter_id;
+        rNew.dataset.isNew = 'true';
         lNew.appendChild(rNew);
         lNew.appendChild(document.createTextNode('New'));
         tdRadio.appendChild(lNew);
@@ -1756,16 +1757,27 @@ async function resolveConflicts() {
   const resolutions = [];
   for (let i = 0; i < count; i++) {
     const selected = document.querySelector('input[name="conflict_' + i + '"]:checked');
-    if (selected) {
+    // Only send rows where user explicitly chose the NEW phone number
+    if (selected && selected.dataset.isNew === 'true') {
       resolutions.push({ voter_id: parseInt(selected.dataset.voterId), phone: selected.value });
     }
   }
-  if (resolutions.length === 0) return alert('No conflicts to resolve.');
+  if (count === 0) return alert('No conflicts to resolve.');
 
   try {
+    if (resolutions.length === 0) {
+      // All conflicts resolved as "keep current" — no server call needed
+      const conflictsDiv = document.getElementById('enrichConflicts');
+      conflictsDiv.replaceChildren();
+      const doneMsg = document.createElement('div');
+      doneMsg.style.cssText = 'color:#10b981;font-size:14px;margin-bottom:8px';
+      doneMsg.textContent = 'All conflicts resolved — kept existing phone numbers.';
+      conflictsDiv.appendChild(doneMsg);
+      return;
+    }
     const d = await apiPost('/api/voters/enrich/resolve', { resolutions });
     if (d.success) {
-      alert('Updated ' + d.updated + ' phone number(s).');
+      alert('Updated ' + d.updated + ' phone number(s). Kept ' + (count - resolutions.length) + ' existing.');
       const conflictsDiv = document.getElementById('enrichConflicts');
       conflictsDiv.replaceChildren();
       const doneMsg = document.createElement('div');

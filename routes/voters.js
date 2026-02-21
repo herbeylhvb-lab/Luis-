@@ -261,8 +261,9 @@ router.post('/voters/enrich/resolve', (req, res) => {
   const resolveTx = db.transaction((list) => {
     let updated = 0;
     for (const r of list) {
-      if (r.voter_id && r.phone) {
-        updatePhone.run(r.phone, r.voter_id);
+      const voterIdInt = parseInt(r.voter_id, 10);
+      if (voterIdInt > 0 && r.phone && typeof r.phone === 'string') {
+        updatePhone.run(r.phone.trim().slice(0, 30), voterIdInt);
         updated++;
       }
     }
@@ -278,46 +279,9 @@ router.post('/voters/enrich/resolve', (req, res) => {
   res.json({ success: true, updated });
 });
 
-// Get voter detail with contact history
-router.get('/voters/:id', (req, res) => {
-  const voter = db.prepare('SELECT * FROM voters WHERE id = ?').get(req.params.id);
-  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
-  voter.contactHistory = db.prepare('SELECT * FROM voter_contacts WHERE voter_id = ? ORDER BY contacted_at DESC').all(req.params.id);
-  res.json({ voter });
-});
-
-// Update voter
-router.put('/voters/:id', (req, res) => {
-  const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number } = req.body;
-  db.prepare(`UPDATE voters SET
-    first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
-    phone = COALESCE(?, phone), email = COALESCE(?, email),
-    address = COALESCE(?, address), city = COALESCE(?, city), zip = COALESCE(?, zip),
-    party = COALESCE(?, party), support_level = COALESCE(?, support_level),
-    voter_score = COALESCE(?, voter_score), tags = COALESCE(?, tags), notes = COALESCE(?, notes),
-    registration_number = COALESCE(?, registration_number),
-    updated_at = datetime('now') WHERE id = ?`
-  ).run(first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, req.params.id);
-  res.json({ success: true });
-});
-
-// Delete voter
-router.delete('/voters/:id', (req, res) => {
-  db.prepare('DELETE FROM voters WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
-});
-
-// Log a contact attempt
-router.post('/voters/:id/contacts', (req, res) => {
-  const { contact_type, result, notes, contacted_by } = req.body;
-  if (!contact_type) return res.status(400).json({ error: 'Contact type is required.' });
-  const r = db.prepare(
-    'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
-  ).run(req.params.id, contact_type, result || '', notes || '', contacted_by || '');
-  res.json({ success: true, id: r.lastInsertRowid });
-});
-
 // --- QR Code Check-In Endpoints ---
+// NOTE: These static-path routes MUST be registered before the /:id wildcard below,
+// otherwise Express matches "qr" and "checkins" as :id parameters.
 
 // Look up voter by QR token (public, used by check-in page)
 router.get('/voters/qr/:token', (req, res) => {
@@ -423,6 +387,47 @@ router.get('/voters/checkins/event/:eventId', (req, res) => {
     WHERE vc.event_id = ? ORDER BY vc.checked_in_at DESC
   `).all(req.params.eventId);
   res.json({ checkins, total: checkins.length });
+});
+
+// --- Wildcard :id routes MUST come after all static-segment routes above ---
+
+// Get voter detail with contact history
+router.get('/voters/:id', (req, res) => {
+  const voter = db.prepare('SELECT * FROM voters WHERE id = ?').get(req.params.id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  voter.contactHistory = db.prepare('SELECT * FROM voter_contacts WHERE voter_id = ? ORDER BY contacted_at DESC').all(req.params.id);
+  res.json({ voter });
+});
+
+// Update voter
+router.put('/voters/:id', (req, res) => {
+  const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number } = req.body;
+  db.prepare(`UPDATE voters SET
+    first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name),
+    phone = COALESCE(?, phone), email = COALESCE(?, email),
+    address = COALESCE(?, address), city = COALESCE(?, city), zip = COALESCE(?, zip),
+    party = COALESCE(?, party), support_level = COALESCE(?, support_level),
+    voter_score = COALESCE(?, voter_score), tags = COALESCE(?, tags), notes = COALESCE(?, notes),
+    registration_number = COALESCE(?, registration_number),
+    updated_at = datetime('now') WHERE id = ?`
+  ).run(first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, req.params.id);
+  res.json({ success: true });
+});
+
+// Delete voter
+router.delete('/voters/:id', (req, res) => {
+  db.prepare('DELETE FROM voters WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Log a contact attempt
+router.post('/voters/:id/contacts', (req, res) => {
+  const { contact_type, result, notes, contacted_by } = req.body;
+  if (!contact_type) return res.status(400).json({ error: 'Contact type is required.' });
+  const r = db.prepare(
+    'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+  ).run(req.params.id, contact_type, result || '', notes || '', contacted_by || '');
+  res.json({ success: true, id: r.lastInsertRowid });
 });
 
 module.exports = router;
