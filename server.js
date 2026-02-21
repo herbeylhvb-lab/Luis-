@@ -96,7 +96,7 @@ app.post('/test-connection', async (req, res) => {
 
 // --- Send campaign ---
 app.post('/send', async (req, res) => {
-  const { accountSid, authToken, from, contacts, messageTemplate, optOutFooter } = req.body;
+  const { accountSid, authToken, from, contacts, messageTemplate, optOutFooter, eventId } = req.body;
   if (!accountSid || !authToken || !from) return res.status(400).json({ error: 'Missing Twilio credentials.' });
   if (!contacts || contacts.length === 0) return res.status(400).json({ error: 'No contacts provided.' });
   if (!messageTemplate) return res.status(400).json({ error: 'No message body provided.' });
@@ -106,18 +106,29 @@ app.post('/send', async (req, res) => {
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
   const optedOutSet = new Set(optedOut);
 
-  // Build origin URL for QR links (use request headers or fallback)
+  // Build origin URL for QR links and MMS composite images
   const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
+
+  // Check if event has a flyer for MMS
+  let eventHasFlyer = false;
+  if (eventId) {
+    const evt = db.prepare('SELECT flyer_image IS NOT NULL as has_flyer FROM events WHERE id = ?').get(eventId);
+    if (evt && evt.has_flyer) eventHasFlyer = true;
+  }
 
   for (const contact of contacts) {
     try {
       if (optedOutSet.has(contact.phone)) { results.failed++; continue; }
 
-      // Look up voter QR token for {qr_link} replacement
+      // Look up voter QR token for {qr_link} replacement and MMS
       let qrLink = '';
-      if (messageTemplate.includes('{qr_link}')) {
-        const voter = db.prepare("SELECT qr_token FROM voters WHERE phone = ? AND qr_token IS NOT NULL LIMIT 1").get(contact.phone);
-        qrLink = voter ? origin + '/v/' + voter.qr_token : origin;
+      let voterToken = null;
+      const voter = db.prepare("SELECT qr_token FROM voters WHERE phone = ? AND qr_token IS NOT NULL LIMIT 1").get(contact.phone);
+      if (voter) {
+        voterToken = voter.qr_token;
+        qrLink = origin + '/v/' + voter.qr_token;
+      } else {
+        qrLink = origin;
       }
 
       let body = messageTemplate
@@ -126,7 +137,14 @@ app.post('/send', async (req, res) => {
         .replace(/{city}/g,      contact.city      || '')
         .replace(/{qr_link}/g,   qrLink);
       body += '\n' + (optOutFooter || 'Reply STOP to opt out.');
-      await client.messages.create({ body, from, to: contact.phone });
+
+      // Build Twilio message params (include MMS if event has flyer + voter has token)
+      const msgParams = { body, from, to: contact.phone };
+      if (eventHasFlyer && voterToken) {
+        msgParams.mediaUrl = [origin + '/api/events/' + eventId + '/flyer/' + voterToken];
+      }
+
+      await client.messages.create(msgParams);
       db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(contact.phone, body);
       results.sent++;
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -137,7 +155,7 @@ app.post('/send', async (req, res) => {
   }
 
   db.prepare('INSERT INTO campaigns (message_template, sent_count, failed_count) VALUES (?, ?, ?)').run(messageTemplate, results.sent, results.failed);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Campaign sent: ' + results.sent + '/' + contacts.length + ' delivered.');
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Campaign sent: ' + results.sent + '/' + contacts.length + ' delivered.' + (eventHasFlyer ? ' (MMS with flyer)' : ''));
 
   res.json({ success: true, totalContacts: contacts.length, sent: results.sent, failed: results.failed, errors: results.errors.slice(0, 20) });
 });
@@ -226,12 +244,22 @@ app.post('/api/events/:id/invite', async (req, res) => {
 
   const invOrigin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
 
+  // Check if event has a flyer for MMS
+  const eventRow = db.prepare('SELECT flyer_image IS NOT NULL as has_flyer FROM events WHERE id = ?').get(req.params.id);
+  const eventHasFlyer = eventRow && eventRow.has_flyer;
+
   for (const c of contacts) {
     try {
       // Look up QR link for this contact
       let qrLink = '';
+      let voterToken = null;
       const voter = db.prepare("SELECT qr_token FROM voters WHERE phone = ? AND qr_token IS NOT NULL LIMIT 1").get(c.phone);
-      qrLink = voter ? invOrigin + '/v/' + voter.qr_token : invOrigin;
+      if (voter) {
+        voterToken = voter.qr_token;
+        qrLink = invOrigin + '/v/' + voter.qr_token;
+      } else {
+        qrLink = invOrigin;
+      }
 
       let body = (messageTemplate || 'You\'re invited to {title} on {date} at {location}!')
         .replace(/{title}/g, event.title)
@@ -242,7 +270,14 @@ app.post('/api/events/:id/invite', async (req, res) => {
         .replace(/{lastName}/g, c.last_name || '')
         .replace(/{qr_link}/g, qrLink);
       body += '\nReply STOP to opt out.';
-      await client.messages.create({ body, from, to: c.phone });
+
+      // Build Twilio message params (include MMS if event has flyer + voter has QR token)
+      const msgParams = { body, from, to: c.phone };
+      if (eventHasFlyer && voterToken) {
+        msgParams.mediaUrl = [invOrigin + '/api/events/' + req.params.id + '/flyer/' + voterToken];
+      }
+
+      await client.messages.create(msgParams);
       rsvpInsert.run(req.params.id, c.phone, (c.first_name + ' ' + c.last_name).trim());
       sent++;
       await new Promise(resolve => setTimeout(resolve, 50));

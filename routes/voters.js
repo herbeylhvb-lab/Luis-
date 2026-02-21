@@ -129,13 +129,61 @@ router.post('/voters/qr/:token/checkin', (req, res) => {
     return res.json({ success: true, already: true, eventTitle: event.title, voterName: voter.first_name + ' ' + voter.last_name });
   }
 
-  // Record check-in
-  db.prepare('INSERT INTO voter_checkins (voter_id, event_id) VALUES (?, ?)').run(voter.id, event_id);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
-    voter.first_name + ' ' + voter.last_name + ' checked in via QR to: ' + event.title
-  );
+  // Record check-in + auto-log contact
+  const checkinTx = db.transaction(() => {
+    db.prepare('INSERT INTO voter_checkins (voter_id, event_id) VALUES (?, ?)').run(voter.id, event_id);
+    db.prepare(
+      'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+    ).run(voter.id, 'Event', 'Attended', 'Checked in via QR at: ' + event.title, 'QR Check-In');
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+      voter.first_name + ' ' + voter.last_name + ' checked in via QR to: ' + event.title
+    );
+  });
+  checkinTx();
 
   res.json({ success: true, eventTitle: event.title, voterName: voter.first_name + ' ' + voter.last_name });
+});
+
+// --- Volunteer QR Scanner: Scan check-in endpoint ---
+router.post('/voters/qr/:token/scan-checkin', (req, res) => {
+  const { event_id, scanned_by } = req.body;
+  if (!event_id) return res.status(400).json({ error: 'Event ID is required.' });
+
+  const voter = db.prepare("SELECT id, first_name, last_name FROM voters WHERE qr_token = ?").get(req.params.token);
+  if (!voter) return res.status(404).json({ error: 'Invalid QR code.' });
+
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(event_id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  // Check if already checked in
+  const existing = db.prepare('SELECT id FROM voter_checkins WHERE voter_id = ? AND event_id = ?').get(voter.id, event_id);
+  if (existing) {
+    return res.json({ success: true, already: true, eventTitle: event.title, voterName: voter.first_name + ' ' + voter.last_name });
+  }
+
+  // Record check-in + contact log in a transaction
+  const scanTx = db.transaction(() => {
+    db.prepare('INSERT INTO voter_checkins (voter_id, event_id) VALUES (?, ?)').run(voter.id, event_id);
+    db.prepare(
+      'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+    ).run(voter.id, 'Event', 'Attended', 'Checked in via QR scan at: ' + event.title, scanned_by || 'QR Scanner');
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+      voter.first_name + ' ' + voter.last_name + ' scanned in by ' + (scanned_by || 'volunteer') + ' at: ' + event.title
+    );
+  });
+  scanTx();
+
+  res.json({ success: true, eventTitle: event.title, voterName: voter.first_name + ' ' + voter.last_name });
+});
+
+// --- Today's events for volunteer scanner auto-detect ---
+router.get('/voters/checkins/today-events', (req, res) => {
+  const events = db.prepare(`
+    SELECT id, title, event_date, event_time, location FROM events
+    WHERE event_date = date('now', 'localtime') AND status IN ('upcoming', 'in_progress')
+    ORDER BY event_time ASC
+  `).all();
+  res.json({ events });
 });
 
 // Get check-in stats for an event (admin endpoint)

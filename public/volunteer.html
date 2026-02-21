@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>P2P Volunteer Texting</title>
+  <title>P2P Volunteer Hub</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -241,7 +241,43 @@
     }
     .convo-item:hover { background: #334155; border-radius: 6px; }
     .convo-item:last-child { border-bottom: none; }
+
+    /* Scanner styles */
+    .scan-result {
+      text-align: center;
+      padding: 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 12px;
+      animation: fadeIn 0.3s ease;
+    }
+    .scan-result.success { background: rgba(34,197,94,0.15); border: 1px solid #22c55e; }
+    .scan-result.warning { background: rgba(251,191,36,0.15); border: 1px solid #f59e0b; }
+    .scan-result.error { background: rgba(239,68,68,0.15); border: 1px solid #ef4444; }
+    .scan-result .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    .scan-result h3 { margin: 0.25rem 0; font-size: 1.2rem; }
+    .scan-result p { color: #94a3b8; font-size: 14px; margin: 0; }
+
+    .checkin-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #334155;
+      font-size: 14px;
+    }
+    .checkin-item:last-child { border-bottom: none; }
+
+    .mode-divider {
+      text-align: center;
+      margin: 1.5rem 0 0.75rem;
+      color: #64748b;
+      font-size: 13px;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes pulse-green { 0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 70% { box-shadow: 0 0 0 10px rgba(34,197,94,0); } }
   </style>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
 
@@ -261,6 +297,51 @@
       </div>
       <button class="btn btn-primary" id="btnJoin" onclick="joinSession()">Join Session</button>
       <div class="error-msg" id="joinError"></div>
+
+      <div class="mode-divider">&mdash; or &mdash;</div>
+      <button class="btn btn-primary" onclick="openScanner()" style="background:#22c55e;margin-top:0">
+        &#128247; Open QR Scanner for Event Check-In
+      </button>
+    </div>
+  </div>
+
+  <!-- SCANNER SCREEN -->
+  <div id="scannerScreen" style="display:none">
+    <div class="header">
+      <div>
+        <h1>&#128247; <span>QR</span> Scanner</h1>
+        <div class="session-info" id="scannerEventInfo">Loading events...</div>
+      </div>
+      <button class="btn-leave" onclick="closeScanner()">Exit</button>
+    </div>
+
+    <div class="container">
+      <!-- Event selector (auto-detects today's events) -->
+      <div class="card" id="scannerEventCard">
+        <h3>&#128197; Today's Event</h3>
+        <div id="scannerEventList"></div>
+        <div id="scannerNoEvents" style="display:none;color:#64748b;text-align:center;padding:1rem">
+          No events scheduled for today. Create an event in the admin dashboard first.
+        </div>
+      </div>
+
+      <!-- Scanner camera area -->
+      <div class="card" id="scannerCameraCard" style="display:none">
+        <h3>&#128247; Scan Voter QR Code</h3>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Point your camera at the QR code on the voter's phone screen.</p>
+        <div id="qr-reader" style="width:100%;border-radius:8px;overflow:hidden"></div>
+      </div>
+
+      <!-- Scan result -->
+      <div id="scanResultCard" style="display:none"></div>
+
+      <!-- Recent check-ins list -->
+      <div class="card">
+        <h3>Recent Check-Ins <span class="badge badge-green" id="scanCheckinCount">0</span></h3>
+        <div id="recentCheckins">
+          <div style="color:#64748b;font-size:13px;text-align:center;padding:1rem">No check-ins yet. Start scanning!</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -575,6 +656,268 @@
       document.getElementById('textingScreen').style.display = 'none';
       document.getElementById('joinScreen').style.display = 'flex';
       document.getElementById('btnJoin').disabled = false;
+    }
+
+    // ===================== QR SCANNER =====================
+
+    var scannerState = {
+      selectedEventId: null,
+      selectedEventTitle: '',
+      scanner: null,
+      recentCheckins: [],
+      volunteerName: '',
+      processing: false
+    };
+
+    function escHtml(t) {
+      var d = document.createElement('div');
+      d.textContent = t;
+      return d.innerHTML;
+    }
+
+    function openScanner() {
+      var name = document.getElementById('volName').value.trim();
+      if (!name) {
+        name = prompt('Enter your name (for check-in records):');
+        if (!name) return;
+        document.getElementById('volName').value = name;
+      }
+      scannerState.volunteerName = name;
+
+      document.getElementById('joinScreen').style.display = 'none';
+      document.getElementById('scannerScreen').style.display = 'block';
+
+      loadTodaysEvents();
+    }
+
+    async function loadTodaysEvents() {
+      try {
+        var data = await apiCall('/api/voters/checkins/today-events');
+        var events = data.events || [];
+        var listEl = document.getElementById('scannerEventList');
+        var noEventsEl = document.getElementById('scannerNoEvents');
+        listEl.textContent = '';
+
+        if (events.length === 0) {
+          noEventsEl.style.display = 'block';
+          return;
+        }
+        noEventsEl.style.display = 'none';
+
+        // If only one event today, auto-select
+        if (events.length === 1) {
+          selectScannerEvent(events[0].id, events[0].title);
+          var info = document.createElement('div');
+          info.style.cssText = 'padding:12px;text-align:center;color:#4ade80;font-size:14px;background:rgba(34,197,94,0.1);border-radius:8px';
+          info.textContent = '\u2705 Auto-selected: ' + events[0].title;
+          listEl.appendChild(info);
+          return;
+        }
+
+        // Multiple events today: show picker
+        var label = document.createElement('p');
+        label.style.cssText = 'color:#94a3b8;font-size:13px;margin-bottom:10px';
+        label.textContent = 'Multiple events today. Tap to select:';
+        listEl.appendChild(label);
+
+        events.forEach(function(e) {
+          var card = document.createElement('div');
+          card.className = 'contact-card';
+          card.style.cursor = 'pointer';
+
+          var nameEl = document.createElement('div');
+          nameEl.className = 'contact-name';
+          nameEl.textContent = e.title;
+          card.appendChild(nameEl);
+
+          var phoneEl = document.createElement('div');
+          phoneEl.className = 'contact-phone';
+          phoneEl.textContent = (e.event_time || '') + ' \u2014 ' + (e.location || 'TBD');
+          card.appendChild(phoneEl);
+
+          card.addEventListener('click', function() {
+            selectScannerEvent(e.id, e.title);
+            listEl.textContent = '';
+            var infoDiv = document.createElement('div');
+            infoDiv.style.cssText = 'padding:12px;text-align:center;color:#4ade80;font-size:14px;background:rgba(34,197,94,0.1);border-radius:8px';
+            infoDiv.textContent = '\u2705 Selected: ' + e.title;
+            listEl.appendChild(infoDiv);
+          });
+          listEl.appendChild(card);
+        });
+      } catch (err) {
+        document.getElementById('scannerNoEvents').style.display = 'block';
+        document.getElementById('scannerNoEvents').textContent = 'Error loading events. Check connection.';
+      }
+    }
+
+    function selectScannerEvent(eventId, eventTitle) {
+      scannerState.selectedEventId = eventId;
+      scannerState.selectedEventTitle = eventTitle;
+      document.getElementById('scannerEventInfo').textContent = eventTitle + ' \u2022 ' + scannerState.volunteerName;
+      document.getElementById('scannerCameraCard').style.display = '';
+      startQrScanner();
+    }
+
+    function startQrScanner() {
+      if (scannerState.scanner) {
+        try { scannerState.scanner.clear(); } catch (e) {}
+      }
+
+      scannerState.scanner = new Html5Qrcode('qr-reader');
+      scannerState.scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        onQrScanSuccess,
+        function() {} // ignore "no QR found" frames
+      ).catch(function(err) {
+        var readerEl = document.getElementById('qr-reader');
+        readerEl.textContent = '';
+        var errDiv = document.createElement('div');
+        errDiv.style.cssText = 'padding:2rem;text-align:center;color:#fca5a5';
+        errDiv.textContent = '\u274C Camera access denied or not available. Please allow camera access and reload.';
+        readerEl.appendChild(errDiv);
+      });
+    }
+
+    async function onQrScanSuccess(decodedText) {
+      // Prevent double-processing
+      if (scannerState.processing) return;
+      scannerState.processing = true;
+
+      // Pause scanner
+      if (scannerState.scanner) {
+        try { scannerState.scanner.pause(); } catch (e) {}
+      }
+
+      // Extract voter token from QR URL. Format: https://domain/v/{token}
+      var token = null;
+      try {
+        var url = new URL(decodedText);
+        var parts = url.pathname.split('/');
+        var vIndex = parts.indexOf('v');
+        if (vIndex >= 0 && parts[vIndex + 1]) {
+          token = parts[vIndex + 1];
+        }
+      } catch (e) {
+        // Not a valid URL — try raw text as token
+        if (decodedText.length >= 6 && decodedText.length <= 20) {
+          token = decodedText;
+        }
+      }
+
+      if (!token) {
+        showScanResult('error', 'Invalid QR Code', 'This QR code is not a voter check-in code.');
+        resumeScannerAfterDelay();
+        return;
+      }
+
+      // Call scan-checkin endpoint
+      try {
+        var data = await apiCall('/api/voters/qr/' + encodeURIComponent(token) + '/scan-checkin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event_id: scannerState.selectedEventId,
+            scanned_by: scannerState.volunteerName
+          })
+        });
+
+        if (data.error) {
+          showScanResult('error', 'Check-In Failed', data.error);
+        } else if (data.already) {
+          showScanResult('warning', 'Already Here!', data.voterName + ' is already checked in.');
+        } else {
+          showScanResult('success', 'Checked In!', data.voterName + ' \u2014 ' + data.eventTitle);
+          scannerState.recentCheckins.unshift({
+            name: data.voterName,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+          updateRecentCheckins();
+        }
+      } catch (err) {
+        showScanResult('error', 'Network Error', 'Could not reach server. Check your connection.');
+      }
+
+      resumeScannerAfterDelay();
+    }
+
+    function showScanResult(type, title, message) {
+      var card = document.getElementById('scanResultCard');
+      card.style.display = '';
+      card.textContent = '';
+
+      var icons = { success: '\u2705', error: '\u274C', warning: '\u26A0\uFE0F' };
+      var colors = { success: '#4ade80', error: '#fca5a5', warning: '#fcd34d' };
+
+      var wrapper = document.createElement('div');
+      wrapper.className = 'scan-result ' + type;
+
+      var iconDiv = document.createElement('div');
+      iconDiv.className = 'icon';
+      iconDiv.textContent = icons[type];
+      wrapper.appendChild(iconDiv);
+
+      var h3 = document.createElement('h3');
+      h3.style.color = colors[type];
+      h3.textContent = title;
+      wrapper.appendChild(h3);
+
+      var p = document.createElement('p');
+      p.textContent = message;
+      wrapper.appendChild(p);
+
+      card.appendChild(wrapper);
+
+      // Auto-hide after 3 seconds
+      setTimeout(function() {
+        card.style.display = 'none';
+      }, 3000);
+    }
+
+    function resumeScannerAfterDelay() {
+      setTimeout(function() {
+        scannerState.processing = false;
+        if (scannerState.scanner) {
+          try { scannerState.scanner.resume(); } catch (e) {}
+        }
+      }, 2000);
+    }
+
+    function updateRecentCheckins() {
+      var el = document.getElementById('recentCheckins');
+      document.getElementById('scanCheckinCount').textContent = scannerState.recentCheckins.length;
+
+      el.textContent = '';
+      scannerState.recentCheckins.forEach(function(c) {
+        var item = document.createElement('div');
+        item.className = 'checkin-item';
+
+        var nameSpan = document.createElement('span');
+        nameSpan.style.color = '#e2e8f0';
+        nameSpan.textContent = '\u2705 ' + c.name;
+        item.appendChild(nameSpan);
+
+        var timeSpan = document.createElement('span');
+        timeSpan.style.cssText = 'color:#64748b;font-size:12px';
+        timeSpan.textContent = c.time;
+        item.appendChild(timeSpan);
+
+        el.appendChild(item);
+      });
+    }
+
+    function closeScanner() {
+      if (scannerState.scanner) {
+        scannerState.scanner.stop().catch(function() {});
+        scannerState.scanner = null;
+      }
+      scannerState.selectedEventId = null;
+      scannerState.processing = false;
+      document.getElementById('scannerScreen').style.display = 'none';
+      document.getElementById('scannerCameraCard').style.display = 'none';
+      document.getElementById('scanResultCard').style.display = 'none';
+      document.getElementById('joinScreen').style.display = 'flex';
     }
   </script>
 </body>

@@ -214,6 +214,9 @@ db.exec(`
   );
 `);
 
+// --- Phase 3: Event flyer image for QR overlay ---
+try { db.exec("ALTER TABLE events ADD COLUMN flyer_image TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+
 // P2P columns on messages
 try { db.exec("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL"); } catch (e) { /* already exists */ }
 try { db.exec("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }

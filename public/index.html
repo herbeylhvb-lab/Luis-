@@ -564,6 +564,11 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Time</label><input type="time" id="eventTime"></div>
           </div>
           <div class="form-group"><label>Description</label><input type="text" id="eventDesc" placeholder="Join us for a community rally!"></div>
+          <div class="form-group">
+            <label>Event Flyer (optional)</label>
+            <input type="file" id="eventFlyer" accept="image/png,image/jpeg,image/webp" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image. A unique QR code will be overlaid per voter when sending MMS invites.</div>
+          </div>
           <button class="btn btn-primary" id="btnCreateEvent">Create Event</button>
         </div>
         <div class="card">
@@ -587,10 +592,11 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-primary btn-sm" onclick="showQrCode()">&#128274; Show QR Check-In Code</button>
             <span style="font-size:12px;color:#64748b;margin-left:8px" id="checkinCount"></span>
           </div>
+          <div id="flyerPreview" style="margin-top:16px"></div>
         </div>
         <div class="card">
           <h3>Send Text Invites</h3>
-          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Select contacts to invite via SMS.</p>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px" id="inviteMmsNote">Select contacts to invite via SMS.</p>
           <div class="check-list" id="inviteContactList"></div>
           <div style="margin-top:12px">
             <button class="btn btn-sm btn-secondary" onclick="toggleAllInvites(true)">Select All</button>
@@ -1095,7 +1101,8 @@ async function loadEvents() {
   if (!data.events || data.events.length === 0) { el.innerHTML = '<div style="color:#64748b;font-size:14px">No events yet.</div>'; return; }
   el.innerHTML = data.events.map(e => {
     const s = e.rsvpStats || {};
-    return '<div class="event-card"><div class="event-info"><h4><a href="#" onclick="showEventDetail(' + e.id + ');return false">' + escHtml(e.title) + '</a></h4><div class="event-meta">' + e.event_date + (e.event_time ? ' at ' + e.event_time : '') + ' &mdash; ' + escHtml(e.location || 'TBD') + '</div><div style="margin-top:6px">' + statusBadge(e.status) + ' <span style="font-size:12px;color:#64748b;margin-left:8px">' + (s.total || 0) + ' invited, ' + (s.confirmed || 0) + ' confirmed</span></div></div><div><button class="btn btn-danger btn-xs" onclick="deleteEvent(' + e.id + ')">Delete</button></div></div>';
+    const flyerBadge = e.has_flyer ? ' <span class="badge" style="background:#2e1065;color:#c084fc">Has Flyer</span>' : '';
+    return '<div class="event-card"><div class="event-info"><h4><a href="#" onclick="showEventDetail(' + e.id + ');return false">' + escHtml(e.title) + '</a></h4><div class="event-meta">' + e.event_date + (e.event_time ? ' at ' + e.event_time : '') + ' &mdash; ' + escHtml(e.location || 'TBD') + '</div><div style="margin-top:6px">' + statusBadge(e.status) + flyerBadge + ' <span style="font-size:12px;color:#64748b;margin-left:8px">' + (s.total || 0) + ' invited, ' + (s.confirmed || 0) + ' confirmed</span></div></div><div><button class="btn btn-danger btn-xs" onclick="deleteEvent(' + e.id + ')">Delete</button></div></div>';
   }).join('');
 }
 
@@ -1115,6 +1122,20 @@ async function loadEventDetail(id) {
   document.getElementById('rsvpCount').textContent = rsvps.length;
   const checkedIn = rsvps.filter(r => r.checked_in_at).length;
   document.getElementById('checkinCount').textContent = checkedIn > 0 ? checkedIn + ' checked in' : '';
+  // Flyer preview
+  const flyerEl = document.getElementById('flyerPreview');
+  if (e.has_flyer) {
+    flyerEl.innerHTML = '<div style="margin-bottom:8px"><span class="badge" style="background:#2e1065;color:#c084fc">Flyer Uploaded</span></div><img src="/api/events/' + e.id + '/flyer" style="max-width:280px;border-radius:8px;border:1px solid #334155">';
+  } else {
+    flyerEl.innerHTML = '<div style="color:#64748b;font-size:12px">No flyer uploaded. Upload a flyer when creating an event to enable MMS with QR codes.</div>';
+  }
+  // MMS indicator on invite section
+  const mmsNote = document.getElementById('inviteMmsNote');
+  if (e.has_flyer) {
+    mmsNote.innerHTML = '<span class="badge" style="background:#2e1065;color:#c084fc">MMS</span> Invites will include your flyer with each voter\'s unique QR code overlaid.';
+  } else {
+    mmsNote.textContent = 'Select contacts to invite via SMS. Upload a flyer to enable MMS with QR codes.';
+  }
   document.getElementById('rsvpStats').innerHTML = Object.keys(counts).map(k =>
     '<div class="stat-card" style="padding:12px"><div class="label">' + k.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + counts[k] + '</div></div>'
   ).join('');
@@ -1167,10 +1188,29 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
   const title = document.getElementById('eventTitle').value.trim();
   const date = document.getElementById('eventDate').value;
   if (!title || !date) { alert('Title and date are required.'); return; }
-  await apiPost('/api/events', { title, location: document.getElementById('eventLocation').value.trim(), event_date: date, event_time: document.getElementById('eventTime').value, description: document.getElementById('eventDesc').value.trim() });
+
+  // Read flyer image as base64 if provided
+  let flyerBase64 = null;
+  const flyerInput = document.getElementById('eventFlyer');
+  if (flyerInput.files && flyerInput.files[0]) {
+    flyerBase64 = await new Promise(function(resolve) {
+      const reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.readAsDataURL(flyerInput.files[0]);
+    });
+  }
+
+  await apiPost('/api/events', {
+    title,
+    location: document.getElementById('eventLocation').value.trim(),
+    event_date: date,
+    event_time: document.getElementById('eventTime').value,
+    description: document.getElementById('eventDesc').value.trim(),
+    flyer_image: flyerBase64
+  });
   document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
   document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
-  document.getElementById('eventDesc').value = '';
+  document.getElementById('eventDesc').value = ''; flyerInput.value = '';
   loadEvents();
 });
 
