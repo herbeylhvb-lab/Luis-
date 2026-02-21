@@ -124,6 +124,7 @@ tr:hover td{background:#1e293b80}
 .modal-box h3{margin-bottom:16px}
 .modal-box canvas{margin:16px auto;display:block;border-radius:8px}
 .modal-close{position:absolute;top:12px;right:16px;background:none;border:none;color:#94a3b8;font-size:24px;cursor:pointer}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
@@ -342,6 +343,7 @@ tr:hover td{background:#1e293b80}
             <span>Mode: <select class="inline-select" id="p2pModeSelect" onchange="updateP2pMode()"></select></span>
           </div>
           <div class="stats-grid" style="margin-bottom:16px">
+            <div class="stat-card" style="border:1px solid rgba(34,197,94,0.3)"><div class="label" style="display:flex;align-items:center;gap:6px"><span id="p2pOnlineDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b"></span>Volunteers Online</div><div class="value" id="p2pStatOnline" style="color:#22c55e">0</div></div>
             <div class="stat-card"><div class="label">Total Sent</div><div class="value" id="p2pStatSent">0</div></div>
             <div class="stat-card"><div class="label">Active Chats</div><div class="value" id="p2pStatChats">0</div></div>
             <div class="stat-card"><div class="label">Remaining</div><div class="value" id="p2pStatRemaining">0</div></div>
@@ -1432,10 +1434,13 @@ async function loadP2pSessions() {
           <strong style="color:#e2e8f0">${escHtml(s.name)}</strong>
           ${statusBadge(s.status)}
         </div>
-        <div style="display:flex;gap:16px;font-size:13px;color:#94a3b8">
+        <div style="display:flex;gap:16px;font-size:13px;color:#94a3b8;align-items:center">
           <span>Code: <strong style="color:#818cf8">${s.join_code}</strong></span>
           <span>${s.sent}/${s.totalContacts} sent</span>
-          <span>${s.onlineCount}/${s.volunteerCount} online</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;background:${s.onlineCount > 0 ? 'rgba(34,197,94,0.12)' : 'rgba(100,116,139,0.12)'};padding:3px 10px;border-radius:12px;font-weight:600;color:${s.onlineCount > 0 ? '#22c55e' : '#64748b'}">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.onlineCount > 0 ? '#22c55e' : '#64748b'};${s.onlineCount > 0 ? 'box-shadow:0 0 6px #22c55e;animation:pulse-dot 2s infinite' : ''}"></span>
+            ${s.onlineCount} online
+          </span>
         </div>
       </div>
     `).join('');
@@ -1459,6 +1464,13 @@ async function openP2pSession(id) {
       volLinkEl.style.display = '';
     }
     document.getElementById('p2pCodeExpires').textContent = s.code_expires_at ? new Date(s.code_expires_at).toLocaleDateString() : '';
+    var onlineVols = (s.volunteers || []).filter(function(v) { return v.is_online; }).length;
+    document.getElementById('p2pStatOnline').textContent = onlineVols + ' / ' + (s.volunteers || []).length;
+    document.getElementById('p2pStatOnline').style.color = onlineVols > 0 ? '#22c55e' : '#64748b';
+    var dot = document.getElementById('p2pOnlineDot');
+    dot.style.background = onlineVols > 0 ? '#22c55e' : '#64748b';
+    dot.style.boxShadow = onlineVols > 0 ? '0 0 6px #22c55e' : 'none';
+    dot.style.animation = onlineVols > 0 ? 'pulse-dot 2s infinite' : 'none';
     document.getElementById('p2pStatSent').textContent = s.totalSent || 0;
     document.getElementById('p2pStatChats').textContent = s.totalReplies || 0;
     document.getElementById('p2pStatRemaining').textContent = s.remaining || 0;
