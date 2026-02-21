@@ -469,6 +469,7 @@ tr:hover td{background:#1e293b80}
           </div>
           <button class="btn btn-primary btn-sm" id="btnAddVoter">Add Voter</button>
           <button class="btn btn-secondary btn-sm" id="btnImportVoters" style="margin-left:8px">Import CSV</button>
+          <button class="btn btn-sm" id="btnImportCanvass" style="margin-left:8px;background:#b45309;border-color:#92400e;color:#fff">&#128203; Import Canvass Data</button>
         </div>
         <!-- Add voter form -->
         <div class="card" id="addVoterCard" style="display:none">
@@ -500,6 +501,57 @@ tr:hover td{background:#1e293b80}
           <div class="form-group"><textarea id="voterCsvData" rows="8" placeholder="first_name,last_name,phone,address,city,zip,party&#10;John,Doe,+15125551234,123 Main St,Austin,78701,D"></textarea></div>
           <button class="btn btn-success btn-sm" onclick="importVotersCsv()">Import</button>
           <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="document.getElementById('importVotersCard').style.display='none'">Cancel</button>
+        </div>
+        <!-- Import Canvass Data (3-step: Upload → Preview → Results) -->
+        <div class="card" id="canvassImportCard" style="display:none">
+          <h3>&#128203; Import Canvass Data</h3>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">
+            Import CSV exports from MiniVAN, Ecanvasser, or other canvassing tools.
+            Matches voters by phone, name+address, or registration number.
+          </p>
+          <!-- Step 1: Upload -->
+          <div id="canvassStep1">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>Upload CSV File</label>
+              <input type="file" id="canvassFile" accept=".csv,.txt" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
+            </div>
+            <div class="form-group">
+              <label>Or Paste CSV Data</label>
+              <textarea id="canvassCsvData" rows="6" placeholder="FirstName,LastName,Phone,Address,ContactResult,SurveyResponse,Canvasser&#10;John,Doe,5125551234,123 Main St,Supportive,1 - Strong Support,Maria"></textarea>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="previewCanvassImport()">Preview &amp; Map Columns</button>
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="closeCanvassImport()">Cancel</button>
+          </div>
+          <!-- Step 2: Preview & Column Mapping -->
+          <div id="canvassStep2" style="display:none">
+            <div style="margin-bottom:12px">
+              <strong style="color:#e2e8f0">Column Mapping</strong>
+              <span style="color:#94a3b8;font-size:12px;margin-left:8px">Auto-detected from headers. Adjust if needed.</span>
+            </div>
+            <div id="canvassColumnMap" style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-bottom:16px"></div>
+            <div style="margin-bottom:12px">
+              <strong style="color:#e2e8f0">Preview</strong>
+              <span class="badge badge-blue" id="canvassRowCount">0</span>
+              <span style="color:#94a3b8;font-size:12px;margin-left:8px">rows detected</span>
+            </div>
+            <div class="table-wrap" style="max-height:200px;overflow-y:auto;margin-bottom:16px">
+              <table><thead><tr id="canvassPreviewHead"></tr></thead><tbody id="canvassPreviewBody"></tbody></table>
+            </div>
+            <div style="margin-bottom:16px">
+              <label style="color:#94a3b8;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="canvassCreateNew" checked style="accent-color:#b45309"> Create new voter records for unmatched rows
+              </label>
+            </div>
+            <button class="btn btn-success btn-sm" onclick="executeCanvassImport()">&#128203; Import Canvass Data</button>
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="showCanvassStep(1)">Back</button>
+            <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="closeCanvassImport()">Cancel</button>
+          </div>
+          <!-- Step 3: Results -->
+          <div id="canvassStep3" style="display:none">
+            <div id="canvassResultMsg" style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:16px;margin-bottom:16px;color:#22c55e;font-weight:600"></div>
+            <div id="canvassResultDetails" style="margin-bottom:16px"></div>
+            <button class="btn btn-primary btn-sm" onclick="closeCanvassImport()">Done</button>
+          </div>
         </div>
         <div class="card">
           <h3>Voters <span class="badge badge-blue" id="voterCount">0</span></h3>
@@ -1091,6 +1143,215 @@ window.importVotersCsv = async function() {
 
 document.getElementById('btnAddVoter').addEventListener('click', () => { document.getElementById('addVoterCard').style.display = 'block'; });
 document.getElementById('btnImportVoters').addEventListener('click', () => { document.getElementById('importVotersCard').style.display = 'block'; });
+
+// ===================== CANVASS DATA IMPORT =====================
+
+document.getElementById('btnImportCanvass').addEventListener('click', () => {
+  document.getElementById('canvassImportCard').style.display = 'block';
+  showCanvassStep(1);
+});
+
+// Column auto-detection map: common CSV header names → standardized fields
+const CANVASS_COL_MAP = {
+  'firstname':'first_name','first_name':'first_name','first name':'first_name','fname':'first_name','first':'first_name','vanfirstname':'first_name','voter first name':'first_name',
+  'lastname':'last_name','last_name':'last_name','last name':'last_name','lname':'last_name','last':'last_name','vanlastname':'last_name','voter last name':'last_name',
+  'phone':'phone','phone number':'phone','phonenumber':'phone','cell':'phone','cell phone':'phone','cellphone':'phone','mobile':'phone','telephone':'phone','homephone':'phone',
+  'email':'email','email address':'email','emailaddress':'email',
+  'address':'address','street':'address','street address':'address','streetaddress':'address','addr':'address','mailing address':'address','home address':'address',
+  'city':'city','town':'city','municipality':'city',
+  'zip':'zip','zipcode':'zip','zip code':'zip','zip_code':'zip','postalcode':'zip','postal code':'zip','postal':'zip',
+  'party':'party','party affiliation':'party','partyaffiliation':'party','reg party':'party','regparty':'party','party_id':'party',
+  'support_level':'support_level','support level':'support_level','support':'support_level','supportlevel':'support_level',
+  'surveyresponse':'support_level','survey response':'support_level','survey_response':'support_level','voter rating':'support_level',
+  'id level':'support_level','idlevel':'support_level','candidate support':'support_level',
+  'contactresult':'contact_result','contact result':'contact_result','contact_result':'contact_result','result':'contact_result',
+  'disposition':'contact_result','outcome':'contact_result','interaction result':'contact_result','interactionresult':'contact_result','interaction_result':'contact_result',
+  'contact type':'contact_type','contact_type':'contact_type','contacttype':'contact_type','interaction type':'contact_type','interactiontype':'contact_type','interaction_type':'contact_type','type':'contact_type',
+  'notes':'notes','comment':'notes','comments':'notes','note':'notes','remark':'notes','remarks':'notes',
+  'canvasser':'canvasser','canvassed by':'canvasser','canvassedby':'canvasser','contacted by':'canvasser','contactedby':'canvasser','contacted_by':'canvasser','volunteer':'canvasser','worker':'canvasser',
+  'canvassdate':'canvass_date','canvass date':'canvass_date','canvass_date':'canvass_date','date':'canvass_date','contact date':'canvass_date','contactdate':'canvass_date','contacted_at':'canvass_date','interaction date':'canvass_date',
+  'registration_number':'registration_number','registration number':'registration_number','reg number':'registration_number',
+  'voter id':'registration_number','voterid':'registration_number','vanid':'registration_number','van id':'registration_number','voter_id':'registration_number','state_id':'registration_number','stateid':'registration_number'
+};
+
+// Support level normalization: raw survey values → app values
+const SUPPORT_MAP = {
+  '1':'strong_support','1 - strong support':'strong_support','strong support':'strong_support','strong_support':'strong_support','strong supporter':'strong_support','ss':'strong_support','strongly support':'strong_support','very supportive':'strong_support',
+  '2':'lean_support','2 - lean support':'lean_support','lean support':'lean_support','lean_support':'lean_support','leaning support':'lean_support','ls':'lean_support','somewhat supportive':'lean_support','supportive':'lean_support',
+  '3':'undecided','3 - undecided':'undecided','undecided':'undecided','unsure':'undecided','neutral':'undecided',
+  '4':'lean_oppose','4 - lean oppose':'lean_oppose','lean oppose':'lean_oppose','lean_oppose':'lean_oppose','leaning oppose':'lean_oppose','lo':'lean_oppose','somewhat opposed':'lean_oppose',
+  '5':'strong_oppose','5 - strong oppose':'strong_oppose','strong oppose':'strong_oppose','strong_oppose':'strong_oppose','strongly oppose':'strong_oppose','so':'strong_oppose','very opposed':'strong_oppose','opposed':'lean_oppose',
+  'unknown':'unknown','no response':'unknown','no answer':'unknown','':'unknown'
+};
+
+function normalizePartyFE(raw) {
+  const p = (raw || '').trim().toUpperCase();
+  if (['D','DEM','DEMOCRAT','DEMOCRATIC'].includes(p)) return 'D';
+  if (['R','REP','REPUBLICAN','GOP'].includes(p)) return 'R';
+  if (['I','IND','INDEPENDENT'].includes(p)) return 'I';
+  if (['NP','N','NONE','NO PARTY','UNAFFILIATED','U','NAF'].includes(p)) return 'NP';
+  return p || '';
+}
+
+// Quote-aware CSV line parser (handles commas inside "quoted fields")
+function parseCanvassCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; }
+    else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+    else { current += ch; }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// State for the canvass import flow
+let canvassRawHeaders = [];
+let canvassAutoMap = [];
+let canvassParsedRows = [];
+
+function showCanvassStep(n) {
+  document.getElementById('canvassStep1').style.display = n === 1 ? '' : 'none';
+  document.getElementById('canvassStep2').style.display = n === 2 ? '' : 'none';
+  document.getElementById('canvassStep3').style.display = n === 3 ? '' : 'none';
+}
+
+function closeCanvassImport() {
+  document.getElementById('canvassImportCard').style.display = 'none';
+  document.getElementById('canvassCsvData').value = '';
+  document.getElementById('canvassFile').value = '';
+  canvassRawHeaders = []; canvassAutoMap = []; canvassParsedRows = [];
+  searchVoters();
+}
+
+window.previewCanvassImport = function() {
+  const fileInput = document.getElementById('canvassFile');
+  if (fileInput.files && fileInput.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function() { processCanvassCsv(reader.result); };
+    reader.readAsText(fileInput.files[0]);
+  } else {
+    const raw = document.getElementById('canvassCsvData').value.trim();
+    if (!raw) return alert('Please upload a CSV file or paste data.');
+    processCanvassCsv(raw);
+  }
+};
+
+function processCanvassCsv(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return alert('CSV must have a header row and at least one data row.');
+
+  canvassRawHeaders = parseCanvassCsvLine(lines[0]);
+  // Auto-map headers
+  canvassAutoMap = canvassRawHeaders.map(h => CANVASS_COL_MAP[h.toLowerCase().trim()] || '');
+
+  // Parse all data rows
+  canvassParsedRows = [];
+  for (let i = 1; i < lines.length; i++) {
+    canvassParsedRows.push(parseCanvassCsvLine(lines[i]));
+  }
+
+  // Render column mapping
+  const targetFields = [
+    {v:'',l:'-- Skip --'},{v:'first_name',l:'First Name'},{v:'last_name',l:'Last Name'},
+    {v:'phone',l:'Phone'},{v:'email',l:'Email'},{v:'address',l:'Address'},
+    {v:'city',l:'City'},{v:'zip',l:'ZIP'},{v:'party',l:'Party'},
+    {v:'support_level',l:'Support Level'},{v:'contact_result',l:'Contact Result'},
+    {v:'contact_type',l:'Contact Type'},{v:'notes',l:'Notes'},
+    {v:'canvasser',l:'Canvasser'},{v:'canvass_date',l:'Date'},
+    {v:'registration_number',l:'Registration #'}
+  ];
+
+  const mapEl = document.getElementById('canvassColumnMap');
+  mapEl.innerHTML = canvassRawHeaders.map((rawH, idx) => {
+    const mapped = canvassAutoMap[idx] || '';
+    const opts = targetFields.map(f =>
+      '<option value="' + f.v + '"' + (f.v === mapped ? ' selected' : '') + '>' + escHtml(f.l) + '</option>'
+    ).join('');
+    const label = rawH.length > 20 ? rawH.slice(0, 20) + '...' : rawH;
+    const color = mapped ? '#e2e8f0' : '#64748b';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0">' +
+      '<span style="color:' + color + ';font-size:13px;min-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escHtml(rawH) + '">' + escHtml(label) + '</span>' +
+      '<span style="color:#64748b;font-size:12px">→</span>' +
+      '<select class="canvass-col-select" data-idx="' + idx + '" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:13px;flex:1">' + opts + '</select></div>';
+  }).join('');
+
+  // Render preview table (first 5 rows)
+  document.getElementById('canvassRowCount').textContent = canvassParsedRows.length;
+  const headEl = document.getElementById('canvassPreviewHead');
+  headEl.innerHTML = canvassRawHeaders.map(h => '<th style="font-size:12px">' + escHtml(h.length > 15 ? h.slice(0, 15) + '..' : h) + '</th>').join('');
+  const bodyEl = document.getElementById('canvassPreviewBody');
+  bodyEl.innerHTML = canvassParsedRows.slice(0, 5).map(cols =>
+    '<tr>' + canvassRawHeaders.map((_, i) => '<td style="font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(cols[i] || '') + '</td>').join('') + '</tr>'
+  ).join('');
+
+  showCanvassStep(2);
+}
+
+window.executeCanvassImport = async function() {
+  // Read final column mapping from dropdowns
+  const selects = document.querySelectorAll('.canvass-col-select');
+  const colMapping = {};
+  selects.forEach(sel => { colMapping[Number(sel.dataset.idx)] = sel.value; });
+
+  // Build rows with standardized field names
+  const rows = canvassParsedRows.map(cols => {
+    const row = {};
+    for (const [idx, field] of Object.entries(colMapping)) {
+      if (field) row[field] = cols[Number(idx)] || '';
+    }
+    // Normalize support level
+    if (row.support_level) {
+      row.support_level = SUPPORT_MAP[row.support_level.toLowerCase().trim()] || row.support_level;
+    }
+    // Normalize party
+    if (row.party) row.party = normalizePartyFE(row.party);
+    return row;
+  });
+
+  if (!rows.length) return alert('No data rows to import.');
+
+  const createNew = document.getElementById('canvassCreateNew').checked;
+
+  try {
+    const d = await apiPost('/api/voters/import-canvass', { rows, create_new: createNew });
+
+    // Show results
+    document.getElementById('canvassResultMsg').textContent =
+      'Import complete! ' + d.total + ' rows processed.';
+
+    const detailsHtml = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">' +
+      '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;text-align:center">' +
+        '<div style="font-size:24px;font-weight:700;color:#818cf8">' + (d.matched || 0) + '</div>' +
+        '<div style="font-size:12px;color:#94a3b8">Voters Matched</div></div>' +
+      '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;text-align:center">' +
+        '<div style="font-size:24px;font-weight:700;color:#22c55e">' + (d.updated || 0) + '</div>' +
+        '<div style="font-size:12px;color:#94a3b8">Support Updated</div></div>' +
+      '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;text-align:center">' +
+        '<div style="font-size:24px;font-weight:700;color:#b45309">' + (d.new_created || 0) + '</div>' +
+        '<div style="font-size:12px;color:#94a3b8">New Voters Created</div></div>' +
+      '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;text-align:center">' +
+        '<div style="font-size:24px;font-weight:700;color:#64748b">' + (d.skipped || 0) + '</div>' +
+        '<div style="font-size:12px;color:#94a3b8">Skipped</div></div>' +
+    '</div>';
+
+    const breakdown = d.details ? '<div style="margin-top:12px;font-size:13px;color:#94a3b8">' +
+      'Match breakdown: ' + (d.details.matched_by_phone || 0) + ' by phone, ' +
+      (d.details.matched_by_name_address || 0) + ' by name+address, ' +
+      (d.details.matched_by_registration || 0) + ' by registration #</div>' : '';
+
+    document.getElementById('canvassResultDetails').innerHTML = detailsHtml + breakdown;
+    showCanvassStep(3);
+  } catch(e) {
+    alert('Import failed: ' + (e.message || 'Unknown error'));
+  }
+};
+
+window.showCanvassStep = showCanvassStep;
+window.closeCanvassImport = closeCanvassImport;
 
 // ===================== EVENTS =====================
 function showEventList() { document.getElementById('events-list-view').style.display = 'block'; document.getElementById('events-detail-view').style.display = 'none'; }

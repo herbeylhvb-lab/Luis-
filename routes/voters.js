@@ -3,6 +3,14 @@ const router = express.Router();
 const db = require('../db');
 const { generateQrToken } = require('../db');
 
+// Strip phone to digits only (for matching across format variations)
+function phoneDigits(raw) {
+  const digits = (raw || '').replace(/\D/g, '');
+  // Strip leading 1 for US numbers so 15125551234 -> 5125551234
+  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+  return digits;
+}
+
 // Search/list voters
 router.get('/voters', (req, res) => {
   const { q, party, support } = req.query;
@@ -47,6 +55,119 @@ router.post('/voters/import', (req, res) => {
   });
   const added = importMany(voters);
   res.json({ success: true, added });
+});
+
+// --- Import canvass data (match existing voters, log contacts, optionally create new) ---
+router.post('/voters/import-canvass', (req, res) => {
+  const { rows, create_new } = req.body;
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
+
+  // Pre-build a phone lookup map: digits -> voter {id, support_level}
+  const allVoters = db.prepare("SELECT id, phone, first_name, last_name, address, registration_number FROM voters").all();
+  const phoneMap = {};
+  for (const v of allVoters) {
+    const d = phoneDigits(v.phone);
+    if (d.length >= 7) phoneMap[d] = v.id;
+  }
+  const regMap = {};
+  for (const v of allVoters) {
+    if (v.registration_number) regMap[v.registration_number.trim()] = v.id;
+  }
+
+  // Prepared statements
+  const updateSupport = db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?");
+  const insertContact = db.prepare(
+    "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, ?, ?, ?, ?, ?)"
+  );
+  const insertVoter = db.prepare(
+    "INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, registration_number, qr_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const findByNameAddr = db.prepare(
+    "SELECT id FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 1"
+  );
+
+  const results = {
+    matched: 0, updated: 0, new_created: 0, skipped: 0, total: rows.length,
+    details: { matched_by_phone: 0, matched_by_name_address: 0, matched_by_registration: 0 }
+  };
+
+  const importCanvass = db.transaction((rowList) => {
+    for (const row of rowList) {
+      const digits = phoneDigits(row.phone);
+      let voterId = null;
+      let matchMethod = '';
+
+      // 1. Phone match
+      if (digits.length >= 7 && phoneMap[digits]) {
+        voterId = phoneMap[digits];
+        matchMethod = 'phone';
+      }
+
+      // 2. Registration number match
+      if (!voterId && row.registration_number && row.registration_number.trim()) {
+        const regId = regMap[row.registration_number.trim()];
+        if (regId) { voterId = regId; matchMethod = 'registration'; }
+      }
+
+      // 3. Name + address match (first 3 words of address for fuzzy match)
+      if (!voterId && row.first_name && row.last_name && row.address) {
+        const addrWords = row.address.trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+        if (addrWords) {
+          const found = findByNameAddr.get(row.first_name, row.last_name, addrWords + '%');
+          if (found) { voterId = found.id; matchMethod = 'name_address'; }
+        }
+      }
+
+      if (voterId) {
+        results.matched++;
+        results.details['matched_by_' + matchMethod]++;
+
+        // Update support level if provided
+        if (row.support_level && row.support_level !== 'unknown') {
+          updateSupport.run(row.support_level, voterId);
+          results.updated++;
+        }
+
+        // Log contact
+        insertContact.run(
+          voterId,
+          row.contact_type || 'Door-knock',
+          row.contact_result || '',
+          row.notes || '',
+          row.canvasser || 'CSV Import',
+          row.canvass_date || new Date().toISOString().split('T')[0]
+        );
+      } else if (create_new) {
+        // Create new voter record
+        const newResult = insertVoter.run(
+          row.first_name || '', row.last_name || '', row.phone || '',
+          row.email || '', row.address || '', row.city || '',
+          row.zip || '', row.party || '', row.support_level || 'unknown',
+          row.registration_number || '', generateQrToken()
+        );
+        // Log contact for new voter too
+        insertContact.run(
+          newResult.lastInsertRowid,
+          row.contact_type || 'Door-knock',
+          row.contact_result || '',
+          row.notes || '',
+          row.canvasser || 'CSV Import',
+          row.canvass_date || new Date().toISOString().split('T')[0]
+        );
+        results.new_created++;
+      } else {
+        results.skipped++;
+      }
+    }
+  });
+
+  importCanvass(rows);
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Canvass data imported: ' + results.matched + ' matched, ' + results.new_created + ' new, ' + results.skipped + ' skipped'
+  );
+
+  res.json({ success: true, ...results });
 });
 
 // Get voter detail with contact history
