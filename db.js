@@ -240,6 +240,51 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_vcheckin_event ON voter_checkins(event_id);
 `);
 
+// --- Block Captain tables ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS captains (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_captains_code ON captains(code);
+
+  CREATE TABLE IF NOT EXISTS captain_team_members (
+    id INTEGER PRIMARY KEY,
+    captain_id INTEGER NOT NULL REFERENCES captains(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_ctm_captain ON captain_team_members(captain_id);
+
+  CREATE TABLE IF NOT EXISTS captain_lists (
+    id INTEGER PRIMARY KEY,
+    captain_id INTEGER NOT NULL REFERENCES captains(id) ON DELETE CASCADE,
+    team_member_id INTEGER REFERENCES captain_team_members(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_cl_captain ON captain_lists(captain_id);
+
+  CREATE TABLE IF NOT EXISTS captain_list_voters (
+    id INTEGER PRIMARY KEY,
+    list_id INTEGER NOT NULL REFERENCES captain_lists(id) ON DELETE CASCADE,
+    voter_id INTEGER NOT NULL REFERENCES voters(id) ON DELETE CASCADE,
+    added_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(list_id, voter_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_clv_list ON captain_list_voters(list_id);
+  CREATE INDEX IF NOT EXISTS idx_clv_voter ON captain_list_voters(voter_id);
+`);
+
+// Voting history on voters (populated via CSV import)
+try { db.exec("ALTER TABLE voters ADD COLUMN voting_history TEXT DEFAULT ''"); } catch (e) { /* already exists */ }
+
 // Backfill QR tokens for any existing voters that don't have one
 const { randomBytes } = require('crypto');
 function generateQrToken() {
