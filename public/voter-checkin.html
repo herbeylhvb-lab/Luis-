@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Check-In</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    .logo { font-size: 2.5rem; margin-bottom: 0.5rem; }
+    .voter-name {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #00d4aa;
+      margin-bottom: 0.25rem;
+    }
+    .welcome-text {
+      font-size: 0.95rem;
+      color: #888;
+      margin-bottom: 1.5rem;
+    }
+    .event-card {
+      background: #16213e;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 1.2rem;
+      margin-bottom: 0.75rem;
+      text-align: left;
+    }
+    .event-card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.3rem;
+    }
+    .event-meta {
+      font-size: 0.85rem;
+      color: #888;
+    }
+    .event-meta span { margin-right: 0.75rem; }
+    .btn-checkin {
+      width: 100%;
+      padding: 0.85rem;
+      background: #00d4aa;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 0.75rem;
+    }
+    .btn-checkin:hover { background: #00b894; }
+    .btn-checkin:disabled { opacity: 0.5; cursor: not-allowed; }
+    .no-events {
+      color: #888;
+      font-size: 1rem;
+      margin-top: 1.5rem;
+      padding: 2rem;
+      background: #16213e;
+      border-radius: 12px;
+      border: 1px solid #333;
+    }
+    .success-container {
+      display: none;
+      text-align: center;
+    }
+    .success-container .checkmark {
+      font-size: 5rem;
+      animation: pop 0.4s ease;
+    }
+    @keyframes pop {
+      0% { transform: scale(0); }
+      70% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+    .success-container h2 {
+      color: #00d4aa;
+      margin: 1rem 0 0.5rem;
+      font-size: 1.6rem;
+    }
+    .success-container p { color: #aaa; font-size: 1.05rem; }
+    .already-badge {
+      display: inline-block;
+      background: #16213e;
+      border: 1px solid #00d4aa;
+      color: #00d4aa;
+      padding: 0.3rem 0.8rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+    }
+    .loading-msg {
+      color: #888;
+      font-size: 1rem;
+      margin-top: 2rem;
+    }
+    .error-msg {
+      color: #ff6b6b;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+    .past-checkins {
+      margin-top: 2rem;
+      text-align: left;
+    }
+    .past-checkins h3 {
+      font-size: 0.85rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    .past-item {
+      font-size: 0.85rem;
+      color: #888;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid #222;
+    }
+    .past-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">&#127881;</div>
+
+    <div id="loading" class="loading-msg">Loading...</div>
+
+    <div id="main-content" style="display:none;">
+      <div class="voter-name" id="voterName"></div>
+      <div class="welcome-text">Welcome! Tap an event below to check in.</div>
+      <div id="events-list"></div>
+      <div id="no-events" class="no-events" style="display:none;">
+        No active events right now.<br>Check back when the next event starts!
+      </div>
+      <div id="past-checkins" class="past-checkins" style="display:none;">
+        <h3>Your Past Check-Ins</h3>
+        <div id="past-list"></div>
+      </div>
+    </div>
+
+    <div class="success-container" id="success">
+      <div class="checkmark">&#9989;</div>
+      <h2>You're Checked In!</h2>
+      <p id="successMsg"></p>
+    </div>
+
+    <div id="not-found" style="display:none;">
+      <div style="font-size:3rem;">&#128533;</div>
+      <h2 style="color:#ff6b6b;margin-top:1rem;">Invalid QR Code</h2>
+      <p style="color:#888;margin-top:0.5rem;">This check-in link is not valid. Please contact the campaign for assistance.</p>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+  </div>
+
+  <script>
+    var token = window.location.pathname.split('/').pop();
+
+    fetch('/api/voters/qr/' + token)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('loading').style.display = 'none';
+        if (data.error) {
+          document.getElementById('not-found').style.display = 'block';
+          return;
+        }
+        var v = data.voter;
+        document.getElementById('voterName').textContent = v.first_name + ' ' + v.last_name;
+        document.getElementById('main-content').style.display = 'block';
+
+        var eventsEl = document.getElementById('events-list');
+        if (data.events.length === 0) {
+          document.getElementById('no-events').style.display = 'block';
+        } else {
+          var checkedEventIds = {};
+          (data.checkins || []).forEach(function(c) { checkedEventIds[c.event_id] = true; });
+
+          data.events.forEach(function(e) {
+            var card = document.createElement('div');
+            card.className = 'event-card';
+
+            var title = document.createElement('div');
+            title.className = 'event-card-title';
+            title.textContent = e.title;
+            card.appendChild(title);
+
+            var meta = document.createElement('div');
+            meta.className = 'event-meta';
+            var dateSpan = document.createElement('span');
+            dateSpan.textContent = '\uD83D\uDCC5 ' + e.event_date;
+            meta.appendChild(dateSpan);
+            if (e.event_time) {
+              var timeSpan = document.createElement('span');
+              timeSpan.textContent = '\uD83D\uDD50 ' + e.event_time;
+              meta.appendChild(timeSpan);
+            }
+            if (e.location) {
+              var locSpan = document.createElement('span');
+              locSpan.textContent = '\uD83D\uDCCD ' + e.location;
+              meta.appendChild(locSpan);
+            }
+            card.appendChild(meta);
+
+            if (checkedEventIds[e.id]) {
+              var badge = document.createElement('div');
+              badge.className = 'already-badge';
+              badge.textContent = '\u2705 Already Checked In';
+              card.appendChild(badge);
+            } else {
+              var btn = document.createElement('button');
+              btn.className = 'btn-checkin';
+              btn.textContent = 'Check In Here';
+              btn.setAttribute('data-event-id', e.id);
+              btn.addEventListener('click', function() { doCheckin(e.id, btn); });
+              card.appendChild(btn);
+            }
+
+            eventsEl.appendChild(card);
+          });
+        }
+
+        if (data.checkins && data.checkins.length > 0) {
+          document.getElementById('past-checkins').style.display = 'block';
+          var pastEl = document.getElementById('past-list');
+          data.checkins.forEach(function(c) {
+            var item = document.createElement('div');
+            item.className = 'past-item';
+            item.textContent = c.title + ' \u2014 ' + new Date(c.checked_in_at + 'Z').toLocaleDateString();
+            pastEl.appendChild(item);
+          });
+        }
+      })
+      .catch(function() {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('not-found').style.display = 'block';
+      });
+
+    function doCheckin(eventId, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Checking in...';
+      document.getElementById('errorMsg').textContent = '';
+
+      fetch('/api/voters/qr/' + token + '/checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.success) {
+            document.getElementById('main-content').style.display = 'none';
+            document.getElementById('successMsg').textContent =
+              'Welcome to ' + data.eventTitle + ', ' + data.voterName + '!';
+            document.getElementById('success').style.display = 'block';
+          } else {
+            document.getElementById('errorMsg').textContent = data.error || 'Check-in failed.';
+            btn.disabled = false;
+            btn.textContent = 'Check In Here';
+          }
+        })
+        .catch(function() {
+          document.getElementById('errorMsg').textContent = 'Network error. Please try again.';
+          btn.disabled = false;
+          btn.textContent = 'Check In Here';
+        });
+    }
+  </script>
+</body>
+</html>

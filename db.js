@@ -218,4 +218,41 @@ db.exec(`
 try { db.exec("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL"); } catch (e) { /* already exists */ }
 try { db.exec("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
 
+// --- Per-voter QR code check-in ---
+
+// Unique QR token per voter (short random string used in check-in URLs)
+try { db.exec("ALTER TABLE voters ADD COLUMN qr_token TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_voters_qr_token ON voters(qr_token)"); } catch (e) { /* already exists */ }
+
+// Track voter check-ins at events (separate from event_rsvps which is contact-based)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS voter_checkins (
+    id INTEGER PRIMARY KEY,
+    voter_id INTEGER NOT NULL REFERENCES voters(id) ON DELETE CASCADE,
+    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    checked_in_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(voter_id, event_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_vcheckin_voter ON voter_checkins(voter_id);
+  CREATE INDEX IF NOT EXISTS idx_vcheckin_event ON voter_checkins(event_id);
+`);
+
+// Backfill QR tokens for any existing voters that don't have one
+const { randomBytes } = require('crypto');
+function generateQrToken() {
+  return randomBytes(6).toString('base64url');
+}
+const votersWithoutToken = db.prepare("SELECT id FROM voters WHERE qr_token IS NULL OR qr_token = ''").all();
+if (votersWithoutToken.length > 0) {
+  const updateToken = db.prepare("UPDATE voters SET qr_token = ? WHERE id = ?");
+  const backfill = db.transaction(() => {
+    for (const v of votersWithoutToken) {
+      updateToken.run(generateQrToken(), v.id);
+    }
+  });
+  backfill();
+  console.log(`Backfilled QR tokens for ${votersWithoutToken.length} voters`);
+}
+
 module.exports = db;
+module.exports.generateQrToken = generateQrToken;

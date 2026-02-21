@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P Volunteer Texting</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    .header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; }
+    .header h1 span { color: #818cf8; }
+    .header .session-info { font-size: 13px; color: #94a3b8; }
+    .header .btn-leave {
+      padding: 6px 14px;
+      background: #ef4444;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* Join screen */
+    .join-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .join-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 2rem;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+    }
+    .join-card h2 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #818cf8; }
+    .join-card p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .join-card .form-group {
+      margin-bottom: 1rem;
+      text-align: left;
+    }
+    .join-card .form-group label {
+      display: block;
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+    .join-card .form-group input {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #e2e8f0;
+      font-size: 16px;
+      outline: none;
+    }
+    .join-card .form-group input:focus { border-color: #818cf8; }
+    .join-card .form-group input.code-input {
+      text-align: center;
+      font-size: 24px;
+      letter-spacing: 8px;
+      font-weight: 700;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: #818cf8; color: #fff; width: 100%; justify-content: center; }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-secondary { background: #334155; color: #e2e8f0; }
+    .btn-sm { padding: 8px 16px; font-size: 13px; }
+    .error-msg { color: #ef4444; font-size: 14px; margin-top: 0.5rem; }
+
+    /* Texting screen */
+    .texting-screen { display: none; }
+    .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+
+    .stats-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .stat-pill {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .stat-pill strong { color: #e2e8f0; margin-left: 4px; }
+
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #e2e8f0;
+    }
+
+    .contact-card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .contact-name { font-weight: 600; font-size: 15px; color: #e2e8f0; }
+    .contact-phone { font-size: 13px; color: #64748b; margin-top: 2px; }
+    .contact-city { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    .message-preview {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 12px 0;
+      font-size: 14px;
+      color: #94a3b8;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    /* Conversation view */
+    .convo-messages {
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+    }
+    .msg-bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .msg-outbound {
+      background: #818cf8;
+      color: #fff;
+      margin-left: auto;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-inbound {
+      background: #334155;
+      color: #e2e8f0;
+      border-bottom-left-radius: 4px;
+    }
+    .reply-area {
+      display: flex;
+      gap: 8px;
+    }
+    .reply-area textarea {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 10px;
+      color: #e2e8f0;
+      font-size: 14px;
+      resize: none;
+      min-height: 44px;
+      outline: none;
+    }
+    .reply-area textarea:focus { border-color: #818cf8; }
+    .reply-area button {
+      padding: 10px 16px;
+      background: #22c55e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #64748b;
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 0.5rem; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-green { background: #052e16; color: #4ade80; }
+    .badge-yellow { background: #422006; color: #fcd34d; }
+    .badge-blue { background: #0c1a3d; color: #93c5fd; }
+
+    .convo-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px;
+      border-bottom: 1px solid #334155;
+      cursor: pointer;
+    }
+    .convo-item:hover { background: #334155; border-radius: 6px; }
+    .convo-item:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+
+  <!-- JOIN SCREEN -->
+  <div class="join-screen" id="joinScreen">
+    <div class="join-card">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128241;</div>
+      <h2>P2P Volunteer Texting</h2>
+      <p>Enter your name and the session code shared by your campaign manager.</p>
+      <div class="form-group">
+        <label>Your Name</label>
+        <input type="text" id="volName" placeholder="Maria Garcia" autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label>Session Code</label>
+        <input type="text" id="volCode" class="code-input" placeholder="0000" maxlength="4" inputmode="numeric">
+      </div>
+      <button class="btn btn-primary" id="btnJoin" onclick="joinSession()">Join Session</button>
+      <div class="error-msg" id="joinError"></div>
+    </div>
+  </div>
+
+  <!-- TEXTING SCREEN -->
+  <div class="texting-screen" id="textingScreen">
+    <div class="header">
+      <div>
+        <h1>&#128241; <span>P2P</span> Texting</h1>
+        <div class="session-info" id="sessionInfo"></div>
+      </div>
+      <button class="btn-leave" onclick="leaveSession()">Leave</button>
+    </div>
+
+    <div class="container">
+      <div class="stats-bar" id="volStats"></div>
+
+      <!-- CURRENT CONTACT TO TEXT -->
+      <div class="card" id="queueCard">
+        <h3>Next Contact</h3>
+        <div id="queueContent"></div>
+      </div>
+
+      <!-- ACTIVE CONVERSATIONS -->
+      <div class="card" id="convosCard" style="display:none">
+        <h3>Active Conversations <span class="badge badge-yellow" id="convoCount">0</span></h3>
+        <div id="convosList"></div>
+      </div>
+
+      <!-- CONVERSATION VIEW -->
+      <div class="card" id="convoViewCard" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 id="convoViewTitle">Conversation</h3>
+          <button class="btn btn-sm btn-secondary" onclick="closeConvo()">Back</button>
+        </div>
+        <div class="convo-messages" id="convoMessages"></div>
+        <div class="reply-area">
+          <textarea id="replyText" placeholder="Type your reply..."></textarea>
+          <button onclick="sendReply()">Send</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-sm btn-success" id="btnMarkDone" onclick="markComplete()">Mark Complete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var volState = {
+      volunteerId: null,
+      sessionId: null,
+      sessionName: '',
+      currentAssignmentId: null,
+      viewingConvoId: null,
+      credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}')
+    };
+
+    // Pre-fill code from URL param
+    var urlCode = new URLSearchParams(window.location.search).get('code');
+    if (urlCode) document.getElementById('volCode').value = urlCode;
+
+    async function apiCall(path, opts) {
+      var res = await fetch(path, opts);
+      return res.json();
+    }
+
+    async function joinSession() {
+      var name = document.getElementById('volName').value.trim();
+      var code = document.getElementById('volCode').value.trim();
+      var errEl = document.getElementById('joinError');
+      errEl.textContent = '';
+      if (!name || !code) { errEl.textContent = 'Please enter your name and the session code.'; return; }
+
+      document.getElementById('btnJoin').disabled = true;
+      try {
+        var data = await apiCall('/api/p2p/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, code: code })
+        });
+        if (data.error) {
+          errEl.textContent = data.error;
+          document.getElementById('btnJoin').disabled = false;
+          return;
+        }
+        volState.volunteerId = data.volunteerId;
+        volState.sessionId = data.sessionId;
+        volState.sessionName = data.sessionName;
+
+        document.getElementById('joinScreen').style.display = 'none';
+        document.getElementById('textingScreen').style.display = 'block';
+        document.getElementById('sessionInfo').textContent = data.sessionName + ' \u2022 ' + name;
+
+        loadQueue();
+        setInterval(loadQueue, 10000);
+      } catch (e) {
+        errEl.textContent = 'Network error. Please try again.';
+        document.getElementById('btnJoin').disabled = false;
+      }
+    }
+
+    async function loadQueue() {
+      if (!volState.volunteerId) return;
+      var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
+      var statsEl = document.getElementById('volStats');
+      var queueEl = document.getElementById('queueContent');
+
+      // Update stats
+      statsEl.textContent = '';
+      if (data.stats) {
+        var items = [
+          { label: 'Sent', val: data.stats.sent },
+          { label: 'Remaining', val: data.stats.remaining },
+          { label: 'Total', val: data.stats.total }
+        ];
+        items.forEach(function(item) {
+          var pill = document.createElement('div');
+          pill.className = 'stat-pill';
+          pill.textContent = item.label + ':';
+          var s = document.createElement('strong');
+          s.textContent = ' ' + item.val;
+          pill.appendChild(s);
+          statsEl.appendChild(pill);
+        });
+      }
+
+      // Show next contact
+      if (data.assignment) {
+        volState.currentAssignmentId = data.assignment.id;
+        queueEl.textContent = '';
+
+        var cc = document.createElement('div');
+        cc.className = 'contact-card';
+        var cn = document.createElement('div');
+        cn.className = 'contact-name';
+        cn.textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
+        cc.appendChild(cn);
+        var cp = document.createElement('div');
+        cp.className = 'contact-phone';
+        cp.textContent = data.assignment.phone;
+        cc.appendChild(cp);
+        if (data.assignment.city) {
+          var ccity = document.createElement('div');
+          ccity.className = 'contact-city';
+          ccity.textContent = data.assignment.city;
+          cc.appendChild(ccity);
+        }
+        queueEl.appendChild(cc);
+
+        if (data.resolvedMessage) {
+          var mp = document.createElement('div');
+          mp.className = 'message-preview';
+          mp.textContent = data.resolvedMessage;
+          queueEl.appendChild(mp);
+        }
+
+        var btnRow = document.createElement('div');
+        btnRow.className = 'btn-row';
+
+        var sendBtn = document.createElement('button');
+        sendBtn.className = 'btn btn-sm btn-success';
+        sendBtn.textContent = 'Send Text';
+        sendBtn.addEventListener('click', function() { sendText(data.assignment.id, data.resolvedMessage); });
+        btnRow.appendChild(sendBtn);
+
+        var skipBtn = document.createElement('button');
+        skipBtn.className = 'btn btn-sm btn-secondary';
+        skipBtn.textContent = 'Skip';
+        skipBtn.addEventListener('click', function() { skipContact(data.assignment.id); });
+        btnRow.appendChild(skipBtn);
+
+        queueEl.appendChild(btnRow);
+      } else {
+        queueEl.textContent = '';
+        var empty = document.createElement('div');
+        empty.className = 'empty-state';
+        var icon = document.createElement('div');
+        icon.className = 'icon';
+        icon.textContent = '\u2705';
+        empty.appendChild(icon);
+        var msg = document.createElement('p');
+        msg.textContent = 'All caught up! No more contacts to text right now.';
+        empty.appendChild(msg);
+        queueEl.appendChild(empty);
+      }
+
+      // Active conversations
+      var convosCard = document.getElementById('convosCard');
+      var convosList = document.getElementById('convosList');
+      if (data.activeConversations && data.activeConversations.length > 0) {
+        convosCard.style.display = '';
+        document.getElementById('convoCount').textContent = data.activeConversations.length;
+        convosList.textContent = '';
+        data.activeConversations.forEach(function(c) {
+          var item = document.createElement('div');
+          item.className = 'convo-item';
+          var info = document.createElement('div');
+          var nameEl = document.createElement('strong');
+          nameEl.textContent = (c.first_name || '') + ' ' + (c.last_name || '');
+          info.appendChild(nameEl);
+          var phoneEl = document.createElement('div');
+          phoneEl.style.cssText = 'font-size:12px;color:#64748b';
+          phoneEl.textContent = c.phone;
+          info.appendChild(phoneEl);
+          item.appendChild(info);
+          var badge = document.createElement('span');
+          badge.className = 'badge badge-yellow';
+          badge.textContent = 'Reply';
+          item.appendChild(badge);
+          item.addEventListener('click', function() { openConvo(c.id); });
+          convosList.appendChild(item);
+        });
+      } else {
+        convosCard.style.display = 'none';
+      }
+    }
+
+    async function sendText(assignmentId, message) {
+      var creds = volState.credentials;
+      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) {
+        alert('Twilio credentials not configured. Please ask your campaign manager to set up Twilio in the main dashboard first.');
+        return;
+      }
+      try {
+        await apiCall('/api/p2p/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            volunteerId: volState.volunteerId,
+            assignmentId: assignmentId,
+            message: message,
+            accountSid: creds.accountSid,
+            authToken: creds.authToken,
+            from: creds.fromNumber
+          })
+        });
+        loadQueue();
+      } catch (e) {
+        alert('Failed to send. Please try again.');
+      }
+    }
+
+    async function skipContact(assignmentId) {
+      await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
+      loadQueue();
+    }
+
+    async function openConvo(assignmentId) {
+      volState.viewingConvoId = assignmentId;
+      document.getElementById('queueCard').style.display = 'none';
+      document.getElementById('convosCard').style.display = 'none';
+      document.getElementById('convoViewCard').style.display = '';
+
+      var data = await apiCall('/api/p2p/conversations/' + assignmentId);
+      document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
+
+      var msgEl = document.getElementById('convoMessages');
+      msgEl.textContent = '';
+      (data.messages || []).forEach(function(m) {
+        var bubble = document.createElement('div');
+        bubble.className = 'msg-bubble ' + (m.direction === 'outbound' ? 'msg-outbound' : 'msg-inbound');
+        bubble.textContent = m.body;
+        msgEl.appendChild(bubble);
+      });
+      msgEl.scrollTop = msgEl.scrollHeight;
+    }
+
+    function closeConvo() {
+      volState.viewingConvoId = null;
+      document.getElementById('convoViewCard').style.display = 'none';
+      document.getElementById('queueCard').style.display = '';
+      loadQueue();
+    }
+
+    async function sendReply() {
+      var text = document.getElementById('replyText').value.trim();
+      if (!text || !volState.viewingConvoId) return;
+      var creds = volState.credentials;
+      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) {
+        alert('Twilio credentials not configured.');
+        return;
+      }
+      document.getElementById('replyText').value = '';
+      await apiCall('/api/p2p/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          volunteerId: volState.volunteerId,
+          assignmentId: volState.viewingConvoId,
+          message: text,
+          accountSid: creds.accountSid,
+          authToken: creds.authToken,
+          from: creds.fromNumber
+        })
+      });
+      openConvo(volState.viewingConvoId);
+    }
+
+    async function markComplete() {
+      if (!volState.viewingConvoId) return;
+      await apiCall('/api/p2p/assignments/' + volState.viewingConvoId + '/complete', { method: 'PATCH' });
+      closeConvo();
+    }
+
+    async function leaveSession() {
+      if (!volState.volunteerId) return;
+      await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_online: false })
+      });
+      volState.volunteerId = null;
+      document.getElementById('textingScreen').style.display = 'none';
+      document.getElementById('joinScreen').style.display = 'flex';
+      document.getElementById('btnJoin').disabled = false;
+    }
+  </script>
+</body>
+</html>

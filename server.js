@@ -66,9 +66,19 @@ app.get('/api/stats/sentiment', (req, res) => {
   res.json({ positive, negative, neutral });
 });
 
-// --- QR Check-in page ---
+// --- QR Check-in pages ---
 app.get('/checkin/:id', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'checkin.html'));
+});
+
+// Per-voter QR code check-in page (short URL for QR codes)
+app.get('/v/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'voter-checkin.html'));
+});
+
+// Standalone P2P volunteer page (shareable link, no admin access)
+app.get('/volunteer', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'volunteer.html'));
 });
 
 // --- Twilio test connection ---
@@ -96,13 +106,25 @@ app.post('/send', async (req, res) => {
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
   const optedOutSet = new Set(optedOut);
 
+  // Build origin URL for QR links (use request headers or fallback)
+  const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
+
   for (const contact of contacts) {
     try {
       if (optedOutSet.has(contact.phone)) { results.failed++; continue; }
+
+      // Look up voter QR token for {qr_link} replacement
+      let qrLink = '';
+      if (messageTemplate.includes('{qr_link}')) {
+        const voter = db.prepare("SELECT qr_token FROM voters WHERE phone = ? AND qr_token IS NOT NULL LIMIT 1").get(contact.phone);
+        qrLink = voter ? origin + '/v/' + voter.qr_token : origin;
+      }
+
       let body = messageTemplate
         .replace(/{firstName}/g, contact.firstName || contact.first_name || '')
         .replace(/{lastName}/g,  contact.lastName  || contact.last_name  || '')
-        .replace(/{city}/g,      contact.city      || '');
+        .replace(/{city}/g,      contact.city      || '')
+        .replace(/{qr_link}/g,   qrLink);
       body += '\n' + (optOutFooter || 'Reply STOP to opt out.');
       await client.messages.create({ body, from, to: contact.phone });
       db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(contact.phone, body);
@@ -202,15 +224,23 @@ app.post('/api/events/:id/invite', async (req, res) => {
   let sent = 0;
   const rsvpInsert = db.prepare('INSERT INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, \'invited\')');
 
+  const invOrigin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
+
   for (const c of contacts) {
     try {
+      // Look up QR link for this contact
+      let qrLink = '';
+      const voter = db.prepare("SELECT qr_token FROM voters WHERE phone = ? AND qr_token IS NOT NULL LIMIT 1").get(c.phone);
+      qrLink = voter ? invOrigin + '/v/' + voter.qr_token : invOrigin;
+
       let body = (messageTemplate || 'You\'re invited to {title} on {date} at {location}!')
         .replace(/{title}/g, event.title)
         .replace(/{date}/g, event.event_date)
         .replace(/{time}/g, event.event_time || '')
         .replace(/{location}/g, event.location || '')
         .replace(/{firstName}/g, c.first_name || '')
-        .replace(/{lastName}/g, c.last_name || '');
+        .replace(/{lastName}/g, c.last_name || '')
+        .replace(/{qr_link}/g, qrLink);
       body += '\nReply STOP to opt out.';
       await client.messages.create({ body, from, to: c.phone });
       rsvpInsert.run(req.params.id, c.phone, (c.first_name + ' ' + c.last_name).trim());

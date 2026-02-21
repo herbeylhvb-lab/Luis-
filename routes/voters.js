@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { generateQrToken } = require('../db');
 
 // Search/list voters
 router.get('/voters', (req, res) => {
@@ -22,9 +23,10 @@ router.get('/voters', (req, res) => {
 // Add single voter
 router.post('/voters', (req, res) => {
   const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number } = req.body;
+  const qr_token = generateQrToken();
   const result = db.prepare(
-    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(first_name || '', last_name || '', phone || '', email || '', address || '', city || '', zip || '', party || '', support_level || 'unknown', voter_score || 0, tags || '', notes || '', registration_number || '');
+    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, qr_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(first_name || '', last_name || '', phone || '', email || '', address || '', city || '', zip || '', party || '', support_level || 'unknown', voter_score || 0, tags || '', notes || '', registration_number || '', qr_token);
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
@@ -33,12 +35,12 @@ router.post('/voters/import', (req, res) => {
   const { voters } = req.body;
   if (!voters || !voters.length) return res.status(400).json({ error: 'No voters provided.' });
   const insert = db.prepare(
-    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, tags, registration_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, tags, registration_number, qr_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const importMany = db.transaction((list) => {
     let added = 0;
     for (const v of list) {
-      insert.run(v.first_name || '', v.last_name || '', v.phone || '', v.email || '', v.address || '', v.city || '', v.zip || '', v.party || '', v.support_level || 'unknown', v.tags || '', v.registration_number || '');
+      insert.run(v.first_name || '', v.last_name || '', v.phone || '', v.email || '', v.address || '', v.city || '', v.zip || '', v.party || '', v.support_level || 'unknown', v.tags || '', v.registration_number || '', generateQrToken());
       added++;
     }
     return added;
@@ -84,6 +86,66 @@ router.post('/voters/:id/contacts', (req, res) => {
     'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
   ).run(req.params.id, contact_type, result || '', notes || '', contacted_by || '');
   res.json({ success: true, id: r.lastInsertRowid });
+});
+
+// --- QR Code Check-In Endpoints ---
+
+// Look up voter by QR token (public, used by check-in page)
+router.get('/voters/qr/:token', (req, res) => {
+  const voter = db.prepare("SELECT id, first_name, last_name, qr_token FROM voters WHERE qr_token = ?").get(req.params.token);
+  if (!voter) return res.status(404).json({ error: 'Invalid QR code.' });
+
+  // Get active/upcoming events (today or future, limited to recent)
+  const events = db.prepare(`
+    SELECT id, title, event_date, event_time, location FROM events
+    WHERE status = 'upcoming' AND event_date >= date('now', '-1 day')
+    ORDER BY event_date ASC LIMIT 5
+  `).all();
+
+  // Get this voter's past check-ins
+  const checkins = db.prepare(`
+    SELECT vc.event_id, vc.checked_in_at, e.title
+    FROM voter_checkins vc JOIN events e ON vc.event_id = e.id
+    WHERE vc.voter_id = ? ORDER BY vc.checked_in_at DESC
+  `).all(voter.id);
+
+  res.json({ voter: { id: voter.id, first_name: voter.first_name, last_name: voter.last_name }, events, checkins });
+});
+
+// Check in a voter to an event via QR token (public endpoint)
+router.post('/voters/qr/:token/checkin', (req, res) => {
+  const { event_id } = req.body;
+  if (!event_id) return res.status(400).json({ error: 'Event ID is required.' });
+
+  const voter = db.prepare("SELECT id, first_name, last_name FROM voters WHERE qr_token = ?").get(req.params.token);
+  if (!voter) return res.status(404).json({ error: 'Invalid QR code.' });
+
+  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(event_id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  // Check if already checked in
+  const existing = db.prepare('SELECT id FROM voter_checkins WHERE voter_id = ? AND event_id = ?').get(voter.id, event_id);
+  if (existing) {
+    return res.json({ success: true, already: true, eventTitle: event.title, voterName: voter.first_name + ' ' + voter.last_name });
+  }
+
+  // Record check-in
+  db.prepare('INSERT INTO voter_checkins (voter_id, event_id) VALUES (?, ?)').run(voter.id, event_id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    voter.first_name + ' ' + voter.last_name + ' checked in via QR to: ' + event.title
+  );
+
+  res.json({ success: true, eventTitle: event.title, voterName: voter.first_name + ' ' + voter.last_name });
+});
+
+// Get check-in stats for an event (admin endpoint)
+router.get('/voters/checkins/event/:eventId', (req, res) => {
+  const checkins = db.prepare(`
+    SELECT vc.*, v.first_name, v.last_name, v.phone
+    FROM voter_checkins vc JOIN voters v ON vc.voter_id = v.id
+    WHERE vc.event_id = ? ORDER BY vc.checked_in_at DESC
+  `).all(req.params.eventId);
+  res.json({ checkins, total: checkins.length });
 });
 
 module.exports = router;

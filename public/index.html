@@ -140,6 +140,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="walks"><span class="icon">&#128694;</span><span>Block Walk</span></div>
     <div class="nav-item" data-page="voters"><span class="icon">&#128209;</span><span>Voter File</span></div>
     <div class="nav-item" data-page="events"><span class="icon">&#128197;</span><span>Events</span></div>
+    <div class="nav-item" data-page="checkins"><span class="icon">&#128274;</span><span>QR Check-In</span></div>
     <div class="sidebar-section">Responses</div>
     <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
     <div class="sidebar-section">System</div>
@@ -337,6 +338,7 @@ tr:hover td{background:#1e293b80}
           <div style="display:flex;gap:16px;margin-bottom:16px;font-size:14px;flex-wrap:wrap">
             <span>Join Code: <strong id="p2pJoinCodeDisplay" style="color:#818cf8;font-size:18px">----</strong></span>
             <span>Expires: <span id="p2pCodeExpires" style="color:#94a3b8"></span></span>
+            <span><a id="p2pVolunteerLink" href="#" target="_blank" style="color:#22c55e;font-size:12px;display:none">Share volunteer link</a></span>
             <span>Mode: <select class="inline-select" id="p2pModeSelect" onchange="updateP2pMode()"></select></span>
           </div>
           <div class="stats-grid" style="margin-bottom:16px">
@@ -603,9 +605,53 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- QR CHECK-IN PAGE -->
+    <div class="page" id="page-checkins">
+      <div class="stats-grid" id="checkinStatsGrid"></div>
+
+      <div class="card">
+        <h3>QR Check-In Tracker</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Each voter in your system has a unique QR code. Send it via text before events — when they scan it, they're checked in automatically.</p>
+
+        <div class="form-group">
+          <label>Select Event to View Check-Ins</label>
+          <select id="checkinEventSelect" onchange="loadCheckinData()">
+            <option value="">-- Select an event --</option>
+          </select>
+        </div>
+
+        <div id="checkinEventInfo" style="display:none;margin-bottom:16px">
+          <div class="stats-grid">
+            <div class="stat-card"><div class="label">Checked In</div><div class="value" id="checkinTotal">0</div></div>
+            <div class="stat-card"><div class="label">Event</div><div class="value" style="font-size:16px" id="checkinEventName">-</div></div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Phone</th><th>Checked In At</th></tr></thead>
+            <tbody id="checkinTableBody"></tbody>
+          </table>
+        </div>
+        <div id="checkinEmpty" style="display:none;color:#64748b;text-align:center;padding:2rem;font-size:14px">
+          No check-ins yet for this event. Share voter QR links to get started!
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Voter QR Codes</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Search for a voter to view or copy their personal QR check-in link.</p>
+        <div class="form-group">
+          <input type="text" id="qrVoterSearch" placeholder="Search by name or phone..." oninput="searchQrVoters()">
+        </div>
+        <div id="qrVoterResults"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
 // ===================== STATE =====================
 let state = {
@@ -673,6 +719,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); }
+    if (page === 'checkins') loadCheckinPage();
   });
 });
 
@@ -1366,7 +1413,8 @@ document.getElementById('btnCreateP2pSession').addEventListener('click', async (
   if (contact_ids.length === 0) return alert('Select at least one contact.');
   const d = await apiPost('/api/p2p/sessions', { name, message_template, assignment_mode, contact_ids });
   if (d.error) return alert(d.error);
-  alert('Session created! Join code: ' + d.joinCode);
+  var volLink = window.location.origin + '/volunteer?code=' + d.joinCode;
+  prompt('Session created! Share this link with volunteers:\n\nJoin Code: ' + d.joinCode, volLink);
   document.getElementById('p2pSessionName').value = '';
   document.getElementById('p2pTemplate').value = '';
   loadP2pSessions();
@@ -1402,6 +1450,14 @@ async function openP2pSession(id) {
     const s = d.session;
     document.getElementById('p2pSessionTitle').textContent = s.name;
     document.getElementById('p2pJoinCodeDisplay').textContent = s.join_code;
+    // Show shareable volunteer link
+    var volLinkEl = document.getElementById('p2pVolunteerLink');
+    if (volLinkEl) {
+      var link = window.location.origin + '/volunteer?code=' + s.join_code;
+      volLinkEl.textContent = link;
+      volLinkEl.href = link;
+      volLinkEl.style.display = '';
+    }
     document.getElementById('p2pCodeExpires').textContent = s.code_expires_at ? new Date(s.code_expires_at).toLocaleDateString() : '';
     document.getElementById('p2pStatSent').textContent = s.totalSent || 0;
     document.getElementById('p2pStatChats').textContent = s.totalReplies || 0;
@@ -1655,6 +1711,221 @@ async function getSuggestion(voterMessage, voterName, sentiment, assignmentId) {
       };
     }
   } catch(e) { console.error(e); }
+}
+
+// ===================== QR CHECK-IN =====================
+async function loadCheckinPage() {
+  // Load events into dropdown
+  const data = await api('/api/events');
+  const sel = document.getElementById('checkinEventSelect');
+  // Keep first option, clear rest
+  while (sel.options.length > 1) sel.remove(1);
+  (data.events || []).forEach(function(e) {
+    var opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.title + ' (' + e.event_date + ')';
+    sel.appendChild(opt);
+  });
+
+  // Load overall check-in stats
+  var stats = document.getElementById('checkinStatsGrid');
+  stats.textContent = '';
+  var totalCheckins = 0;
+  for (var i = 0; i < (data.events || []).length; i++) {
+    var ev = data.events[i];
+    if (ev.rsvpStats) totalCheckins += (ev.rsvpStats.attended || 0);
+  }
+  var card1 = document.createElement('div');
+  card1.className = 'stat-card';
+  var l1 = document.createElement('div'); l1.className = 'label'; l1.textContent = 'Total Events';
+  var v1 = document.createElement('div'); v1.className = 'value'; v1.textContent = (data.events || []).length;
+  card1.appendChild(l1); card1.appendChild(v1);
+  stats.appendChild(card1);
+}
+
+async function loadCheckinData() {
+  var eventId = document.getElementById('checkinEventSelect').value;
+  var infoEl = document.getElementById('checkinEventInfo');
+  var tbody = document.getElementById('checkinTableBody');
+  var emptyEl = document.getElementById('checkinEmpty');
+  tbody.textContent = '';
+
+  if (!eventId) {
+    infoEl.style.display = 'none';
+    emptyEl.style.display = 'none';
+    return;
+  }
+
+  var data = await api('/api/voters/checkins/event/' + eventId);
+  infoEl.style.display = 'block';
+  document.getElementById('checkinTotal').textContent = data.total || 0;
+
+  // Get event name
+  var evData = await api('/api/events/' + eventId);
+  document.getElementById('checkinEventName').textContent = evData.event ? evData.event.title : '-';
+
+  if (!data.checkins || data.checkins.length === 0) {
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  data.checkins.forEach(function(c) {
+    var row = document.createElement('tr');
+    var td1 = document.createElement('td');
+    td1.textContent = (c.first_name || '') + ' ' + (c.last_name || '');
+    var td2 = document.createElement('td');
+    td2.textContent = c.phone || '-';
+    var td3 = document.createElement('td');
+    td3.textContent = c.checked_in_at ? new Date(c.checked_in_at + 'Z').toLocaleString() : '-';
+    row.appendChild(td1);
+    row.appendChild(td2);
+    row.appendChild(td3);
+    tbody.appendChild(row);
+  });
+}
+
+var qrSearchTimeout = null;
+function searchQrVoters() {
+  clearTimeout(qrSearchTimeout);
+  qrSearchTimeout = setTimeout(async function() {
+    var q = document.getElementById('qrVoterSearch').value.trim();
+    var results = document.getElementById('qrVoterResults');
+    if (!q || q.length < 2) { results.textContent = ''; return; }
+
+    var data = await api('/api/voters?q=' + encodeURIComponent(q));
+    results.textContent = '';
+    if (!data.voters || data.voters.length === 0) {
+      var noRes = document.createElement('div');
+      noRes.style.cssText = 'color:#64748b;padding:1rem;text-align:center';
+      noRes.textContent = 'No voters found.';
+      results.appendChild(noRes);
+      return;
+    }
+
+    data.voters.slice(0, 10).forEach(function(v) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155';
+
+      var info = document.createElement('div');
+      var nameEl = document.createElement('strong');
+      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      nameEl.style.color = '#e2e8f0';
+      info.appendChild(nameEl);
+      if (v.phone) {
+        var phoneEl = document.createElement('div');
+        phoneEl.style.cssText = 'font-size:12px;color:#64748b';
+        phoneEl.textContent = v.phone;
+        info.appendChild(phoneEl);
+      }
+      row.appendChild(info);
+
+      var actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;gap:6px;align-items:center';
+
+      if (v.qr_token) {
+        var link = window.location.origin + '/v/' + v.qr_token;
+
+        var copyBtn = document.createElement('button');
+        copyBtn.className = 'btn btn-xs btn-secondary';
+        copyBtn.textContent = 'Copy Link';
+        copyBtn.addEventListener('click', (function(url, btn) {
+          return function() {
+            navigator.clipboard.writeText(url).then(function() {
+              btn.textContent = 'Copied!';
+              setTimeout(function() { btn.textContent = 'Copy Link'; }, 1500);
+            });
+          };
+        })(link, copyBtn));
+        actions.appendChild(copyBtn);
+
+        var qrBtn = document.createElement('button');
+        qrBtn.className = 'btn btn-xs btn-primary';
+        qrBtn.textContent = 'Show QR';
+        qrBtn.addEventListener('click', (function(url, name) {
+          return function() { showVoterQrModal(url, name); };
+        })(link, (v.first_name || '') + ' ' + (v.last_name || '')));
+        actions.appendChild(qrBtn);
+      } else {
+        var noQr = document.createElement('span');
+        noQr.style.cssText = 'font-size:11px;color:#64748b';
+        noQr.textContent = 'No QR token';
+        actions.appendChild(noQr);
+      }
+
+      row.appendChild(actions);
+      results.appendChild(row);
+    });
+  }, 300);
+}
+
+function showVoterQrModal(url, voterName) {
+  // Remove existing modal if any
+  var existing = document.getElementById('qrModal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'qrModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:2rem;text-align:center;max-width:380px;width:90%';
+
+  var title = document.createElement('h3');
+  title.textContent = voterName;
+  title.style.cssText = 'color:#818cf8;margin-bottom:0.5rem';
+  box.appendChild(title);
+
+  var sub = document.createElement('p');
+  sub.textContent = 'Scan this QR code at events to check in';
+  sub.style.cssText = 'color:#94a3b8;font-size:13px;margin-bottom:1rem';
+  box.appendChild(sub);
+
+  var canvas = document.createElement('canvas');
+  canvas.id = 'qrCanvas';
+  canvas.style.cssText = 'margin:0 auto;display:block;border-radius:8px';
+  box.appendChild(canvas);
+
+  var linkEl = document.createElement('div');
+  linkEl.style.cssText = 'margin-top:1rem;font-size:11px;color:#64748b;word-break:break-all';
+  linkEl.textContent = url;
+  box.appendChild(linkEl);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'margin-top:1rem;display:flex;gap:8px;justify-content:center';
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'btn btn-sm btn-secondary';
+  copyBtn.textContent = 'Copy Link';
+  copyBtn.addEventListener('click', function() {
+    navigator.clipboard.writeText(url).then(function() {
+      copyBtn.textContent = 'Copied!';
+      setTimeout(function() { copyBtn.textContent = 'Copy Link'; }, 1500);
+    });
+  });
+  btnRow.appendChild(copyBtn);
+
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-sm btn-primary';
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', function() { modal.remove(); });
+  btnRow.appendChild(closeBtn);
+
+  box.appendChild(btnRow);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+
+  // Generate QR code on the canvas
+  if (typeof QRCode !== 'undefined') {
+    QRCode.toCanvas(canvas, url, { width: 256, margin: 2, color: { dark: '#000000', light: '#ffffff' } });
+  } else {
+    canvas.style.display = 'none';
+    var fallback = document.createElement('div');
+    fallback.style.cssText = 'padding:2rem;color:#94a3b8;font-size:14px';
+    fallback.textContent = 'QR library not loaded. Copy the link instead.';
+    box.insertBefore(fallback, linkEl);
+  }
 }
 
 // ===================== INIT =====================
