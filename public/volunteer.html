@@ -291,7 +291,7 @@
     .role-card-wrapper p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
     .role-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 16px;
     }
     @media (max-width: 500px) {
@@ -318,6 +318,8 @@
     .role-option.captain-opt .role-title { color: #f59e0b; }
     .role-option.scanner-opt:hover { border-color: #22c55e; }
     .role-option.scanner-opt .role-title { color: #22c55e; }
+    .role-option.walk-opt:hover { border-color: #f97316; }
+    .role-option.walk-opt .role-title { color: #f97316; }
 
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes pulse-green { 0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 70% { box-shadow: 0 0 0 10px rgba(34,197,94,0); } }
@@ -347,6 +349,11 @@
           <div class="role-icon">&#128247;</div>
           <div class="role-title">QR Scanner</div>
           <div class="role-desc">Scan voter QR codes at events for check-in</div>
+        </div>
+        <div class="role-option walk-opt" onclick="selectRole('walk')">
+          <div class="role-icon">&#128694;</div>
+          <div class="role-title">Block Walking</div>
+          <div class="role-desc">Door-to-door canvassing with GPS-verified check-ins</div>
         </div>
       </div>
     </div>
@@ -476,6 +483,10 @@
     function selectRole(role) {
       if (role === 'captain') {
         window.location.href = '/captain';
+        return;
+      }
+      if (role === 'walk') {
+        window.location.href = '/walk';
         return;
       }
       document.getElementById('roleScreen').style.display = 'none';
