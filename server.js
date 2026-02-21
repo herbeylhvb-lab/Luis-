@@ -21,6 +21,7 @@ app.use('/api', require('./routes/events'));
 app.use('/api', require('./routes/knowledge'));
 app.use('/api', require('./routes/ai'));
 app.use('/api', require('./routes/p2p'));
+app.use('/api', require('./routes/captains'));
 
 // --- Core endpoints ---
 
