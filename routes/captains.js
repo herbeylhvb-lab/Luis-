@@ -118,15 +118,7 @@ router.get('/captains/:id/search', (req, res) => {
     WHERE first_name LIKE ? OR last_name LIKE ? OR address LIKE ? OR phone LIKE ?
     ORDER BY last_name, first_name LIMIT 50
   `).all(term, term, term, term);
-  for (const v of voters) {
-    v.on_lists = db.prepare(`
-      SELECT cl.name as list_name, c.name as captain_name, cl.id as list_id
-      FROM captain_list_voters clv
-      JOIN captain_lists cl ON clv.list_id = cl.id
-      JOIN captains c ON cl.captain_id = c.id
-      WHERE clv.voter_id = ?
-    `).all(v.id);
-  }
+  // Cross-list info hidden from captains — only admin sees overlap
   res.json({ voters });
 });
 
@@ -143,15 +135,7 @@ router.get('/captains/:id/household', (req, res) => {
     WHERE zip = ? AND address LIKE ? AND id != ?
     ORDER BY last_name, first_name
   `).all(voter.zip, streetNum + ' %', voter_id);
-  for (const h of household) {
-    h.on_lists = db.prepare(`
-      SELECT cl.name as list_name, c.name as captain_name, cl.id as list_id
-      FROM captain_list_voters clv
-      JOIN captain_lists cl ON clv.list_id = cl.id
-      JOIN captains c ON cl.captain_id = c.id
-      WHERE clv.voter_id = ?
-    `).all(h.id);
-  }
+  // Cross-list info hidden from captains — only admin sees overlap
   res.json({ household });
 });
 
@@ -204,15 +188,7 @@ router.get('/captains/:id/lists/:listId/voters', (req, res) => {
     WHERE clv.list_id = ?
     ORDER BY v.last_name, v.first_name
   `).all(req.params.listId);
-  for (const v of voters) {
-    v.on_lists = db.prepare(`
-      SELECT cl.name as list_name, c.name as captain_name, cl.id as list_id
-      FROM captain_list_voters clv
-      JOIN captain_lists cl ON clv.list_id = cl.id
-      JOIN captains c ON cl.captain_id = c.id
-      WHERE clv.voter_id = ? AND clv.list_id != ?
-    `).all(v.id, req.params.listId);
-  }
+  // Cross-list info hidden from captains — only admin sees overlap
   res.json({ voters });
 });
 
@@ -223,14 +199,8 @@ router.post('/captains/:id/lists/:listId/voters', (req, res) => {
   const existing = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, voter_id);
   if (existing) return res.json({ success: true, already: true });
   db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)').run(req.params.listId, voter_id);
-  const notifications = db.prepare(`
-    SELECT cl.name as list_name, c.name as captain_name
-    FROM captain_list_voters clv
-    JOIN captain_lists cl ON clv.list_id = cl.id
-    JOIN captains c ON cl.captain_id = c.id
-    WHERE clv.voter_id = ? AND clv.list_id != ?
-  `).all(voter_id, req.params.listId);
-  res.json({ success: true, notifications });
+  // Cross-list notifications hidden from captains — only admin sees overlap
+  res.json({ success: true });
 });
 
 // Remove voter from list

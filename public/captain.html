@@ -75,8 +75,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .badge-gray{background:#1e293b;color:#94a3b8;border:1px solid #334155}
 .badge-amber{background:#451a03;color:#fcd34d;border:1px solid #78350f}
 
-.cross-list-notice{display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;background:#451a03;border:1px solid #78350f;border-radius:8px;font-size:12px;color:#fcd34d}
-
 .household-section{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
 .household-section h4{font-size:13px;color:#64748b;margin-bottom:8px}
 .household-member{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;font-size:13px}
@@ -337,17 +335,6 @@ async function loadListVoters() {
     a.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
     info.appendChild(a);
 
-    // Cross-list badges
-    if (v.on_lists && v.on_lists.length > 0) {
-      v.on_lists.forEach(function(ol) {
-        var badge = document.createElement('span');
-        badge.className = 'badge badge-amber';
-        badge.style.cssText = 'margin-top:4px;display:inline-block;margin-right:4px';
-        badge.textContent = ol.captain_name + ': ' + ol.list_name;
-        info.appendChild(badge);
-      });
-    }
-
     row.appendChild(info);
 
     var btn = document.createElement('button');
@@ -477,16 +464,6 @@ async function searchVoters() {
       card.appendChild(hist);
     }
 
-    // Cross-list info — voter CAN still be added even if on another list
-    if (v.on_lists && v.on_lists.length > 0) {
-      v.on_lists.forEach(function(ol) {
-        var notice = document.createElement('div');
-        notice.className = 'cross-list-notice';
-        notice.textContent = '\u26A0\uFE0F Also on ' + ol.captain_name + '\'s "' + ol.list_name + '"';
-        card.appendChild(notice);
-      });
-    }
-
     // Household section
     var hhContainer = document.createElement('div');
     hhContainer.id = 'hh-' + v.id;
@@ -519,16 +496,6 @@ async function loadHousehold(voterId, containerEl) {
     if (h.party) memberText += ' \u2022 ' + h.party;
     info.textContent = memberText;
 
-    // Cross-list badges for household members
-    if (h.on_lists && h.on_lists.length > 0) {
-      h.on_lists.forEach(function(ol) {
-        var badge = document.createElement('span');
-        badge.className = 'badge badge-amber';
-        badge.style.cssText = 'margin-left:6px;font-size:10px';
-        badge.textContent = ol.list_name;
-        info.appendChild(badge);
-      });
-    }
     member.appendChild(info);
 
     // Household members can always be added to list, even if on another captain's list
@@ -560,14 +527,6 @@ async function addVoterToList(voterId) {
   if (data.already) {
     alert('This voter is already on this list.');
     return;
-  }
-  // Show cross-list notifications — voter is still added, just notify the captain
-  if (data.notifications && data.notifications.length > 0) {
-    var msg = 'Added! Note: this voter is also on:\n';
-    data.notifications.forEach(function(n) {
-      msg += '  \u2022 ' + n.captain_name + '\'s "' + n.list_name + '"\n';
-    });
-    alert(msg);
   }
   await loadListVoters();
   refreshSidebar();
