@@ -14,6 +14,13 @@ function extractStreetNumber(address) {
   return match ? match[1] : null;
 }
 
+// Normalize phone to digits, strip leading "1" for US numbers
+function phoneDigits(raw) {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
+  return digits;
+}
+
 // ===================== ADMIN ENDPOINTS =====================
 
 // List all captains with stats
@@ -207,6 +214,152 @@ router.post('/captains/:id/lists/:listId/voters', (req, res) => {
 router.delete('/captains/:id/lists/:listId/voters/:voterId', (req, res) => {
   db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
   res.json({ success: true });
+});
+
+// ===================== CSV IMPORT & CROSS-MATCH =====================
+
+// Import CSV: cross-match uploaded rows against voter database
+router.post('/captains/:id/lists/:listId/import-csv', (req, res) => {
+  const { rows } = req.body;
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
+
+  // Verify list belongs to this captain
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // Pre-build lookup maps
+  const allVoters = db.prepare(
+    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters"
+  ).all();
+
+  // Phone map: digits -> array of voters (array to detect ambiguity)
+  const phoneMap = {};
+  for (const v of allVoters) {
+    const d = phoneDigits(v.phone);
+    if (d.length >= 7) {
+      if (!phoneMap[d]) phoneMap[d] = [];
+      phoneMap[d].push(v);
+    }
+  }
+
+  // Registration number map: trimmed string -> voter
+  const regMap = {};
+  for (const v of allVoters) {
+    if (v.registration_number && v.registration_number.trim()) {
+      regMap[v.registration_number.trim()] = v;
+    }
+  }
+
+  // Name + address query (LIMIT 3 to detect ambiguity)
+  const findByNameAddr = db.prepare(
+    "SELECT id, first_name, last_name, phone, address, city, zip, party FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 3"
+  );
+  const checkExisting = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
+  const insertToList = db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
+
+  const results = { auto_added: 0, already_on_list: 0, needs_review: [], no_match: [] };
+
+  const importTx = db.transaction((rowList) => {
+    for (const row of rowList) {
+      let candidates = [];
+      let matchMethod = '';
+
+      // Tier 1: Phone match
+      const digits = phoneDigits(row.phone);
+      if (digits.length >= 7 && phoneMap[digits]) {
+        candidates = phoneMap[digits];
+        matchMethod = 'phone';
+      }
+
+      // Tier 2: Registration number match
+      if (candidates.length === 0 && row.registration_number && row.registration_number.trim()) {
+        const found = regMap[row.registration_number.trim()];
+        if (found) {
+          candidates = [found];
+          matchMethod = 'registration';
+        }
+      }
+
+      // Tier 3: Name + address match
+      if (candidates.length === 0 && row.first_name && row.last_name && row.address) {
+        const addrWords = row.address.trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+        if (addrWords) {
+          candidates = findByNameAddr.all(row.first_name, row.last_name, addrWords + '%');
+          matchMethod = 'name_address';
+        }
+      }
+
+      // Disposition
+      if (candidates.length === 1) {
+        // Confident single match — auto-add
+        const voter = candidates[0];
+        const exists = checkExisting.get(req.params.listId, voter.id);
+        if (exists) {
+          results.already_on_list++;
+        } else {
+          insertToList.run(req.params.listId, voter.id);
+          results.auto_added++;
+        }
+      } else if (candidates.length > 1) {
+        // Multiple matches — needs captain review
+        results.needs_review.push({
+          csv_row: {
+            first_name: row.first_name || '', last_name: row.last_name || '',
+            phone: row.phone || '', address: row.address || '',
+            city: row.city || '', zip: row.zip || ''
+          },
+          candidates: candidates.map(c => ({
+            id: c.id, first_name: c.first_name, last_name: c.last_name,
+            phone: c.phone, address: c.address, city: c.city,
+            zip: c.zip, party: c.party, match_method: matchMethod
+          }))
+        });
+      } else {
+        // No match
+        results.no_match.push({
+          first_name: row.first_name || '', last_name: row.last_name || '',
+          phone: row.phone || '', address: row.address || ''
+        });
+      }
+    }
+  });
+
+  importTx(rows);
+  // Cross-list info hidden from captains — only admin sees overlap
+  res.json({ success: true, ...results });
+});
+
+// Confirm manually verified matches from CSV import
+router.post('/captains/:id/lists/:listId/confirm-matches', (req, res) => {
+  const { matches } = req.body;
+  if (!matches || !matches.length) return res.status(400).json({ error: 'No matches provided.' });
+
+  // Verify list belongs to this captain
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const checkExisting = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
+  const checkVoter = db.prepare('SELECT id FROM voters WHERE id = ?');
+  const insertToList = db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
+
+  const confirmTx = db.transaction((matchList) => {
+    let added = 0, already = 0;
+    for (const m of matchList) {
+      const voterIdInt = parseInt(m.voter_id, 10);
+      if (!(voterIdInt > 0)) continue;
+      if (!checkVoter.get(voterIdInt)) continue;
+      if (checkExisting.get(req.params.listId, voterIdInt)) {
+        already++;
+      } else {
+        insertToList.run(req.params.listId, voterIdInt);
+        added++;
+      }
+    }
+    return { added, already };
+  });
+
+  const result = confirmTx(matches);
+  res.json({ success: true, ...result });
 });
 
 // ===================== TEAM MANAGEMENT =====================

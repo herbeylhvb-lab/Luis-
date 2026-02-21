@@ -110,6 +110,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 }
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+
+/* CSV Import Modal */
+.csv-modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto}
+.csv-step{display:none}
+.csv-step.active{display:block}
+.csv-col-row{display:flex;align-items:center;gap:8px;padding:4px 0}
+.csv-col-label{color:#94a3b8;font-size:13px;min-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.csv-col-arrow{color:#64748b;font-size:12px}
+.csv-col-select{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:13px;flex:1}
+.csv-preview-table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+.csv-preview-table th,.csv-preview-table td{padding:4px 8px;border:1px solid #334155;text-align:left;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.csv-preview-table th{background:#0f172a;color:#94a3b8}
+.csv-result-section{margin-bottom:16px;padding:12px;border-radius:8px}
+.csv-result-auto{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3)}
+.csv-result-review{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3)}
+.csv-result-none{background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.3)}
+.csv-review-item{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:8px}
+.csv-review-csv-row{color:#94a3b8;font-size:12px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #334155}
+.csv-review-candidate{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.csv-review-candidate:hover{background:#1e293b}
 </style>
 </head>
 <body>
@@ -307,8 +327,22 @@ async function loadListVoters() {
   var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters');
   var voters = data.voters || [];
 
-  document.getElementById('rightListName').textContent = captainState.selectedListName;
+  var nameEl = document.getElementById('rightListName');
+  nameEl.textContent = captainState.selectedListName;
   document.getElementById('rightListSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+
+  // Add Upload CSV button to right header
+  var oldCsvBtn = document.getElementById('btnUploadCsv');
+  if (oldCsvBtn) oldCsvBtn.remove();
+  var headerRow = nameEl.parentNode;
+  headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
+  var csvBtn = document.createElement('button');
+  csvBtn.id = 'btnUploadCsv';
+  csvBtn.className = 'btn btn-xs btn-captain';
+  csvBtn.style.marginLeft = 'auto';
+  csvBtn.textContent = '\uD83D\uDCC4 Upload CSV';
+  csvBtn.addEventListener('click', function() { openCsvImportModal(); });
+  headerRow.appendChild(csvBtn);
 
   var el = document.getElementById('rightListContent');
   el.textContent = '';
@@ -626,6 +660,521 @@ async function createList() {
 function closeModal(id) {
   var m = document.getElementById(id);
   if (m) m.remove();
+}
+
+// ===================== CSV IMPORT =====================
+
+var csvImportState = { rawHeaders: [], autoMap: [], parsedRows: [], importResults: null };
+
+var CAPTAIN_COLUMN_MAP = {
+  'firstname': 'first_name', 'first_name': 'first_name', 'first name': 'first_name',
+  'first': 'first_name', 'fname': 'first_name', 'givenname': 'first_name',
+  'vanfirstname': 'first_name', 'voter first name': 'first_name',
+  'lastname': 'last_name', 'last_name': 'last_name', 'last name': 'last_name',
+  'last': 'last_name', 'lname': 'last_name', 'surname': 'last_name',
+  'vanlastname': 'last_name', 'voter last name': 'last_name',
+  'phone': 'phone', 'telephone': 'phone', 'tel': 'phone', 'phonenumber': 'phone',
+  'phone_number': 'phone', 'phone number': 'phone', 'cell': 'phone',
+  'cellphone': 'phone', 'cell_phone': 'phone', 'mobile': 'phone', 'homephone': 'phone',
+  'address': 'address', 'streetaddress': 'address', 'street_address': 'address',
+  'street address': 'address', 'addr': 'address', 'street': 'address',
+  'address1': 'address', 'mailingaddress': 'address',
+  'city': 'city', 'town': 'city', 'municipality': 'city',
+  'zip': 'zip', 'zipcode': 'zip', 'zip_code': 'zip', 'zip code': 'zip',
+  'postalcode': 'zip', 'postal_code': 'zip', 'postal code': 'zip',
+  'registration_number': 'registration_number', 'registration number': 'registration_number',
+  'reg number': 'registration_number', 'voter id': 'registration_number',
+  'voterid': 'registration_number', 'vanid': 'registration_number',
+  'van id': 'registration_number', 'voter_id': 'registration_number',
+  'state_id': 'registration_number', 'stateid': 'registration_number',
+  'state id': 'registration_number', 'regnum': 'registration_number',
+  'reg_num': 'registration_number'
+};
+
+var CAPTAIN_CSV_FIELDS = [
+  {v: '', l: '-- Skip --'},
+  {v: 'first_name', l: 'First Name'},
+  {v: 'last_name', l: 'Last Name'},
+  {v: 'phone', l: 'Phone'},
+  {v: 'address', l: 'Address'},
+  {v: 'city', l: 'City'},
+  {v: 'zip', l: 'ZIP'},
+  {v: 'registration_number', l: 'Registration #'}
+];
+
+function parseCsvLine(line) {
+  var result = [];
+  var current = '';
+  var inQuotes = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') { inQuotes = !inQuotes; }
+    else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+    else { current += ch; }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function openCsvImportModal() {
+  if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
+
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'csvImportModal';
+
+  var box = document.createElement('div');
+  box.className = 'csv-modal-box';
+
+  var h3 = document.createElement('h3');
+  h3.style.cssText = 'margin-bottom:16px;font-size:16px';
+  h3.textContent = '\uD83D\uDCC4 Upload CSV to "' + captainState.selectedListName + '"';
+  box.appendChild(h3);
+
+  // --- STEP 1: Upload ---
+  var step1 = document.createElement('div');
+  step1.id = 'csvStep1';
+  step1.className = 'csv-step active';
+
+  var desc = document.createElement('p');
+  desc.style.cssText = 'color:#94a3b8;font-size:13px;margin-bottom:12px';
+  desc.textContent = 'Upload a CSV file or paste CSV data. The system will match rows against the voter database and add matches to your list.';
+  step1.appendChild(desc);
+
+  var fg1 = document.createElement('div');
+  fg1.className = 'form-group';
+  var lbl1 = document.createElement('label');
+  lbl1.textContent = 'Choose CSV File';
+  fg1.appendChild(lbl1);
+  var fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.id = 'csvFileInput';
+  fileInput.accept = '.csv,.txt';
+  fileInput.style.cssText = 'display:block;margin-top:4px;font-size:13px;color:#94a3b8';
+  fg1.appendChild(fileInput);
+  step1.appendChild(fg1);
+
+  var fg2 = document.createElement('div');
+  fg2.className = 'form-group';
+  var lbl2 = document.createElement('label');
+  lbl2.textContent = 'Or Paste CSV Data';
+  fg2.appendChild(lbl2);
+  var ta = document.createElement('textarea');
+  ta.id = 'csvPasteArea';
+  ta.rows = 6;
+  ta.placeholder = 'FirstName,LastName,Phone,Address,City\nJohn,Doe,5125551234,123 Main St,Austin';
+  ta.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:13px;font-family:monospace;resize:vertical';
+  fg2.appendChild(ta);
+  step1.appendChild(fg2);
+
+  var btnRow1 = document.createElement('div');
+  btnRow1.style.cssText = 'display:flex;gap:8px;margin-top:12px';
+  var previewBtn = document.createElement('button');
+  previewBtn.className = 'btn btn-captain';
+  previewBtn.textContent = 'Preview & Map Columns';
+  previewBtn.addEventListener('click', previewCsvImport);
+  btnRow1.appendChild(previewBtn);
+  var cancelBtn1 = document.createElement('button');
+  cancelBtn1.className = 'btn btn-secondary';
+  cancelBtn1.textContent = 'Cancel';
+  cancelBtn1.addEventListener('click', closeCsvModal);
+  btnRow1.appendChild(cancelBtn1);
+  step1.appendChild(btnRow1);
+  box.appendChild(step1);
+
+  // --- STEP 2: Column Mapping (populated dynamically) ---
+  var step2 = document.createElement('div');
+  step2.id = 'csvStep2';
+  step2.className = 'csv-step';
+  box.appendChild(step2);
+
+  // --- STEP 3: Results (populated dynamically) ---
+  var step3 = document.createElement('div');
+  step3.id = 'csvStep3';
+  step3.className = 'csv-step';
+  box.appendChild(step3);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+function showCsvStep(n) {
+  for (var i = 1; i <= 3; i++) {
+    var s = document.getElementById('csvStep' + i);
+    if (s) s.className = 'csv-step' + (i === n ? ' active' : '');
+  }
+}
+
+function closeCsvModal() {
+  closeModal('csvImportModal');
+  csvImportState = { rawHeaders: [], autoMap: [], parsedRows: [], importResults: null };
+  loadListVoters();
+  refreshSidebar();
+}
+
+function previewCsvImport() {
+  var fileInput = document.getElementById('csvFileInput');
+  var pasteArea = document.getElementById('csvPasteArea');
+
+  if (fileInput && fileInput.files && fileInput.files.length > 0) {
+    var reader = new FileReader();
+    reader.onload = function(e) { processCsvText(e.target.result); };
+    reader.readAsText(fileInput.files[0]);
+  } else if (pasteArea && pasteArea.value.trim()) {
+    processCsvText(pasteArea.value.trim());
+  } else {
+    alert('Please choose a file or paste CSV data.');
+  }
+}
+
+function processCsvText(text) {
+  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  if (lines.length < 2) { alert('CSV must have a header row and at least one data row.'); return; }
+
+  csvImportState.rawHeaders = parseCsvLine(lines[0]);
+  csvImportState.parsedRows = [];
+  for (var i = 1; i < lines.length; i++) {
+    csvImportState.parsedRows.push(parseCsvLine(lines[i]));
+  }
+
+  // Auto-map columns
+  csvImportState.autoMap = csvImportState.rawHeaders.map(function(h) {
+    var key = h.toLowerCase().replace(/[^a-z0-9_]/g, '');
+    return CAPTAIN_COLUMN_MAP[key] || CAPTAIN_COLUMN_MAP[h.toLowerCase().trim()] || '';
+  });
+
+  // Build Step 2 UI
+  var step2 = document.getElementById('csvStep2');
+  step2.textContent = '';
+
+  var countBadge = document.createElement('div');
+  countBadge.style.cssText = 'color:#f59e0b;font-size:14px;font-weight:600;margin-bottom:12px';
+  countBadge.textContent = csvImportState.parsedRows.length + ' row' + (csvImportState.parsedRows.length !== 1 ? 's' : '') + ' found';
+  step2.appendChild(countBadge);
+
+  // Column mapping
+  var mapLabel = document.createElement('div');
+  mapLabel.style.cssText = 'font-size:13px;color:#94a3b8;margin-bottom:8px';
+  mapLabel.textContent = 'Map each CSV column to a voter field:';
+  step2.appendChild(mapLabel);
+
+  var mapContainer = document.createElement('div');
+  mapContainer.id = 'csvColumnMapping';
+  csvImportState.rawHeaders.forEach(function(h, idx) {
+    var row = document.createElement('div');
+    row.className = 'csv-col-row';
+
+    var label = document.createElement('div');
+    label.className = 'csv-col-label';
+    label.textContent = h;
+    label.title = h;
+    row.appendChild(label);
+
+    var arrow = document.createElement('div');
+    arrow.className = 'csv-col-arrow';
+    arrow.textContent = '\u2192';
+    row.appendChild(arrow);
+
+    var select = document.createElement('select');
+    select.className = 'csv-col-select';
+    select.dataset.colIdx = idx;
+    CAPTAIN_CSV_FIELDS.forEach(function(f) {
+      var opt = document.createElement('option');
+      opt.value = f.v;
+      opt.textContent = f.l;
+      if (f.v === csvImportState.autoMap[idx]) opt.selected = true;
+      select.appendChild(opt);
+    });
+    row.appendChild(select);
+    mapContainer.appendChild(row);
+  });
+  step2.appendChild(mapContainer);
+
+  // Preview table (first 5 rows)
+  var previewLabel = document.createElement('div');
+  previewLabel.style.cssText = 'font-size:13px;color:#94a3b8;margin:12px 0 4px';
+  previewLabel.textContent = 'Preview (first 5 rows):';
+  step2.appendChild(previewLabel);
+
+  var table = document.createElement('table');
+  table.className = 'csv-preview-table';
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  csvImportState.rawHeaders.forEach(function(h) {
+    var th = document.createElement('th');
+    th.textContent = h;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  var previewCount = Math.min(5, csvImportState.parsedRows.length);
+  for (var i = 0; i < previewCount; i++) {
+    var tr = document.createElement('tr');
+    csvImportState.parsedRows[i].forEach(function(cell) {
+      var td = document.createElement('td');
+      td.textContent = cell;
+      td.title = cell;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  step2.appendChild(table);
+
+  // Buttons
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
+  var importBtn = document.createElement('button');
+  importBtn.className = 'btn btn-captain';
+  importBtn.textContent = '\uD83D\uDD0D Match & Import';
+  importBtn.addEventListener('click', executeCsvImport);
+  btnRow.appendChild(importBtn);
+  var backBtn = document.createElement('button');
+  backBtn.className = 'btn btn-secondary';
+  backBtn.textContent = 'Back';
+  backBtn.addEventListener('click', function() { showCsvStep(1); });
+  btnRow.appendChild(backBtn);
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', closeCsvModal);
+  btnRow.appendChild(cancelBtn);
+  step2.appendChild(btnRow);
+
+  showCsvStep(2);
+}
+
+async function executeCsvImport() {
+  // Read column mapping
+  var selects = document.querySelectorAll('#csvColumnMapping select');
+  var colMapping = {};
+  for (var i = 0; i < selects.length; i++) {
+    if (selects[i].value) {
+      colMapping[selects[i].dataset.colIdx] = selects[i].value;
+    }
+  }
+
+  // Build rows
+  var rows = csvImportState.parsedRows.map(function(cols) {
+    var row = {};
+    for (var idx in colMapping) {
+      var field = colMapping[idx];
+      row[field] = cols[Number(idx)] || '';
+    }
+    return row;
+  });
+
+  // Filter out rows with no identifying info
+  rows = rows.filter(function(r) {
+    return (r.first_name && r.last_name) || r.phone || r.registration_number;
+  });
+
+  if (rows.length === 0) { alert('No usable rows found. Make sure at least name or phone is mapped.'); return; }
+
+  // Disable button
+  var btn = document.querySelector('#csvStep2 .btn-captain');
+  if (btn) { btn.disabled = true; btn.textContent = 'Matching...'; }
+
+  try {
+    var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/import-csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: rows })
+    });
+
+    if (!data.success) { alert('Import failed: ' + (data.error || 'Unknown error')); return; }
+
+    csvImportState.importResults = data;
+    buildResultsStep(data);
+    showCsvStep(3);
+  } catch(e) {
+    alert('Import failed: ' + (e.message || 'Unknown error'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD0D Match & Import'; }
+  }
+}
+
+function buildResultsStep(data) {
+  var step3 = document.getElementById('csvStep3');
+  step3.textContent = '';
+
+  var h = document.createElement('h3');
+  h.style.cssText = 'margin-bottom:16px;font-size:16px';
+  h.textContent = 'Import Results';
+  step3.appendChild(h);
+
+  // Section 1: Auto-matched (green)
+  var autoSection = document.createElement('div');
+  autoSection.className = 'csv-result-section csv-result-auto';
+  var autoTitle = document.createElement('div');
+  autoTitle.style.cssText = 'font-weight:600;font-size:14px;color:#22c55e;margin-bottom:4px';
+  autoTitle.textContent = '\u2705 Auto-matched: ' + data.auto_added + ' voter' + (data.auto_added !== 1 ? 's' : '') + ' added to list';
+  autoSection.appendChild(autoTitle);
+  if (data.already_on_list > 0) {
+    var alreadyNote = document.createElement('div');
+    alreadyNote.style.cssText = 'font-size:12px;color:#94a3b8';
+    alreadyNote.textContent = '(' + data.already_on_list + ' already on list — skipped)';
+    autoSection.appendChild(alreadyNote);
+  }
+  step3.appendChild(autoSection);
+
+  // Section 2: Needs Review (amber)
+  if (data.needs_review && data.needs_review.length > 0) {
+    var reviewSection = document.createElement('div');
+    reviewSection.className = 'csv-result-section csv-result-review';
+    var reviewTitle = document.createElement('div');
+    reviewTitle.style.cssText = 'font-weight:600;font-size:14px;color:#f59e0b;margin-bottom:8px';
+    reviewTitle.textContent = '\u26A0\uFE0F Needs Verification: ' + data.needs_review.length + ' row' + (data.needs_review.length !== 1 ? 's' : '');
+    reviewSection.appendChild(reviewTitle);
+    var reviewDesc = document.createElement('div');
+    reviewDesc.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:12px';
+    reviewDesc.textContent = 'Multiple potential matches found. Select the correct voter for each row, or skip.';
+    reviewSection.appendChild(reviewDesc);
+
+    var reviewContainer = document.createElement('div');
+    reviewContainer.id = 'csvReviewContainer';
+
+    data.needs_review.forEach(function(item, idx) {
+      var card = document.createElement('div');
+      card.className = 'csv-review-item';
+
+      // CSV row info
+      var csvInfo = document.createElement('div');
+      csvInfo.className = 'csv-review-csv-row';
+      csvInfo.textContent = 'CSV: ' + (item.csv_row.first_name || '') + ' ' + (item.csv_row.last_name || '') +
+        (item.csv_row.phone ? ' \u2022 ' + item.csv_row.phone : '') +
+        (item.csv_row.address ? ' \u2022 ' + item.csv_row.address : '');
+      card.appendChild(csvInfo);
+
+      // Candidates as radio buttons
+      item.candidates.forEach(function(c, cIdx) {
+        var label = document.createElement('label');
+        label.className = 'csv-review-candidate';
+
+        var radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'csvReview_' + idx;
+        radio.value = c.id;
+        label.appendChild(radio);
+
+        var info = document.createElement('span');
+        info.textContent = c.first_name + ' ' + c.last_name +
+          (c.phone ? ' \u2022 ' + c.phone : '') +
+          (c.address ? ' \u2022 ' + c.address : '') +
+          (c.party ? ' (' + c.party + ')' : '');
+        label.appendChild(info);
+        card.appendChild(label);
+      });
+
+      // Skip option (pre-selected)
+      var skipLabel = document.createElement('label');
+      skipLabel.className = 'csv-review-candidate';
+      var skipRadio = document.createElement('input');
+      skipRadio.type = 'radio';
+      skipRadio.name = 'csvReview_' + idx;
+      skipRadio.value = '';
+      skipRadio.checked = true;
+      skipLabel.appendChild(skipRadio);
+      var skipText = document.createElement('span');
+      skipText.style.color = '#64748b';
+      skipText.textContent = 'Skip — none of these';
+      skipLabel.appendChild(skipText);
+      card.appendChild(skipLabel);
+
+      reviewContainer.appendChild(card);
+    });
+
+    reviewSection.appendChild(reviewContainer);
+
+    var confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-captain';
+    confirmBtn.id = 'btnConfirmMatches';
+    confirmBtn.style.marginTop = '12px';
+    confirmBtn.textContent = 'Confirm Selected Matches';
+    confirmBtn.addEventListener('click', confirmCsvMatches);
+    reviewSection.appendChild(confirmBtn);
+
+    step3.appendChild(reviewSection);
+  }
+
+  // Section 3: No match (gray)
+  if (data.no_match && data.no_match.length > 0) {
+    var noneSection = document.createElement('div');
+    noneSection.className = 'csv-result-section csv-result-none';
+    var noneTitle = document.createElement('div');
+    noneTitle.style.cssText = 'font-weight:600;font-size:14px;color:#94a3b8;margin-bottom:4px';
+    noneTitle.textContent = '\u274C No match found: ' + data.no_match.length + ' row' + (data.no_match.length !== 1 ? 's' : '');
+    noneSection.appendChild(noneTitle);
+    var noneNote = document.createElement('div');
+    noneNote.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:4px';
+    noneNote.textContent = 'These names were not found in the voter database.';
+    noneSection.appendChild(noneNote);
+
+    // List unmatched names
+    data.no_match.forEach(function(nm) {
+      var row = document.createElement('div');
+      row.style.cssText = 'font-size:12px;color:#94a3b8;padding:2px 0';
+      row.textContent = '\u2022 ' + (nm.first_name || '') + ' ' + (nm.last_name || '') +
+        (nm.phone ? ' (' + nm.phone + ')' : '');
+      noneSection.appendChild(row);
+    });
+    step3.appendChild(noneSection);
+  }
+
+  // Done button
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
+  var doneBtn = document.createElement('button');
+  doneBtn.className = 'btn btn-secondary';
+  doneBtn.textContent = 'Done';
+  doneBtn.addEventListener('click', closeCsvModal);
+  btnRow.appendChild(doneBtn);
+  step3.appendChild(btnRow);
+}
+
+async function confirmCsvMatches() {
+  var results = csvImportState.importResults;
+  if (!results || !results.needs_review) return;
+
+  var matches = [];
+  for (var i = 0; i < results.needs_review.length; i++) {
+    var selected = document.querySelector('input[name="csvReview_' + i + '"]:checked');
+    if (selected && selected.value) {
+      matches.push({ voter_id: parseInt(selected.value) });
+    }
+  }
+
+  if (matches.length === 0) {
+    alert('No matches selected. All rows will be skipped.');
+    return;
+  }
+
+  var btn = document.getElementById('btnConfirmMatches');
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirming...'; }
+
+  try {
+    var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/confirm-matches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matches: matches })
+    });
+
+    if (data.success) {
+      alert('Added ' + data.added + ' voter' + (data.added !== 1 ? 's' : '') + ' to list.' + (data.already > 0 ? ' (' + data.already + ' already on list)' : ''));
+      if (btn) { btn.textContent = '\u2705 Confirmed!'; btn.disabled = true; }
+      // Disable all radio buttons
+      var radios = document.querySelectorAll('#csvReviewContainer input[type=radio]');
+      for (var r = 0; r < radios.length; r++) { radios[r].disabled = true; }
+    } else {
+      alert('Confirmation failed: ' + (data.error || 'Unknown error'));
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Selected Matches'; }
+    }
+  } catch(e) {
+    alert('Confirmation failed: ' + (e.message || 'Unknown error'));
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirm Selected Matches'; }
+  }
 }
 
 // ===================== TEAM MANAGEMENT =====================
