@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const sharp = require('sharp');
+const { Jimp } = require('jimp');
 const QRCode = require('qrcode');
 
 // List all events (includes has_flyer flag, excludes full base64)
@@ -104,10 +104,10 @@ router.get('/events/:eventId/flyer/:voterToken', async (req, res) => {
     const base64Data = event.flyer_image.replace(/^data:image\/\w+;base64,/, '');
     const flyerBuffer = Buffer.from(base64Data, 'base64');
 
-    // Get flyer dimensions
-    const metadata = await sharp(flyerBuffer).metadata();
-    const flyerWidth = metadata.width || 800;
-    const flyerHeight = metadata.height || 600;
+    // Load flyer image with jimp (pure JS — no native deps)
+    const flyer = await Jimp.fromBuffer(flyerBuffer);
+    const flyerWidth = flyer.width || 800;
+    const flyerHeight = flyer.height || 600;
 
     // QR code size: 25% of flyer width, min 150px, max 250px
     const qrSize = Math.max(150, Math.min(250, Math.floor(flyerWidth * 0.25)));
@@ -122,39 +122,24 @@ router.get('/events/:eventId/flyer/:voterToken', async (req, res) => {
     // Create white background rectangle behind QR (padding of 8px)
     const padding = 8;
     const bgSize = qrSize + padding * 2;
-    const whiteBg = await sharp({
-      create: {
-        width: bgSize,
-        height: bgSize,
-        channels: 4,
-        background: { r: 255, g: 255, b: 255, alpha: 230 }
-      }
-    }).png().toBuffer();
+    const whiteBg = new Jimp({ width: bgSize, height: bgSize, color: 0xFFFFFFE6 });
+
+    // Load and resize QR code
+    const qrImage = await Jimp.fromBuffer(qrBuffer);
+    qrImage.resize({ w: qrSize, h: qrSize });
 
     // Composite: white bg + QR code centered on it
-    const qrWithBg = await sharp(whiteBg)
-      .composite([{
-        input: await sharp(qrBuffer).resize(qrSize, qrSize).toBuffer(),
-        top: padding,
-        left: padding
-      }])
-      .png()
-      .toBuffer();
+    whiteBg.composite(qrImage, padding, padding);
 
-    // Final composite: flyer + QR in bottom-right corner
+    // Final composite: flyer + QR badge in bottom-right corner
     const margin = 12;
-    const composite = await sharp(flyerBuffer)
-      .composite([{
-        input: qrWithBg,
-        top: flyerHeight - bgSize - margin,
-        left: flyerWidth - bgSize - margin
-      }])
-      .png()
-      .toBuffer();
+    flyer.composite(whiteBg, flyerWidth - bgSize - margin, flyerHeight - bgSize - margin);
+
+    const outputBuffer = await flyer.getBuffer('image/png');
 
     res.set('Content-Type', 'image/png');
     res.set('Cache-Control', 'public, max-age=3600');
-    res.send(composite);
+    res.send(outputBuffer);
   } catch (err) {
     console.error('Flyer composite error:', err);
     res.status(500).send('Error generating image');
