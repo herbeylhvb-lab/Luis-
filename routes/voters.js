@@ -170,6 +170,114 @@ router.post('/voters/import-canvass', (req, res) => {
   res.json({ success: true, ...results });
 });
 
+// --- Enrich voter data from purchased lists ---
+router.post('/voters/enrich', (req, res) => {
+  const { rows } = req.body;
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
+
+  const allVoters = db.prepare("SELECT id, first_name, last_name, phone, address, registration_number FROM voters").all();
+  const regMap = {};
+  for (const v of allVoters) {
+    if (v.registration_number && v.registration_number.trim()) {
+      regMap[v.registration_number.trim()] = v;
+    }
+  }
+
+  const findByNameAddr = db.prepare(
+    "SELECT id, phone FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 1"
+  );
+  const updatePhone = db.prepare("UPDATE voters SET phone = ?, updated_at = datetime('now') WHERE id = ?");
+
+  const results = {
+    total: rows.length, filled: 0, skipped: 0,
+    conflicts: [], unmatched: [],
+    match_details: { by_voter_id: 0, by_name_address: 0 }
+  };
+
+  const enrichTx = db.transaction((rowList) => {
+    for (const row of rowList) {
+      let voter = null;
+      let matchMethod = '';
+
+      // 1. Voter ID / registration number match
+      if (row.voter_id && row.voter_id.trim()) {
+        const found = regMap[row.voter_id.trim()];
+        if (found) { voter = found; matchMethod = 'voter_id'; }
+      }
+
+      // 2. Name + address fallback
+      if (!voter && row.first_name && row.last_name && row.address) {
+        const addrWords = row.address.trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+        if (addrWords) {
+          const found = findByNameAddr.get(row.first_name, row.last_name, addrWords + '%');
+          if (found) { voter = found; matchMethod = 'name_address'; }
+        }
+      }
+
+      if (!voter) {
+        results.unmatched.push({
+          first_name: row.first_name || '', last_name: row.last_name || '',
+          phone: row.phone || '', address: row.address || '',
+          city: row.city || '', zip: row.zip || '', voter_id: row.voter_id || ''
+        });
+        continue;
+      }
+
+      results.match_details['by_' + matchMethod]++;
+      const newPhone = (row.phone || '').trim();
+      const currentPhone = (voter.phone || '').trim();
+
+      if (!currentPhone && newPhone) {
+        updatePhone.run(newPhone, voter.id);
+        results.filled++;
+      } else if (currentPhone && newPhone && phoneDigits(currentPhone) !== phoneDigits(newPhone)) {
+        results.conflicts.push({
+          voter_id: voter.id,
+          name: (voter.first_name || row.first_name || '') + ' ' + (voter.last_name || row.last_name || ''),
+          current_phone: currentPhone,
+          new_phone: newPhone
+        });
+      } else {
+        results.skipped++;
+      }
+    }
+  });
+
+  enrichTx(rows);
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Data enrichment: ' + results.filled + ' phones added, ' + results.conflicts.length + ' conflicts, ' + results.unmatched.length + ' unmatched'
+  );
+
+  res.json({ success: true, ...results });
+});
+
+// Resolve phone conflicts from enrichment
+router.post('/voters/enrich/resolve', (req, res) => {
+  const { resolutions } = req.body;
+  if (!resolutions || !resolutions.length) return res.status(400).json({ error: 'No resolutions provided.' });
+
+  const updatePhone = db.prepare("UPDATE voters SET phone = ?, updated_at = datetime('now') WHERE id = ?");
+  const resolveTx = db.transaction((list) => {
+    let updated = 0;
+    for (const r of list) {
+      if (r.voter_id && r.phone) {
+        updatePhone.run(r.phone, r.voter_id);
+        updated++;
+      }
+    }
+    return updated;
+  });
+
+  const updated = resolveTx(resolutions);
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Enrichment conflicts resolved: ' + updated + ' phone numbers updated'
+  );
+
+  res.json({ success: true, updated });
+});
+
 // Get voter detail with contact history
 router.get('/voters/:id', (req, res) => {
   const voter = db.prepare('SELECT * FROM voters WHERE id = ?').get(req.params.id);
