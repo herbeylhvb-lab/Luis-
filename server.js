@@ -87,6 +87,11 @@ app.get('/captain', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'captain.html'));
 });
 
+// Block Walking interface (mobile-friendly volunteer walking list)
+app.get('/walk', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'walk.html'));
+});
+
 // --- Twilio test connection ---
 app.post('/test-connection', async (req, res) => {
   const { accountSid, authToken } = req.body;

@@ -1,0 +1,25 @@
+# Dependencies (rebuilt inside Docker)
+node_modules/
+
+# Local SQLite database (Railway has its own volume)
+data/
+
+# Git history (not needed in image)
+.git/
+.gitignore
+
+# Dev/config files not needed at runtime
+nixpacks.toml
+railway.toml
+Dockerfile
+.dockerignore
+README.md
+*.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (secrets injected via Railway env vars)
+.env
+.env.*

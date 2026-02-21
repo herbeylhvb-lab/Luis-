@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Block Walk</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
+
+/* Load screen */
+.load-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem}
+.load-card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:2rem;max-width:400px;width:100%;text-align:center}
+.load-card h2{font-size:1.4rem;margin-bottom:0.5rem;color:#f59e0b}
+.load-card p{color:#94a3b8;font-size:0.85rem;margin-bottom:1.5rem}
+.form-group{margin-bottom:1rem;text-align:left}
+.form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px}
+.form-group input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;color:#e2e8f0;font-size:18px;text-align:center;outline:none}
+.form-group input:focus{border-color:#f59e0b}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 24px;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;width:100%}
+.btn:hover{opacity:0.85}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn-walk{background:#f59e0b;color:#000}
+.btn-sm{padding:8px 16px;font-size:13px;width:auto}
+.btn-secondary{background:#334155;color:#e2e8f0}
+.error-msg{color:#ef4444;font-size:13px;margin-top:8px}
+
+/* Walk header */
+.walk-header{background:#1e293b;border-bottom:1px solid #334155;padding:12px 16px;position:sticky;top:0;z-index:50}
+.walk-title{font-size:16px;font-weight:700;color:#f59e0b}
+.walk-meta{font-size:12px;color:#94a3b8;margin-top:2px}
+.progress-bar{height:6px;background:#334155;border-radius:3px;margin-top:8px;overflow:hidden}
+.progress-fill{height:100%;background:#22c55e;border-radius:3px;transition:width 0.3s}
+
+/* GPS indicator */
+.gps-indicator{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:6px}
+.gps-dot{width:8px;height:8px;border-radius:50%;animation:pulse 2s infinite}
+.gps-dot.good{background:#22c55e}
+.gps-dot.fair{background:#f59e0b}
+.gps-dot.poor{background:#ef4444}
+.gps-dot.off{background:#64748b;animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+/* Walker name input */
+.walker-bar{display:flex;gap:8px;align-items:center;padding:8px 16px;background:#0f172a;border-bottom:1px solid #334155}
+.walker-bar label{font-size:12px;color:#64748b;white-space:nowrap}
+.walker-bar input{flex:1;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;outline:none}
+
+/* Address list */
+.addr-list{padding:8px}
+.addr-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:8px;cursor:pointer;transition:all 0.2s;position:relative}
+.addr-card:active{transform:scale(0.98)}
+.addr-card.current{border-color:#f59e0b;background:#1c1917}
+.addr-card.done{opacity:0.7;border-color:#334155}
+.addr-card .addr-num{position:absolute;left:-4px;top:-4px;background:#334155;color:#94a3b8;width:24px;height:24px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.addr-card.done .addr-num{background:#22c55e;color:#fff}
+.addr-card .addr-text{font-size:15px;font-weight:600;margin-left:20px}
+.addr-card .addr-voter{font-size:13px;color:#94a3b8;margin-left:20px;margin-top:2px}
+.addr-card .addr-status{display:flex;align-items:center;gap:6px;margin-top:6px;margin-left:20px}
+.badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
+.badge-green{background:#052e16;color:#4ade80}
+.badge-red{background:#450a0a;color:#fca5a5}
+.badge-yellow{background:#422006;color:#fcd34d}
+.badge-gray{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+.badge-blue{background:#0c1a3d;color:#93c5fd}
+.badge-gps{font-size:10px;padding:1px 6px}
+
+/* Door panel (slide up) */
+.door-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:100;display:none;align-items:flex-end;justify-content:center}
+.door-overlay.open{display:flex}
+.door-panel{background:#1e293b;border-top:2px solid #f59e0b;border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;animation:slideUp 0.25s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.door-panel h3{font-size:16px;margin-bottom:4px}
+.door-panel .door-addr{color:#94a3b8;font-size:14px;margin-bottom:16px}
+.door-panel .door-voter{color:#f59e0b;font-size:13px;margin-bottom:16px}
+
+/* Disposition grid */
+.disp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.disp-btn{padding:14px 12px;border:2px solid #334155;border-radius:10px;background:#0f172a;color:#e2e8f0;font-size:14px;font-weight:600;cursor:pointer;text-align:center;transition:all 0.15s}
+.disp-btn:active{transform:scale(0.96)}
+.disp-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
+.disp-btn.sup{border-color:#166534}.disp-btn.sup.selected{background:#052e16;border-color:#22c55e;color:#4ade80}
+.disp-btn.lean-sup{border-color:#14532d}.disp-btn.lean-sup.selected{background:#052e16;border-color:#86efac;color:#86efac}
+.disp-btn.und{border-color:#854d0e}.disp-btn.und.selected{background:#422006;border-color:#f59e0b;color:#fcd34d}
+.disp-btn.lean-opp{border-color:#7f1d1d}.disp-btn.lean-opp.selected{background:#450a0a;border-color:#fca5a5;color:#fca5a5}
+.disp-btn.opp{border-color:#7f1d1d}.disp-btn.opp.selected{background:#450a0a;border-color:#ef4444;color:#fca5a5}
+.disp-btn.nh{border-color:#334155}.disp-btn.nh.selected{background:#1e293b;border-color:#94a3b8;color:#e2e8f0}
+.disp-btn.ref{border-color:#581c87}.disp-btn.ref.selected{background:#3b0764;border-color:#c084fc;color:#c084fc}
+.disp-btn.other{border-color:#334155}.disp-btn.other.selected{background:#1e293b;border-color:#64748b;color:#94a3b8}
+
+.notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:12px}
+.notes-area:focus{border-color:#f59e0b}
+
+.door-actions{display:flex;gap:8px}
+.door-actions .btn{flex:1}
+
+.back-link{display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;margin-top:1rem;cursor:pointer;text-decoration:none}
+.back-link:hover{color:#e2e8f0}
+</style>
+</head>
+<body>
+
+<!-- LOAD SCREEN -->
+<div id="loadScreen" class="load-screen">
+  <div class="load-card">
+    <div style="font-size:2.5rem;margin-bottom:0.5rem">&#x1F6B6;</div>
+    <h2>Block Walk</h2>
+    <p>Enter your walk ID to load your walking list with GPS tracking.</p>
+    <div class="form-group">
+      <label>Walk ID</label>
+      <input type="number" id="walkIdInput" placeholder="e.g. 1" inputmode="numeric">
+    </div>
+    <button class="btn btn-walk" id="btnLoadWalk" onclick="loadWalk()">Load Walk</button>
+    <div class="error-msg" id="loadError"></div>
+    <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
+  </div>
+</div>
+
+<!-- WALK SCREEN -->
+<div id="walkScreen" style="display:none">
+  <!-- Header -->
+  <div class="walk-header">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div class="walk-title" id="walkTitle"></div>
+        <div class="walk-meta" id="walkMeta"></div>
+      </div>
+      <button class="btn btn-sm btn-secondary" onclick="exitWalk()">Exit</button>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="gps-indicator">
+      <div class="gps-dot off" id="gpsDot"></div>
+      <span id="gpsText">GPS: Requesting...</span>
+    </div>
+  </div>
+
+  <!-- Walker name -->
+  <div class="walker-bar">
+    <label>Your name:</label>
+    <input type="text" id="walkerName" placeholder="Volunteer name" value="">
+  </div>
+
+  <!-- Address list -->
+  <div class="addr-list" id="addrList"></div>
+</div>
+
+<!-- DOOR PANEL (slide-up overlay) -->
+<div class="door-overlay" id="doorOverlay">
+  <div class="door-panel">
+    <h3 id="doorTitle">Door #1</h3>
+    <div class="door-addr" id="doorAddr"></div>
+    <div class="door-voter" id="doorVoter"></div>
+
+    <div class="disp-grid" id="dispGrid">
+      <button class="disp-btn sup" data-result="support" onclick="selectDisp(this)">&#x1F44D; Support</button>
+      <button class="disp-btn lean-sup" data-result="lean_support" onclick="selectDisp(this)">&#x1F44C; Lean Support</button>
+      <button class="disp-btn und" data-result="undecided" onclick="selectDisp(this)">&#x1F914; Undecided</button>
+      <button class="disp-btn lean-opp" data-result="lean_oppose" onclick="selectDisp(this)">&#x1F44E; Lean Oppose</button>
+      <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
+      <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
+      <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
+      <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
+    </div>
+
+    <textarea class="notes-area" id="doorNotes" placeholder="Notes (optional)..."></textarea>
+
+    <div class="door-actions">
+      <button class="btn btn-walk" id="btnLogDoor" onclick="logDoor()" disabled>Log & Next &#x27A1;</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeDoor()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var walkState = {
+  walkId: null,
+  walk: null,
+  currentAddrIdx: 0,
+  selectedResult: null,
+  gpsLat: null,
+  gpsLng: null,
+  gpsAccuracy: null,
+  gpsWatchId: null
+};
+
+// ===================== GPS TRACKING =====================
+
+function startGps() {
+  if (!navigator.geolocation) {
+    document.getElementById('gpsText').textContent = 'GPS: Not available';
+    document.getElementById('gpsDot').className = 'gps-dot off';
+    return;
+  }
+
+  walkState.gpsWatchId = navigator.geolocation.watchPosition(
+    function(pos) {
+      walkState.gpsLat = pos.coords.latitude;
+      walkState.gpsLng = pos.coords.longitude;
+      walkState.gpsAccuracy = Math.round(pos.coords.accuracy);
+
+      var dot = document.getElementById('gpsDot');
+      var text = document.getElementById('gpsText');
+      var acc = walkState.gpsAccuracy;
+
+      if (acc <= 30) {
+        dot.className = 'gps-dot good';
+        text.textContent = 'GPS: Accurate (' + acc + 'm)';
+      } else if (acc <= 100) {
+        dot.className = 'gps-dot fair';
+        text.textContent = 'GPS: Fair (' + acc + 'm)';
+      } else {
+        dot.className = 'gps-dot poor';
+        text.textContent = 'GPS: Weak (' + acc + 'm)';
+      }
+    },
+    function(err) {
+      document.getElementById('gpsText').textContent = 'GPS: ' + err.message;
+      document.getElementById('gpsDot').className = 'gps-dot off';
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+  );
+}
+
+function stopGps() {
+  if (walkState.gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(walkState.gpsWatchId);
+    walkState.gpsWatchId = null;
+  }
+}
+
+// ===================== LOAD WALK =====================
+
+async function loadWalk() {
+  var idInput = document.getElementById('walkIdInput');
+  var errEl = document.getElementById('loadError');
+  errEl.textContent = '';
+  var walkId = parseInt(idInput.value);
+  if (!walkId || walkId < 1) { errEl.textContent = 'Please enter a valid walk ID.'; return; }
+
+  document.getElementById('btnLoadWalk').disabled = true;
+  try {
+    var res = await fetch('/api/walks/' + walkId + '/volunteer');
+    var data = await res.json();
+    if (!res.ok || data.error) { errEl.textContent = data.error || 'Server error ' + res.status; return; }
+
+    walkState.walkId = walkId;
+    walkState.walk = data.walk;
+    renderWalk();
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkScreen').style.display = '';
+    startGps();
+  } catch(e) {
+    errEl.textContent = 'Failed to load walk: ' + e.message;
+  } finally {
+    document.getElementById('btnLoadWalk').disabled = false;
+  }
+}
+
+function exitWalk() {
+  stopGps();
+  walkState.walkId = null;
+  walkState.walk = null;
+  document.getElementById('walkScreen').style.display = 'none';
+  document.getElementById('loadScreen').style.display = '';
+}
+
+// ===================== RENDER WALK =====================
+
+function renderWalk() {
+  var w = walkState.walk;
+  document.getElementById('walkTitle').textContent = w.name;
+
+  var knocked = w.progress.knocked;
+  var total = w.progress.total;
+  document.getElementById('walkMeta').textContent = knocked + ' of ' + total + ' doors knocked (' + w.progress.remaining + ' remaining)';
+
+  var pct = total > 0 ? (knocked / total * 100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+
+  renderAddressList();
+}
+
+function renderAddressList() {
+  var el = document.getElementById('addrList');
+  el.textContent = '';
+  var addrs = walkState.walk.addresses;
+
+  // Find first un-visited address as "current"
+  var currentIdx = -1;
+  for (var i = 0; i < addrs.length; i++) {
+    if (addrs[i].result === 'not_visited') { currentIdx = i; break; }
+  }
+  walkState.currentAddrIdx = currentIdx >= 0 ? currentIdx : addrs.length;
+
+  addrs.forEach(function(a, idx) {
+    var card = document.createElement('div');
+    card.className = 'addr-card';
+    if (a.result !== 'not_visited') card.className += ' done';
+    if (idx === currentIdx) card.className += ' current';
+
+    // Number badge
+    var num = document.createElement('div');
+    num.className = 'addr-num';
+    num.textContent = idx + 1;
+    card.appendChild(num);
+
+    // Address text
+    var addrText = document.createElement('div');
+    addrText.className = 'addr-text';
+    var fullAddr = a.address + (a.unit ? ' ' + a.unit : '');
+    addrText.textContent = fullAddr;
+    card.appendChild(addrText);
+
+    // Voter name
+    if (a.voter_name) {
+      var voter = document.createElement('div');
+      voter.className = 'addr-voter';
+      voter.textContent = a.voter_name;
+      card.appendChild(voter);
+    }
+
+    // Status badges
+    if (a.result !== 'not_visited') {
+      var statusRow = document.createElement('div');
+      statusRow.className = 'addr-status';
+
+      var resultBadge = document.createElement('span');
+      resultBadge.className = 'badge ' + getResultBadgeClass(a.result);
+      resultBadge.textContent = formatResult(a.result);
+      statusRow.appendChild(resultBadge);
+
+      if (a.gps_verified) {
+        var gpsBadge = document.createElement('span');
+        gpsBadge.className = 'badge badge-green badge-gps';
+        gpsBadge.textContent = '\u2713 GPS';
+        statusRow.appendChild(gpsBadge);
+      }
+
+      card.appendChild(statusRow);
+    }
+
+    card.addEventListener('click', function() { openDoor(idx); });
+    el.appendChild(card);
+  });
+
+  // Completion message
+  if (currentIdx === -1 && addrs.length > 0) {
+    var done = document.createElement('div');
+    done.style.cssText = 'text-align:center;padding:2rem;color:#22c55e;font-size:1.2rem;font-weight:700';
+    done.textContent = '\u2705 Walk Complete! All doors knocked.';
+    el.appendChild(done);
+  }
+}
+
+function getResultBadgeClass(result) {
+  var map = {
+    'support': 'badge-green', 'lean_support': 'badge-green',
+    'undecided': 'badge-yellow', 'lean_oppose': 'badge-red',
+    'oppose': 'badge-red', 'not_home': 'badge-gray',
+    'refused': 'badge-gray', 'moved': 'badge-gray',
+    'come_back': 'badge-blue'
+  };
+  return map[result] || 'badge-gray';
+}
+
+function formatResult(result) {
+  var map = {
+    'support': 'Support', 'lean_support': 'Lean Support',
+    'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
+    'oppose': 'Oppose', 'not_home': 'Not Home',
+    'refused': 'Refused', 'moved': 'Moved',
+    'come_back': 'Come Back', 'not_visited': 'Not Visited'
+  };
+  return map[result] || result;
+}
+
+// ===================== DOOR PANEL =====================
+
+function openDoor(idx) {
+  var a = walkState.walk.addresses[idx];
+  walkState.currentAddrIdx = idx;
+  walkState.selectedResult = null;
+
+  document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
+  document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name : '';
+  document.getElementById('doorNotes').value = a.notes || '';
+  document.getElementById('btnLogDoor').disabled = true;
+
+  // Clear disposition selection
+  var btns = document.querySelectorAll('.disp-btn');
+  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
+
+  // Pre-select if already visited
+  if (a.result && a.result !== 'not_visited') {
+    walkState.selectedResult = a.result;
+    for (var i = 0; i < btns.length; i++) {
+      if (btns[i].dataset.result === a.result) {
+        btns[i].classList.add('selected');
+        break;
+      }
+    }
+    document.getElementById('btnLogDoor').disabled = false;
+  }
+
+  document.getElementById('doorOverlay').classList.add('open');
+}
+
+function closeDoor() {
+  document.getElementById('doorOverlay').classList.remove('open');
+}
+
+function selectDisp(el) {
+  var btns = document.querySelectorAll('.disp-btn');
+  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
+  el.classList.add('selected');
+  walkState.selectedResult = el.dataset.result;
+  document.getElementById('btnLogDoor').disabled = false;
+}
+
+async function logDoor() {
+  if (!walkState.selectedResult) return;
+
+  var addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  var walkerName = document.getElementById('walkerName').value.trim() || 'Volunteer';
+  var notes = document.getElementById('doorNotes').value.trim();
+
+  var btn = document.getElementById('btnLogDoor');
+  btn.disabled = true;
+  btn.textContent = 'Logging...';
+
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        result: walkState.selectedResult,
+        notes: notes,
+        gps_lat: walkState.gpsLat,
+        gps_lng: walkState.gpsLng,
+        gps_accuracy: walkState.gpsAccuracy,
+        walker_name: walkerName
+      })
+    });
+    var data = await res.json();
+    if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+
+    // Update local state
+    addr.result = walkState.selectedResult;
+    addr.notes = notes;
+    addr.gps_verified = data.gps_verified || 0;
+
+    // Update progress
+    var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
+    walkState.walk.progress.knocked = knocked;
+    walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+
+    closeDoor();
+    renderWalk();
+
+    // Auto-scroll to next unvisited
+    var nextIdx = -1;
+    for (var i = 0; i < walkState.walk.addresses.length; i++) {
+      if (walkState.walk.addresses[i].result === 'not_visited') { nextIdx = i; break; }
+    }
+    if (nextIdx >= 0) {
+      var cards = document.querySelectorAll('.addr-card');
+      if (cards[nextIdx]) {
+        cards[nextIdx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  } catch(e) {
+    alert('Failed to log: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Log & Next \u27A1';
+  }
+}
+</script>
+</body>
+</html>

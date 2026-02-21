@@ -89,4 +89,107 @@ router.delete('/walks/:walkId/addresses/:addrId', (req, res) => {
   res.json({ success: true });
 });
 
+// ===================== VOLUNTEER WALKING INTERFACE =====================
+
+// Get walk for volunteer view (simplified, no admin data)
+router.get('/walks/:id/volunteer', (req, res) => {
+  const walk = db.prepare('SELECT id, name, description, assigned_to, status FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+  walk.addresses = db.prepare(
+    'SELECT id, address, unit, city, zip, voter_name, result, notes, knocked_at, sort_order, gps_verified FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+  ).all(req.params.id);
+  const total = walk.addresses.length;
+  const knocked = walk.addresses.filter(a => a.result !== 'not_visited').length;
+  walk.progress = { total, knocked, remaining: total - knocked };
+  res.json({ walk });
+});
+
+// Haversine distance between two GPS coords (returns meters)
+function gpsDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg) => deg * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Valid door-knock disposition values
+const VALID_RESULTS = new Set([
+  'support', 'lean_support', 'undecided', 'lean_oppose',
+  'oppose', 'not_home', 'refused', 'moved', 'come_back'
+]);
+
+const MAX_GPS_ACCURACY = 200; // ignore GPS worse than 200m
+
+function isValidCoord(lat, lng) {
+  return typeof lat === 'number' && typeof lng === 'number' &&
+    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 &&
+    isFinite(lat) && isFinite(lng);
+}
+
+// Log a door knock result with GPS verification
+router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
+  const { result, notes, gps_lat, gps_lng, gps_accuracy, walker_name } = req.body;
+  if (!result) return res.status(400).json({ error: 'Result is required.' });
+  if (!VALID_RESULTS.has(result)) return res.status(400).json({ error: 'Invalid result value.' });
+
+  const addr = db.prepare('SELECT * FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+
+  // Determine GPS verification
+  let gps_verified = 0;
+  if (gps_lat != null && gps_lng != null && isValidCoord(gps_lat, gps_lng)) {
+    // Skip verification if accuracy is too poor
+    if (gps_accuracy != null && gps_accuracy > MAX_GPS_ACCURACY) {
+      gps_verified = 0;
+    } else if (addr.lat != null && addr.lng != null) {
+      // If address has known coords, verify volunteer is within 150m
+      const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
+      gps_verified = dist <= 150 ? 1 : 0;
+    } else {
+      // No address coords to compare — GPS was provided with good accuracy
+      gps_verified = 1;
+    }
+  }
+
+  const knocked_at = new Date().toISOString();
+
+  // Update the walk address
+  db.prepare(`
+    UPDATE walk_addresses SET
+      result = ?, notes = ?, knocked_at = ?,
+      gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
+    WHERE id = ? AND walk_id = ?
+  `).run(result, notes || '', knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
+
+  // Auto-log voter contact if voter_id is linked
+  if (addr.voter_id) {
+    // Map walk results to voter contact results
+    const contactResult = {
+      'support': 'Strong Support', 'lean_support': 'Lean Support',
+      'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
+      'oppose': 'Strong Oppose', 'not_home': 'Not Home',
+      'refused': 'Refused', 'moved': 'Moved', 'come_back': 'Come Back'
+    }[result] || result;
+
+    db.prepare(
+      'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+    ).run(addr.voter_id, 'Door-knock', contactResult, notes || '', walker_name || 'Block Walker');
+
+    // Update support level if it's a support disposition
+    const supportMap = {
+      'support': 'strong_support', 'lean_support': 'lean_support',
+      'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose'
+    };
+    if (supportMap[result]) {
+      db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[result], addr.voter_id);
+    }
+  }
+
+  res.json({ success: true, gps_verified });
+});
+
 module.exports = router;

@@ -80,6 +80,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_walk_addr_walk ON walk_addresses(walk_id);
 `);
 
+// Safe column migration helper — only ignores "duplicate column" errors
+function addColumn(sql) {
+  try { db.exec(sql); } catch (e) {
+    if (!e.message.includes('duplicate column name')) throw e;
+  }
+}
+
+// GPS verification columns for walk addresses
+addColumn("ALTER TABLE walk_addresses ADD COLUMN voter_id INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN lat REAL DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN lng REAL DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN gps_lat REAL DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN gps_lng REAL DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN gps_accuracy REAL DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN gps_verified INTEGER DEFAULT 0");
+
 // --- Voter File tables ---
 
 db.exec(`
@@ -144,13 +160,13 @@ db.exec(`
 // --- Phase 2 migrations ---
 
 // Sentiment column on messages
-try { db.exec("ALTER TABLE messages ADD COLUMN sentiment TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE messages ADD COLUMN sentiment TEXT DEFAULT NULL");
 
 // Check-in timestamp on event RSVPs
-try { db.exec("ALTER TABLE event_rsvps ADD COLUMN checked_in_at TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE event_rsvps ADD COLUMN checked_in_at TEXT DEFAULT NULL");
 
 // Voter registration number
-try { db.exec("ALTER TABLE voters ADD COLUMN registration_number TEXT DEFAULT ''"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE voters ADD COLUMN registration_number TEXT DEFAULT ''");
 
 // --- Phase 3: P2P Texting tables ---
 
@@ -215,16 +231,16 @@ db.exec(`
 `);
 
 // --- Phase 3: Event flyer image for QR overlay ---
-try { db.exec("ALTER TABLE events ADD COLUMN flyer_image TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE events ADD COLUMN flyer_image TEXT DEFAULT NULL");
 
 // P2P columns on messages
-try { db.exec("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL"); } catch (e) { /* already exists */ }
-try { db.exec("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL");
 
 // --- Per-voter QR code check-in ---
 
 // Unique QR token per voter (short random string used in check-in URLs)
-try { db.exec("ALTER TABLE voters ADD COLUMN qr_token TEXT DEFAULT NULL"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE voters ADD COLUMN qr_token TEXT DEFAULT NULL");
 try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_voters_qr_token ON voters(qr_token)"); } catch (e) { /* already exists */ }
 
 // Track voter check-ins at events (separate from event_rsvps which is contact-based)
@@ -283,7 +299,7 @@ db.exec(`
 `);
 
 // Voting history on voters (populated via CSV import)
-try { db.exec("ALTER TABLE voters ADD COLUMN voting_history TEXT DEFAULT ''"); } catch (e) { /* already exists */ }
+addColumn("ALTER TABLE voters ADD COLUMN voting_history TEXT DEFAULT ''");
 
 // Backfill QR tokens for any existing voters that don't have one
 const { randomBytes } = require('crypto');
