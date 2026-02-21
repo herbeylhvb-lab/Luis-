@@ -150,6 +150,8 @@ tr:hover td{background:#1e293b80}
     <div class="sidebar-section">P2P</div>
     <div class="nav-item" data-page="p2p"><span class="icon">&#128241;</span><span>P2P Texting</span></div>
     <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
+    <div class="sidebar-section">Captains</div>
+    <div class="nav-item" data-page="captains"><span class="icon">&#128081;</span><span>Block Captains</span></div>
   </div>
   <div class="conn-status" id="connStatus">
     <span class="conn-dot off" id="connDot"></span>
@@ -711,6 +713,54 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ==================== BLOCK CAPTAINS ==================== -->
+    <div class="page" id="page-captains">
+      <div class="stats-grid" id="captainStatsGrid">
+        <div class="stat-card"><div class="label">Active Captains</div><div class="value" id="statActiveCaptains">0</div></div>
+        <div class="stat-card"><div class="label">Total Lists</div><div class="value" id="statTotalLists">0</div></div>
+        <div class="stat-card"><div class="label">Unique Voters</div><div class="value" id="statUniqueVoters">0</div></div>
+        <div class="stat-card"><div class="label">Overlap</div><div class="value" id="statOverlap">0</div><div class="sub">Voters on 2+ lists</div></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0">Block Captains</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-warning" onclick="compileMasterList()">Compile Master List</button>
+            <button class="btn btn-sm btn-primary" onclick="showNewCaptainForm()">+ New Captain</button>
+          </div>
+        </div>
+
+        <div id="newCaptainForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div class="form-row-3">
+            <div class="form-group"><label>Name *</label><input type="text" id="newCaptainName" placeholder="Maria Garcia"></div>
+            <div class="form-group"><label>Phone</label><input type="text" id="newCaptainPhone" placeholder="+1234567890"></div>
+            <div class="form-group"><label>Email</label><input type="text" id="newCaptainEmail" placeholder="email@example.com"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-success" onclick="createCaptain()">Create Captain</button>
+            <button class="btn btn-sm btn-secondary" onclick="hideNewCaptainForm()">Cancel</button>
+          </div>
+        </div>
+
+        <div id="captainsList"></div>
+      </div>
+
+      <div class="card" id="masterListCard" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0">Master Voter List <span class="badge badge-green" id="masterListCount">0</span></h3>
+          <button class="btn btn-sm btn-secondary" onclick="closeMasterList()">Close</button>
+        </div>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Deduplicated list of all voters across all captain lists. Each voter appears only once.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Party</th><th>On Lists</th></tr></thead>
+            <tbody id="masterListBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -783,6 +833,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); }
     if (page === 'checkins') loadCheckinPage();
+    if (page === 'captains') loadCaptains();
   });
 });
 
@@ -2259,6 +2310,290 @@ function showVoterQrModal(url, voterName) {
     fallback.textContent = 'QR library not loaded. Copy the link instead.';
     box.insertBefore(fallback, linkEl);
   }
+}
+
+// ===================== BLOCK CAPTAINS =====================
+
+async function loadCaptains() {
+  try {
+    const data = await apiFetch('/api/captains');
+    const captains = data.captains || [];
+    const stats = data.stats || {};
+
+    // Update stats
+    const active = captains.filter(c => c.is_active).length;
+    document.getElementById('statActiveCaptains').textContent = active;
+    document.getElementById('statTotalLists').textContent = stats.totalLists || 0;
+    document.getElementById('statUniqueVoters').textContent = stats.totalUniqueVoters || 0;
+    document.getElementById('statOverlap').textContent = stats.overlap || 0;
+
+    // Render captain cards
+    const el = document.getElementById('captainsList');
+    el.textContent = '';
+
+    if (captains.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'text-align:center;padding:2rem;color:#64748b;font-size:14px';
+      empty.textContent = 'No block captains yet. Create one to get started!';
+      el.appendChild(empty);
+      return;
+    }
+
+    captains.forEach(c => {
+      const card = document.createElement('div');
+      card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:12px';
+
+      // Header row: name + code + status
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px';
+
+      const left = document.createElement('div');
+      const name = document.createElement('div');
+      name.style.cssText = 'font-weight:700;font-size:16px';
+      name.textContent = c.name;
+      left.appendChild(name);
+
+      const codeRow = document.createElement('div');
+      codeRow.style.cssText = 'font-size:13px;color:#94a3b8;margin-top:4px';
+      codeRow.textContent = 'Code: ';
+      const codeSpan = document.createElement('span');
+      codeSpan.style.cssText = 'background:#451a03;color:#f59e0b;padding:2px 8px;border-radius:4px;font-weight:700;font-family:monospace;letter-spacing:2px';
+      codeSpan.textContent = c.code;
+      codeRow.appendChild(codeSpan);
+      if (c.phone) {
+        const phoneTxt = document.createTextNode(' \u2022 ' + c.phone);
+        codeRow.appendChild(phoneTxt);
+      }
+      if (c.email) {
+        const emailTxt = document.createTextNode(' \u2022 ' + c.email);
+        codeRow.appendChild(emailTxt);
+      }
+      left.appendChild(codeRow);
+      header.appendChild(left);
+
+      const right = document.createElement('div');
+      right.style.cssText = 'display:flex;align-items:center;gap:8px';
+      const statusBadge = document.createElement('span');
+      statusBadge.className = 'badge ' + (c.is_active ? 'badge-green' : 'badge-red');
+      statusBadge.textContent = c.is_active ? 'Active' : 'Inactive';
+      right.appendChild(statusBadge);
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'btn btn-xs ' + (c.is_active ? 'btn-secondary' : 'btn-success');
+      toggleBtn.textContent = c.is_active ? 'Disable' : 'Enable';
+      toggleBtn.addEventListener('click', () => toggleCaptain(c.id, !c.is_active));
+      right.appendChild(toggleBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn btn-xs btn-danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', () => deleteCaptain(c.id, c.name));
+      right.appendChild(deleteBtn);
+
+      header.appendChild(right);
+      card.appendChild(header);
+
+      // Stats row
+      const statsRow = document.createElement('div');
+      statsRow.style.cssText = 'display:flex;gap:16px;font-size:13px;color:#94a3b8;margin-bottom:8px';
+
+      const listCount = document.createElement('span');
+      listCount.textContent = (c.lists || []).length + ' lists';
+      statsRow.appendChild(listCount);
+
+      const teamCount = document.createElement('span');
+      teamCount.textContent = (c.team_members || []).length + ' team members';
+      statsRow.appendChild(teamCount);
+
+      const voterCount = document.createElement('span');
+      voterCount.textContent = (c.total_voters || 0) + ' unique voters';
+      statsRow.appendChild(voterCount);
+
+      card.appendChild(statsRow);
+
+      // Lists detail (collapsible)
+      if (c.lists && c.lists.length > 0) {
+        const listsDiv = document.createElement('div');
+        listsDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #334155';
+
+        const listsLabel = document.createElement('div');
+        listsLabel.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:6px';
+        listsLabel.textContent = 'Lists:';
+        listsDiv.appendChild(listsLabel);
+
+        c.lists.forEach(l => {
+          const listItem = document.createElement('div');
+          listItem.style.cssText = 'display:flex;justify-content:space-between;padding:4px 0;font-size:13px';
+
+          const lname = document.createElement('span');
+          lname.textContent = l.name;
+          if (l.team_member_name) {
+            const tag = document.createElement('span');
+            tag.style.cssText = 'color:#818cf8;font-size:11px;margin-left:4px';
+            tag.textContent = '(' + l.team_member_name + ')';
+            lname.appendChild(tag);
+          }
+          listItem.appendChild(lname);
+
+          const lcount = document.createElement('span');
+          lcount.style.color = '#64748b';
+          lcount.textContent = (l.voter_count || 0) + ' voters';
+          listItem.appendChild(lcount);
+
+          listsDiv.appendChild(listItem);
+        });
+        card.appendChild(listsDiv);
+      }
+
+      // Team detail
+      if (c.team_members && c.team_members.length > 0) {
+        const teamDiv = document.createElement('div');
+        teamDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #334155';
+
+        const teamLabel = document.createElement('div');
+        teamLabel.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:6px';
+        teamLabel.textContent = 'Team:';
+        teamDiv.appendChild(teamLabel);
+
+        const teamList = document.createElement('div');
+        teamList.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+        c.team_members.forEach(m => {
+          const badge = document.createElement('span');
+          badge.className = 'badge badge-blue';
+          badge.textContent = m.name;
+          teamList.appendChild(badge);
+        });
+        teamDiv.appendChild(teamList);
+        card.appendChild(teamDiv);
+      }
+
+      el.appendChild(card);
+    });
+  } catch (err) {
+    console.error('Failed to load captains:', err);
+  }
+}
+
+function showNewCaptainForm() {
+  document.getElementById('newCaptainForm').style.display = '';
+}
+
+function hideNewCaptainForm() {
+  document.getElementById('newCaptainForm').style.display = 'none';
+  document.getElementById('newCaptainName').value = '';
+  document.getElementById('newCaptainPhone').value = '';
+  document.getElementById('newCaptainEmail').value = '';
+}
+
+async function createCaptain() {
+  const name = document.getElementById('newCaptainName').value.trim();
+  if (!name) { alert('Captain name is required.'); return; }
+  const phone = document.getElementById('newCaptainPhone').value.trim();
+  const email = document.getElementById('newCaptainEmail').value.trim();
+
+  const data = await apiFetch('/api/captains', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, phone, email })
+  });
+  if (data.code) {
+    alert('Captain created! Their permanent code is: ' + data.code + '\n\nShare this code — they use it to log in at /captain');
+  }
+  hideNewCaptainForm();
+  loadCaptains();
+}
+
+async function toggleCaptain(id, newState) {
+  await apiFetch('/api/captains/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: newState })
+  });
+  loadCaptains();
+}
+
+async function deleteCaptain(id, name) {
+  if (!confirm('Delete captain "' + name + '" and ALL their lists? This cannot be undone.')) return;
+  await apiFetch('/api/captains/' + id, { method: 'DELETE' });
+  loadCaptains();
+}
+
+async function compileMasterList() {
+  // Fetch all captains with their list voters, then deduplicate
+  const data = await apiFetch('/api/captains');
+  const captains = data.captains || [];
+
+  // Collect all voter IDs and which lists they're on
+  const voterMap = {};
+  for (const c of captains) {
+    for (const l of (c.lists || [])) {
+      const voterData = await apiFetch('/api/captains/' + c.id + '/lists/' + l.id + '/voters');
+      for (const v of (voterData.voters || [])) {
+        if (!voterMap[v.id]) {
+          voterMap[v.id] = { voter: v, lists: [] };
+        }
+        voterMap[v.id].lists.push(c.name + ': ' + l.name);
+      }
+    }
+  }
+
+  const entries = Object.values(voterMap);
+  document.getElementById('masterListCount').textContent = entries.length;
+  document.getElementById('masterListCard').style.display = '';
+
+  const tbody = document.getElementById('masterListBody');
+  tbody.textContent = '';
+
+  if (entries.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.setAttribute('colspan', '5');
+    td.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
+    td.textContent = 'No voters on any captain lists yet.';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  // Sort by last name
+  entries.sort((a, b) => (a.voter.last_name || '').localeCompare(b.voter.last_name || ''));
+
+  entries.forEach(e => {
+    const tr = document.createElement('tr');
+
+    const tdName = document.createElement('td');
+    tdName.textContent = (e.voter.first_name || '') + ' ' + (e.voter.last_name || '');
+    tr.appendChild(tdName);
+
+    const tdAddr = document.createElement('td');
+    tdAddr.textContent = (e.voter.address || '') + (e.voter.city ? ', ' + e.voter.city : '');
+    tr.appendChild(tdAddr);
+
+    const tdPhone = document.createElement('td');
+    tdPhone.textContent = e.voter.phone || '';
+    tr.appendChild(tdPhone);
+
+    const tdParty = document.createElement('td');
+    tdParty.textContent = e.voter.party || '';
+    tr.appendChild(tdParty);
+
+    const tdLists = document.createElement('td');
+    tdLists.style.fontSize = '12px';
+    e.lists.forEach(ln => {
+      const badge = document.createElement('span');
+      badge.className = 'badge badge-yellow';
+      badge.style.cssText = 'margin-right:4px;margin-bottom:2px;display:inline-block';
+      badge.textContent = ln;
+      tdLists.appendChild(badge);
+    });
+    tr.appendChild(tdLists);
+
+    tbody.appendChild(tr);
+  });
+}
+
+function closeMasterList() {
+  document.getElementById('masterListCard').style.display = 'none';
 }
 
 // ===================== INIT =====================

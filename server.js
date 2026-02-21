@@ -82,6 +82,11 @@ app.get('/volunteer', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'volunteer.html'));
 });
 
+// Standalone Block Captain portal (shareable link)
+app.get('/captain', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'captain.html'));
+});
+
 // --- Twilio test connection ---
 app.post('/test-connection', async (req, res) => {
   const { accountSid, authToken } = req.body;

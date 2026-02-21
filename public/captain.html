@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Block Captain Portal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+
+/* Login screen */
+.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
+.login-card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:2rem;max-width:400px;width:100%;text-align:center}
+.login-card h2{font-size:1.5rem;margin-bottom:0.5rem;color:#f59e0b}
+.login-card p{color:#94a3b8;font-size:0.9rem;margin-bottom:1.5rem}
+.form-group{margin-bottom:1rem;text-align:left}
+.form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px}
+.form-group input,.form-group select{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:16px;outline:none}
+.form-group input:focus,.form-group select:focus{border-color:#f59e0b}
+.code-input{text-align:center;font-size:24px!important;letter-spacing:6px;font-weight:700;text-transform:uppercase}
+.error-msg{color:#ef4444;font-size:14px;margin-top:0.5rem}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:12px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
+.btn:hover{opacity:0.85}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn-captain{background:#f59e0b;color:#000;width:100%;justify-content:center}
+.btn-primary{background:#818cf8;color:#fff}
+.btn-success{background:#22c55e;color:#fff}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-secondary{background:#334155;color:#e2e8f0}
+.btn-sm{padding:6px 14px;font-size:13px}
+.btn-xs{padding:4px 10px;font-size:12px;border-radius:6px}
+.back-link{display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;margin-top:1rem;cursor:pointer;text-decoration:none}
+.back-link:hover{color:#e2e8f0}
+
+/* Main layout */
+.app-header{background:#1e293b;border-bottom:1px solid #334155;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
+.app-header h1{font-size:18px;font-weight:700}
+.app-header h1 span{color:#f59e0b}
+.app-header .info{font-size:13px;color:#94a3b8}
+.btn-leave{padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}
+
+.app-layout{display:flex;height:calc(100vh - 52px);overflow:hidden}
+
+/* Left sidebar */
+.sidebar{width:260px;background:#1e293b;border-right:1px solid #334155;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar-section{padding:14px 16px 6px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:1px}
+.list-item{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;font-size:14px;color:#94a3b8;transition:background 0.15s;border-left:3px solid transparent}
+.list-item:hover{background:#334155}
+.list-item.active{background:#334155;color:#f59e0b;border-left-color:#f59e0b}
+.list-item .count{font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:9999px}
+.team-tag{font-size:11px;color:#818cf8;margin-left:4px}
+.sidebar-actions{padding:12px 16px;border-top:1px solid #334155;margin-top:auto}
+.sidebar-btn{display:block;width:100%;padding:8px;border:1px dashed #475569;border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;text-align:center;margin-bottom:8px}
+.sidebar-btn:hover{border-color:#f59e0b;color:#f59e0b}
+
+/* Center panel */
+.center-panel{flex:1;overflow-y:auto;padding:20px}
+.search-bar{position:relative;margin-bottom:20px}
+.search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
+.search-bar input:focus{border-color:#f59e0b}
+.search-bar .hint{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:#64748b}
+
+.voter-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;animation:fadeIn 0.2s ease}
+.voter-card .voter-top{display:flex;justify-content:space-between;align-items:flex-start}
+.voter-card .voter-name{font-weight:700;font-size:16px}
+.voter-card .voter-addr{color:#94a3b8;font-size:13px;margin-top:4px}
+.voter-card .voter-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.voter-card .voter-history{color:#64748b;font-size:12px;margin-top:6px}
+.badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
+.badge-green{background:#052e16;color:#4ade80}
+.badge-red{background:#450a0a;color:#fca5a5}
+.badge-blue{background:#0c1a3d;color:#93c5fd}
+.badge-yellow{background:#422006;color:#fcd34d}
+.badge-purple{background:#2e1065;color:#c4b5fd}
+.badge-gray{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+.badge-amber{background:#451a03;color:#fcd34d;border:1px solid #78350f}
+
+.cross-list-notice{display:flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;background:#451a03;border:1px solid #78350f;border-radius:8px;font-size:12px;color:#fcd34d}
+
+.household-section{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
+.household-section h4{font-size:13px;color:#64748b;margin-bottom:8px}
+.household-member{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;font-size:13px}
+
+.empty-state{text-align:center;padding:3rem 1rem;color:#64748b}
+.empty-state .icon{font-size:3rem;margin-bottom:0.5rem}
+
+/* Right panel */
+.right-panel{width:350px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column}
+.right-header{padding:16px;border-bottom:1px solid #334155}
+.right-header h3{font-size:15px;margin-bottom:2px}
+.right-header .sub{font-size:12px;color:#64748b}
+.right-list{flex:1;overflow-y:auto;padding:8px}
+.right-voter{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155;font-size:13px}
+.right-voter:last-child{border-bottom:none}
+.right-voter .name{font-weight:600;color:#e2e8f0}
+.right-voter .addr{color:#64748b;font-size:12px;margin-top:2px}
+.remove-btn{background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;padding:4px 8px;border-radius:4px}
+.remove-btn:hover{background:#450a0a}
+
+.right-empty{text-align:center;padding:3rem 1rem;color:#475569;font-size:14px}
+
+/* Modal */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:400px;width:90%}
+.modal-box h3{margin-bottom:16px;font-size:16px}
+
+/* Responsive */
+@media(max-width:900px){
+  .app-layout{flex-direction:column;height:auto}
+  .sidebar{width:100%;max-height:40vh;border-right:none;border-bottom:1px solid #334155}
+  .right-panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid #334155}
+}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128081;</div>
+    <h2>Block Captain Portal</h2>
+    <p>Enter your captain code to access your voter lists and team.</p>
+    <div class="form-group">
+      <label>Captain Code</label>
+      <input type="text" id="captainCode" class="code-input" placeholder="A3F82C" maxlength="6">
+    </div>
+    <button class="btn btn-captain" id="btnLogin" onclick="loginCaptain()">Enter Portal</button>
+    <div class="error-msg" id="loginError"></div>
+    <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="appScreen" style="display:none">
+  <div class="app-header">
+    <div>
+      <h1>&#128081; <span>Block Captain</span></h1>
+      <div class="info" id="captainGreeting"></div>
+    </div>
+    <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
+  </div>
+
+  <div class="app-layout">
+    <!-- LEFT SIDEBAR: Lists & Team -->
+    <div class="sidebar">
+      <div class="sidebar-section">My Lists</div>
+      <div id="myListsContainer"></div>
+
+      <div class="sidebar-section">Team Lists</div>
+      <div id="teamListsContainer"></div>
+
+      <div class="sidebar-actions">
+        <button class="sidebar-btn" onclick="showNewListModal()">+ New List</button>
+        <button class="sidebar-btn" onclick="addTeamMember()">+ Add Team Member</button>
+      </div>
+    </div>
+
+    <!-- CENTER: Search -->
+    <div class="center-panel">
+      <div class="search-bar">
+        <input type="text" id="voterSearch" placeholder="Search voters by name, address, or phone..." oninput="debouncedSearch()">
+        <span class="hint">min 2 chars</span>
+      </div>
+      <div id="searchResults">
+        <div class="empty-state">
+          <div class="icon">&#128270;</div>
+          <p>Search for voters to add them to your lists.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Current List View -->
+    <div class="right-panel">
+      <div class="right-header">
+        <h3 id="rightListName">Select a List</h3>
+        <div class="sub" id="rightListSub">Choose a list from the sidebar to view voters</div>
+      </div>
+      <div class="right-list" id="rightListContent">
+        <div class="right-empty">Select a list from the sidebar</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var captainState = {
+  captain: null,
+  selectedListId: null,
+  selectedListName: '',
+  searchTimeout: null
+};
+
+function esc(t) {
+  var d = document.createElement('div');
+  d.textContent = t;
+  return d.innerHTML;
+}
+
+async function api(path, opts) {
+  var res = await fetch(path, opts);
+  return res.json();
+}
+
+// ===================== LOGIN =====================
+
+async function loginCaptain() {
+  var code = document.getElementById('captainCode').value.trim();
+  var errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  if (!code) { errEl.textContent = 'Please enter your captain code.'; return; }
+
+  document.getElementById('btnLogin').disabled = true;
+  try {
+    var data = await api('/api/captains/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    });
+    if (data.error) {
+      errEl.textContent = data.error;
+      document.getElementById('btnLogin').disabled = false;
+      return;
+    }
+    captainState.captain = data.captain;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appScreen').style.display = '';
+    document.getElementById('captainGreeting').textContent = 'Welcome, ' + data.captain.name;
+    refreshSidebar();
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    document.getElementById('btnLogin').disabled = false;
+  }
+}
+
+function logoutCaptain() {
+  captainState.captain = null;
+  captainState.selectedListId = null;
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('captainCode').value = '';
+  document.getElementById('btnLogin').disabled = false;
+}
+
+// ===================== SIDEBAR =====================
+
+async function refreshSidebar() {
+  var data = await api('/api/captains/' + captainState.captain.id + '/lists');
+  var lists = data.lists || [];
+  captainState.captain.lists = lists;
+
+  // Separate my lists vs team lists
+  var myLists = lists.filter(function(l) { return !l.team_member_name; });
+  var teamLists = lists.filter(function(l) { return l.team_member_name; });
+
+  var myEl = document.getElementById('myListsContainer');
+  myEl.textContent = '';
+  if (myLists.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:12px 16px;color:#475569;font-size:13px';
+    empty.textContent = 'No lists yet. Create one below!';
+    myEl.appendChild(empty);
+  }
+  myLists.forEach(function(l) { myEl.appendChild(makeListItem(l)); });
+
+  var teamEl = document.getElementById('teamListsContainer');
+  teamEl.textContent = '';
+  if (teamLists.length === 0) {
+    var empty2 = document.createElement('div');
+    empty2.style.cssText = 'padding:12px 16px;color:#475569;font-size:13px';
+    empty2.textContent = 'No team lists yet.';
+    teamEl.appendChild(empty2);
+  }
+  teamLists.forEach(function(l) { teamEl.appendChild(makeListItem(l)); });
+}
+
+function makeListItem(l) {
+  var item = document.createElement('div');
+  item.className = 'list-item' + (captainState.selectedListId === l.id ? ' active' : '');
+  var left = document.createElement('div');
+  left.textContent = l.name;
+  if (l.team_member_name) {
+    var tag = document.createElement('span');
+    tag.className = 'team-tag';
+    tag.textContent = '(' + l.team_member_name + ')';
+    left.appendChild(tag);
+  }
+  item.appendChild(left);
+  var count = document.createElement('span');
+  count.className = 'count';
+  count.textContent = l.voter_count || 0;
+  item.appendChild(count);
+  item.addEventListener('click', function() { selectList(l.id, l.name); });
+  return item;
+}
+
+// ===================== LIST SELECTION =====================
+
+async function selectList(listId, listName) {
+  captainState.selectedListId = listId;
+  captainState.selectedListName = listName;
+  refreshSidebar();
+  await loadListVoters();
+}
+
+async function loadListVoters() {
+  if (!captainState.selectedListId) return;
+  var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters');
+  var voters = data.voters || [];
+
+  document.getElementById('rightListName').textContent = captainState.selectedListName;
+  document.getElementById('rightListSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+
+  var el = document.getElementById('rightListContent');
+  el.textContent = '';
+
+  if (voters.length === 0) {
+    var emptyDiv = document.createElement('div');
+    emptyDiv.className = 'right-empty';
+    emptyDiv.textContent = 'No voters in this list yet. Search and add voters from the center panel.';
+    el.appendChild(emptyDiv);
+    return;
+  }
+
+  voters.forEach(function(v) {
+    var row = document.createElement('div');
+    row.className = 'right-voter';
+
+    var info = document.createElement('div');
+    var n = document.createElement('div');
+    n.className = 'name';
+    n.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    info.appendChild(n);
+    var a = document.createElement('div');
+    a.className = 'addr';
+    a.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    info.appendChild(a);
+
+    // Cross-list badges
+    if (v.on_lists && v.on_lists.length > 0) {
+      v.on_lists.forEach(function(ol) {
+        var badge = document.createElement('span');
+        badge.className = 'badge badge-amber';
+        badge.style.cssText = 'margin-top:4px;display:inline-block;margin-right:4px';
+        badge.textContent = ol.captain_name + ': ' + ol.list_name;
+        info.appendChild(badge);
+      });
+    }
+
+    row.appendChild(info);
+
+    var btn = document.createElement('button');
+    btn.className = 'remove-btn';
+    btn.textContent = '\u00D7';
+    btn.title = 'Remove from list';
+    btn.addEventListener('click', function() { removeVoterFromList(v.id); });
+    row.appendChild(btn);
+
+    el.appendChild(row);
+  });
+}
+
+// ===================== SEARCH =====================
+
+function debouncedSearch() {
+  clearTimeout(captainState.searchTimeout);
+  captainState.searchTimeout = setTimeout(searchVoters, 300);
+}
+
+async function searchVoters() {
+  var q = document.getElementById('voterSearch').value.trim();
+  var el = document.getElementById('searchResults');
+  if (q.length < 2) {
+    el.textContent = '';
+    var emptyDiv = document.createElement('div');
+    emptyDiv.className = 'empty-state';
+    var icon = document.createElement('div');
+    icon.className = 'icon';
+    icon.textContent = '\uD83D\uDD0D';
+    emptyDiv.appendChild(icon);
+    var p = document.createElement('p');
+    p.textContent = 'Search for voters to add them to your lists.';
+    emptyDiv.appendChild(p);
+    el.appendChild(emptyDiv);
+    return;
+  }
+
+  var data = await api('/api/captains/' + captainState.captain.id + '/search?q=' + encodeURIComponent(q));
+  var voters = data.voters || [];
+
+  el.textContent = '';
+  if (voters.length === 0) {
+    var noResult = document.createElement('div');
+    noResult.className = 'empty-state';
+    var noIcon = document.createElement('div');
+    noIcon.className = 'icon';
+    noIcon.textContent = '\uD83D\uDE36';
+    noResult.appendChild(noIcon);
+    var noP = document.createElement('p');
+    noP.textContent = 'No voters found for "' + q + '"';
+    noResult.appendChild(noP);
+    el.appendChild(noResult);
+    return;
+  }
+
+  voters.forEach(function(v) {
+    var card = document.createElement('div');
+    card.className = 'voter-card';
+
+    // Top row: name + add button
+    var top = document.createElement('div');
+    top.className = 'voter-top';
+
+    var nameDiv = document.createElement('div');
+    var nameEl = document.createElement('div');
+    nameEl.className = 'voter-name';
+    nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    nameDiv.appendChild(nameEl);
+
+    var addrEl = document.createElement('div');
+    addrEl.className = 'voter-addr';
+    addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    nameDiv.appendChild(addrEl);
+    top.appendChild(nameDiv);
+
+    if (captainState.selectedListId) {
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-sm btn-captain';
+      addBtn.textContent = '+ Add';
+      addBtn.addEventListener('click', function() { addVoterToList(v.id); });
+      top.appendChild(addBtn);
+    } else {
+      var hint = document.createElement('span');
+      hint.style.cssText = 'font-size:11px;color:#64748b';
+      hint.textContent = 'Select a list first';
+      top.appendChild(hint);
+    }
+    card.appendChild(top);
+
+    // Meta badges
+    var meta = document.createElement('div');
+    meta.className = 'voter-meta';
+    if (v.party) {
+      var partyBadge = document.createElement('span');
+      var partyColors = { D: 'badge-blue', R: 'badge-red', Democrat: 'badge-blue', Republican: 'badge-red', DEM: 'badge-blue', REP: 'badge-red' };
+      partyBadge.className = 'badge ' + (partyColors[v.party] || 'badge-gray');
+      partyBadge.textContent = v.party;
+      meta.appendChild(partyBadge);
+    }
+    if (v.support_level && v.support_level !== 'unknown') {
+      var supportBadge = document.createElement('span');
+      var supportColors = { strong_support:'badge-green', lean_support:'badge-green', undecided:'badge-yellow', lean_oppose:'badge-red', strong_oppose:'badge-red' };
+      supportBadge.className = 'badge ' + (supportColors[v.support_level] || 'badge-gray');
+      supportBadge.textContent = (v.support_level || '').replace(/_/g, ' ');
+      meta.appendChild(supportBadge);
+    }
+    if (v.voter_score) {
+      var scoreBadge = document.createElement('span');
+      scoreBadge.className = 'badge badge-purple';
+      scoreBadge.textContent = 'Score: ' + v.voter_score;
+      meta.appendChild(scoreBadge);
+    }
+    if (v.phone) {
+      var phoneBadge = document.createElement('span');
+      phoneBadge.className = 'badge badge-gray';
+      phoneBadge.textContent = v.phone;
+      meta.appendChild(phoneBadge);
+    }
+    card.appendChild(meta);
+
+    // Voting history
+    if (v.voting_history) {
+      var hist = document.createElement('div');
+      hist.className = 'voter-history';
+      hist.textContent = 'Voted: ' + v.voting_history;
+      card.appendChild(hist);
+    }
+
+    // Cross-list info — voter CAN still be added even if on another list
+    if (v.on_lists && v.on_lists.length > 0) {
+      v.on_lists.forEach(function(ol) {
+        var notice = document.createElement('div');
+        notice.className = 'cross-list-notice';
+        notice.textContent = '\u26A0\uFE0F Also on ' + ol.captain_name + '\'s "' + ol.list_name + '"';
+        card.appendChild(notice);
+      });
+    }
+
+    // Household section
+    var hhContainer = document.createElement('div');
+    hhContainer.id = 'hh-' + v.id;
+    card.appendChild(hhContainer);
+    loadHousehold(v.id, hhContainer);
+
+    el.appendChild(card);
+  });
+}
+
+// ===================== HOUSEHOLD =====================
+
+async function loadHousehold(voterId, containerEl) {
+  var data = await api('/api/captains/' + captainState.captain.id + '/household?voter_id=' + voterId);
+  var household = data.household || [];
+  if (household.length === 0) return;
+
+  var section = document.createElement('div');
+  section.className = 'household-section';
+  var h4 = document.createElement('h4');
+  h4.textContent = '\uD83C\uDFE0 Other people at this address (' + household.length + ')';
+  section.appendChild(h4);
+
+  household.forEach(function(h) {
+    var member = document.createElement('div');
+    member.className = 'household-member';
+
+    var info = document.createElement('div');
+    var memberText = (h.first_name || '') + ' ' + (h.last_name || '');
+    if (h.party) memberText += ' \u2022 ' + h.party;
+    info.textContent = memberText;
+
+    // Cross-list badges for household members
+    if (h.on_lists && h.on_lists.length > 0) {
+      h.on_lists.forEach(function(ol) {
+        var badge = document.createElement('span');
+        badge.className = 'badge badge-amber';
+        badge.style.cssText = 'margin-left:6px;font-size:10px';
+        badge.textContent = ol.list_name;
+        info.appendChild(badge);
+      });
+    }
+    member.appendChild(info);
+
+    // Household members can always be added to list, even if on another captain's list
+    if (captainState.selectedListId) {
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-xs btn-captain';
+      addBtn.textContent = '+ Add';
+      addBtn.addEventListener('click', function() { addVoterToList(h.id); });
+      member.appendChild(addBtn);
+    }
+    section.appendChild(member);
+  });
+
+  containerEl.appendChild(section);
+}
+
+// ===================== ADD / REMOVE VOTERS =====================
+
+async function addVoterToList(voterId) {
+  if (!captainState.selectedListId) {
+    alert('Please select a list first from the sidebar.');
+    return;
+  }
+  var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voter_id: voterId })
+  });
+  if (data.already) {
+    alert('This voter is already on this list.');
+    return;
+  }
+  // Show cross-list notifications — voter is still added, just notify the captain
+  if (data.notifications && data.notifications.length > 0) {
+    var msg = 'Added! Note: this voter is also on:\n';
+    data.notifications.forEach(function(n) {
+      msg += '  \u2022 ' + n.captain_name + '\'s "' + n.list_name + '"\n';
+    });
+    alert(msg);
+  }
+  await loadListVoters();
+  refreshSidebar();
+}
+
+async function removeVoterFromList(voterId) {
+  if (!captainState.selectedListId) return;
+  await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters/' + voterId, {
+    method: 'DELETE'
+  });
+  await loadListVoters();
+  refreshSidebar();
+}
+
+// ===================== LIST MANAGEMENT =====================
+
+function showNewListModal() {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'newListModal';
+
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+
+  var h3 = document.createElement('h3');
+  h3.textContent = 'Create New List';
+  box.appendChild(h3);
+
+  var fg1 = document.createElement('div');
+  fg1.className = 'form-group';
+  var lbl1 = document.createElement('label');
+  lbl1.textContent = 'List Name';
+  fg1.appendChild(lbl1);
+  var inp = document.createElement('input');
+  inp.type = 'text';
+  inp.id = 'newListName';
+  inp.placeholder = 'e.g., Precinct 42';
+  fg1.appendChild(inp);
+  box.appendChild(fg1);
+
+  var fg2 = document.createElement('div');
+  fg2.className = 'form-group';
+  var lbl2 = document.createElement('label');
+  lbl2.textContent = 'Assign to Team Member (optional)';
+  fg2.appendChild(lbl2);
+  var select = document.createElement('select');
+  select.id = 'newListTeamMember';
+  var defaultOpt = document.createElement('option');
+  defaultOpt.value = '';
+  defaultOpt.textContent = '-- My List --';
+  select.appendChild(defaultOpt);
+  // Populate team members
+  var members = (captainState.captain.team_members || []);
+  members.forEach(function(m) {
+    var opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    select.appendChild(opt);
+  });
+  fg2.appendChild(select);
+  box.appendChild(fg2);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
+
+  var createBtn = document.createElement('button');
+  createBtn.className = 'btn btn-captain';
+  createBtn.textContent = 'Create';
+  createBtn.addEventListener('click', createList);
+  btnRow.appendChild(createBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { closeModal('newListModal'); });
+  btnRow.appendChild(cancelBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+async function createList() {
+  var name = document.getElementById('newListName').value.trim();
+  if (!name) { alert('Please enter a list name.'); return; }
+  var teamMemberId = document.getElementById('newListTeamMember').value || null;
+
+  await api('/api/captains/' + captainState.captain.id + '/lists', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, team_member_id: teamMemberId })
+  });
+  closeModal('newListModal');
+  refreshSidebar();
+}
+
+function closeModal(id) {
+  var m = document.getElementById(id);
+  if (m) m.remove();
+}
+
+// ===================== TEAM MANAGEMENT =====================
+
+async function addTeamMember() {
+  var name = prompt('Enter team member name:');
+  if (!name || !name.trim()) return;
+
+  var data = await api('/api/captains/' + captainState.captain.id + '/team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.trim() })
+  });
+  if (data.success) {
+    // Refresh captain data to get updated team members
+    var loginData = await api('/api/captains/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: captainState.captain.code })
+    });
+    if (loginData.captain) {
+      captainState.captain = loginData.captain;
+    }
+    alert('Team member "' + name.trim() + '" added!');
+  }
+}
+</script>
+</body>
+</html>

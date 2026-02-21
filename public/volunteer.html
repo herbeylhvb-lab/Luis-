@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>P2P Volunteer Hub</title>
+  <title>Volunteer Hub</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -274,6 +274,51 @@
       font-size: 13px;
     }
 
+    /* Role picker screen */
+    .role-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .role-card-wrapper {
+      max-width: 600px;
+      width: 100%;
+      text-align: center;
+    }
+    .role-card-wrapper h2 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #818cf8; }
+    .role-card-wrapper p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 500px) {
+      .role-grid { grid-template-columns: 1fr; }
+    }
+    .role-option {
+      background: #1e293b;
+      border: 2px solid #334155;
+      border-radius: 16px;
+      padding: 2rem 1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .role-option:hover {
+      border-color: #818cf8;
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .role-option .role-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+    .role-option .role-title { font-size: 1rem; font-weight: 700; color: #e2e8f0; margin-bottom: 0.35rem; }
+    .role-option .role-desc { font-size: 0.8rem; color: #64748b; line-height: 1.4; }
+    .role-option.captain-opt:hover { border-color: #f59e0b; }
+    .role-option.captain-opt .role-title { color: #f59e0b; }
+    .role-option.scanner-opt:hover { border-color: #22c55e; }
+    .role-option.scanner-opt .role-title { color: #22c55e; }
+
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes pulse-green { 0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 70% { box-shadow: 0 0 0 10px rgba(34,197,94,0); } }
   </style>
@@ -281,8 +326,34 @@
 </head>
 <body>
 
-  <!-- JOIN SCREEN -->
-  <div class="join-screen" id="joinScreen">
+  <!-- ROLE SELECTION SCREEN -->
+  <div class="role-screen" id="roleScreen">
+    <div class="role-card-wrapper">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem">&#127987;&#65039;</div>
+      <h2>Volunteer Hub</h2>
+      <p>Choose your role to get started.</p>
+      <div class="role-grid">
+        <div class="role-option" onclick="selectRole('p2p')">
+          <div class="role-icon">&#128241;</div>
+          <div class="role-title">P2P Texting</div>
+          <div class="role-desc">Send texts to voters on behalf of the campaign</div>
+        </div>
+        <div class="role-option captain-opt" onclick="selectRole('captain')">
+          <div class="role-icon">&#128081;</div>
+          <div class="role-title">Block Captain</div>
+          <div class="role-desc">Search voters, build lists, and manage your team</div>
+        </div>
+        <div class="role-option scanner-opt" onclick="selectRole('scanner')">
+          <div class="role-icon">&#128247;</div>
+          <div class="role-title">QR Scanner</div>
+          <div class="role-desc">Scan voter QR codes at events for check-in</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JOIN SCREEN (P2P) -->
+  <div class="join-screen" id="joinScreen" style="display:none">
     <div class="join-card">
       <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128241;</div>
       <h2>P2P Volunteer Texting</h2>
@@ -297,11 +368,8 @@
       </div>
       <button class="btn btn-primary" id="btnJoin" onclick="joinSession()">Join Session</button>
       <div class="error-msg" id="joinError"></div>
-
-      <div class="mode-divider">&mdash; or &mdash;</div>
-      <button class="btn btn-primary" onclick="openScanner()" style="background:#22c55e;margin-top:0">
-        &#128247; Open QR Scanner for Event Check-In
-      </button>
+      <div class="mode-divider">&mdash;</div>
+      <button class="btn btn-secondary btn-sm" onclick="backToRoles()">&#8592; Back to Role Selection</button>
     </div>
   </div>
 
@@ -398,9 +466,30 @@
       credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}')
     };
 
-    // Pre-fill code from URL param
+    // Pre-fill code from URL param (auto-go to P2P if code is provided)
     var urlCode = new URLSearchParams(window.location.search).get('code');
-    if (urlCode) document.getElementById('volCode').value = urlCode;
+    if (urlCode) {
+      document.getElementById('volCode').value = urlCode;
+      selectRole('p2p');
+    }
+
+    function selectRole(role) {
+      if (role === 'captain') {
+        window.location.href = '/captain';
+        return;
+      }
+      document.getElementById('roleScreen').style.display = 'none';
+      if (role === 'p2p') {
+        document.getElementById('joinScreen').style.display = 'flex';
+      } else if (role === 'scanner') {
+        openScanner();
+      }
+    }
+
+    function backToRoles() {
+      document.getElementById('joinScreen').style.display = 'none';
+      document.getElementById('roleScreen').style.display = 'flex';
+    }
 
     async function apiCall(path, opts) {
       var res = await fetch(path, opts);
@@ -654,7 +743,7 @@
       });
       volState.volunteerId = null;
       document.getElementById('textingScreen').style.display = 'none';
-      document.getElementById('joinScreen').style.display = 'flex';
+      document.getElementById('roleScreen').style.display = 'flex';
       document.getElementById('btnJoin').disabled = false;
     }
 
@@ -676,14 +765,16 @@
     }
 
     function openScanner() {
-      var name = document.getElementById('volName').value.trim();
+      var nameEl = document.getElementById('volName');
+      var name = nameEl ? nameEl.value.trim() : '';
       if (!name) {
         name = prompt('Enter your name (for check-in records):');
         if (!name) return;
-        document.getElementById('volName').value = name;
+        if (nameEl) nameEl.value = name;
       }
       scannerState.volunteerName = name;
 
+      document.getElementById('roleScreen').style.display = 'none';
       document.getElementById('joinScreen').style.display = 'none';
       document.getElementById('scannerScreen').style.display = 'block';
 
@@ -917,7 +1008,7 @@
       document.getElementById('scannerScreen').style.display = 'none';
       document.getElementById('scannerCameraCard').style.display = 'none';
       document.getElementById('scanResultCard').style.display = 'none';
-      document.getElementById('joinScreen').style.display = 'flex';
+      document.getElementById('roleScreen').style.display = 'flex';
     }
   </script>
 </body>
