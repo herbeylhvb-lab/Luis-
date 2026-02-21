@@ -350,7 +350,10 @@ tr:hover td{background:#1e293b80}
           </div>
           <h3>Volunteers</h3>
           <div class="table-wrap"><table><thead><tr><th>Name</th><th>Status</th><th>Sent</th><th>Active Chats</th><th>Remaining</th></tr></thead><tbody id="p2pVolunteersBody"></tbody></table></div>
-          <div style="margin-top:12px"><button class="btn btn-danger btn-sm" id="btnCloseSession">Close Session</button></div>
+          <div style="margin-top:12px;display:flex;gap:10px">
+            <button class="btn btn-danger btn-sm" id="btnCloseSession">Close Session</button>
+            <button class="btn btn-danger btn-sm" id="btnDeleteSession" style="background:#7f1d1d;border-color:#991b1b">&#128465; Delete Session</button>
+          </div>
         </div>
       </div>
       <div id="p2p-volunteer-view" style="display:none">
@@ -1472,7 +1475,10 @@ async function loadP2pSessions() {
       <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px 18px;margin-bottom:10px;cursor:pointer" onclick="openP2pSession(${s.id})">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <strong style="color:#e2e8f0">${escHtml(s.name)}</strong>
-          ${statusBadge(s.status)}
+          <div style="display:flex;align-items:center;gap:8px">
+            ${statusBadge(s.status)}
+            <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;min-width:auto" onclick="event.stopPropagation();deleteP2pSession(${s.id})">&#128465;</button>
+          </div>
         </div>
         <div style="display:flex;gap:16px;font-size:13px;color:#94a3b8;align-items:center">
           <span>Code: <strong style="color:#818cf8">${s.join_code}</strong></span>
@@ -1539,7 +1545,21 @@ async function openP2pSession(id) {
       await apiPatch('/api/p2p/sessions/' + s.id, { status: 'closed' });
       showP2pAdmin();
     };
+
+    // Delete session button (inside detail view)
+    document.getElementById('btnDeleteSession').onclick = async () => {
+      if (!confirm('Permanently delete this session? All volunteer assignments and data for "' + s.name + '" will be removed. This cannot be undone.')) return;
+      await apiDelete('/api/p2p/sessions/' + s.id);
+      showP2pAdmin();
+    };
   } catch(e) { console.error(e); }
+}
+
+// Delete session from the list view
+async function deleteP2pSession(id) {
+  if (!confirm('Permanently delete this session? All volunteer assignments and data will be removed. This cannot be undone.')) return;
+  await apiDelete('/api/p2p/sessions/' + id);
+  loadP2pSessions();
 }
 
 async function updateP2pMode() {

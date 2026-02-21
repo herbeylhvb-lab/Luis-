@@ -124,6 +124,16 @@ router.patch('/p2p/sessions/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Delete a P2P session (cascade deletes volunteers + assignments via foreign keys)
+router.delete('/p2p/sessions/:id', (req, res) => {
+  const session = db.prepare('SELECT id, name FROM p2p_sessions WHERE id = ?').get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+  db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(req.params.id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('P2P session deleted: ' + session.name);
+  res.json({ success: true });
+});
+
 // ========== VOLUNTEERS ==========
 
 router.post('/p2p/join', (req, res) => {
