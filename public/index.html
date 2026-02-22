@@ -972,14 +972,14 @@ document.getElementById('btnTestConnection').addEventListener('click', async () 
   try {
     const data = await apiPost('/test-connection', { accountSid: sid, authToken: token });
     if (data.success) {
-      el.innerHTML = '<div class="alert alert-success">Connected to: ' + data.accountName + '</div>';
+      el.innerHTML = '<div class="alert alert-success">Connected to: ' + escHtml(data.accountName) + '</div>';
       setConnected(true, data.accountName);
       state.credentials.accountSid = sid; state.credentials.authToken = token;
       state.credentials.connected = true; state.credentials.accountName = data.accountName;
     } else {
-      el.innerHTML = '<div class="alert alert-error">' + data.error + '</div>'; setConnected(false);
+      el.innerHTML = '<div class="alert alert-error">' + escHtml(data.error) + '</div>'; setConnected(false);
     }
-  } catch (err) { el.innerHTML = '<div class="alert alert-error">Failed: ' + err.message + '</div>'; setConnected(false); }
+  } catch (err) { el.innerHTML = '<div class="alert alert-error">Failed: ' + escHtml(err.message) + '</div>'; setConnected(false); }
 });
 document.getElementById('btnSaveCredentials').addEventListener('click', () => {
   state.credentials.accountSid = document.getElementById('accountSid').value.trim();

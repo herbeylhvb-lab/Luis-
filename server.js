@@ -12,10 +12,20 @@ app.use(cors({ credentials: true, origin: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
 
+// Generate a stable session secret and store it in the DB so it survives restarts
+function getSessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'session_secret'").get();
+  if (row) return row.value;
+  const secret = require('crypto').randomBytes(32).toString('hex');
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('session_secret', ?)").run(secret);
+  return secret;
+}
+
 // Session middleware
 app.use(session({
   store: new SqliteStore({ client: db, expired: { clear: true, intervalMs: 900000 } }),
-  secret: process.env.SESSION_SECRET || 'campaign-hq-secret-change-me-' + Date.now(),
+  secret: getSessionSecret(),
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -79,11 +89,24 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/walker\//) ||
       req.path.match(/^\/api\/walks\/\d+\/group/) ||
       req.path.match(/^\/api\/walks\/\d+\/addresses\/\d+\/log/) ||
-      req.path.match(/^\/api\/walks\/\d+\/route/) ||
-      req.path.match(/^\/api\/p2p\/join/) ||
+      req.path.match(/^\/api\/walks\/\d+\/route/)) {
+    return next();
+  }
+  // Allow P2P volunteer endpoints (used by volunteer.html without admin auth)
+  if (req.path.match(/^\/api\/p2p\/join/) ||
       req.path.match(/^\/api\/p2p\/sessions\/\d+\/volunteer/) ||
-      req.path.match(/^\/api\/captains\/login/) ||
-      req.path.match(/^\/api\/captains\/portal/)) {
+      req.path.match(/^\/api\/p2p\/volunteers\/\d+\/queue/) ||
+      req.path.match(/^\/api\/p2p\/conversations\/\d+/) ||
+      req.path.match(/^\/api\/p2p\/assignments\/\d+/) ||
+      req.path === '/api/p2p/send') {
+    return next();
+  }
+  // Allow captain portal endpoints (used by captain.html without admin auth)
+  if (req.path.match(/^\/api\/captains\/login/) ||
+      req.path.match(/^\/api\/captains\/\d+\/lists/) ||
+      req.path.match(/^\/api\/captains\/\d+\/team/) ||
+      req.path.match(/^\/api\/captains\/\d+\/search/) ||
+      req.path.match(/^\/api\/captains\/\d+\/household/)) {
     return next();
   }
   // Allow Twilio webhook
