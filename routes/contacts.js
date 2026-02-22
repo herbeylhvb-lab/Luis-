@@ -10,11 +10,11 @@ router.get('/contacts', (req, res) => {
 
 // Add one contact
 router.post('/contacts', (req, res) => {
-  const { phone, firstName, lastName, city } = req.body;
+  const { phone, firstName, lastName, city, email } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
   const result = db.prepare(
-    'INSERT INTO contacts (phone, first_name, last_name, city) VALUES (?, ?, ?, ?)'
-  ).run(phone, firstName || '', lastName || '', city || '');
+    'INSERT INTO contacts (phone, first_name, last_name, city, email) VALUES (?, ?, ?, ?, ?)'
+  ).run(phone, firstName || '', lastName || '', city || '', email || '');
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
@@ -23,13 +23,13 @@ router.post('/contacts/import', (req, res) => {
   const { contacts } = req.body;
   if (!contacts || !contacts.length) return res.status(400).json({ error: 'No contacts provided.' });
   const insert = db.prepare(
-    'INSERT INTO contacts (phone, first_name, last_name, city) VALUES (?, ?, ?, ?)'
+    'INSERT INTO contacts (phone, first_name, last_name, city, email) VALUES (?, ?, ?, ?, ?)'
   );
   const importMany = db.transaction((list) => {
     let added = 0;
     for (const c of list) {
       if (c.phone) {
-        insert.run(c.phone, c.firstName || '', c.lastName || '', c.city || '');
+        insert.run(c.phone, c.firstName || '', c.lastName || '', c.city || '', c.email || '');
         added++;
       }
     }

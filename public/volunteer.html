@@ -489,11 +489,13 @@
         window.location.href = '/walk';
         return;
       }
+      if (role === 'scanner') {
+        window.location.href = '/scanner';
+        return;
+      }
       document.getElementById('roleScreen').style.display = 'none';
       if (role === 'p2p') {
         document.getElementById('joinScreen').style.display = 'flex';
-      } else if (role === 'scanner') {
-        openScanner();
       }
     }
 

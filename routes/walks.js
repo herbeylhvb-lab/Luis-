@@ -15,14 +15,15 @@ router.get('/walks', (req, res) => {
   res.json({ walks });
 });
 
-// Create a walk
+// Create a walk (generates join code for group walking)
 router.post('/walks', (req, res) => {
   const { name, description, assigned_to } = req.body;
   if (!name) return res.status(400).json({ error: 'Walk name is required.' });
+  const joinCode = Math.random().toString(36).substring(2, 6).toUpperCase();
   const result = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to) VALUES (?, ?, ?)'
-  ).run(name, description || '', assigned_to || '');
-  res.json({ success: true, id: result.lastInsertRowid });
+    'INSERT INTO block_walks (name, description, assigned_to, join_code) VALUES (?, ?, ?, ?)'
+  ).run(name, description || '', assigned_to || '', joinCode);
+  res.json({ success: true, id: result.lastInsertRowid, joinCode });
 });
 
 // Get walk detail with addresses
@@ -190,6 +191,153 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
   }
 
   res.json({ success: true, gps_verified });
+});
+
+// ===================== GROUP WALKING =====================
+
+// Join a walk group by join code
+router.post('/walks/join', (req, res) => {
+  const { joinCode, walkerName } = req.body;
+  if (!joinCode || !walkerName) return res.status(400).json({ error: 'Join code and walker name required.' });
+
+  const walk = db.prepare("SELECT * FROM block_walks WHERE join_code = ? AND status != 'completed'").get(joinCode.toUpperCase());
+  if (!walk) return res.status(404).json({ error: 'Invalid join code or walk is completed.' });
+
+  // Check member count
+  const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id);
+  if (members.c >= (walk.max_walkers || 4)) return res.status(400).json({ error: 'Group is full (max ' + (walk.max_walkers || 4) + ' walkers).' });
+
+  // Add member
+  try {
+    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name) VALUES (?, ?)').run(walk.id, walkerName);
+  } catch (e) {
+    if (e.message.includes('UNIQUE constraint')) {
+      // Already a member
+    } else throw e;
+  }
+
+  // Auto-split addresses among group members
+  splitAddresses(walk.id);
+
+  res.json({ success: true, walkId: walk.id, walkName: walk.name });
+});
+
+// Get group members for a walk
+router.get('/walks/:id/group', (req, res) => {
+  const walk = db.prepare('SELECT id, name, join_code, max_walkers FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+  const members = db.prepare('SELECT * FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
+  res.json({ walk, members });
+});
+
+// Get addresses assigned to a specific walker
+router.get('/walks/:id/walker/:name', (req, res) => {
+  const walk = db.prepare('SELECT id, name, description, status FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  const myAddresses = db.prepare(
+    'SELECT id, address, unit, city, zip, voter_name, result, notes, knocked_at, sort_order, gps_verified, assigned_walker FROM walk_addresses WHERE walk_id = ? AND assigned_walker = ? ORDER BY sort_order, id'
+  ).all(req.params.id, req.params.name);
+
+  const allAddresses = db.prepare(
+    'SELECT id, result, assigned_walker FROM walk_addresses WHERE walk_id = ?'
+  ).all(req.params.id);
+
+  const total = allAddresses.length;
+  const knocked = allAddresses.filter(a => a.result !== 'not_visited').length;
+
+  res.json({ walk, addresses: myAddresses, progress: { total, knocked, remaining: total - knocked } });
+});
+
+// Re-split addresses when group members change
+function splitAddresses(walkId) {
+  const members = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(walkId);
+  if (members.length === 0) return;
+
+  const addresses = db.prepare('SELECT id FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id').all(walkId);
+
+  const update = db.prepare('UPDATE walk_addresses SET assigned_walker = ? WHERE id = ?');
+  const split = db.transaction(() => {
+    for (let i = 0; i < addresses.length; i++) {
+      const walker = members[i % members.length].walker_name;
+      update.run(walker, addresses[i].id);
+    }
+  });
+  split();
+}
+
+// Leave a walk group
+router.delete('/walks/:id/group/:name', (req, res) => {
+  db.prepare('DELETE FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').run(req.params.id, req.params.name);
+  // Re-split remaining addresses
+  splitAddresses(parseInt(req.params.id));
+  res.json({ success: true });
+});
+
+// ===================== ROUTE OPTIMIZATION =====================
+
+// Generate optimized route (nearest-neighbor) and Google Maps URL
+router.get('/walks/:id/route', (req, res) => {
+  const addresses = db.prepare(
+    "SELECT id, address, city, zip, lat, lng FROM walk_addresses WHERE walk_id = ? AND result = 'not_visited' ORDER BY sort_order, id"
+  ).all(req.params.id);
+
+  if (addresses.length === 0) return res.json({ route: [], mapsUrl: '' });
+
+  // If we have GPS coordinates, use nearest-neighbor optimization
+  const hasCoords = addresses.filter(a => a.lat && a.lng);
+  let ordered;
+
+  if (hasCoords.length >= 2) {
+    // Nearest-neighbor algorithm
+    const remaining = [...hasCoords];
+    ordered = [remaining.shift()];
+    while (remaining.length > 0) {
+      const last = ordered[ordered.length - 1];
+      let nearest = 0;
+      let nearestDist = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = gpsDistance(last.lat, last.lng, remaining[i].lat, remaining[i].lng);
+        if (d < nearestDist) { nearestDist = d; nearest = i; }
+      }
+      ordered.push(remaining.splice(nearest, 1)[0]);
+    }
+    // Add addresses without coords at the end
+    const noCoords = addresses.filter(a => !a.lat || !a.lng);
+    ordered = ordered.concat(noCoords);
+  } else {
+    ordered = addresses;
+  }
+
+  // Build Google Maps walking directions URL
+  const waypoints = ordered.map(a => {
+    if (a.lat && a.lng) return a.lat + ',' + a.lng;
+    return encodeURIComponent((a.address || '') + ' ' + (a.city || '') + ' ' + (a.zip || ''));
+  });
+
+  let mapsUrl = '';
+  if (waypoints.length >= 2) {
+    const origin = waypoints[0];
+    const dest = waypoints[waypoints.length - 1];
+    const middle = waypoints.slice(1, -1).join('|');
+    mapsUrl = 'https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=' + origin + '&destination=' + dest;
+    if (middle) mapsUrl += '&waypoints=' + middle;
+  } else if (waypoints.length === 1) {
+    mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + waypoints[0];
+  }
+
+  // Update sort order in DB
+  const updateSort = db.prepare('UPDATE walk_addresses SET sort_order = ? WHERE id = ?');
+  const reorder = db.transaction(() => {
+    ordered.forEach((a, i) => updateSort.run(i, a.id));
+  });
+  reorder();
+
+  res.json({
+    route: ordered.map(a => ({ id: a.id, address: a.address, city: a.city })),
+    mapsUrl,
+    optimized: hasCoords.length >= 2
+  });
 });
 
 module.exports = router;

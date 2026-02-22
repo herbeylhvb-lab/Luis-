@@ -2,13 +2,104 @@ const express = require('express');
 const twilio  = require('twilio');
 const cors    = require('cors');
 const path    = require('path');
+const session = require('express-session');
+const SqliteStore = require('better-sqlite3-session-store')(session);
 const db      = require('./db');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({ credentials: true, origin: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
+
+// Session middleware
+app.use(session({
+  store: new SqliteStore({ client: db, expired: { clear: true, intervalMs: 900000 } }),
+  secret: process.env.SESSION_SECRET || 'campaign-hq-secret-change-me-' + Date.now(),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false // set to true if behind HTTPS proxy
+  }
+}));
+
+// Auth routes (must be before auth middleware)
+app.use('/api', require('./routes/auth'));
+
+// Login page (public)
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// Auth middleware — protect admin routes but allow public pages
+function requireAuth(req, res, next) {
+  // Check if any users exist — if not, skip auth (first-time setup)
+  const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+  if (count === 0) return next();
+
+  if (req.session && req.session.userId) return next();
+
+  // API requests get 401
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  // Page requests redirect to login
+  return res.redirect('/login');
+}
+
+// Public routes (no auth needed)
+// Serve static files ONLY for public assets (CSS, JS, images)
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+// Public pages that don't need auth
+app.get('/volunteer', (req, res) => res.sendFile(path.join(__dirname, 'public', 'volunteer.html')));
+app.get('/walk', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walk.html')));
+app.get('/scanner', (req, res) => res.sendFile(path.join(__dirname, 'public', 'scanner.html')));
+app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkin.html')));
+app.get('/v/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voter-checkin.html')));
+app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'captain.html')));
+
+// Public API routes (volunteer/walker endpoints that don't need admin auth)
+const publicApiPaths = [
+  '/api/walks/join',
+  '/api/auth/',
+  '/api/voters/qr/',
+  '/api/voters/checkins/today-events',
+];
+
+app.use((req, res, next) => {
+  // Allow public API paths
+  for (const p of publicApiPaths) {
+    if (req.path.startsWith(p)) return next();
+  }
+  // Allow volunteer walk endpoints
+  if (req.path.match(/^\/api\/walks\/\d+\/volunteer/) ||
+      req.path.match(/^\/api\/walks\/\d+\/walker\//) ||
+      req.path.match(/^\/api\/walks\/\d+\/group/) ||
+      req.path.match(/^\/api\/walks\/\d+\/addresses\/\d+\/log/) ||
+      req.path.match(/^\/api\/walks\/\d+\/route/) ||
+      req.path.match(/^\/api\/p2p\/join/) ||
+      req.path.match(/^\/api\/p2p\/sessions\/\d+\/volunteer/) ||
+      req.path.match(/^\/api\/captains\/login/) ||
+      req.path.match(/^\/api\/captains\/portal/)) {
+    return next();
+  }
+  // Allow Twilio webhook
+  if (req.path === '/incoming') return next();
+  // Allow health check
+  if (req.path === '/health') return next();
+  // Allow login page
+  if (req.path === '/login') return next();
+  // Allow static login page assets
+  if (req.path === '/login.html') return next();
+
+  // Everything else requires auth
+  requireAuth(req, res, next);
+});
+
+// Serve static files for authenticated users
 app.use(express.static(path.join(__dirname, 'public')));
 
 const STOP_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
@@ -22,6 +113,8 @@ app.use('/api', require('./routes/knowledge'));
 app.use('/api', require('./routes/ai'));
 app.use('/api', require('./routes/p2p'));
 app.use('/api', require('./routes/captains'));
+app.use('/api', require('./routes/email'));
+app.use('/api', require('./routes/admin-lists'));
 
 // --- Core endpoints ---
 
@@ -67,30 +160,7 @@ app.get('/api/stats/sentiment', (req, res) => {
   res.json({ positive, negative, neutral });
 });
 
-// --- QR Check-in pages ---
-app.get('/checkin/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'checkin.html'));
-});
-
-// Per-voter QR code check-in page (short URL for QR codes)
-app.get('/v/:token', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'voter-checkin.html'));
-});
-
-// Standalone P2P volunteer page (shareable link, no admin access)
-app.get('/volunteer', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'volunteer.html'));
-});
-
-// Standalone Block Captain portal (shareable link)
-app.get('/captain', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'captain.html'));
-});
-
-// Block Walking interface (mobile-friendly volunteer walking list)
-app.get('/walk', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'walk.html'));
-});
+// (Public page routes moved above auth middleware)
 
 // --- Twilio test connection ---
 app.post('/test-connection', async (req, res) => {
@@ -105,22 +175,24 @@ app.post('/test-connection', async (req, res) => {
   }
 });
 
-// --- Send campaign ---
+// --- Send campaign (SMS or WhatsApp) ---
 app.post('/send', async (req, res) => {
-  const { accountSid, authToken, from, contacts, messageTemplate, optOutFooter, eventId } = req.body;
+  const { accountSid, authToken, from, contacts, messageTemplate, optOutFooter, eventId, channel, whatsappFrom } = req.body;
   if (!accountSid || !authToken || !from) return res.status(400).json({ error: 'Missing Twilio credentials.' });
   if (!contacts || contacts.length === 0) return res.status(400).json({ error: 'No contacts provided.' });
   if (!messageTemplate) return res.status(400).json({ error: 'No message body provided.' });
+
+  // WhatsApp: prefix numbers with 'whatsapp:'
+  const isWhatsApp = channel === 'whatsapp';
+  const senderNumber = isWhatsApp ? 'whatsapp:' + (whatsappFrom || from) : from;
 
   const client = twilio(accountSid, authToken);
   const results = { sent: 0, failed: 0, errors: [] };
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
   const optedOutSet = new Set(optedOut);
 
-  // Build origin URL for QR links and MMS composite images
   const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
 
-  // Check if event has a flyer for MMS
   let eventHasFlyer = false;
   if (eventId) {
     const evt = db.prepare('SELECT flyer_image IS NOT NULL as has_flyer FROM events WHERE id = ?').get(eventId);
@@ -131,7 +203,6 @@ app.post('/send', async (req, res) => {
     try {
       if (optedOutSet.has(contact.phone)) { results.failed++; continue; }
 
-      // Look up voter QR token for {qr_link} replacement and MMS
       let qrLink = '';
       let voterToken = null;
       const voter = db.prepare("SELECT qr_token FROM voters WHERE phone = ? AND qr_token IS NOT NULL LIMIT 1").get(contact.phone);
@@ -149,9 +220,9 @@ app.post('/send', async (req, res) => {
         .replace(/{qr_link}/g,   qrLink);
       body += '\n' + (optOutFooter || 'Reply STOP to opt out.');
 
-      // Build Twilio message params (include MMS if event has flyer + voter has token)
-      const msgParams = { body, from, to: contact.phone };
-      if (eventHasFlyer && voterToken) {
+      const recipientNumber = isWhatsApp ? 'whatsapp:' + contact.phone : contact.phone;
+      const msgParams = { body, from: senderNumber, to: recipientNumber };
+      if (eventHasFlyer && voterToken && !isWhatsApp) {
         msgParams.mediaUrl = [origin + '/api/events/' + eventId + '/flyer/' + voterToken];
       }
 
@@ -165,10 +236,11 @@ app.post('/send', async (req, res) => {
     }
   }
 
+  const channelLabel = isWhatsApp ? 'WhatsApp' : 'SMS';
   db.prepare('INSERT INTO campaigns (message_template, sent_count, failed_count) VALUES (?, ?, ?)').run(messageTemplate, results.sent, results.failed);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Campaign sent: ' + results.sent + '/' + contacts.length + ' delivered.' + (eventHasFlyer ? ' (MMS with flyer)' : ''));
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(channelLabel + ' campaign: ' + results.sent + '/' + contacts.length + ' delivered.');
 
-  res.json({ success: true, totalContacts: contacts.length, sent: results.sent, failed: results.failed, errors: results.errors.slice(0, 20) });
+  res.json({ success: true, totalContacts: contacts.length, sent: results.sent, failed: results.failed, errors: results.errors.slice(0, 20), channel: channelLabel });
 });
 
 // --- Incoming webhook (Twilio) ---
@@ -222,12 +294,15 @@ app.get('/messages', (req, res) => {
   res.json({ messages, optedOut });
 });
 
-// --- Reply ---
+// --- Reply (SMS or WhatsApp) ---
 app.post('/reply', async (req, res) => {
-  const { accountSid, authToken, from, to, body } = req.body;
+  const { accountSid, authToken, from, to, body, channel, whatsappFrom } = req.body;
   try {
     const client = twilio(accountSid, authToken);
-    await client.messages.create({ body, from, to });
+    const isWhatsApp = channel === 'whatsapp';
+    const senderNumber = isWhatsApp ? 'whatsapp:' + (whatsappFrom || from) : from;
+    const recipientNumber = isWhatsApp ? 'whatsapp:' + to : to;
+    await client.messages.create({ body, from: senderNumber, to: recipientNumber });
     db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(to, body);
     res.json({ success: true });
   } catch (err) {

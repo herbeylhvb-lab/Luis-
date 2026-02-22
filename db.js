@@ -301,6 +301,79 @@ db.exec(`
 // Voting history on voters (populated via CSV import)
 addColumn("ALTER TABLE voters ADD COLUMN voting_history TEXT DEFAULT ''");
 
+// Email column on contacts (for mass email feature)
+addColumn("ALTER TABLE contacts ADD COLUMN email TEXT DEFAULT ''");
+
+// Email campaigns tracking
+db.exec(`
+  CREATE TABLE IF NOT EXISTS email_campaigns (
+    id INTEGER PRIMARY KEY,
+    subject TEXT NOT NULL,
+    body_html TEXT NOT NULL,
+    sent_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+// Admin lists (not tied to a captain)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_lists (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS admin_list_voters (
+    id INTEGER PRIMARY KEY,
+    list_id INTEGER NOT NULL REFERENCES admin_lists(id) ON DELETE CASCADE,
+    voter_id INTEGER NOT NULL REFERENCES voters(id) ON DELETE CASCADE,
+    added_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(list_id, voter_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_alv_list ON admin_list_voters(list_id);
+  CREATE INDEX IF NOT EXISTS idx_alv_voter ON admin_list_voters(voter_id);
+`);
+
+// Block walking group mode — up to 4 walkers per group
+addColumn("ALTER TABLE block_walks ADD COLUMN join_code TEXT DEFAULT NULL");
+addColumn("ALTER TABLE block_walks ADD COLUMN max_walkers INTEGER DEFAULT 4");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walk_group_members (
+    id INTEGER PRIMARY KEY,
+    walk_id INTEGER NOT NULL REFERENCES block_walks(id) ON DELETE CASCADE,
+    walker_name TEXT NOT NULL,
+    joined_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(walk_id, walker_name)
+  );
+  CREATE INDEX IF NOT EXISTS idx_wgm_walk ON walk_group_members(walk_id);
+`);
+// Assigned walker on each address (for group splitting)
+addColumn("ALTER TABLE walk_addresses ADD COLUMN assigned_walker TEXT DEFAULT NULL");
+
+// --- Users table (authentication) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT DEFAULT '',
+    role TEXT DEFAULT 'admin',
+    created_at TEXT DEFAULT (datetime('now')),
+    last_login TEXT
+  );
+`);
+
+// --- Sessions table (express-session store) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    sid TEXT PRIMARY KEY,
+    sess TEXT NOT NULL,
+    expired TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
+`);
+
 // Backfill QR tokens for any existing voters that don't have one
 const { randomBytes } = require('crypto');
 function generateQrToken() {

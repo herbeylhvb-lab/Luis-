@@ -430,4 +430,95 @@ router.post('/voters/:id/contacts', (req, res) => {
   res.json({ success: true, id: r.lastInsertRowid });
 });
 
+// --- Voter touchpoint timeline (all interactions: text, email, call, door-knock, event, mailer) ---
+router.get('/voters/:id/touchpoints', (req, res) => {
+  const voter = db.prepare('SELECT id, first_name, last_name, phone, email FROM voters WHERE id = ?').get(req.params.id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+
+  const touchpoints = [];
+
+  // 1. Voter contacts (door-knocks, calls, mailers, etc.)
+  const contacts = db.prepare(
+    'SELECT contact_type as type, result, notes, contacted_by, contacted_at as date FROM voter_contacts WHERE voter_id = ? ORDER BY contacted_at DESC'
+  ).all(req.params.id);
+  for (const c of contacts) {
+    touchpoints.push({
+      channel: c.type,
+      result: c.result,
+      notes: c.notes,
+      by: c.contacted_by,
+      date: c.date
+    });
+  }
+
+  // 2. Text messages (outbound + inbound by phone)
+  if (voter.phone) {
+    const texts = db.prepare(
+      "SELECT direction, body, timestamp as date FROM messages WHERE phone = ? ORDER BY timestamp DESC LIMIT 50"
+    ).all(voter.phone);
+    for (const t of texts) {
+      touchpoints.push({
+        channel: t.direction === 'outbound' ? 'Text Sent' : 'Text Received',
+        result: t.direction,
+        notes: t.body ? t.body.substring(0, 120) : '',
+        by: t.direction === 'outbound' ? 'Campaign' : voter.first_name,
+        date: t.date
+      });
+    }
+  }
+
+  // 3. Event check-ins
+  const checkins = db.prepare(`
+    SELECT e.title, vc.checked_in_at as date FROM voter_checkins vc
+    JOIN events e ON vc.event_id = e.id
+    WHERE vc.voter_id = ? ORDER BY vc.checked_in_at DESC
+  `).all(req.params.id);
+  for (const c of checkins) {
+    touchpoints.push({
+      channel: 'Event',
+      result: 'Attended',
+      notes: c.title,
+      by: '',
+      date: c.date
+    });
+  }
+
+  // Sort all touchpoints by date descending
+  touchpoints.sort((a, b) => {
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return new Date(b.date) - new Date(a.date);
+  });
+
+  // Summary counts
+  const summary = {};
+  for (const tp of touchpoints) {
+    summary[tp.channel] = (summary[tp.channel] || 0) + 1;
+  }
+
+  res.json({ voter, touchpoints, summary, totalTouchpoints: touchpoints.length });
+});
+
+// --- Voter touchpoint stats (aggregate across all voters) ---
+router.get('/voters-touchpoints/stats', (req, res) => {
+  // This route is registered before :id because it has static path
+  // But since it starts with 'voters-touchpoints', it won't conflict
+
+  const totalTexts = db.prepare("SELECT COUNT(*) as c FROM messages WHERE direction = 'outbound'").get().c;
+  const totalDoorKnocks = db.prepare("SELECT COUNT(*) as c FROM voter_contacts WHERE contact_type = 'Door-knock'").get().c;
+  const totalEvents = db.prepare('SELECT COUNT(*) as c FROM voter_checkins').get().c;
+  const totalCalls = db.prepare("SELECT COUNT(*) as c FROM voter_contacts WHERE contact_type = 'Phone Call'").get().c;
+  const totalMailers = db.prepare("SELECT COUNT(*) as c FROM voter_contacts WHERE contact_type = 'Mailer'").get().c;
+  const totalEmails = db.prepare('SELECT COUNT(*) as c FROM email_campaigns').get().c;
+
+  res.json({
+    texts: totalTexts,
+    doorKnocks: totalDoorKnocks,
+    events: totalEvents,
+    calls: totalCalls,
+    mailers: totalMailers,
+    emailCampaigns: totalEmails
+  });
+});
+
 module.exports = router;

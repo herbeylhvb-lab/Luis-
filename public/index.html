@@ -150,8 +150,14 @@ tr:hover td{background:#1e293b80}
     <div class="sidebar-section">P2P</div>
     <div class="nav-item" data-page="p2p"><span class="icon">&#128241;</span><span>P2P Texting</span></div>
     <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
+    <div class="sidebar-section">Lists</div>
+    <div class="nav-item" data-page="adminlists"><span class="icon">&#128203;</span><span>My Lists</span></div>
     <div class="sidebar-section">Captains</div>
     <div class="nav-item" data-page="captains"><span class="icon">&#128081;</span><span>Block Captains</span></div>
+  </div>
+  <div id="userBar" style="padding:10px 16px;border-top:1px solid #334155;font-size:12px;display:none">
+    <div style="color:#94a3b8;margin-bottom:4px" id="userDisplayName"></div>
+    <button onclick="doLogout()" style="background:#334155;color:#e2e8f0;border:none;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;width:100%">Sign Out</button>
   </div>
   <div class="conn-status" id="connStatus">
     <span class="conn-dot off" id="connDot"></span>
@@ -191,9 +197,21 @@ tr:hover td{background:#1e293b80}
         <div id="twilioAlert"></div>
         <div class="form-group"><label>Account SID</label><input type="text" id="accountSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
         <div class="form-group"><label>Auth Token</label><input type="password" id="authToken" placeholder="Your auth token"></div>
-        <div class="form-group"><label>From Phone Number</label><input type="text" id="fromNumber" placeholder="+1234567890"></div>
+        <div class="form-group"><label>SMS From Number</label><input type="text" id="fromNumber" placeholder="+1234567890"></div>
+        <div class="form-group"><label>WhatsApp From Number</label><input type="text" id="whatsappNumber" placeholder="+1234567890"><p style="font-size:12px;color:#64748b;margin-top:4px">Enable WhatsApp in your Twilio console first. Leave blank to use SMS number.</p></div>
         <button class="btn btn-primary" id="btnTestConnection">Test Connection</button>
         <button class="btn btn-secondary" id="btnSaveCredentials" style="margin-left:8px">Save Credentials</button>
+      </div>
+      <div class="card">
+        <h3>Email (SMTP) Configuration</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Configure email for mass campaigns. Use Gmail with an App Password.</p>
+        <div id="smtpAlert"></div>
+        <div class="form-group"><label>Email Service</label><select id="smtpService" class="form-control"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="yahoo">Yahoo</option></select></div>
+        <div class="form-group"><label>Email Address</label><input type="email" id="smtpUser" placeholder="you@gmail.com"></div>
+        <div class="form-group"><label>App Password</label><input type="password" id="smtpPass" placeholder="Your app password"><p style="font-size:12px;color:#64748b;margin-top:4px">For Gmail: Google Account &gt; Security &gt; App Passwords</p></div>
+        <div class="form-group"><label>From Name</label><input type="text" id="smtpFromName" placeholder="Campaign HQ" value="Campaign HQ"></div>
+        <button class="btn btn-primary" id="btnTestSmtp">Test SMTP</button>
+        <button class="btn btn-secondary" id="btnSaveSmtp" style="margin-left:8px">Save Email Settings</button>
       </div>
     </div>
 
@@ -201,7 +219,7 @@ tr:hover td{background:#1e293b80}
     <div class="page" id="page-contacts">
       <div class="card">
         <h3>Manage Contacts</h3>
-        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Add contacts manually or paste from a CSV. Required: phone. Optional: firstName, lastName, city.</p>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Add contacts manually or paste from a CSV. Required: phone. Optional: firstName, lastName, city, email.</p>
         <div class="form-row" style="margin-bottom:16px">
           <div class="form-group"><label>Phone</label><input type="text" id="cPhone" placeholder="+1234567890"></div>
           <div class="form-group"><label>First Name</label><input type="text" id="cFirst" placeholder="John"></div>
@@ -209,6 +227,9 @@ tr:hover td{background:#1e293b80}
         <div class="form-row" style="margin-bottom:16px">
           <div class="form-group"><label>Last Name</label><input type="text" id="cLast" placeholder="Doe"></div>
           <div class="form-group"><label>City</label><input type="text" id="cCity" placeholder="Austin"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group"><label>Email</label><input type="email" id="cEmail" placeholder="john@example.com"></div>
         </div>
         <button class="btn btn-primary btn-sm" id="btnAddContact">Add Contact</button>
         <button class="btn btn-secondary btn-sm" id="btnImportCSV" style="margin-left:8px">Paste CSV Import</button>
@@ -222,7 +243,7 @@ tr:hover td{background:#1e293b80}
       </div>
       <div class="card">
         <h3>Contact List <span class="badge badge-green" id="contactCount">0</span></h3>
-        <div class="table-wrap"><table><thead><tr><th>Phone</th><th>First Name</th><th>Last Name</th><th>City</th><th>Actions</th></tr></thead><tbody id="contactsBody"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Phone</th><th>First Name</th><th>Last Name</th><th>City</th><th>Email</th><th>Actions</th></tr></thead><tbody id="contactsBody"></tbody></table></div>
         <div style="margin-top:12px"><button class="btn btn-danger btn-sm" id="btnClearContacts">Clear All</button></div>
       </div>
     </div>
@@ -232,10 +253,16 @@ tr:hover td{background:#1e293b80}
       <div class="card">
         <h3>Compose Campaign Message</h3>
         <div id="composeAlert"></div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button class="btn btn-primary btn-sm channel-btn active" data-channel="sms" onclick="setChannel('sms')">&#128241; SMS</button>
+          <button class="btn btn-secondary btn-sm channel-btn" data-channel="whatsapp" onclick="setChannel('whatsapp')">&#128172; WhatsApp</button>
+          <button class="btn btn-secondary btn-sm channel-btn" data-channel="email" onclick="setChannel('email')">&#9993; Email</button>
+        </div>
         <div class="alert alert-info">Use <strong>{firstName}</strong>, <strong>{lastName}</strong>, <strong>{city}</strong> as merge tags.</div>
-        <div class="form-group"><label>Message Template</label><textarea id="messageTemplate" placeholder="Hi {firstName}! This is a reminder about the upcoming event in {city}."></textarea></div>
-        <div class="form-group"><label>Opt-Out Footer</label><input type="text" id="optOutFooter" value="Reply STOP to opt out."></div>
-        <div style="margin-bottom:16px"><div style="font-size:13px;color:#94a3b8">Sending to: <strong id="sendToCount">0</strong> contacts</div></div>
+        <div id="emailSubjectWrap" style="display:none"><div class="form-group"><label>Subject Line</label><input type="text" id="emailSubject" placeholder="Join us on Election Day, {firstName}!"></div></div>
+        <div class="form-group"><label id="msgLabel">Message Template</label><textarea id="messageTemplate" placeholder="Hi {firstName}! This is a reminder about the upcoming event in {city}."></textarea></div>
+        <div id="smsFooterWrap"><div class="form-group"><label>Opt-Out Footer</label><input type="text" id="optOutFooter" value="Reply STOP to opt out."></div></div>
+        <div style="margin-bottom:16px"><div style="font-size:13px;color:#94a3b8">Sending to: <strong id="sendToCount">0</strong> <span id="sendToLabel">contacts</span></div></div>
         <button class="btn btn-success" id="btnSendCampaign">Send Campaign</button>
       </div>
       <div class="card" id="sendResultCard" style="display:none">
@@ -440,6 +467,12 @@ tr:hover td{background:#1e293b80}
             <div><strong style="color:#94a3b8;font-size:13px">Assigned to:</strong> <span id="walkDetailAssign"></span></div>
             <div><strong style="color:#94a3b8;font-size:13px">Status:</strong> <select class="inline-select" id="walkDetailStatus" onchange="updateWalkStatus()"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
           </div>
+          <div id="walkJoinCodeWrap" style="display:none;margin-bottom:16px;padding:12px;background:#422006;border:1px solid #f59e0b;border-radius:10px;text-align:center">
+            <div style="font-size:12px;color:#fcd34d;margin-bottom:4px">Group Walk Join Code</div>
+            <div id="walkJoinCode" style="font-size:28px;font-weight:800;letter-spacing:6px;color:#f59e0b;font-family:monospace"></div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Share this code with volunteers to join the walk group (max 4 walkers)</div>
+          </div>
+          <div id="walkGroupMembers" style="display:none;margin-bottom:12px"></div>
           <div class="stats-grid" id="walkResultStats"></div>
           <div class="progress-bar"><div class="progress-fill green" id="walkProgress" style="width:0%"></div></div>
           <div style="font-size:12px;color:#64748b;margin-bottom:16px" id="walkProgressLabel">0 / 0 doors knocked</div>
@@ -627,6 +660,7 @@ tr:hover td{background:#1e293b80}
           <div class="form-group" style="margin-bottom:12px"><label>Voter Registration #</label><input type="text" id="vdRegNum" placeholder="Voter registration number"></div>
           <div class="form-group"><label>Notes</label><textarea id="vdNotes" rows="3"></textarea></div>
           <button class="btn btn-primary" onclick="saveVoterDetail()">Save Changes</button>
+          <button class="btn btn-secondary" style="margin-left:8px" onclick="showVoterTouchpoints(state.currentVoterId)">&#128200; View All Touchpoints</button>
         </div>
         <div class="card">
           <h3>Contact History</h3>
@@ -753,6 +787,36 @@ tr:hover td{background:#1e293b80}
     </div>
 
     <!-- ==================== BLOCK CAPTAINS ==================== -->
+    <!-- ==================== ADMIN LISTS ==================== -->
+    <div class="page" id="page-adminlists">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0">My Voter Lists</h3>
+          <button class="btn btn-sm btn-primary" onclick="showNewListForm()">+ New List</button>
+        </div>
+        <div id="newListForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div class="form-group"><label>List Name</label><input type="text" id="newListName" placeholder="Supporters in District 5"></div>
+          <div class="form-group"><label>Description</label><input type="text" id="newListDesc" placeholder="Optional description"></div>
+          <button class="btn btn-sm btn-success" onclick="createAdminList()">Create</button>
+          <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="document.getElementById('newListForm').style.display='none'">Cancel</button>
+        </div>
+        <div id="adminListsContainer"></div>
+      </div>
+      <div class="card" id="adminListDetailCard" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0" id="adminListTitle">List Detail</h3>
+          <button class="btn btn-sm btn-secondary" onclick="document.getElementById('adminListDetailCard').style.display='none'">Close</button>
+        </div>
+        <div style="margin-bottom:16px">
+          <input type="text" id="adminListSearch" placeholder="Search voters by name, city, or party..." style="width:100%;padding:10px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px">
+          <div id="adminListSearchResults" style="margin-top:8px"></div>
+        </div>
+        <h4 style="margin-bottom:8px">Voters in List <span class="badge badge-green" id="adminListVoterCount">0</span></h4>
+        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Phone</th><th>City</th><th>Party</th><th>Support</th><th>Actions</th></tr></thead><tbody id="adminListVotersBody"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- ==================== BLOCK CAPTAINS ==================== -->
     <div class="page" id="page-captains">
       <div class="stats-grid" id="captainStatsGrid">
         <div class="stat-card"><div class="label">Active Captains</div><div class="value" id="statActiveCaptains">0</div></div>
@@ -808,11 +872,13 @@ tr:hover td{background:#1e293b80}
 // ===================== STATE =====================
 let state = {
   credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}'),
+  smtpSettings: JSON.parse(localStorage.getItem('smtpSettings') || '{}'),
   contacts: [],
   connected: false,
   currentWalkId: null,
   currentVoterId: null,
-  currentEventId: null
+  currentEventId: null,
+  currentAdminListId: null
 };
 let searchTimeout = null;
 
@@ -873,6 +939,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); }
     if (page === 'checkins') loadCheckinPage();
     if (page === 'captains') loadCaptains();
+    if (page === 'adminlists') loadAdminLists();
   });
 });
 
@@ -882,7 +949,14 @@ function loadCredentials() {
   if (c.accountSid) document.getElementById('accountSid').value = c.accountSid;
   if (c.authToken) document.getElementById('authToken').value = c.authToken;
   if (c.fromNumber) document.getElementById('fromNumber').value = c.fromNumber;
+  if (c.whatsappNumber) document.getElementById('whatsappNumber').value = c.whatsappNumber;
   if (c.connected) setConnected(true, c.accountName);
+  // Load SMTP settings
+  const s = state.smtpSettings;
+  if (s.service) document.getElementById('smtpService').value = s.service;
+  if (s.user) document.getElementById('smtpUser').value = s.user;
+  if (s.pass) document.getElementById('smtpPass').value = s.pass;
+  if (s.fromName) document.getElementById('smtpFromName').value = s.fromName;
 }
 function setConnected(yes, name) {
   state.connected = yes;
@@ -911,8 +985,40 @@ document.getElementById('btnSaveCredentials').addEventListener('click', () => {
   state.credentials.accountSid = document.getElementById('accountSid').value.trim();
   state.credentials.authToken = document.getElementById('authToken').value.trim();
   state.credentials.fromNumber = document.getElementById('fromNumber').value.trim();
+  state.credentials.whatsappNumber = document.getElementById('whatsappNumber').value.trim();
   localStorage.setItem('twilioCredentials', JSON.stringify(state.credentials));
-  document.getElementById('twilioAlert').innerHTML = '<div class="alert alert-success">Credentials saved.</div>';
+  var el = document.getElementById('twilioAlert'); el.textContent = '';
+  var msg = document.createElement('div'); msg.className = 'alert alert-success'; msg.textContent = 'Credentials saved.';
+  el.appendChild(msg);
+});
+
+// SMTP Test & Save
+document.getElementById('btnTestSmtp').addEventListener('click', async () => {
+  var el = document.getElementById('smtpAlert'); el.textContent = '';
+  var info = document.createElement('div'); info.className = 'alert alert-info'; info.textContent = 'Testing connection...'; el.appendChild(info);
+  try {
+    var data = await apiPost('/api/email/test', {
+      service: document.getElementById('smtpService').value,
+      user: document.getElementById('smtpUser').value.trim(),
+      pass: document.getElementById('smtpPass').value.trim()
+    });
+    el.textContent = '';
+    var ok = document.createElement('div'); ok.className = data.success ? 'alert alert-success' : 'alert alert-error';
+    ok.textContent = data.success ? 'SMTP connection successful!' : (data.error || 'Failed');
+    el.appendChild(ok);
+  } catch (err) { el.textContent = ''; var e = document.createElement('div'); e.className = 'alert alert-error'; e.textContent = err.message; el.appendChild(e); }
+});
+document.getElementById('btnSaveSmtp').addEventListener('click', () => {
+  state.smtpSettings = {
+    service: document.getElementById('smtpService').value,
+    user: document.getElementById('smtpUser').value.trim(),
+    pass: document.getElementById('smtpPass').value.trim(),
+    fromName: document.getElementById('smtpFromName').value.trim() || 'Campaign HQ'
+  };
+  localStorage.setItem('smtpSettings', JSON.stringify(state.smtpSettings));
+  var el = document.getElementById('smtpAlert'); el.textContent = '';
+  var ok = document.createElement('div'); ok.className = 'alert alert-success'; ok.textContent = 'Email settings saved.';
+  el.appendChild(ok);
 });
 
 // ===================== CONTACTS (server-side) =====================
@@ -924,11 +1030,26 @@ async function loadContacts() {
 function renderContacts() {
   const tbody = document.getElementById('contactsBody');
   document.getElementById('contactCount').textContent = state.contacts.length;
-  document.getElementById('sendToCount').textContent = state.contacts.length;
-  if (state.contacts.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No contacts.</td></tr>'; return; }
-  tbody.innerHTML = state.contacts.map(c =>
-    '<tr><td>' + escHtml(c.phone) + '</td><td>' + escHtml(c.first_name) + '</td><td>' + escHtml(c.last_name) + '</td><td>' + escHtml(c.city) + '</td><td><button class="btn btn-danger btn-xs" onclick="removeContact(' + c.id + ')">Remove</button></td></tr>'
-  ).join('');
+  updateSendCount();
+  tbody.textContent = '';
+  if (state.contacts.length === 0) {
+    var emptyRow = document.createElement('tr');
+    var emptyTd = document.createElement('td');
+    emptyTd.colSpan = 6; emptyTd.style.cssText = 'color:#64748b;text-align:center';
+    emptyTd.textContent = 'No contacts.';
+    emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow); return;
+  }
+  state.contacts.forEach(function(c) {
+    var tr = document.createElement('tr');
+    [c.phone, c.first_name, c.last_name, c.city, c.email || ''].forEach(function(val) {
+      var td = document.createElement('td'); td.textContent = val; tr.appendChild(td);
+    });
+    var actTd = document.createElement('td');
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-danger btn-xs'; btn.textContent = 'Remove';
+    btn.addEventListener('click', function() { removeContact(c.id); });
+    actTd.appendChild(btn); tr.appendChild(actTd); tbody.appendChild(tr);
+  });
 }
 window.removeContact = async function(id) {
   await apiDelete('/api/contacts/' + id);
@@ -937,9 +1058,10 @@ window.removeContact = async function(id) {
 document.getElementById('btnAddContact').addEventListener('click', async () => {
   const phone = document.getElementById('cPhone').value.trim();
   if (!phone) return;
-  await apiPost('/api/contacts', { phone, firstName: document.getElementById('cFirst').value.trim(), lastName: document.getElementById('cLast').value.trim(), city: document.getElementById('cCity').value.trim() });
+  await apiPost('/api/contacts', { phone, firstName: document.getElementById('cFirst').value.trim(), lastName: document.getElementById('cLast').value.trim(), city: document.getElementById('cCity').value.trim(), email: document.getElementById('cEmail').value.trim() });
   document.getElementById('cPhone').value = ''; document.getElementById('cFirst').value = '';
   document.getElementById('cLast').value = ''; document.getElementById('cCity').value = '';
+  document.getElementById('cEmail').value = '';
   loadContacts();
 });
 document.getElementById('btnImportCSV').addEventListener('click', () => { document.getElementById('csvImportCard').style.display = 'block'; });
@@ -950,11 +1072,11 @@ document.getElementById('btnParseCSV').addEventListener('click', async () => {
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
   const header = lines[0].toLowerCase().split(',').map(h => h.trim());
   const pi = header.indexOf('phone'); if (pi === -1) { alert('CSV must have a "phone" column.'); return; }
-  const fi = header.indexOf('firstname'), li = header.indexOf('lastname'), ci = header.indexOf('city');
+  const fi = header.indexOf('firstname'), li = header.indexOf('lastname'), ci = header.indexOf('city'), ei = header.indexOf('email');
   const contacts = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim());
-    if (cols[pi]) contacts.push({ phone: cols[pi], firstName: fi >= 0 ? cols[fi] : '', lastName: li >= 0 ? cols[li] : '', city: ci >= 0 ? cols[ci] : '' });
+    if (cols[pi]) contacts.push({ phone: cols[pi], firstName: fi >= 0 ? cols[fi] : '', lastName: li >= 0 ? cols[li] : '', city: ci >= 0 ? cols[ci] : '', email: ei >= 0 ? cols[ei] : '' });
   }
   if (contacts.length) { await apiPost('/api/contacts/import', { contacts }); loadContacts(); }
   document.getElementById('csvImportCard').style.display = 'none'; document.getElementById('csvData').value = '';
@@ -964,26 +1086,95 @@ document.getElementById('btnClearContacts').addEventListener('click', async () =
 });
 
 // ===================== COMPOSE & SEND =====================
+// Channel state
+var currentChannel = 'sms';
+function setChannel(ch) {
+  currentChannel = ch;
+  document.querySelectorAll('.channel-btn').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-channel') === ch);
+    b.className = b.className.replace('btn-primary', 'btn-secondary');
+    if (b.getAttribute('data-channel') === ch) b.className = b.className.replace('btn-secondary', 'btn-primary');
+  });
+  document.getElementById('emailSubjectWrap').style.display = ch === 'email' ? '' : 'none';
+  document.getElementById('smsFooterWrap').style.display = ch === 'email' ? 'none' : '';
+  document.getElementById('msgLabel').textContent = ch === 'email' ? 'Email Body (HTML or plain text)' : 'Message Template';
+  updateSendCount();
+}
+function updateSendCount() {
+  if (currentChannel === 'email') {
+    api('/api/email/recipients').then(function(d) {
+      document.getElementById('sendToCount').textContent = d.total || 0;
+      document.getElementById('sendToLabel').textContent = 'email recipients';
+    });
+  } else {
+    document.getElementById('sendToCount').textContent = state.contacts.length;
+    document.getElementById('sendToLabel').textContent = 'contacts';
+  }
+}
+
 document.getElementById('btnSendCampaign').addEventListener('click', async () => {
   const el = document.getElementById('composeAlert');
   const c = state.credentials;
-  if (!c.accountSid || !c.authToken || !c.fromNumber) { el.innerHTML = '<div class="alert alert-error">Set up Twilio credentials first.</div>'; return; }
-  if (state.contacts.length === 0) { el.innerHTML = '<div class="alert alert-error">No contacts loaded.</div>'; return; }
+
+  if (currentChannel === 'email') {
+    // Email send
+    const smtpSettings = state.smtpSettings || {};
+    if (!smtpSettings.user || !smtpSettings.pass) { el.textContent = ''; var d = document.createElement('div'); d.className = 'alert alert-error'; d.textContent = 'Set up SMTP settings first.'; el.appendChild(d); return; }
+    const subject = document.getElementById('emailSubject').value.trim();
+    if (!subject) { el.textContent = ''; var d2 = document.createElement('div'); d2.className = 'alert alert-error'; d2.textContent = 'Subject is required.'; el.appendChild(d2); return; }
+    const body = document.getElementById('messageTemplate').value.trim();
+    if (!body) { el.textContent = ''; var d3 = document.createElement('div'); d3.className = 'alert alert-error'; d3.textContent = 'Email body is required.'; el.appendChild(d3); return; }
+    // Get email recipients
+    var recipData = await api('/api/email/recipients');
+    if (!recipData.recipients || recipData.recipients.length === 0) { el.textContent = ''; var d4 = document.createElement('div'); d4.className = 'alert alert-error'; d4.textContent = 'No contacts/voters have email addresses.'; el.appendChild(d4); return; }
+    if (!confirm('Send email to ' + recipData.total + ' recipients?')) return;
+    el.textContent = ''; var sending = document.createElement('div'); sending.className = 'alert alert-info'; sending.textContent = 'Sending emails...'; el.appendChild(sending);
+    document.getElementById('btnSendCampaign').disabled = true;
+    try {
+      var bodyHtml = body.replace(/\n/g, '<br>');
+      var data = await apiPost('/api/email/send', {
+        smtp: { service: smtpSettings.service || 'gmail', user: smtpSettings.user, pass: smtpSettings.pass },
+        fromName: smtpSettings.fromName || 'Campaign HQ',
+        subject: subject,
+        bodyHtml: bodyHtml,
+        recipients: recipData.recipients
+      });
+      el.textContent = '';
+      var result = document.createElement('div');
+      result.className = 'alert alert-success';
+      result.textContent = 'Emails sent! ' + data.sent + ' delivered, ' + data.failed + ' failed.';
+      el.appendChild(result);
+    } catch (err) { el.textContent = ''; var errDiv = document.createElement('div'); errDiv.className = 'alert alert-error'; errDiv.textContent = err.message; el.appendChild(errDiv); }
+    document.getElementById('btnSendCampaign').disabled = false;
+    return;
+  }
+
+  // SMS / WhatsApp send
+  if (!c.accountSid || !c.authToken || !c.fromNumber) { el.textContent = ''; var a = document.createElement('div'); a.className = 'alert alert-error'; a.textContent = 'Set up Twilio credentials first.'; el.appendChild(a); return; }
+  if (state.contacts.length === 0) { el.textContent = ''; var a2 = document.createElement('div'); a2.className = 'alert alert-error'; a2.textContent = 'No contacts loaded.'; el.appendChild(a2); return; }
   const msg = document.getElementById('messageTemplate').value.trim();
-  if (!msg) { el.innerHTML = '<div class="alert alert-error">Write a message first.</div>'; return; }
-  if (!confirm('Send to ' + state.contacts.length + ' contacts?')) return;
-  el.innerHTML = '<div class="alert alert-info">Sending...</div>';
+  if (!msg) { el.textContent = ''; var a3 = document.createElement('div'); a3.className = 'alert alert-error'; a3.textContent = 'Write a message first.'; el.appendChild(a3); return; }
+  var channelLabel = currentChannel === 'whatsapp' ? 'WhatsApp' : 'SMS';
+  if (!confirm('Send ' + channelLabel + ' to ' + state.contacts.length + ' contacts?')) return;
+  el.textContent = ''; var s = document.createElement('div'); s.className = 'alert alert-info'; s.textContent = 'Sending via ' + channelLabel + '...'; el.appendChild(s);
   document.getElementById('btnSendCampaign').disabled = true;
   try {
-    const data = await apiPost('/send', { accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber, contacts: state.contacts, messageTemplate: msg, optOutFooter: document.getElementById('optOutFooter').value.trim() });
-    if (data.success) {
-      el.innerHTML = '<div class="alert alert-success">Sent! ' + data.sent + ' delivered, ' + data.failed + ' failed.</div>';
-      const rc = document.getElementById('sendResultCard'); rc.style.display = 'block';
-      let html = '<p><strong>Sent:</strong> ' + data.sent + ' / ' + data.totalContacts + '</p>';
-      if (data.errors && data.errors.length > 0) { html += '<ul style="margin-left:16px;color:#fca5a5">'; data.errors.forEach(e => html += '<li>' + e.phone + ': ' + e.reason + '</li>'); html += '</ul>'; }
-      document.getElementById('sendResults').innerHTML = html;
-    } else { el.innerHTML = '<div class="alert alert-error">' + (data.error || 'Failed.') + '</div>'; }
-  } catch (err) { el.innerHTML = '<div class="alert alert-error">' + err.message + '</div>'; }
+    const sendData = await apiPost('/send', {
+      accountSid: c.accountSid, authToken: c.authToken, from: c.fromNumber,
+      contacts: state.contacts, messageTemplate: msg,
+      optOutFooter: document.getElementById('optOutFooter').value.trim(),
+      channel: currentChannel,
+      whatsappFrom: state.credentials.whatsappNumber || ''
+    });
+    if (sendData.success) {
+      el.textContent = '';
+      var ok = document.createElement('div'); ok.className = 'alert alert-success';
+      ok.textContent = channelLabel + ' sent! ' + sendData.sent + ' delivered, ' + sendData.failed + ' failed.';
+      el.appendChild(ok);
+    } else {
+      el.textContent = ''; var fail = document.createElement('div'); fail.className = 'alert alert-error'; fail.textContent = sendData.error || 'Failed.'; el.appendChild(fail);
+    }
+  } catch (err) { el.textContent = ''; var errD = document.createElement('div'); errD.className = 'alert alert-error'; errD.textContent = err.message; el.appendChild(errD); }
   document.getElementById('btnSendCampaign').disabled = false;
 });
 
@@ -1062,6 +1253,35 @@ async function loadWalkDetail(id) {
   document.getElementById('walkDetailName').textContent = w.name;
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
   document.getElementById('walkDetailStatus').value = w.status;
+  // Join code
+  const joinCodeWrap = document.getElementById('walkJoinCodeWrap');
+  if (w.join_code) {
+    joinCodeWrap.style.display = '';
+    document.getElementById('walkJoinCode').textContent = w.join_code;
+  } else {
+    joinCodeWrap.style.display = 'none';
+  }
+  // Group members
+  try {
+    const gData = await api('/api/walks/' + id + '/group');
+    const gWrap = document.getElementById('walkGroupMembers');
+    if (gData.members && gData.members.length > 0) {
+      gWrap.style.display = '';
+      gWrap.textContent = '';
+      const label = document.createElement('div');
+      label.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:4px';
+      label.textContent = 'Group Members (' + gData.members.length + '/' + (w.max_walkers || 4) + ')';
+      gWrap.appendChild(label);
+      gData.members.forEach(function(m) {
+        const chip = document.createElement('span');
+        chip.style.cssText = 'display:inline-block;padding:3px 10px;border-radius:9999px;font-size:12px;font-weight:600;background:#334155;color:#e2e8f0;margin-right:4px';
+        chip.textContent = m.walker_name;
+        gWrap.appendChild(chip);
+      });
+    } else {
+      gWrap.style.display = 'none';
+    }
+  } catch(e) { /* group info optional */ }
   // Result stats
   const results = ['not_visited','not_home','supportive','undecided','opposed','moved','refused','come_back'];
   const statsHtml = results.map(r => '<div class="stat-card" style="padding:12px"><div class="label">' + r.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + (w.resultStats[r] || 0) + '</div></div>').join('');
@@ -2708,7 +2928,7 @@ function showVoterQrModal(url, voterName) {
 
 async function loadCaptains() {
   try {
-    const data = await apiFetch('/api/captains');
+    const data = await api('/api/captains');
     const captains = data.captains || [];
     const stats = data.stats || {};
 
@@ -2883,11 +3103,7 @@ async function createCaptain() {
   const phone = document.getElementById('newCaptainPhone').value.trim();
   const email = document.getElementById('newCaptainEmail').value.trim();
 
-  const data = await apiFetch('/api/captains', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, phone, email })
-  });
+  const data = await apiPost('/api/captains', { name, phone, email });
   if (data.code) {
     alert('Captain created! Their permanent code is: ' + data.code + '\n\nShare this code — they use it to log in at /captain');
   }
@@ -2896,30 +3112,26 @@ async function createCaptain() {
 }
 
 async function toggleCaptain(id, newState) {
-  await apiFetch('/api/captains/' + id, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ is_active: newState })
-  });
+  await apiPut('/api/captains/' + id, { is_active: newState });
   loadCaptains();
 }
 
 async function deleteCaptain(id, name) {
   if (!confirm('Delete captain "' + name + '" and ALL their lists? This cannot be undone.')) return;
-  await apiFetch('/api/captains/' + id, { method: 'DELETE' });
+  await apiDelete('/api/captains/' + id);
   loadCaptains();
 }
 
 async function compileMasterList() {
   // Fetch all captains with their list voters, then deduplicate
-  const data = await apiFetch('/api/captains');
+  const data = await api('/api/captains');
   const captains = data.captains || [];
 
   // Collect all voter IDs and which lists they're on
   const voterMap = {};
   for (const c of captains) {
     for (const l of (c.lists || [])) {
-      const voterData = await apiFetch('/api/captains/' + c.id + '/lists/' + l.id + '/voters');
+      const voterData = await api('/api/captains/' + c.id + '/lists/' + l.id + '/voters');
       for (const v of (voterData.voters || [])) {
         if (!voterMap[v.id]) {
           voterMap[v.id] = { voter: v, lists: [] };
@@ -2988,8 +3200,242 @@ function closeMasterList() {
   document.getElementById('masterListCard').style.display = 'none';
 }
 
+// ===================== ADMIN LISTS =====================
+function showNewListForm() {
+  document.getElementById('newListForm').style.display = 'block';
+  document.getElementById('newListName').focus();
+}
+async function createAdminList() {
+  var name = document.getElementById('newListName').value.trim();
+  if (!name) { alert('List name is required.'); return; }
+  await apiPost('/api/admin-lists', { name: name, description: document.getElementById('newListDesc').value.trim() });
+  document.getElementById('newListForm').style.display = 'none';
+  document.getElementById('newListName').value = '';
+  document.getElementById('newListDesc').value = '';
+  loadAdminLists();
+}
+async function loadAdminLists() {
+  var data = await api('/api/admin-lists');
+  var el = document.getElementById('adminListsContainer');
+  el.textContent = '';
+  if (!data.lists || data.lists.length === 0) {
+    var msg = document.createElement('p');
+    msg.style.cssText = 'color:#64748b;text-align:center';
+    msg.textContent = 'No lists yet. Create one to get started.';
+    el.appendChild(msg);
+    return;
+  }
+  data.lists.forEach(function(l) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:8px';
+    var left = document.createElement('div');
+    var title = document.createElement('strong');
+    title.textContent = l.name;
+    left.appendChild(title);
+    var count = document.createElement('span');
+    count.className = 'badge badge-green';
+    count.textContent = l.voterCount + ' voters';
+    count.style.marginLeft = '8px';
+    left.appendChild(count);
+    if (l.description) {
+      var desc = document.createElement('div');
+      desc.style.cssText = 'font-size:12px;color:#64748b;margin-top:4px';
+      desc.textContent = l.description;
+      left.appendChild(desc);
+    }
+    row.appendChild(left);
+    var right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.gap = '6px';
+    var openBtn = document.createElement('button');
+    openBtn.className = 'btn btn-sm btn-primary';
+    openBtn.textContent = 'Open';
+    openBtn.addEventListener('click', function() { openAdminList(l.id, l.name); });
+    right.appendChild(openBtn);
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm btn-danger';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', function() {
+      if (confirm('Delete list "' + l.name + '"?')) {
+        apiDelete('/api/admin-lists/' + l.id).then(function() { loadAdminLists(); });
+      }
+    });
+    right.appendChild(delBtn);
+    row.appendChild(right);
+    el.appendChild(row);
+  });
+}
+async function openAdminList(listId, name) {
+  state.currentAdminListId = listId;
+  document.getElementById('adminListDetailCard').style.display = '';
+  document.getElementById('adminListTitle').textContent = name;
+  loadAdminListVoters(listId);
+  // Set up search
+  document.getElementById('adminListSearch').oninput = function() {
+    var q = this.value.trim();
+    if (q.length < 2) { document.getElementById('adminListSearchResults').textContent = ''; return; }
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(function() { searchVotersForList(q, listId); }, 300);
+  };
+}
+async function searchVotersForList(q, listId) {
+  var data = await api('/api/voters?search=' + encodeURIComponent(q) + '&limit=10');
+  var el = document.getElementById('adminListSearchResults');
+  el.textContent = '';
+  (data.voters || []).forEach(function(v) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
+    var info = document.createElement('span');
+    info.textContent = v.first_name + ' ' + v.last_name + ' - ' + (v.city || '') + ' (' + (v.party || 'N/A') + ')';
+    info.style.fontSize = '13px';
+    row.appendChild(info);
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-sm btn-success';
+    addBtn.textContent = '+ Add';
+    addBtn.addEventListener('click', function() {
+      apiPost('/api/admin-lists/' + listId + '/voters', { voterIds: [v.id] }).then(function() {
+        loadAdminListVoters(listId);
+        addBtn.textContent = 'Added';
+        addBtn.disabled = true;
+      });
+    });
+    row.appendChild(addBtn);
+    el.appendChild(row);
+  });
+}
+async function loadAdminListVoters(listId) {
+  var data = await api('/api/admin-lists/' + listId);
+  var voters = data.list.voters || [];
+  document.getElementById('adminListVoterCount').textContent = voters.length;
+  var tbody = document.getElementById('adminListVotersBody');
+  tbody.textContent = '';
+  if (voters.length === 0) {
+    var emptyRow = document.createElement('tr');
+    var emptyTd = document.createElement('td');
+    emptyTd.colSpan = 6; emptyTd.style.cssText = 'color:#64748b;text-align:center';
+    emptyTd.textContent = 'No voters in this list. Use search above to add.';
+    emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow);
+    return;
+  }
+  voters.forEach(function(v) {
+    var tr = document.createElement('tr');
+    [v.first_name + ' ' + v.last_name, v.phone || '', v.city || '', v.party || '', v.support_level || ''].forEach(function(val) {
+      var td = document.createElement('td'); td.textContent = val; tr.appendChild(td);
+    });
+    var actTd = document.createElement('td');
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-danger btn-xs'; btn.textContent = 'Remove';
+    btn.addEventListener('click', function() {
+      apiDelete('/api/admin-lists/' + listId + '/voters/' + v.id).then(function() { loadAdminListVoters(listId); });
+    });
+    actTd.appendChild(btn); tr.appendChild(actTd); tbody.appendChild(tr);
+  });
+}
+
+// ===================== VOTER TOUCHPOINTS =====================
+async function showVoterTouchpoints(voterId) {
+  var data = await api('/api/voters/' + voterId + '/touchpoints');
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;border:1px solid #334155';
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:16px';
+  var title = document.createElement('h3');
+  title.textContent = (data.voter.first_name + ' ' + data.voter.last_name) + ' - Touchpoints';
+  title.style.margin = '0';
+  header.appendChild(title);
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-sm btn-secondary';
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', function() { document.body.removeChild(modal); });
+  header.appendChild(closeBtn);
+  box.appendChild(header);
+
+  // Summary badges
+  var summaryDiv = document.createElement('div');
+  summaryDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px';
+  Object.keys(data.summary || {}).forEach(function(k) {
+    var badge = document.createElement('span');
+    badge.className = 'badge badge-green';
+    badge.textContent = k + ': ' + data.summary[k];
+    summaryDiv.appendChild(badge);
+  });
+  box.appendChild(summaryDiv);
+
+  // Timeline
+  if (!data.touchpoints || data.touchpoints.length === 0) {
+    var none = document.createElement('p');
+    none.style.color = '#64748b';
+    none.textContent = 'No touchpoints recorded for this voter.';
+    box.appendChild(none);
+  } else {
+    data.touchpoints.forEach(function(tp) {
+      var item = document.createElement('div');
+      item.style.cssText = 'padding:10px 0;border-bottom:1px solid #334155';
+      var top = document.createElement('div');
+      top.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+      var ch = document.createElement('strong');
+      ch.textContent = tp.channel;
+      ch.style.color = '#818cf8';
+      top.appendChild(ch);
+      var dateSpan = document.createElement('span');
+      dateSpan.style.cssText = 'font-size:12px;color:#64748b';
+      dateSpan.textContent = tp.date ? new Date(tp.date).toLocaleString() : '';
+      top.appendChild(dateSpan);
+      item.appendChild(top);
+      if (tp.result) {
+        var res = document.createElement('div');
+        res.style.cssText = 'font-size:13px;color:#94a3b8;margin-top:4px';
+        res.textContent = tp.result + (tp.by ? ' by ' + tp.by : '');
+        item.appendChild(res);
+      }
+      if (tp.notes) {
+        var notes = document.createElement('div');
+        notes.style.cssText = 'font-size:12px;color:#64748b;margin-top:2px';
+        notes.textContent = tp.notes;
+        item.appendChild(notes);
+      }
+      box.appendChild(item);
+    });
+  }
+
+  modal.appendChild(box);
+  modal.addEventListener('click', function(e) { if (e.target === modal) document.body.removeChild(modal); });
+  document.body.appendChild(modal);
+}
+
+// ===================== AUTH =====================
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/auth/status');
+    const data = await res.json();
+    if (data.hasUsers && !data.loggedIn) {
+      window.location.href = '/login';
+      return false;
+    }
+    if (data.loggedIn && data.user) {
+      const bar = document.getElementById('userBar');
+      bar.style.display = '';
+      document.getElementById('userDisplayName').textContent = data.user.displayName || data.user.username;
+    }
+    return true;
+  } catch(e) {
+    return true; // If auth check fails, let it proceed (may be no users yet)
+  }
+}
+
+async function doLogout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch(e) {}
+  window.location.href = '/login';
+}
+
 // ===================== INIT =====================
 (async function init() {
+  const authed = await checkAuth();
+  if (!authed) return;
   loadCredentials();
   await migrateLocalStorage();
   await loadContacts();

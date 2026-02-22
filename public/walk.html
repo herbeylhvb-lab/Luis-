@@ -96,6 +96,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 .back-link{display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;margin-top:1rem;cursor:pointer;text-decoration:none}
 .back-link:hover{color:#e2e8f0}
+
+/* Mode tabs on load screen */
+.mode-tabs{display:flex;gap:0;margin-bottom:1.5rem;border-radius:10px;overflow:hidden;border:1px solid #334155}
+.mode-tab{flex:1;padding:10px;text-align:center;font-size:14px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
+.mode-tab.active{background:#f59e0b;color:#000}
+.mode-panel{display:none}.mode-panel.active{display:block}
+
+/* Group bar */
+.group-bar{background:#1e293b;border-bottom:1px solid #334155;padding:10px 16px}
+.group-bar-title{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+.group-members{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.member-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:9999px;font-size:12px;font-weight:600;background:#334155;color:#e2e8f0}
+.member-chip.me{background:#422006;color:#fcd34d;border:1px solid #f59e0b}
+.group-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* Route bar */
+.route-bar{background:#0f172a;border-bottom:1px solid #334155;padding:8px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.route-bar .btn{width:auto;padding:8px 14px;font-size:12px}
+.btn-green{background:#16a34a;color:#fff}
+.btn-blue{background:#2563eb;color:#fff}
+.maps-link{color:#60a5fa;font-size:13px;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.maps-link:hover{color:#93c5fd}
+
+/* Assigned walker badge */
+.addr-card .addr-walker{font-size:11px;color:#64748b;margin-left:20px;margin-top:2px;font-style:italic}
 </style>
 </head>
 <body>
@@ -105,12 +130,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="load-card">
     <div style="font-size:2.5rem;margin-bottom:0.5rem">&#x1F6B6;</div>
     <h2>Block Walk</h2>
-    <p>Enter your walk ID to load your walking list with GPS tracking.</p>
-    <div class="form-group">
-      <label>Walk ID</label>
-      <input type="number" id="walkIdInput" placeholder="e.g. 1" inputmode="numeric">
+    <p>Load a walk by ID or join a group walk with a code.</p>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" onclick="setLoadMode('id')">Walk ID</button>
+      <button class="mode-tab" onclick="setLoadMode('join')">Join Group</button>
     </div>
-    <button class="btn btn-walk" id="btnLoadWalk" onclick="loadWalk()">Load Walk</button>
+
+    <!-- Walk ID mode -->
+    <div class="mode-panel active" id="modeId">
+      <div class="form-group">
+        <label>Walk ID</label>
+        <input type="number" id="walkIdInput" placeholder="e.g. 1" inputmode="numeric">
+      </div>
+      <button class="btn btn-walk" id="btnLoadWalk" onclick="loadWalk()">Load Walk</button>
+    </div>
+
+    <!-- Join group mode -->
+    <div class="mode-panel" id="modeJoin">
+      <div class="form-group">
+        <label>Join Code</label>
+        <input type="text" id="joinCodeInput" placeholder="e.g. AB3K" maxlength="4" style="text-transform:uppercase;letter-spacing:4px;font-size:24px">
+      </div>
+      <div class="form-group">
+        <label>Your Name</label>
+        <input type="text" id="joinNameInput" placeholder="e.g. Maria">
+      </div>
+      <button class="btn btn-walk" id="btnJoinWalk" onclick="joinWalk()">Join Group Walk</button>
+    </div>
+
     <div class="error-msg" id="loadError"></div>
     <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
   </div>
@@ -134,10 +182,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
   </div>
 
-  <!-- Walker name -->
-  <div class="walker-bar">
+  <!-- Group bar (shown in group mode) -->
+  <div class="group-bar" id="groupBar" style="display:none">
+    <div class="group-bar-title">Walking Group</div>
+    <div class="group-members" id="groupMembers"></div>
+    <div class="group-actions">
+      <button class="btn btn-sm btn-secondary" onclick="leaveGroup()">Leave Group</button>
+    </div>
+  </div>
+
+  <!-- Walker name (shown in solo mode) -->
+  <div class="walker-bar" id="walkerBar">
     <label>Your name:</label>
     <input type="text" id="walkerName" placeholder="Volunteer name" value="">
+  </div>
+
+  <!-- Route optimization bar -->
+  <div class="route-bar" id="routeBar">
+    <button class="btn btn-sm btn-green" onclick="optimizeRoute()">Optimize Route</button>
+    <a class="maps-link" id="mapsLink" href="#" target="_blank" style="display:none">Open in Google Maps</a>
   </div>
 
   <!-- Address list -->
@@ -180,8 +243,152 @@ var walkState = {
   gpsLat: null,
   gpsLng: null,
   gpsAccuracy: null,
-  gpsWatchId: null
+  gpsWatchId: null,
+  // Group walking
+  isGroupMode: false,
+  walkerName: '',
+  groupMembers: [],
+  mapsUrl: ''
 };
+
+// ===================== LOAD MODE TOGGLE =====================
+
+function setLoadMode(mode) {
+  var tabs = document.querySelectorAll('.mode-tab');
+  tabs[0].className = 'mode-tab' + (mode === 'id' ? ' active' : '');
+  tabs[1].className = 'mode-tab' + (mode === 'join' ? ' active' : '');
+  document.getElementById('modeId').className = 'mode-panel' + (mode === 'id' ? ' active' : '');
+  document.getElementById('modeJoin').className = 'mode-panel' + (mode === 'join' ? ' active' : '');
+  document.getElementById('loadError').textContent = '';
+}
+
+// ===================== JOIN GROUP WALK =====================
+
+async function joinWalk() {
+  var codeInput = document.getElementById('joinCodeInput');
+  var nameInput = document.getElementById('joinNameInput');
+  var errEl = document.getElementById('loadError');
+  errEl.textContent = '';
+
+  var joinCode = codeInput.value.trim().toUpperCase();
+  var walkerName = nameInput.value.trim();
+
+  if (!joinCode || joinCode.length < 4) { errEl.textContent = 'Enter the 4-character join code.'; return; }
+  if (!walkerName) { errEl.textContent = 'Enter your name.'; return; }
+
+  document.getElementById('btnJoinWalk').disabled = true;
+  try {
+    var res = await fetch('/api/walks/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ joinCode: joinCode, walkerName: walkerName })
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) { errEl.textContent = data.error || 'Failed to join'; return; }
+
+    walkState.walkId = data.walkId;
+    walkState.isGroupMode = true;
+    walkState.walkerName = walkerName;
+
+    // Load walker-specific addresses
+    await loadGroupWalk(data.walkId, walkerName);
+
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkScreen').style.display = '';
+    startGps();
+  } catch(e) {
+    errEl.textContent = 'Failed to join: ' + e.message;
+  } finally {
+    document.getElementById('btnJoinWalk').disabled = false;
+  }
+}
+
+async function loadGroupWalk(walkId, walkerName) {
+  // Get walker's addresses
+  var res = await fetch('/api/walks/' + walkId + '/walker/' + encodeURIComponent(walkerName));
+  var data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || 'Failed to load');
+
+  walkState.walk = data.walk;
+  walkState.walk.addresses = data.addresses;
+  walkState.walk.progress = data.progress;
+
+  // Load group members
+  var gRes = await fetch('/api/walks/' + walkId + '/group');
+  var gData = await gRes.json();
+  walkState.groupMembers = gData.members || [];
+
+  renderWalk();
+  renderGroupBar();
+}
+
+function renderGroupBar() {
+  if (!walkState.isGroupMode) {
+    document.getElementById('groupBar').style.display = 'none';
+    document.getElementById('walkerBar').style.display = '';
+    return;
+  }
+
+  document.getElementById('groupBar').style.display = '';
+  document.getElementById('walkerBar').style.display = 'none';
+  document.getElementById('walkerName').value = walkState.walkerName;
+
+  var membersEl = document.getElementById('groupMembers');
+  membersEl.textContent = '';
+
+  walkState.groupMembers.forEach(function(m) {
+    var chip = document.createElement('span');
+    chip.className = 'member-chip';
+    if (m.walker_name === walkState.walkerName) chip.className += ' me';
+    chip.textContent = m.walker_name;
+    membersEl.appendChild(chip);
+  });
+}
+
+async function leaveGroup() {
+  if (!confirm('Leave this walking group?')) return;
+  try {
+    await fetch('/api/walks/' + walkState.walkId + '/group/' + encodeURIComponent(walkState.walkerName), {
+      method: 'DELETE'
+    });
+    exitWalk();
+  } catch(e) {
+    alert('Failed to leave group: ' + e.message);
+  }
+}
+
+// ===================== ROUTE OPTIMIZATION =====================
+
+async function optimizeRoute() {
+  var btn = document.querySelector('.route-bar .btn-green');
+  btn.disabled = true;
+  btn.textContent = 'Optimizing...';
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/route');
+    var data = await res.json();
+    if (data.mapsUrl) {
+      walkState.mapsUrl = data.mapsUrl;
+      var link = document.getElementById('mapsLink');
+      link.href = data.mapsUrl;
+      link.style.display = '';
+    }
+    // Reload the walk to get updated sort order
+    if (walkState.isGroupMode) {
+      await loadGroupWalk(walkState.walkId, walkState.walkerName);
+    } else {
+      var wRes = await fetch('/api/walks/' + walkState.walkId + '/volunteer');
+      var wData = await wRes.json();
+      walkState.walk = wData.walk;
+      renderWalk();
+    }
+    btn.textContent = 'Route Optimized!';
+    setTimeout(function() { btn.textContent = 'Optimize Route'; btn.disabled = false; }, 2000);
+  } catch(e) {
+    alert('Route optimization failed: ' + e.message);
+    btn.textContent = 'Optimize Route';
+    btn.disabled = false;
+  }
+}
 
 // ===================== GPS TRACKING =====================
 
@@ -260,8 +467,13 @@ function exitWalk() {
   stopGps();
   walkState.walkId = null;
   walkState.walk = null;
+  walkState.isGroupMode = false;
+  walkState.walkerName = '';
+  walkState.groupMembers = [];
+  walkState.mapsUrl = '';
   document.getElementById('walkScreen').style.display = 'none';
   document.getElementById('loadScreen').style.display = '';
+  document.getElementById('mapsLink').style.display = 'none';
 }
 
 // ===================== RENDER WALK =====================
@@ -272,12 +484,14 @@ function renderWalk() {
 
   var knocked = w.progress.knocked;
   var total = w.progress.total;
-  document.getElementById('walkMeta').textContent = knocked + ' of ' + total + ' doors knocked (' + w.progress.remaining + ' remaining)';
+  var label = walkState.isGroupMode ? 'Group progress: ' : '';
+  document.getElementById('walkMeta').textContent = label + knocked + ' of ' + total + ' doors knocked (' + w.progress.remaining + ' remaining)';
 
   var pct = total > 0 ? (knocked / total * 100) : 0;
   document.getElementById('progressFill').style.width = pct + '%';
 
   renderAddressList();
+  renderGroupBar();
 }
 
 function renderAddressList() {
@@ -317,6 +531,14 @@ function renderAddressList() {
       voter.className = 'addr-voter';
       voter.textContent = a.voter_name;
       card.appendChild(voter);
+    }
+
+    // Assigned walker (group mode)
+    if (a.assigned_walker && !walkState.isGroupMode) {
+      var walkerLabel = document.createElement('div');
+      walkerLabel.className = 'addr-walker';
+      walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
+      card.appendChild(walkerLabel);
     }
 
     // Status badges
@@ -422,7 +644,7 @@ async function logDoor() {
   if (!walkState.selectedResult) return;
 
   var addr = walkState.walk.addresses[walkState.currentAddrIdx];
-  var walkerName = document.getElementById('walkerName').value.trim() || 'Volunteer';
+  var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
 
   var btn = document.getElementById('btnLogDoor');

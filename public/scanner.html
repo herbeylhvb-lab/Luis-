@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Check-In Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+    .header {
+      background: #16213e;
+      padding: 1rem;
+      text-align: center;
+      border-bottom: 1px solid #333;
+    }
+    .header h1 { font-size: 1.2rem; color: #00d4aa; }
+    .header .sub { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+
+    .setup {
+      padding: 1.5rem;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .setup h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #fff; }
+    .vol-input {
+      width: 100%;
+      padding: 0.75rem;
+      background: #16213e;
+      border: 1px solid #333;
+      color: #fff;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    .vol-input:focus { border-color: #00d4aa; outline: none; }
+    .event-list { margin-bottom: 1rem; }
+    .event-btn {
+      display: block;
+      width: 100%;
+      padding: 1rem;
+      background: #16213e;
+      border: 2px solid #333;
+      color: #fff;
+      border-radius: 10px;
+      font-size: 1rem;
+      text-align: left;
+      cursor: pointer;
+      margin-bottom: 0.5rem;
+      transition: border-color 0.2s;
+    }
+    .event-btn:hover, .event-btn.selected { border-color: #00d4aa; }
+    .event-btn .ev-title { font-weight: 700; }
+    .event-btn .ev-meta { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+    .btn-start {
+      width: 100%;
+      padding: 0.85rem;
+      background: #00d4aa;
+      color: #1a1a2e;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-start:hover:not(:disabled) { background: #00b894; }
+    .no-events-msg {
+      text-align: center;
+      color: #888;
+      padding: 2rem;
+      background: #16213e;
+      border-radius: 10px;
+      border: 1px solid #333;
+    }
+
+    .scanner { display: none; position: relative; }
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    #video { width: 100%; display: block; background: #000; }
+    #canvas { display: none; }
+    .scan-overlay {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 220px; height: 220px;
+      border: 3px solid rgba(0,212,170,0.6);
+      border-radius: 16px;
+      pointer-events: none;
+    }
+    .scan-overlay::before {
+      content: '';
+      position: absolute;
+      top: -3px; left: -3px; right: -3px; bottom: -3px;
+      border: 3px solid transparent;
+      border-top-color: #00d4aa;
+      border-radius: 16px;
+      animation: scanPulse 2s linear infinite;
+    }
+    @keyframes scanPulse {
+      0% { border-top-color: #00d4aa; }
+      50% { border-top-color: transparent; border-right-color: #00d4aa; }
+      100% { border-top-color: #00d4aa; }
+    }
+
+    .stats-bar {
+      background: #16213e;
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #333;
+    }
+    .stats-bar .event-name { font-weight: 700; font-size: 0.9rem; color: #00d4aa; }
+    .stats-bar .count { font-size: 1.4rem; font-weight: 700; color: #fff; }
+    .stats-bar .count-label { font-size: 0.7rem; color: #888; }
+
+    .result-flash {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      padding: 1.5rem;
+      text-align: center;
+      font-size: 1.2rem;
+      font-weight: 700;
+      z-index: 100;
+      transform: translateY(-100%);
+      transition: transform 0.3s ease;
+    }
+    .result-flash.show { transform: translateY(0); }
+    .result-flash.success { background: #00d4aa; color: #1a1a2e; }
+    .result-flash.already { background: #f59e0b; color: #1a1a2e; }
+    .result-flash.error { background: #ef4444; color: #fff; }
+
+    .recent-scans {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 0.5rem 1rem;
+    }
+    .recent-scans h3 {
+      font-size: 0.75rem;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    .scan-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #222;
+      font-size: 0.85rem;
+    }
+    .scan-item .name { color: #fff; font-weight: 600; }
+    .scan-item .time { color: #888; font-size: 0.75rem; }
+    .scan-item .badge {
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .scan-item .badge-new { background: #00d4aa22; color: #00d4aa; }
+    .scan-item .badge-dup { background: #f59e0b22; color: #f59e0b; }
+
+    .btn-stop {
+      display: block;
+      margin: 1rem auto;
+      padding: 0.6rem 2rem;
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .btn-stop:hover { background: #444; }
+  </style>
+</head>
+<body>
+  <div id="setup-screen" class="setup">
+    <div class="header" style="margin:-1.5rem -1.5rem 1.5rem; padding:1rem;">
+      <h1>&#128247; QR Check-In Scanner</h1>
+      <div class="sub">Scan attendee QR codes to check them in</div>
+    </div>
+
+    <label style="font-size:0.85rem;color:#888;display:block;margin-bottom:0.3rem;">Your Name</label>
+    <input type="text" id="volName" class="vol-input" placeholder="Enter your name...">
+
+    <h2>Select Today's Event</h2>
+    <div id="event-list" class="event-list">
+      <div class="no-events-msg">Loading events...</div>
+    </div>
+
+    <button class="btn-start" id="btnStart" disabled onclick="startScanning()">Start Scanning</button>
+  </div>
+
+  <div id="scanner-screen" class="scanner">
+    <div class="stats-bar">
+      <div>
+        <div class="event-name" id="scanEventName"></div>
+        <div style="font-size:0.75rem;color:#888;" id="scanVolName"></div>
+      </div>
+      <div style="text-align:right;">
+        <div class="count" id="scanCount">0</div>
+        <div class="count-label">Checked In</div>
+      </div>
+    </div>
+
+    <div class="video-wrap">
+      <video id="video" playsinline></video>
+      <canvas id="canvas"></canvas>
+      <div class="scan-overlay"></div>
+    </div>
+
+    <div class="recent-scans" id="recent-scans">
+      <h3>Recent Scans</h3>
+      <div id="scanLog"></div>
+    </div>
+
+    <button class="btn-stop" onclick="stopScanning()">Stop Scanning</button>
+  </div>
+
+  <div class="result-flash" id="resultFlash"></div>
+
+  <script>
+    var selectedEventId = null;
+    var selectedEventName = '';
+    var volunteerName = '';
+    var checkinCount = 0;
+    var scanning = false;
+    var lastScannedToken = '';
+    var lastScanTime = 0;
+    var video, canvas, ctx;
+
+    // Load today's events
+    fetch('/api/voters/checkins/today-events')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.events || data.events.length === 0) {
+          return fetch('/api/events').then(function(r) { return r.json(); }).then(function(d) {
+            var upcoming = (d.events || []).filter(function(e) { return e.status === 'upcoming'; });
+            if (upcoming.length === 0) {
+              var el = document.getElementById('event-list');
+              el.textContent = '';
+              var msg = document.createElement('div');
+              msg.className = 'no-events-msg';
+              msg.textContent = 'No events scheduled. Create one in the admin dashboard first.';
+              el.appendChild(msg);
+              return;
+            }
+            renderEventList(upcoming);
+          });
+        }
+        renderEventList(data.events);
+      });
+
+    function renderEventList(events) {
+      var el = document.getElementById('event-list');
+      el.textContent = '';
+      events.forEach(function(e) {
+        var btn = document.createElement('button');
+        btn.className = 'event-btn';
+
+        var titleDiv = document.createElement('div');
+        titleDiv.className = 'ev-title';
+        titleDiv.textContent = e.title;
+        btn.appendChild(titleDiv);
+
+        var metaDiv = document.createElement('div');
+        metaDiv.className = 'ev-meta';
+        var metaText = '\uD83D\uDCC5 ' + e.event_date;
+        if (e.event_time) metaText += ' \u00B7 \uD83D\uDD50 ' + e.event_time;
+        if (e.location) metaText += ' \u00B7 \uD83D\uDCCD ' + e.location;
+        metaDiv.textContent = metaText;
+        btn.appendChild(metaDiv);
+
+        btn.addEventListener('click', function() {
+          document.querySelectorAll('.event-btn').forEach(function(b) { b.classList.remove('selected'); });
+          btn.classList.add('selected');
+          selectedEventId = e.id;
+          selectedEventName = e.title;
+          checkReady();
+        });
+        el.appendChild(btn);
+      });
+    }
+
+    document.getElementById('volName').addEventListener('input', checkReady);
+
+    function checkReady() {
+      var name = document.getElementById('volName').value.trim();
+      document.getElementById('btnStart').disabled = !name || !selectedEventId;
+    }
+
+    function startScanning() {
+      volunteerName = document.getElementById('volName').value.trim();
+      document.getElementById('setup-screen').style.display = 'none';
+      document.getElementById('scanner-screen').style.display = 'block';
+      document.getElementById('scanEventName').textContent = selectedEventName;
+      document.getElementById('scanVolName').textContent = 'Scanner: ' + volunteerName;
+
+      video = document.getElementById('video');
+      canvas = document.getElementById('canvas');
+      ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+      }).then(function(stream) {
+        video.srcObject = stream;
+        video.play();
+        scanning = true;
+        requestAnimationFrame(scanFrame);
+      }).catch(function(err) {
+        alert('Camera access denied: ' + err.message + '\n\nPlease allow camera access to scan QR codes.');
+      });
+    }
+
+    function scanFrame() {
+      if (!scanning) return;
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+        requestAnimationFrame(scanFrame);
+        return;
+      }
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      var code = jsQR(imageData.data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
+
+      if (code && code.data) {
+        var match = code.data.match(/\/v\/([A-Za-z0-9_-]+)/);
+        if (match) {
+          var token = match[1];
+          var now = Date.now();
+          if (token !== lastScannedToken || now - lastScanTime > 3000) {
+            lastScannedToken = token;
+            lastScanTime = now;
+            processCheckin(token);
+          }
+        }
+      }
+
+      requestAnimationFrame(scanFrame);
+    }
+
+    function processCheckin(token) {
+      fetch('/api/voters/qr/' + token + '/scan-checkin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: selectedEventId, scanned_by: volunteerName })
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.error) {
+            showFlash('error', data.error);
+            return;
+          }
+          if (data.already) {
+            showFlash('already', data.voterName + ' \u2014 Already Checked In');
+            addScanLog(data.voterName, true);
+          } else {
+            checkinCount++;
+            document.getElementById('scanCount').textContent = checkinCount;
+            showFlash('success', data.voterName + ' \u2014 Checked In!');
+            addScanLog(data.voterName, false);
+          }
+        })
+        .catch(function() {
+          showFlash('error', 'Network error \u2014 try again');
+        });
+    }
+
+    function showFlash(type, message) {
+      var flash = document.getElementById('resultFlash');
+      flash.className = 'result-flash ' + type;
+      flash.textContent = message;
+      flash.classList.add('show');
+      setTimeout(function() { flash.classList.remove('show'); }, 2500);
+    }
+
+    function addScanLog(name, isDuplicate) {
+      var log = document.getElementById('scanLog');
+      var item = document.createElement('div');
+      item.className = 'scan-item';
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'name';
+      nameSpan.textContent = name;
+      item.appendChild(nameSpan);
+
+      var rightSpan = document.createElement('span');
+
+      var badge = document.createElement('span');
+      badge.className = 'badge ' + (isDuplicate ? 'badge-dup' : 'badge-new');
+      badge.textContent = isDuplicate ? 'Already In' : 'New';
+      rightSpan.appendChild(badge);
+
+      var timeSpan = document.createElement('span');
+      timeSpan.className = 'time';
+      timeSpan.textContent = ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      rightSpan.appendChild(timeSpan);
+
+      item.appendChild(rightSpan);
+      log.insertBefore(item, log.firstChild);
+    }
+
+    function stopScanning() {
+      scanning = false;
+      if (video && video.srcObject) {
+        video.srcObject.getTracks().forEach(function(t) { t.stop(); });
+      }
+      document.getElementById('scanner-screen').style.display = 'none';
+      document.getElementById('setup-screen').style.display = 'block';
+    }
+  </script>
+</body>
+</html>
