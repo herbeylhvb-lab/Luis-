@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Luis Villarreal Jr. — Rack Card</title>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      gap: 40px;
+      font-family: 'Merriweather', Georgia, serif;
+    }
+
+    .label {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* Card dimensions: 4" x 9" at 96 DPI = 384px x 864px */
+    .card {
+      width: 384px;
+      height: 864px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      position: relative;
+    }
+
+    /* ========== FRONT ========== */
+    .front {
+      background: #0A2463;
+      display: flex;
+      flex-direction: column;
+      color: white;
+    }
+
+    .front-header {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px 20px;
+      background: rgba(6,24,64,0.95);
+    }
+
+    .front-header img {
+      height: 44px;
+      width: auto;
+    }
+
+    .front-photo-wrap {
+      width: 100%;
+      height: 300px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .front-photo-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+    }
+
+    .front-photo-wrap::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 80px;
+      background: linear-gradient(transparent, #0A2463);
+    }
+
+    .front-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 0 24px 24px;
+      gap: 10px;
+    }
+
+    .front-eyebrow {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: #C5A44E;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .front-eyebrow::before,
+    .front-eyebrow::after {
+      content: '';
+      width: 30px;
+      height: 1.5px;
+      background: #C5A44E;
+    }
+
+    .front-name {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 38px;
+      font-weight: 900;
+      text-transform: uppercase;
+      line-height: 1.05;
+      letter-spacing: -0.5px;
+    }
+
+    .front-slogan-wrap {
+      border-left: 3px solid #B22234;
+      padding-left: 14px;
+      text-align: left;
+    }
+
+    .front-slogan {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      margin-bottom: 4px;
+    }
+
+    .front-tagline {
+      font-size: 12px;
+      color: rgba(255,255,255,0.8);
+      line-height: 1.5;
+    }
+
+    .front-vote {
+      background: #B22234;
+      color: white;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding: 12px 32px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+
+    .front-bottom {
+      text-align: center;
+      padding: 12px;
+      background: rgba(6,24,64,0.95);
+    }
+
+    .front-bottom span {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.6);
+      letter-spacing: 1px;
+    }
+
+    /* ========== BACK ========== */
+    .back {
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      padding: 28px 22px 16px;
+    }
+
+    .back-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .back-header h3 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 16px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #0A2463;
+      letter-spacing: 1px;
+    }
+
+    .back-header .line {
+      width: 50px;
+      height: 3px;
+      background: #B22234;
+      margin: 8px auto 0;
+    }
+
+    .priority {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+      align-items: flex-start;
+    }
+
+    .priority-icon {
+      width: 32px;
+      height: 32px;
+      background: #f0f2f8;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .priority h4 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #0A2463;
+      margin-bottom: 2px;
+    }
+
+    .priority p {
+      font-size: 9.5px;
+      color: #4A4A5A;
+      line-height: 1.35;
+    }
+
+    .priority .tagline {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 8.5px;
+      font-weight: 700;
+      color: #B22234;
+      margin-top: 2px;
+      font-style: italic;
+    }
+
+    .stats-bar {
+      background: #0A2463;
+      color: white;
+      display: flex;
+      justify-content: space-around;
+      padding: 14px 12px;
+      border-radius: 8px;
+      margin: 20px 0 16px;
+    }
+
+    .stat { text-align: center; }
+
+    .stat-num {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 18px;
+      font-weight: 900;
+      color: #C5A44E;
+    }
+
+    .stat-lbl {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 7px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255,255,255,0.7);
+    }
+
+    .back-cta {
+      text-align: center;
+      padding: 14px;
+      background: #f8f8fa;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    .back-cta h4 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #0A2463;
+      margin-bottom: 4px;
+    }
+
+    .back-cta a {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      color: #B22234;
+      text-decoration: none;
+    }
+
+    .back-cta .website {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 12px;
+      font-weight: 800;
+      color: #0A2463;
+      display: block;
+      margin-top: 4px;
+    }
+
+    .disclaimer {
+      text-align: center;
+      font-size: 7px;
+      color: #999;
+      border-top: 1px solid #eee;
+      padding-top: 8px;
+    }
+
+    @media print {
+      body { background: none; padding: 0; }
+      .label { display: none; }
+      .card { box-shadow: none; page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="label">Front</div>
+  <div class="card front">
+    <div class="front-header">
+      <img src="logo.jpeg" alt="Luis Villarreal Jr.">
+    </div>
+
+    <div class="front-photo-wrap">
+      <img src="headshot.jpg" alt="Luis Villarreal Jr.">
+    </div>
+
+    <div class="front-body">
+      <div class="front-eyebrow">Port Commissioner · Place 4</div>
+      <div class="front-name">Luis<br>Villarreal Jr.</div>
+      <div class="front-slogan-wrap">
+        <div class="front-slogan">Navigating Forward</div>
+        <div class="front-tagline">Lowering Costs. Creating Jobs<br>for Our Community.</div>
+      </div>
+      <div class="front-vote">Vote Villarreal</div>
+    </div>
+
+    <div class="front-bottom">
+      <span>villarrealjr.com</span>
+    </div>
+  </div>
+
+  <div class="label">Back</div>
+  <div class="card back">
+    <div class="back-header">
+      <h3>Our Priorities for the Port</h3>
+      <div class="line"></div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">📋</div>
+      <div>
+        <h4>Streamline Permitting</h4>
+        <p>Create a Port Building & Inspection Dept. — one process, faster approvals, on-site inspections.</p>
+        <div class="tagline">Faster permitting = faster job creation.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">💰</div>
+      <div>
+        <h4>Lower Costs Through Efficiency</h4>
+        <p>Bulk utility purchasing, smarter infrastructure, and reduced overhead for taxpayers.</p>
+        <div class="tagline">Lower costs = less pressure on families.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">🏆</div>
+      <div>
+        <h4>Compete & Win on the Gulf Coast</h4>
+        <p>Predictable timelines, cost-efficient operations, and business-ready infrastructure.</p>
+        <div class="tagline">Move at the speed of opportunity.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">🏠</div>
+      <div>
+        <h4>More Jobs, Lower Taxes</h4>
+        <p>Port efficiencies create good-paying jobs and reduce the burden on families.</p>
+        <div class="tagline">Families pay less, earn more.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">🔒</div>
+      <div>
+        <h4>Transparency & Accountability</h4>
+        <p>Open board meetings, public access to contracts and financials, community reporting.</p>
+        <div class="tagline">Our port should have nothing to hide.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">🤝</div>
+      <div>
+        <h4>Local Hiring & Workforce Development</h4>
+        <p>Partner with TSC, UTRGV, and trade programs to train and hire Brownsville residents first.</p>
+        <div class="tagline">Our port should put our people to work first.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">🚧</div>
+      <div>
+        <h4>Infrastructure Investment</h4>
+        <p>Upgrade aging docks, roads, rail connections, and utilities for 21st-century industry.</p>
+        <div class="tagline">Better infrastructure today means better jobs tomorrow.</div>
+      </div>
+    </div>
+
+    <div class="priority">
+      <div class="priority-icon">🌎</div>
+      <div>
+        <h4>Grow International Trade</h4>
+        <p>Leverage our U.S.–Mexico border location to expand cross-border commerce.</p>
+        <div class="tagline">Our location is our advantage. Let's use it.</div>
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat"><div class="stat-num">$3B</div><div class="stat-lbl">Economic Impact</div></div>
+      <div class="stat"><div class="stat-num">51K</div><div class="stat-lbl">Jobs Supported</div></div>
+      <div class="stat"><div class="stat-num">40K</div><div class="stat-lbl">Acres</div></div>
+      <div class="stat"><div class="stat-num">17mi</div><div class="stat-lbl">Ship Channel</div></div>
+    </div>
+
+    <div class="back-cta">
+      <h4>Get Involved</h4>
+      <a href="mailto:votevillarreal@gmail.com">votevillarreal@gmail.com</a>
+      <span class="website">villarrealjr.com</span>
+    </div>
+
+    <div class="disclaimer">
+      Paid for by Villarreal for Port Commissioner. Jose Luna, Treasurer. 1615 Guadalajara Ave, Brownsville, TX 78526
+    </div>
+  </div>
+
+</body>
+</html>

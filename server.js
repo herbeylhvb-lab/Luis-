@@ -57,10 +57,16 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
   // Page requests redirect to login
-  return res.redirect('/login');
+  return res.redirect('/app/login.html');
 }
 
 // Public routes (no auth needed)
+// Campaign website at root (public, no auth)
+app.use('/site', express.static(path.join(__dirname, 'public', 'site')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'site', 'index.html'));
+});
+
 // Serve static files ONLY for public assets (CSS, JS, images)
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 // Public pages that don't need auth
@@ -122,8 +128,8 @@ app.use((req, res, next) => {
   requireAuth(req, res, next);
 });
 
-// Serve static files for authenticated users
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files for authenticated users (under /app path)
+app.use('/app', express.static(path.join(__dirname, 'public')));
 
 const STOP_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
 
@@ -145,7 +151,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-app.get('/', (req, res) => {
+// Text HQ dashboard at /app
+app.get('/app', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
