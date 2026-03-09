@@ -62,7 +62,9 @@ function requireAuth(req, res, next) {
 
 // Public routes (no auth needed)
 // Campaign website at root (public, no auth)
+// Serve site static files at both /site/* and root /* so relative paths in HTML work
 app.use('/site', express.static(path.join(__dirname, 'public', 'site')));
+app.use(express.static(path.join(__dirname, 'public', 'site')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'site', 'index.html'));
 });
