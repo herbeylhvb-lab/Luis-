@@ -19,7 +19,7 @@ router.get('/walks', (req, res) => {
 router.post('/walks', (req, res) => {
   const { name, description, assigned_to } = req.body;
   if (!name) return res.status(400).json({ error: 'Walk name is required.' });
-  const joinCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const joinCode = Math.random().toString(36).substring(2, 8).toUpperCase();
   const result = db.prepare(
     'INSERT INTO block_walks (name, description, assigned_to, join_code) VALUES (?, ?, ?, ?)'
   ).run(name, description || '', assigned_to || '', joinCode);

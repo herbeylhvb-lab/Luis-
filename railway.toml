@@ -9,3 +9,8 @@ healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ALWAYS"
 restartPolicyMaxRetries = 5
+
+# Persist SQLite database across deploys
+[[volumes]]
+mount = "/app/data"
+name = "campaign_data"

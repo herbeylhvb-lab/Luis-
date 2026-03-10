@@ -21,7 +21,7 @@ router.post('/auth/setup', async (req, res) => {
 
   const { username, password, displayName } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
 
   const hash = await bcrypt.hash(password, 10);
   const result = db.prepare('INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)').run(
@@ -72,7 +72,7 @@ router.post('/auth/change-password', async (req, res) => {
 
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required.' });
-  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters.' });
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
   const valid = await bcrypt.compare(currentPassword, user.password_hash);

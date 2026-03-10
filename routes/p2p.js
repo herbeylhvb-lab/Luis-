@@ -5,7 +5,7 @@ const db = require('../db');
 // ========== HELPERS ==========
 
 function generateJoinCode() {
-  return String(Math.floor(1000 + Math.random() * 9000));
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 function getOnlineVolunteers(sessionId) {

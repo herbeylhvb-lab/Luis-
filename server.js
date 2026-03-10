@@ -1,14 +1,65 @@
-const express = require('express');
-const twilio  = require('twilio');
-const cors    = require('cors');
-const path    = require('path');
-const session = require('express-session');
+const express   = require('express');
+const twilio    = require('twilio');
+const cors      = require('cors');
+const path      = require('path');
+const helmet    = require('helmet');
+const rateLimit = require('express-rate-limit');
+const session   = require('express-session');
 const SqliteStore = require('better-sqlite3-session-store')(session);
 const db      = require('./db');
 
 const app = express();
 
-app.use(cors({ credentials: true, origin: true }));
+// Trust Railway's reverse proxy (required for secure cookies & rate limiting)
+app.set('trust proxy', 1);
+
+// Security headers (HSTS, X-Frame-Options, X-Content-Type-Options, etc.)
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// --- Rate limiting ---
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  message: { error: 'Too many requests.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/auth/setup', loginLimiter);
+app.use('/incoming', webhookLimiter);
+app.use('/api/', apiLimiter);
+
+// --- CORS ---
+const allowedOrigins = [
+  'https://villarrealjr.com',
+  'https://www.villarrealjr.com',
+];
+if (process.env.NODE_ENV !== 'production') {
+  allowedOrigins.push('http://localhost:3000');
+}
+app.use(cors({
+  credentials: true,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true); // allow curl, webhooks, server-to-server
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  }
+}));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false }));
 
@@ -32,7 +83,7 @@ app.use(session({
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
     sameSite: 'lax',
-    secure: false // set to true if behind HTTPS proxy
+    secure: process.env.NODE_ENV === 'production'
   }
 }));
 
@@ -223,7 +274,7 @@ app.post('/send', async (req, res) => {
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
   const optedOutSet = new Set(optedOut);
 
-  const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
+  const origin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || process.env.APP_URL || 'https://villarrealjr.com';
 
   let eventHasFlyer = false;
   if (eventId) {
@@ -275,8 +326,25 @@ app.post('/send', async (req, res) => {
   res.json({ success: true, totalContacts: contacts.length, sent: results.sent, failed: results.failed, errors: results.errors.slice(0, 20), channel: channelLabel });
 });
 
+// --- Twilio webhook signature validation ---
+function validateTwilioWebhook(req, res, next) {
+  if (process.env.NODE_ENV !== 'production') return next();
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!authToken) {
+    console.warn('TWILIO_AUTH_TOKEN not set — skipping webhook validation');
+    return next();
+  }
+  const twilioSignature = req.headers['x-twilio-signature'] || '';
+  const url = (process.env.APP_URL || 'https://villarrealjr.com') + '/incoming';
+  if (!twilio.validateRequest(authToken, twilioSignature, url, req.body)) {
+    console.warn('Invalid Twilio webhook signature');
+    return res.status(403).type('text/xml').send('<Response></Response>');
+  }
+  next();
+}
+
 // --- Incoming webhook (Twilio) ---
-app.post('/incoming', (req, res) => {
+app.post('/incoming', validateTwilioWebhook, (req, res) => {
   const { From, Body } = req.body;
   const msgText = (Body || '').trim().toLowerCase();
   if (STOP_KEYWORDS.includes(msgText)) {
@@ -360,7 +428,7 @@ app.post('/api/events/:id/invite', async (req, res) => {
   let sent = 0;
   const rsvpInsert = db.prepare('INSERT INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, \'invited\')');
 
-  const invOrigin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || 'https://luis-production-8f1a.up.railway.app';
+  const invOrigin = req.headers.origin || req.headers.referer?.replace(/\/$/, '') || process.env.APP_URL || 'https://villarrealjr.com';
 
   // Check if event has a flyer for MMS
   const eventRow = db.prepare('SELECT flyer_image IS NOT NULL as has_flyer FROM events WHERE id = ?').get(req.params.id);
