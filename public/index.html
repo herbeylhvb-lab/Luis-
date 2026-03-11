@@ -5880,11 +5880,19 @@ async function viewCandidateMasterList() {
   sub.textContent = 'Loading all voters...';
   titleDiv.appendChild(sub);
   headerDiv.appendChild(titleDiv);
+  var btnGroup = document.createElement('div');
+  btnGroup.style.cssText = 'display:flex;gap:6px';
+  var dlBtn = document.createElement('button');
+  dlBtn.className = 'btn btn-sm btn-success';
+  dlBtn.textContent = '\u2B07 Download CSV';
+  dlBtn.style.display = 'none';
+  btnGroup.appendChild(dlBtn);
   var closeBtn = document.createElement('button');
   closeBtn.className = 'btn btn-sm btn-secondary';
   closeBtn.textContent = 'Close';
   closeBtn.onclick = function() { overlay.remove(); };
-  headerDiv.appendChild(closeBtn);
+  btnGroup.appendChild(closeBtn);
+  headerDiv.appendChild(btnGroup);
   box.appendChild(headerDiv);
 
   var listContainer = document.createElement('div');
@@ -5965,6 +5973,11 @@ async function viewCandidateMasterList() {
     });
     table.appendChild(tbody);
     listContainer.appendChild(table);
+
+    // Show download button now that data is loaded
+    dlBtn.style.display = '';
+    var candName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '').replace(/\s+/g, '_');
+    dlBtn.onclick = function() { downloadVotersCsv(voters, candName + '_Master_List'); };
   } catch (e) {
     sub.textContent = 'Error loading master list';
     console.error(e);
@@ -6028,11 +6041,19 @@ async function viewCandidateListVoters(candidateId, list) {
   sub.textContent = (list.source === 'captain' ? 'Captain: ' + (list.captain_name || '') + '  \u00B7  ' : '') + 'Loading...';
   titleDiv.appendChild(sub);
   headerDiv.appendChild(titleDiv);
+  var btnGroup2 = document.createElement('div');
+  btnGroup2.style.cssText = 'display:flex;gap:6px';
+  var dlBtn2 = document.createElement('button');
+  dlBtn2.className = 'btn btn-sm btn-success';
+  dlBtn2.textContent = '\u2B07 Download CSV';
+  dlBtn2.style.display = 'none';
+  btnGroup2.appendChild(dlBtn2);
   var closeBtn = document.createElement('button');
   closeBtn.className = 'btn btn-sm btn-secondary';
   closeBtn.textContent = 'Close';
   closeBtn.onclick = function() { overlay.remove(); };
-  headerDiv.appendChild(closeBtn);
+  btnGroup2.appendChild(closeBtn);
+  headerDiv.appendChild(btnGroup2);
   box.appendChild(headerDiv);
 
   var listContainer = document.createElement('div');
@@ -6097,6 +6118,12 @@ async function viewCandidateListVoters(candidateId, list) {
     });
     table.appendChild(tbody);
     listContainer.appendChild(table);
+
+    // Show download button now that data is loaded
+    dlBtn2.style.display = '';
+    var safeName = list.name.replace(/\s+/g, '_');
+    if (list.captain_name) safeName = list.captain_name.replace(/\s+/g, '_') + '_' + safeName;
+    dlBtn2.onclick = function() { downloadVotersCsv(voters, safeName); };
   } catch (e) {
     sub.textContent = 'Error loading voters';
     console.error(e);
@@ -6119,6 +6146,37 @@ function copyToClip(text) {
     var ta = document.createElement('textarea'); ta.value = text;
     document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
   });
+}
+
+function downloadVotersCsv(voters, filename) {
+  var csvEsc = function(val) {
+    var s = String(val || '');
+    return s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1
+      ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  var headers = ['First Name','Last Name','Address','City','Zip','Phone','Party','Precinct'];
+  var hasLists = voters.length > 0 && voters[0].lists;
+  if (hasLists) headers.push('Sources');
+  var rows = [headers.join(',')];
+  voters.forEach(function(v) {
+    var row = [
+      csvEsc(v.first_name), csvEsc(v.last_name), csvEsc(v.address),
+      csvEsc(v.city), csvEsc(v.zip), csvEsc(v.phone),
+      csvEsc(v.party), csvEsc(v.precinct)
+    ];
+    if (hasLists) {
+      row.push(csvEsc((v.lists || []).map(function(s) { return s.source_name + ': ' + s.list_name; }).join('; ')));
+    }
+    rows.push(row.join(','));
+  });
+  var blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = (filename || 'voters') + '.csv';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
 }
 
 // ===================== ADMIN LISTS =====================
