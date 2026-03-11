@@ -155,6 +155,10 @@ app.use((req, res, next) => {
   if (req.path === '/login') return next();
   // Allow static login page assets
   if (req.path === '/login.html') return next();
+  // Allow campaign website at root and /site
+  if (req.path === '/' || req.path.startsWith('/site')) return next();
+  // Allow direct dashboard access route
+  if (req.path === '/app') return next();
 
   // Everything else requires auth
   requireAuth(req, res, next);
