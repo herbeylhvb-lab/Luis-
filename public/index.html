@@ -2282,27 +2282,32 @@ window.importTurnoutList = async function() {
   }
   if (!raw) return alert('Please upload a CSV file or paste data.');
 
+  // Strip UTF-8 BOM (Excel adds this to CSV files, corrupts first header name)
+  raw = raw.replace(/^\uFEFF/, '');
+
   var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
   if (lines.length < 2) return alert('CSV must have a header row and at least one data row.');
 
-  var headers = parseCsvLine(lines[0]);
-  var headerLower = headers.map(function(h) { return h.toLowerCase().trim(); });
+  // Smart header detection: skip title/date/metadata rows until we find one with recognized columns
+  var headerLineIdx = 0;
+  var headers, headerLower, mappedHeaders, hasId;
+  var ID_COLS = ['state_file_id','voter_id','registration_number','county_file_id','vanid'];
 
-  // Map columns
-  var mappedHeaders = headerLower.map(function(h) {
-    return TURNOUT_COL_MAP[h] || TURNOUT_COL_MAP[h.replace(/[\s_-]+/g, '')] || h;
-  });
-
-  // Check if at least one ID column exists
-  var hasId = mappedHeaders.some(function(h) {
-    return ['state_file_id','voter_id','registration_number','county_file_id','vanid'].indexOf(h) >= 0;
-  });
+  for (var hi = 0; hi < Math.min(lines.length, 5); hi++) {
+    headers = parseCsvLine(lines[hi]);
+    headerLower = headers.map(function(h) { return h.toLowerCase().trim(); });
+    mappedHeaders = headerLower.map(function(h) {
+      return TURNOUT_COL_MAP[h] || TURNOUT_COL_MAP[h.replace(/[\s_-]+/g, '')] || h;
+    });
+    hasId = mappedHeaders.some(function(h) { return ID_COLS.indexOf(h) >= 0; });
+    if (hasId) { headerLineIdx = hi; break; }
+  }
 
   // If only one column and no header match, treat as a plain list of IDs
   var singleColMode = headers.length === 1 && !hasId;
 
   var rows = [];
-  for (var i = 1; i < lines.length; i++) {
+  for (var i = headerLineIdx + 1; i < lines.length; i++) {
     var cols = parseCsvLine(lines[i]);
     if (singleColMode) {
       // Single column = list of state file IDs
@@ -3101,6 +3106,8 @@ window.loadVoterFile = function(input) {
 };
 
 function showMappedColumns(headerLine) {
+  // Strip UTF-8 BOM (Excel adds this to CSV files, corrupts first header name)
+  headerLine = (headerLine || '').replace(/^\uFEFF/, '');
   var el = document.getElementById('voterImportMappedCols');
   if (!headerLine) { el.textContent = ''; return; }
   var rawHeaders = parseCsvLine(headerLine);
@@ -3336,6 +3343,9 @@ async function importVotersInMemory(raw, statusEl) {
   setVoterProgress(0, 'Parsing CSV...', 'Parsing CSV data...', 0, 0);
   await yieldUI();
 
+  // Strip UTF-8 BOM (Excel adds this to CSV files, corrupts first header name)
+  raw = raw.replace(/^\uFEFF/, '');
+
   var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
   var rawHeaders = parseCsvLine(lines[0]);
   var header = rawHeaders.map(function(h) {
@@ -3403,6 +3413,8 @@ async function importVotersStreamed(file, statusEl) {
 
       // First non-empty line is the header
       if (!header) {
+        // Strip UTF-8 BOM (Excel adds this to CSV files, corrupts first header name)
+        line = line.replace(/^\uFEFF/, '');
         rawHeaderNames = parseCsvLine(line);
         header = rawHeaderNames.map(function(h) {
           return VOTER_COL_MAP[h.toLowerCase().trim()] || h.toLowerCase().trim();
