@@ -7,10 +7,30 @@ const db = require('../db');
 router.get('/auth/status', (req, res) => {
   const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
   const loggedIn = !!(req.session && req.session.userId);
+
+  // Google OAuth availability
+  const googleEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+  let googleConnected = false;
+  let googleEmail = null;
+  let googlePicture = null;
+  if (loggedIn) {
+    const user = db.prepare('SELECT google_email, google_picture FROM users WHERE id = ?').get(req.session.userId);
+    if (user && user.google_email) {
+      googleConnected = true;
+      googleEmail = user.google_email;
+      googlePicture = user.google_picture;
+    }
+  }
+
   res.json({
     hasUsers: count > 0,
     loggedIn,
-    user: loggedIn ? { id: req.session.userId, username: req.session.username, displayName: req.session.displayName } : null
+    user: loggedIn ? { id: req.session.userId, username: req.session.username, displayName: req.session.displayName } : null,
+    googleEnabled,
+    googleConnected,
+    googleEmail,
+    googlePicture
   });
 });
 

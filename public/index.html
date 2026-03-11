@@ -154,6 +154,8 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="adminlists"><span class="icon">&#128203;</span><span>My Lists</span></div>
     <div class="sidebar-section">Captains</div>
     <div class="nav-item" data-page="captains"><span class="icon">&#128081;</span><span>Block Captains</span></div>
+    <div class="sidebar-section">Backup</div>
+    <div class="nav-item" data-page="google"><span class="icon">&#128279;</span><span>Google Sheets</span></div>
   </div>
   <div id="userBar" style="padding:10px 16px;border-top:1px solid #334155;font-size:12px;display:none">
     <div style="color:#94a3b8;margin-bottom:4px" id="userDisplayName"></div>
@@ -864,6 +866,62 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ==================== GOOGLE SHEETS ==================== -->
+    <div class="page" id="page-google">
+      <div class="card" id="googleNotConnected" style="display:none">
+        <h3 style="margin-bottom:12px">&#128279; Google Sheets Backup</h3>
+        <p style="color:#94a3b8;margin-bottom:16px">Sign in with Google to enable automatic backups of your voters, contacts, and messages to a Google Sheet.</p>
+        <a href="/api/auth/google" class="btn btn-primary" style="display:inline-block;width:auto;padding:10px 24px;text-decoration:none">Sign in with Google</a>
+      </div>
+
+      <div id="googleConnected" style="display:none">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="label">Google Account</div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+              <img id="googlePicture" src="" style="width:36px;height:36px;border-radius:50%;display:none">
+              <div>
+                <div class="value" style="font-size:15px" id="googleName">—</div>
+                <div class="sub" id="googleEmail">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Auto-Sync</div>
+            <div class="value" id="googleAutoSyncStatus">Off</div>
+            <div class="sub">Every 5 minutes when enabled</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Last Sync</div>
+            <div class="value" style="font-size:14px" id="googleLastSync">Never</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin-bottom:16px">Backup Controls</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+            <button class="btn btn-sm btn-primary" id="btnSetupSheet" onclick="setupGoogleSheet()">Setup Google Sheet</button>
+            <button class="btn btn-sm btn-warning" id="btnSyncNow" onclick="syncGoogleSheets()" disabled>Sync Now</button>
+            <button class="btn btn-sm btn-secondary" id="btnToggleAutoSync" onclick="toggleAutoSync()" disabled>Enable Auto-Sync</button>
+            <a id="btnOpenSheet" href="#" target="_blank" class="btn btn-sm btn-success" style="display:none;text-decoration:none">Open Google Sheet &#8599;</a>
+          </div>
+          <div class="error-msg" id="googleError"></div>
+          <div class="success-msg" id="googleSuccess"></div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3 style="margin-bottom:12px">Disaster Recovery — Import from Sheets</h3>
+          <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Paste a Google Sheet URL to import data back into the app.</p>
+          <div class="form-row-3">
+            <div class="form-group" style="flex:2"><label>Google Sheet URL</label><input type="text" id="importSheetUrl" placeholder="https://docs.google.com/spreadsheets/d/..."></div>
+            <div class="form-group"><label>Data Type</label><select id="importDataType" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0"><option value="voters">Voters</option><option value="contacts">Contacts</option></select></div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="importFromSheets()">Import from Sheet</button>
+          <div id="importResult" style="margin-top:8px;font-size:13px"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -940,6 +998,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'checkins') loadCheckinPage();
     if (page === 'captains') loadCaptains();
     if (page === 'adminlists') loadAdminLists();
+    if (page === 'google') loadGoogleSheetsPage();
   });
 });
 
@@ -3430,6 +3489,136 @@ async function doLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
   } catch(e) {}
   window.location.href = '/login';
+}
+
+// ===================== GOOGLE SHEETS =====================
+
+async function loadGoogleSheetsPage() {
+  try {
+    const res = await fetch('/api/google/sheets/status');
+    const data = await res.json();
+
+    if (!data.googleConnected) {
+      document.getElementById('googleNotConnected').style.display = '';
+      document.getElementById('googleConnected').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('googleNotConnected').style.display = 'none';
+    document.getElementById('googleConnected').style.display = '';
+
+    // Account info
+    document.getElementById('googleName').textContent = data.googleName || '—';
+    document.getElementById('googleEmail').textContent = data.googleEmail || '—';
+    if (data.googlePicture) {
+      var pic = document.getElementById('googlePicture');
+      pic.src = data.googlePicture;
+      pic.style.display = '';
+    }
+
+    // Sheet status
+    if (data.sheetId) {
+      document.getElementById('btnSyncNow').disabled = false;
+      document.getElementById('btnToggleAutoSync').disabled = false;
+      document.getElementById('btnSetupSheet').textContent = 'Sheet Connected';
+      document.getElementById('btnSetupSheet').disabled = true;
+      var openBtn = document.getElementById('btnOpenSheet');
+      openBtn.href = data.sheetUrl;
+      openBtn.style.display = '';
+    }
+
+    // Auto-sync status
+    document.getElementById('googleAutoSyncStatus').textContent = data.autoSyncEnabled ? 'On' : 'Off';
+    document.getElementById('btnToggleAutoSync').textContent = data.autoSyncEnabled ? 'Disable Auto-Sync' : 'Enable Auto-Sync';
+
+    // Last sync
+    if (data.lastSync) {
+      var d = new Date(data.lastSync);
+      document.getElementById('googleLastSync').textContent = d.toLocaleString();
+    }
+  } catch(e) {
+    console.error('Failed to load Google Sheets status:', e);
+  }
+}
+
+async function setupGoogleSheet() {
+  var errEl = document.getElementById('googleError');
+  var sucEl = document.getElementById('googleSuccess');
+  errEl.textContent = ''; sucEl.textContent = '';
+
+  try {
+    document.getElementById('btnSetupSheet').disabled = true;
+    document.getElementById('btnSetupSheet').textContent = 'Creating...';
+    var res = await fetch('/api/google/sheets/setup', { method: 'POST' });
+    var data = await res.json();
+    if (!res.ok || data.error) { errEl.textContent = data.error; return; }
+    sucEl.textContent = 'Google Sheet created! Opening...';
+    window.open(data.url, '_blank');
+    await loadGoogleSheetsPage();
+  } catch(e) {
+    errEl.textContent = 'Setup failed: ' + e.message;
+  }
+}
+
+async function syncGoogleSheets() {
+  var errEl = document.getElementById('googleError');
+  var sucEl = document.getElementById('googleSuccess');
+  errEl.textContent = ''; sucEl.textContent = '';
+
+  try {
+    document.getElementById('btnSyncNow').disabled = true;
+    document.getElementById('btnSyncNow').textContent = 'Syncing...';
+    var res = await fetch('/api/google/sheets/sync', { method: 'POST' });
+    var data = await res.json();
+    if (!res.ok || data.error) { errEl.textContent = data.error; return; }
+    sucEl.textContent = 'Synced at ' + new Date(data.syncedAt).toLocaleString();
+    await loadGoogleSheetsPage();
+  } catch(e) {
+    errEl.textContent = 'Sync failed: ' + e.message;
+  } finally {
+    document.getElementById('btnSyncNow').disabled = false;
+    document.getElementById('btnSyncNow').textContent = 'Sync Now';
+  }
+}
+
+async function toggleAutoSync() {
+  var current = document.getElementById('googleAutoSyncStatus').textContent === 'On';
+  try {
+    var res = await fetch('/api/google/sheets/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !current })
+    });
+    await loadGoogleSheetsPage();
+  } catch(e) {
+    document.getElementById('googleError').textContent = 'Toggle failed: ' + e.message;
+  }
+}
+
+async function importFromSheets() {
+  var resultEl = document.getElementById('importResult');
+  resultEl.textContent = '';
+  resultEl.style.color = '#e2e8f0';
+
+  var url = document.getElementById('importSheetUrl').value.trim();
+  var dataType = document.getElementById('importDataType').value;
+  if (!url) { resultEl.style.color = '#ef4444'; resultEl.textContent = 'Paste a Google Sheet URL.'; return; }
+
+  try {
+    resultEl.textContent = 'Importing...';
+    var res = await fetch('/api/google/sheets/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheetUrl: url, dataType: dataType })
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) { resultEl.style.color = '#ef4444'; resultEl.textContent = data.error; return; }
+    resultEl.style.color = '#22c55e';
+    resultEl.textContent = 'Imported ' + data.imported + ' records (' + data.skipped + ' skipped).';
+  } catch(e) {
+    resultEl.style.color = '#ef4444';
+    resultEl.textContent = 'Import failed: ' + e.message;
+  }
 }
 
 // ===================== INIT =====================

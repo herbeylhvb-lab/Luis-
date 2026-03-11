@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { generateQrToken } = require('../db');
+const { queueSync } = require('../lib/google-sheets-sync');
+
+// Fire-and-forget sync after data mutations
+function triggerSync(req) {
+  if (req.session?.userId) setImmediate(() => queueSync(req.session.userId));
+}
 
 // Strip phone to digits only (for matching across format variations)
 function phoneDigits(raw) {
@@ -35,6 +41,7 @@ router.post('/voters', (req, res) => {
   const result = db.prepare(
     'INSERT INTO voters (first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, qr_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(first_name || '', last_name || '', phone || '', email || '', address || '', city || '', zip || '', party || '', support_level || 'unknown', voter_score || 0, tags || '', notes || '', registration_number || '', qr_token);
+  triggerSync(req);
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
@@ -54,6 +61,7 @@ router.post('/voters/import', (req, res) => {
     return added;
   });
   const added = importMany(voters);
+  triggerSync(req);
   res.json({ success: true, added });
 });
 
@@ -411,12 +419,14 @@ router.put('/voters/:id', (req, res) => {
     registration_number = COALESCE(?, registration_number),
     updated_at = datetime('now') WHERE id = ?`
   ).run(first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, req.params.id);
+  triggerSync(req);
   res.json({ success: true });
 });
 
 // Delete voter
 router.delete('/voters/:id', (req, res) => {
   db.prepare('DELETE FROM voters WHERE id = ?').run(req.params.id);
+  triggerSync(req);
   res.json({ success: true });
 });
 

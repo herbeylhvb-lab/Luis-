@@ -89,6 +89,7 @@ app.use(session({
 
 // Auth routes (must be before auth middleware)
 app.use('/api', require('./routes/auth'));
+app.use('/api', require('./routes/google'));
 
 // Login page (public)
 app.get('/login', (req, res) => {
@@ -501,3 +502,33 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log('CampaignText HQ running on port ' + PORT);
 });
+
+// --- Google Sheets auto-sync (every 5 minutes) ---
+setInterval(async () => {
+  try {
+    const autoSync = db.prepare("SELECT value FROM settings WHERE key = 'google_auto_sync'").get();
+    if (autoSync?.value !== 'true') return;
+
+    const sheetId = db.prepare("SELECT value FROM settings WHERE key = 'google_sheet_id'").get();
+    if (!sheetId) return;
+
+    // Find first user with Google tokens (admin who set up the sync)
+    const user = db.prepare("SELECT id FROM users WHERE google_access_token IS NOT NULL AND google_access_token != '' LIMIT 1").get();
+    if (!user) return;
+
+    const { getAuthenticatedClient, syncToSheets } = require('./lib/google-sheets-sync');
+    const auth = await getAuthenticatedClient(user.id);
+    if (!auth) return;
+
+    await syncToSheets(auth, sheetId.value);
+
+    const now = new Date().toISOString();
+    const existing = db.prepare("SELECT value FROM settings WHERE key = 'google_last_sync'").get();
+    if (existing) db.prepare("UPDATE settings SET value = ? WHERE key = 'google_last_sync'").run(now);
+    else db.prepare("INSERT INTO settings (key, value) VALUES ('google_last_sync', ?)").run(now);
+
+    console.log('Auto-sync to Google Sheets completed at', now);
+  } catch (err) {
+    console.error('Auto-sync error:', err.message);
+  }
+}, 5 * 60 * 1000); // every 5 minutes

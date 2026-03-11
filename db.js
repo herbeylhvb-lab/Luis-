@@ -374,6 +374,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
 `);
 
+// --- Google OAuth columns on users ---
+addColumn("ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_email TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_name TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_picture TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_access_token TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_refresh_token TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_token_expiry TEXT DEFAULT NULL");
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (e) { /* already exists */ }
+
 // Backfill QR tokens for any existing voters that don't have one
 const { randomBytes } = require('crypto');
 function generateQrToken() {
