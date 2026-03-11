@@ -166,8 +166,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="gotv"><span class="icon">&#127383;</span><span>GOTV Chase</span></div>
     <div class="nav-item" data-page="surveys"><span class="icon">&#128202;</span><span>Polls &amp; Surveys</span></div>
     <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
-    <div class="sidebar-section">Captains</div>
-    <div class="nav-item" data-page="captains"><span class="icon">&#128081;</span><span>Block Captains</span></div>
+    <div class="sidebar-section">Campaign</div>
     <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
@@ -1265,74 +1264,6 @@ tr:hover td{background:#1e293b80}
     </div>
 
     <!-- ==================== BLOCK CAPTAINS ==================== -->
-    <div class="page" id="page-captains">
-      <div class="stats-grid" id="captainStatsGrid">
-        <div class="stat-card"><div class="label">Active Captains</div><div class="value" id="statActiveCaptains">0</div></div>
-        <div class="stat-card"><div class="label">Total Lists</div><div class="value" id="statTotalLists">0</div></div>
-        <div class="stat-card"><div class="label">Unique Voters</div><div class="value" id="statUniqueVoters">0</div></div>
-        <div class="stat-card"><div class="label">Overlap</div><div class="value" id="statOverlap">0</div><div class="sub">Voters on 2+ lists</div></div>
-      </div>
-
-      <!-- ALL LISTS MASTER VIEW -->
-      <div class="card" id="allListsCard">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h3 style="margin-bottom:0">All Lists <span class="badge badge-blue" id="allListsTotalCount">0</span></h3>
-          <div style="display:flex;gap:8px;align-items:center">
-            <select id="allListsTypeFilter" onchange="loadAllLists()" style="padding:6px 10px;background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:6px;font-size:13px">
-              <option value="">All Types</option>
-              <option value="general">General</option>
-              <option value="event">Event</option>
-              <option value="text">Text Campaign</option>
-              <option value="survey">Survey</option>
-              <option value="block_walk">Block Walk</option>
-            </select>
-            <button class="btn btn-sm btn-warning" onclick="compileMasterList()">Compile Master Voter List</button>
-          </div>
-        </div>
-        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Every list across all captains and admin — filter by purpose to find event, text, or survey lists.</p>
-        <div class="table-wrap"><table><thead><tr><th>List Name</th><th>Type</th><th>Source</th><th>Voters</th><th>Created</th></tr></thead><tbody id="allListsBody"><tr><td colspan="5" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
-      </div>
-
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h3 style="margin-bottom:0">Block Captains</h3>
-          <button class="btn btn-sm btn-primary" onclick="showNewCaptainForm()">+ New Captain</button>
-        </div>
-
-        <div style="margin-bottom:12px">
-          <input type="text" id="captainSearchInput" placeholder="Search captains by name..." oninput="filterCaptainsList()" style="width:100%;padding:10px 14px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:14px;outline:none">
-        </div>
-
-        <div id="newCaptainForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
-          <div class="form-row-3">
-            <div class="form-group"><label>Name *</label><input type="text" id="newCaptainName" placeholder="Maria Garcia"></div>
-            <div class="form-group"><label>Phone</label><input type="text" id="newCaptainPhone" placeholder="+1234567890"></div>
-            <div class="form-group"><label>Email</label><input type="text" id="newCaptainEmail" placeholder="email@example.com"></div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-sm btn-success" onclick="createCaptain()">Create Captain</button>
-            <button class="btn btn-sm btn-secondary" onclick="hideNewCaptainForm()">Cancel</button>
-          </div>
-        </div>
-
-        <div id="captainsList"></div>
-      </div>
-
-      <div class="card" id="masterListCard" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h3 style="margin-bottom:0">Master Voter List <span class="badge badge-green" id="masterListCount">0</span></h3>
-          <button class="btn btn-sm btn-secondary" onclick="closeMasterList()">Close</button>
-        </div>
-        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Deduplicated list of all voters across all captain lists. Each voter appears only once.</p>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Party</th><th>On Lists</th></tr></thead>
-            <tbody id="masterListBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
     <!-- ==================== BROADCAST SMS ==================== -->
     <div class="page" id="page-broadcast">
       <div class="card">
@@ -1524,29 +1455,24 @@ tr:hover td{background:#1e293b80}
       <div class="card" id="candidateDetailCard" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <h3 style="margin-bottom:0" id="candidateDetailTitle">Candidate Detail</h3>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-warning" onclick="viewCandidateMasterList()">&#128203; Master List</button>
             <button class="btn btn-sm btn-primary" onclick="addCaptainToCandidate()">+ Add Captain</button>
             <button class="btn btn-sm btn-success" onclick="addListToCandidate()">+ Add List</button>
             <button class="btn btn-sm btn-secondary" onclick="closeCandidateDetail()">Close</button>
           </div>
         </div>
 
-        <div style="display:flex;gap:16px;margin-bottom:16px">
-          <div style="flex:1">
-            <h4 style="color:#94a3b8;margin-bottom:8px">Captains</h4>
-            <table class="data-table" id="candidateCaptainsTable">
-              <thead><tr><th>Name</th><th>Code</th><th>Lists</th><th>Voters</th><th>Status</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div style="flex:1">
-            <h4 style="color:#94a3b8;margin-bottom:8px">Lists</h4>
-            <table class="data-table" id="candidateListsTable">
-              <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
+        <!-- Captains with expandable lists -->
+        <h4 style="color:#94a3b8;margin-bottom:8px">Captains</h4>
+        <div id="candidateCaptainsContainer"></div>
+
+        <!-- All Lists (admin + captain combined) -->
+        <h4 style="color:#94a3b8;margin-bottom:8px;margin-top:20px">All Lists</h4>
+        <table class="data-table" id="candidateListsTable">
+          <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
 
@@ -1695,7 +1621,6 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
-    if (page === 'captains') { loadCaptains(); loadAllLists(); }
     if (page === 'candidates') { loadCandidates(); }
     if (page === 'surveys') { showSurveyList(); loadSurveys(); }
     if (page === 'users') loadUsers();
@@ -5601,369 +5526,6 @@ function listTypeBadge(type) {
   return '<span class="badge ' + (colors[t] || 'badge-gray') + '">' + (labels[t] || escHtml(t)) + '</span>';
 }
 
-async function loadAllLists() {
-  try {
-    var data = await api('/api/captains/all-lists');
-    var lists = data.lists || [];
-    var filter = (document.getElementById('allListsTypeFilter') || {}).value || '';
-    if (filter) lists = lists.filter(function(l) { return l.list_type === filter; });
-    document.getElementById('allListsTotalCount').textContent = lists.length;
-    var tbody = document.getElementById('allListsBody');
-    if (lists.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No lists found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = lists.map(function(l) {
-      var source = l.source === 'captain'
-        ? '<span class="badge badge-yellow">' + escHtml(l.captain_name) + '</span>'
-        : '<span class="badge badge-blue">Admin</span>';
-      if (l.team_member) source += ' <span style="font-size:11px;color:#818cf8">(' + escHtml(l.team_member) + ')</span>';
-      var date = l.created_at ? new Date(l.created_at).toLocaleDateString() : '';
-      return '<tr><td><strong>' + escHtml(l.name) + '</strong>' + (l.description ? '<div style="font-size:11px;color:#64748b">' + escHtml(l.description) + '</div>' : '') + '</td><td>' + listTypeBadge(l.list_type) + '</td><td>' + source + '</td><td style="text-align:center">' + l.voter_count + '</td><td style="font-size:12px;color:#94a3b8">' + date + '</td></tr>';
-    }).join('');
-  } catch (err) {
-    console.error('Failed to load all lists:', err);
-  }
-}
-
-async function loadCaptains() {
-  try {
-    const data = await api('/api/captains');
-    const captains = data.captains || [];
-    const stats = data.stats || {};
-
-    // Update stats
-    const active = captains.filter(c => c.is_active).length;
-    document.getElementById('statActiveCaptains').textContent = active;
-    document.getElementById('statTotalLists').textContent = stats.totalLists || 0;
-    document.getElementById('statUniqueVoters').textContent = stats.totalUniqueVoters || 0;
-    document.getElementById('statOverlap').textContent = stats.overlap || 0;
-
-    // Render captain cards
-    const el = document.getElementById('captainsList');
-    el.textContent = '';
-
-    if (captains.length === 0) {
-      const empty = document.createElement('div');
-      empty.style.cssText = 'text-align:center;padding:2rem;color:#64748b;font-size:14px';
-      empty.textContent = 'No block captains yet. Create one to get started!';
-      el.appendChild(empty);
-      return;
-    }
-
-    // Build tree: top-level captains first, sub-captains indented
-    const captainIdSet = new Set(captains.map(c => c.id));
-    const topLevel = captains.filter(c => !c.parent_captain_id || !captainIdSet.has(c.parent_captain_id));
-    const childrenOf = {};
-    captains.forEach(c => {
-      if (c.parent_captain_id && captainIdSet.has(c.parent_captain_id)) {
-        if (!childrenOf[c.parent_captain_id]) childrenOf[c.parent_captain_id] = [];
-        childrenOf[c.parent_captain_id].push(c);
-      }
-    });
-
-    function renderAdminCaptainCard(c, indentLevel) {
-      const wrapper = document.createElement('div');
-      if (indentLevel > 0) {
-        wrapper.style.cssText = 'margin-left:' + (indentLevel * 32) + 'px;border-left:3px solid #334155;padding-left:12px';
-      }
-
-      const card = document.createElement('div');
-      card.className = 'captain-card';
-      card.dataset.captainName = (c.name || '').toLowerCase();
-      card.style.cssText = 'background:' + (indentLevel > 0 ? '#0d1525' : '#0f172a') + ';border:1px solid ' + (indentLevel > 0 ? '#475569' : '#334155') + ';border-radius:12px;padding:20px;margin-bottom:12px';
-
-      // Header row: name + code + status
-      const header = document.createElement('div');
-      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px';
-
-      const left = document.createElement('div');
-      const name = document.createElement('div');
-      name.style.cssText = 'font-weight:700;font-size:16px';
-      name.textContent = c.name;
-      if (indentLevel > 0) {
-        const subTag = document.createElement('span');
-        subTag.style.cssText = 'font-size:11px;color:#64748b;font-weight:400;margin-left:8px';
-        subTag.textContent = 'Sub-Captain';
-        name.appendChild(subTag);
-      }
-      left.appendChild(name);
-
-      const codeRow = document.createElement('div');
-      codeRow.style.cssText = 'font-size:13px;color:#94a3b8;margin-top:4px';
-      codeRow.textContent = 'Code: ';
-      const codeSpan = document.createElement('span');
-      codeSpan.style.cssText = 'background:#451a03;color:#f59e0b;padding:2px 8px;border-radius:4px;font-weight:700;font-family:monospace;letter-spacing:2px';
-      codeSpan.textContent = c.code;
-      codeRow.appendChild(codeSpan);
-      if (c.phone) {
-        const phoneTxt = document.createTextNode(' \u2022 ' + c.phone);
-        codeRow.appendChild(phoneTxt);
-      }
-      if (c.email) {
-        const emailTxt = document.createTextNode(' \u2022 ' + c.email);
-        codeRow.appendChild(emailTxt);
-      }
-      left.appendChild(codeRow);
-
-      if (c.parent_captain_name) {
-        const parentRow = document.createElement('div');
-        parentRow.style.cssText = 'font-size:12px;margin-top:4px';
-        const pLabel = document.createElement('span');
-        pLabel.style.color = '#64748b';
-        pLabel.textContent = 'Team member of ';
-        parentRow.appendChild(pLabel);
-        const pName = document.createElement('span');
-        pName.style.cssText = 'color:#818cf8;font-weight:600';
-        pName.textContent = c.parent_captain_name;
-        parentRow.appendChild(pName);
-        left.appendChild(parentRow);
-      }
-
-      header.appendChild(left);
-
-      const right = document.createElement('div');
-      right.style.cssText = 'display:flex;align-items:center;gap:8px';
-      const statusBadge = document.createElement('span');
-      statusBadge.className = 'badge ' + (c.is_active ? 'badge-green' : 'badge-red');
-      statusBadge.textContent = c.is_active ? 'Active' : 'Inactive';
-      right.appendChild(statusBadge);
-
-      const toggleBtn = document.createElement('button');
-      toggleBtn.className = 'btn btn-xs ' + (c.is_active ? 'btn-secondary' : 'btn-success');
-      toggleBtn.textContent = c.is_active ? 'Disable' : 'Enable';
-      toggleBtn.addEventListener('click', () => toggleCaptain(c.id, !c.is_active));
-      right.appendChild(toggleBtn);
-
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'btn btn-xs btn-danger';
-      deleteBtn.textContent = 'Delete';
-      deleteBtn.addEventListener('click', () => deleteCaptain(c.id, c.name));
-      right.appendChild(deleteBtn);
-
-      header.appendChild(right);
-      card.appendChild(header);
-
-      // Stats row
-      const statsRow = document.createElement('div');
-      statsRow.style.cssText = 'display:flex;gap:16px;font-size:13px;color:#94a3b8;margin-bottom:8px';
-
-      const listCount = document.createElement('span');
-      listCount.textContent = (c.lists || []).length + ' lists';
-      statsRow.appendChild(listCount);
-
-      const teamCount = document.createElement('span');
-      teamCount.textContent = (c.team_members || []).length + ' team members';
-      statsRow.appendChild(teamCount);
-
-      const voterCount = document.createElement('span');
-      voterCount.textContent = (c.total_voters || 0) + ' unique voters';
-      statsRow.appendChild(voterCount);
-
-      card.appendChild(statsRow);
-
-      // Lists detail (collapsible)
-      if (c.lists && c.lists.length > 0) {
-        const listsDiv = document.createElement('div');
-        listsDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #334155';
-
-        const listsLabel = document.createElement('div');
-        listsLabel.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:6px';
-        listsLabel.textContent = 'Lists:';
-        listsDiv.appendChild(listsLabel);
-
-        c.lists.forEach(l => {
-          const listItem = document.createElement('div');
-          listItem.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:13px';
-
-          const lname = document.createElement('span');
-          lname.textContent = l.name;
-          if (l.list_type && l.list_type !== 'general') {
-            const typeTag = document.createElement('span');
-            typeTag.style.cssText = 'margin-left:6px';
-            typeTag.innerHTML = listTypeBadge(l.list_type);
-            lname.appendChild(typeTag);
-          }
-          if (l.team_member_name) {
-            const tag = document.createElement('span');
-            tag.style.cssText = 'color:#818cf8;font-size:11px;margin-left:4px';
-            tag.textContent = '(' + l.team_member_name + ')';
-            lname.appendChild(tag);
-          }
-          listItem.appendChild(lname);
-
-          const lcount = document.createElement('span');
-          lcount.style.color = '#64748b';
-          lcount.textContent = (l.voter_count || 0) + ' voters';
-          listItem.appendChild(lcount);
-
-          listsDiv.appendChild(listItem);
-        });
-        card.appendChild(listsDiv);
-      }
-
-      // Team detail
-      if (c.team_members && c.team_members.length > 0) {
-        const teamDiv = document.createElement('div');
-        teamDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #334155';
-
-        const teamLabel = document.createElement('div');
-        teamLabel.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:6px';
-        teamLabel.textContent = 'Team:';
-        teamDiv.appendChild(teamLabel);
-
-        const teamList = document.createElement('div');
-        teamList.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
-        c.team_members.forEach(m => {
-          const badge = document.createElement('span');
-          badge.className = 'badge badge-blue';
-          badge.textContent = m.name;
-          teamList.appendChild(badge);
-        });
-        teamDiv.appendChild(teamList);
-        card.appendChild(teamDiv);
-      }
-
-      wrapper.appendChild(card);
-      el.appendChild(wrapper);
-
-      // Render sub-captains indented
-      const subs = childrenOf[c.id] || [];
-      subs.forEach(sub => renderAdminCaptainCard(sub, indentLevel + 1));
-    }
-
-    topLevel.forEach(c => renderAdminCaptainCard(c, 0));
-  } catch (err) {
-    console.error('Failed to load captains:', err);
-  }
-}
-
-function showNewCaptainForm() {
-  document.getElementById('newCaptainForm').style.display = '';
-}
-
-function hideNewCaptainForm() {
-  document.getElementById('newCaptainForm').style.display = 'none';
-  document.getElementById('newCaptainName').value = '';
-  document.getElementById('newCaptainPhone').value = '';
-  document.getElementById('newCaptainEmail').value = '';
-}
-
-async function createCaptain() {
-  const name = document.getElementById('newCaptainName').value.trim();
-  if (!name) { alert('Captain name is required.'); return; }
-  const phone = document.getElementById('newCaptainPhone').value.trim();
-  const email = document.getElementById('newCaptainEmail').value.trim();
-
-  const data = await apiPost('/api/captains', { name, phone, email });
-  if (data.code) {
-    alert('Captain created! Their permanent code is: ' + data.code + '\n\nShare this code — they use it to log in at /captain');
-  }
-  hideNewCaptainForm();
-  loadCaptains();
-}
-
-async function toggleCaptain(id, newState) {
-  await apiPut('/api/captains/' + id, { is_active: newState });
-  loadCaptains();
-}
-
-async function deleteCaptain(id, name) {
-  if (!confirm('Delete captain "' + name + '" and ALL their lists? This cannot be undone.')) return;
-  await apiDelete('/api/captains/' + id);
-  loadCaptains();
-}
-
-function filterCaptainsList() {
-  var q = (document.getElementById('captainSearchInput') || {}).value.toLowerCase().trim();
-  var cards = document.querySelectorAll('#captainsList .captain-card');
-  var words = q.split(/\s+/).filter(Boolean);
-  cards.forEach(function(card) {
-    var name = card.dataset.captainName || '';
-    var match = !q || words.every(function(w) { return name.indexOf(w) !== -1; });
-    card.style.display = match ? '' : 'none';
-  });
-}
-window.filterCaptainsList = filterCaptainsList;
-
-async function compileMasterList() {
-  // Fetch all captains with their list voters, then deduplicate
-  const data = await api('/api/captains');
-  const captains = data.captains || [];
-
-  // Collect all voter IDs and which lists they're on
-  const voterMap = {};
-  for (const c of captains) {
-    for (const l of (c.lists || [])) {
-      const voterData = await api('/api/captains/' + c.id + '/lists/' + l.id + '/voters');
-      for (const v of (voterData.voters || [])) {
-        if (!voterMap[v.id]) {
-          voterMap[v.id] = { voter: v, lists: [] };
-        }
-        voterMap[v.id].lists.push(c.name + ': ' + l.name);
-      }
-    }
-  }
-
-  const entries = Object.values(voterMap);
-  document.getElementById('masterListCount').textContent = entries.length;
-  document.getElementById('masterListCard').style.display = '';
-
-  const tbody = document.getElementById('masterListBody');
-  tbody.textContent = '';
-
-  if (entries.length === 0) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.setAttribute('colspan', '5');
-    td.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
-    td.textContent = 'No voters on any captain lists yet.';
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-    return;
-  }
-
-  // Sort by last name
-  entries.sort((a, b) => (a.voter.last_name || '').localeCompare(b.voter.last_name || ''));
-
-  entries.forEach(e => {
-    const tr = document.createElement('tr');
-
-    const tdName = document.createElement('td');
-    tdName.textContent = (e.voter.first_name || '') + ' ' + (e.voter.last_name || '');
-    tr.appendChild(tdName);
-
-    const tdAddr = document.createElement('td');
-    tdAddr.textContent = (e.voter.address || '') + (e.voter.city ? ', ' + e.voter.city : '');
-    tr.appendChild(tdAddr);
-
-    const tdPhone = document.createElement('td');
-    tdPhone.textContent = e.voter.phone || '';
-    tr.appendChild(tdPhone);
-
-    const tdParty = document.createElement('td');
-    tdParty.textContent = e.voter.party || '';
-    tr.appendChild(tdParty);
-
-    const tdLists = document.createElement('td');
-    tdLists.style.fontSize = '12px';
-    e.lists.forEach(ln => {
-      const badge = document.createElement('span');
-      badge.className = 'badge badge-yellow';
-      badge.style.cssText = 'margin-right:4px;margin-bottom:2px;display:inline-block';
-      badge.textContent = ln;
-      tdLists.appendChild(badge);
-    });
-    tr.appendChild(tdLists);
-
-    tbody.appendChild(tr);
-  });
-}
-
-function closeMasterList() {
-  document.getElementById('masterListCard').style.display = 'none';
-}
-
 // ===================== CANDIDATES =====================
 
 var _candidateDetailId = null;
@@ -6108,8 +5670,8 @@ async function showCandidateDetail(id, name) {
   try {
     var capData = await api('/api/candidates/' + id + '/captains');
     var allCaps = capData.captains || [];
-    var capTbody = document.querySelector('#candidateCaptainsTable tbody');
-    capTbody.textContent = '';
+    var container = document.getElementById('candidateCaptainsContainer');
+    container.textContent = '';
 
     // Build tree for candidate's captains
     var capIdSet = new Set(allCaps.map(function(c) { return c.id; }));
@@ -6122,62 +5684,135 @@ async function showCandidateDetail(id, name) {
       }
     });
 
-    function renderCapRow(c, indent) {
-      var tr = document.createElement('tr');
-      tr.style.cursor = 'pointer';
-      if (indent > 0) tr.style.background = '#0d1525';
-      tr.onmouseover = function() { tr.style.background = indent > 0 ? '#111d30' : '#1e293b'; };
-      tr.onmouseout = function() { tr.style.background = indent > 0 ? '#0d1525' : ''; };
-      // Click captain row to view their first list's voters
-      tr.onclick = function() {
-        if (c.lists && c.lists.length > 0) {
-          viewCandidateListVoters(id, { id: c.lists[0].id, name: c.lists[0].name, source: 'captain', captain_name: c.name });
-        }
+    function renderCaptainCard(c, indent) {
+      var wrapper = document.createElement('div');
+      if (indent > 0) wrapper.style.cssText = 'margin-left:' + (indent * 24) + 'px;border-left:2px solid #334155;padding-left:10px';
+
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px 16px;margin-bottom:8px';
+
+      // Header row: name, code, status, toggle, delete, expand arrow
+      var header = document.createElement('div');
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;cursor:pointer';
+      header.onclick = function(e) {
+        if (e.target.tagName === 'BUTTON') return; // don't toggle if clicking action buttons
+        var listsDiv = card.querySelector('.captain-lists-expand');
+        if (listsDiv) listsDiv.style.display = listsDiv.style.display === 'none' ? '' : 'none';
+        var arrow = header.querySelector('.expand-arrow');
+        if (arrow) arrow.textContent = listsDiv && listsDiv.style.display !== 'none' ? '\u25BC' : '\u25B6';
       };
-      var tdN = document.createElement('td');
-      tdN.style.paddingLeft = (indent * 24 + 8) + 'px';
-      if (indent > 0) {
-        var arrow = document.createElement('span');
-        arrow.style.cssText = 'color:#475569;margin-right:6px';
-        arrow.textContent = '\u2514\u2500';
-        tdN.appendChild(arrow);
-      }
-      var nameText = document.createTextNode(c.name);
-      tdN.appendChild(nameText);
+
+      var left = document.createElement('div');
+      left.style.cssText = 'display:flex;align-items:center;gap:8px;flex:1;min-width:0';
+
+      var arrow = document.createElement('span');
+      arrow.className = 'expand-arrow';
+      arrow.style.cssText = 'color:#64748b;font-size:10px;width:12px';
+      arrow.textContent = '\u25B6';
+      left.appendChild(arrow);
+
+      var nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-weight:600;white-space:nowrap';
+      nameSpan.textContent = c.name;
+      left.appendChild(nameSpan);
+
       if (indent > 0) {
         var subTag = document.createElement('span');
-        subTag.style.cssText = 'font-size:10px;color:#64748b;margin-left:6px';
+        subTag.style.cssText = 'font-size:10px;color:#64748b;background:#1e293b;padding:1px 6px;border-radius:4px';
         subTag.textContent = 'sub';
-        tdN.appendChild(subTag);
+        left.appendChild(subTag);
       }
-      tr.appendChild(tdN);
-      var tdC = document.createElement('td');
-      var code = document.createElement('code');
-      code.style.cssText = 'background:#1e293b;padding:2px 4px;border-radius:4px;font-size:11px;cursor:pointer';
-      code.textContent = c.code;
-      code.onclick = function() { copyToClip(c.code); };
-      tdC.appendChild(code); tr.appendChild(tdC);
-      var tdL = document.createElement('td'); tdL.textContent = (c.lists || []).length; tr.appendChild(tdL);
-      var tdV = document.createElement('td'); tdV.textContent = c.total_voters || 0; tr.appendChild(tdV);
-      var tdS = document.createElement('td');
-      var sb = document.createElement('span');
-      sb.className = c.is_active ? 'badge badge-green' : 'badge badge-gray';
-      sb.textContent = c.is_active ? 'Active' : 'Off';
-      tdS.appendChild(sb); tr.appendChild(tdS);
-      capTbody.appendChild(tr);
-      // Render children
-      (capChildrenOf[c.id] || []).forEach(function(sub) { renderCapRow(sub, indent + 1); });
+
+      var codeEl = document.createElement('code');
+      codeEl.style.cssText = 'background:#451a03;color:#f59e0b;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;letter-spacing:1px';
+      codeEl.textContent = c.code;
+      codeEl.title = 'Click to copy';
+      codeEl.onclick = function(e) { e.stopPropagation(); copyToClip(c.code); };
+      left.appendChild(codeEl);
+
+      var statsSpan = document.createElement('span');
+      statsSpan.style.cssText = 'font-size:12px;color:#64748b';
+      statsSpan.textContent = (c.lists || []).length + ' lists \u00B7 ' + (c.total_voters || 0) + ' voters';
+      left.appendChild(statsSpan);
+
+      header.appendChild(left);
+
+      var right = document.createElement('div');
+      right.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
+
+      var statusBadge = document.createElement('span');
+      statusBadge.className = 'badge ' + (c.is_active ? 'badge-green' : 'badge-red');
+      statusBadge.textContent = c.is_active ? 'Active' : 'Off';
+      right.appendChild(statusBadge);
+
+      var toggleBtn = document.createElement('button');
+      toggleBtn.className = 'btn btn-xs ' + (c.is_active ? 'btn-secondary' : 'btn-success');
+      toggleBtn.textContent = c.is_active ? 'Disable' : 'Enable';
+      toggleBtn.onclick = function(e) { e.stopPropagation(); toggleCaptainForCandidate(c.id, !c.is_active); };
+      right.appendChild(toggleBtn);
+
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-xs btn-danger';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = function(e) { e.stopPropagation(); deleteCaptainForCandidate(c.id, c.name); };
+      right.appendChild(delBtn);
+
+      header.appendChild(right);
+      card.appendChild(header);
+
+      // Expandable lists section (hidden by default)
+      var listsDiv = document.createElement('div');
+      listsDiv.className = 'captain-lists-expand';
+      listsDiv.style.cssText = 'display:none;margin-top:10px;padding-top:10px;border-top:1px solid #334155';
+
+      if (c.lists && c.lists.length > 0) {
+        c.lists.forEach(function(l) {
+          var listRow = document.createElement('div');
+          listRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;cursor:pointer;border-radius:6px;margin-bottom:2px';
+          listRow.onmouseover = function() { listRow.style.background = '#1e293b'; };
+          listRow.onmouseout = function() { listRow.style.background = ''; };
+          listRow.onclick = function(e) {
+            e.stopPropagation();
+            viewCandidateListVoters(id, { id: l.id, name: l.name, source: 'captain', captain_name: c.name });
+          };
+
+          var lName = document.createElement('span');
+          lName.style.cssText = 'font-size:13px;font-weight:500';
+          lName.textContent = '\uD83D\uDCC4 ' + l.name;
+          listRow.appendChild(lName);
+
+          var lCount = document.createElement('span');
+          lCount.style.cssText = 'font-size:12px;color:#64748b';
+          lCount.textContent = (l.voter_count || 0) + ' voters';
+          listRow.appendChild(lCount);
+
+          listsDiv.appendChild(listRow);
+        });
+      } else {
+        var noLists = document.createElement('div');
+        noLists.style.cssText = 'font-size:12px;color:#475569;padding:4px 8px';
+        noLists.textContent = 'No lists yet';
+        listsDiv.appendChild(noLists);
+      }
+
+      card.appendChild(listsDiv);
+      wrapper.appendChild(card);
+      container.appendChild(wrapper);
+
+      // Render sub-captains indented
+      (capChildrenOf[c.id] || []).forEach(function(sub) { renderCaptainCard(sub, indent + 1); });
     }
 
-    capTopLevel.forEach(function(c) { renderCapRow(c, 0); });
-    if ((capData.captains || []).length === 0) {
-      var emptyTr = document.createElement('tr');
-      var emptyTd = document.createElement('td');
-      emptyTd.colSpan = 5; emptyTd.style.cssText = 'color:#64748b;text-align:center';
-      emptyTd.textContent = 'No captains yet';
-      emptyTr.appendChild(emptyTd); capTbody.appendChild(emptyTr);
+    capTopLevel.forEach(function(c) { renderCaptainCard(c, 0); });
+
+    if (allCaps.length === 0) {
+      var emptyDiv = document.createElement('div');
+      emptyDiv.style.cssText = 'color:#64748b;text-align:center;padding:16px;font-size:13px';
+      emptyDiv.textContent = 'No captains yet. Click "+ Add Captain" to create one.';
+      container.appendChild(emptyDiv);
     }
 
+    // All Lists table
     var listData = await api('/api/candidates/' + id + '/lists');
     var listTbody = document.querySelector('#candidateListsTable tbody');
     listTbody.textContent = '';
@@ -6219,6 +5854,142 @@ async function showCandidateDetail(id, name) {
 }
 
 function closeCandidateDetail() { _candidateDetailId = null; document.getElementById('candidateDetailCard').style.display = 'none'; }
+
+// Master List — shows all unique voters across all captains for the current candidate
+async function viewCandidateMasterList() {
+  if (!_candidateDetailId) return;
+  var existing = document.getElementById('candidateListViewerOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'candidateListViewerOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:200';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;max-width:800px;width:95%;max-height:85vh;display:flex;flex-direction:column';
+
+  var headerDiv = document.createElement('div');
+  headerDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px';
+  var titleDiv = document.createElement('div');
+  var h3 = document.createElement('h3');
+  h3.style.cssText = 'font-size:16px;margin-bottom:4px';
+  h3.textContent = '\uD83D\uDCCB Master Voter List';
+  titleDiv.appendChild(h3);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:13px;color:#64748b';
+  sub.textContent = 'Loading all voters...';
+  titleDiv.appendChild(sub);
+  headerDiv.appendChild(titleDiv);
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-sm btn-secondary';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { overlay.remove(); };
+  headerDiv.appendChild(closeBtn);
+  box.appendChild(headerDiv);
+
+  var listContainer = document.createElement('div');
+  listContainer.style.cssText = 'flex:1;overflow-y:auto';
+  box.appendChild(listContainer);
+
+  overlay.appendChild(box);
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+
+  try {
+    var data = await api('/api/candidates/' + _candidateDetailId + '/master-list');
+    var voters = data.voters || [];
+    var totalAppearances = data.totalAppearances || 0;
+    var overlapCount = data.overlaps || 0;
+    sub.textContent = voters.length + ' unique voter' + (voters.length !== 1 ? 's' : '') + ' \u00B7 ' + totalAppearances + ' total appearances';
+    if (overlapCount > 0) {
+      sub.textContent += ' \u00B7 ' + overlapCount + ' on multiple lists';
+    }
+
+    if (voters.length === 0) {
+      var emptyDiv = document.createElement('div');
+      emptyDiv.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
+      emptyDiv.textContent = 'No voters found for this candidate.';
+      listContainer.appendChild(emptyDiv);
+      return;
+    }
+
+    var table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+    var thead = document.createElement('thead');
+    var headTr = document.createElement('tr');
+    ['Voter', 'Address', 'Party', 'Phone', 'Sources'].forEach(function(h) {
+      var th = document.createElement('th');
+      th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
+      th.textContent = h;
+      headTr.appendChild(th);
+    });
+    thead.appendChild(headTr);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    voters.forEach(function(v) {
+      var tr = document.createElement('tr');
+      var tdName = document.createElement('td');
+      tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
+      tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      tr.appendChild(tdName);
+      var tdAddr = document.createElement('td');
+      tdAddr.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
+      tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+      tr.appendChild(tdAddr);
+      var tdParty = document.createElement('td');
+      tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
+      tdParty.textContent = v.party || '';
+      tr.appendChild(tdParty);
+      var tdPhone = document.createElement('td');
+      tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
+      tdPhone.textContent = v.phone || '';
+      tr.appendChild(tdPhone);
+      var tdSrc = document.createElement('td');
+      tdSrc.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-size:11px';
+      var numLists = (v.lists || []).length;
+      if (numLists > 1) {
+        var badge = document.createElement('span');
+        badge.className = 'badge badge-yellow';
+        badge.textContent = numLists + ' lists';
+        badge.title = (v.lists || []).map(function(s) { return s.source_name + ': ' + s.list_name; }).join(', ');
+        tdSrc.appendChild(badge);
+      } else if (numLists === 1) {
+        tdSrc.textContent = v.lists[0].source_name;
+        tdSrc.style.color = '#64748b';
+      } else {
+        tdSrc.textContent = '-';
+        tdSrc.style.color = '#64748b';
+      }
+      tr.appendChild(tdSrc);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    listContainer.appendChild(table);
+  } catch (e) {
+    sub.textContent = 'Error loading master list';
+    console.error(e);
+  }
+}
+
+// Captain management within candidate detail
+async function toggleCaptainForCandidate(captainId, newState) {
+  try {
+    await apiPut('/api/captains/' + captainId, { is_active: newState });
+    var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+    showCandidateDetail(_candidateDetailId, detailName);
+    loadCandidates();
+  } catch (e) { alert('Error toggling captain: ' + (e.message || e)); }
+}
+
+async function deleteCaptainForCandidate(captainId, captainName) {
+  if (!confirm('Delete captain "' + captainName + '" and ALL their lists? This cannot be undone.')) return;
+  try {
+    await apiDelete('/api/captains/' + captainId);
+    var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+    showCandidateDetail(_candidateDetailId, detailName);
+    loadCandidates();
+  } catch (e) { alert('Error deleting captain: ' + (e.message || e)); }
+}
 
 async function addCaptainToCandidate() {
   if (!_candidateDetailId) return;
