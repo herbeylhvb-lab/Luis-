@@ -369,7 +369,7 @@ function renderStats(stats) {
   var items = [
     { num: stats.total_captains || 0, label: 'Captains' },
     { num: stats.total_voters || 0, label: 'Total Voters' },
-    { num: (stats.total_lists || 0) + (stats.captain_lists || 0), label: 'Total Lists' },
+    { num: stats.total_lists || 0, label: 'My Lists' },
     { num: stats.active_captains || 0, label: 'Active Captains' }
   ];
   items.forEach(function(item) {
@@ -449,12 +449,10 @@ function renderCaptainCards(captains) {
     header.appendChild(codeEl);
     card.appendChild(header);
 
-    // Stats row
+    // Voter count (captains have one list)
+    var totalVoters = cap.total_voters || 0;
     var statsRow = document.createElement('div');
     statsRow.className = 'captain-stats';
-
-    var totalVoters = cap.total_voters || 0;
-    var numLists = (cap.lists || []).length;
 
     var vs = document.createElement('div');
     vs.className = 'captain-stat';
@@ -464,21 +462,9 @@ function renderCaptainCards(captains) {
     vs.appendChild(vsNum);
     var vsLabel = document.createElement('div');
     vsLabel.className = 'label';
-    vsLabel.textContent = 'Voters';
+    vsLabel.textContent = 'Voters on List';
     vs.appendChild(vsLabel);
     statsRow.appendChild(vs);
-
-    var ls = document.createElement('div');
-    ls.className = 'captain-stat';
-    var lsNum = document.createElement('div');
-    lsNum.className = 'num';
-    lsNum.textContent = numLists;
-    ls.appendChild(lsNum);
-    var lsLabel = document.createElement('div');
-    lsLabel.className = 'label';
-    lsLabel.textContent = 'Lists';
-    ls.appendChild(lsLabel);
-    statsRow.appendChild(ls);
 
     card.appendChild(statsRow);
 
@@ -491,25 +477,6 @@ function renderCaptainCards(captains) {
     pfill.style.width = Math.max(pct, 2) + '%';
     pbar.appendChild(pfill);
     card.appendChild(pbar);
-
-    // List chips
-    if ((cap.lists || []).length > 0) {
-      var chips = document.createElement('div');
-      chips.className = 'captain-lists-row';
-      cap.lists.forEach(function(l) {
-        var chip = document.createElement('span');
-        chip.className = 'list-chip';
-        var chipName = document.createElement('span');
-        chipName.textContent = l.name;
-        chip.appendChild(chipName);
-        var chipCount = document.createElement('span');
-        chipCount.className = 'chip-count';
-        chipCount.textContent = l.voter_count || 0;
-        chip.appendChild(chipCount);
-        chips.appendChild(chip);
-      });
-      card.appendChild(chips);
-    }
 
     // Portal link
     var portalLink = document.createElement('div');
@@ -867,7 +834,7 @@ function renderAllLists() {
   if (captainLists.length > 0) {
     var capTitle = document.createElement('div');
     capTitle.style.cssText = 'font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px;font-weight:600';
-    capTitle.textContent = 'Captain Lists (' + captainLists.length + ')';
+    capTitle.textContent = 'Captain Voter Lists (' + captainLists.length + ')';
     container.appendChild(capTitle);
 
     captainLists.forEach(function(item) {
