@@ -258,8 +258,17 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   req.session.captainId = captain.id;
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
-  // Sub-captains (real captains created by this leader)
-  captain.sub_captains = db.prepare('SELECT id, name, code, is_active, created_at FROM captains WHERE parent_captain_id = ? ORDER BY name').all(captain.id);
+  // Sub-captains — full descendant tree (recursive CTE) with parent_captain_id for hierarchy rendering
+  captain.sub_captains = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id, name, code, is_active, created_at, parent_captain_id
+      FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id, c.name, c.code, c.is_active, c.created_at, c.parent_captain_id
+      FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
+    SELECT * FROM team_tree ORDER BY name
+  `).all(captain.id);
 
   captain.lists = db.prepare(`
     SELECT cl.*, COUNT(clv.id) as voter_count,
@@ -440,14 +449,19 @@ router.get('/captains/:id/lists', requireCaptainAuth, (req, res) => {
     GROUP BY cl.id ORDER BY cl.created_at DESC
   `).all(req.params.id);
 
-  // Sub-captain lists (lists belonging to team members who are real captains)
+  // Sub-captain lists — all descendant captains' lists (recursive CTE)
   const subCaptainLists = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
     SELECT cl.*, COUNT(clv.id) as voter_count,
       c.name as sub_captain_name, c.id as sub_captain_id
     FROM captain_lists cl
     LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
     JOIN captains c ON cl.captain_id = c.id
-    WHERE c.parent_captain_id = ?
+    WHERE c.id IN (SELECT id FROM team_tree)
     GROUP BY cl.id ORDER BY c.name, cl.created_at DESC
   `).all(req.params.id);
 
@@ -460,19 +474,24 @@ router.get('/captains/:id/lists', requireCaptainAuth, (req, res) => {
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(req.params.id);
   const teamMembers = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(req.params.id);
-  const subCaptains = db.prepare('SELECT id, name, code, is_active, created_at FROM captains WHERE parent_captain_id = ? ORDER BY name').all(req.params.id);
+  // Full descendant tree with parent_captain_id for hierarchy rendering
+  const subCaptains = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id, name, code, is_active, created_at, parent_captain_id
+      FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id, c.name, c.code, c.is_active, c.created_at, c.parent_captain_id
+      FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
+    SELECT * FROM team_tree ORDER BY name
+  `).all(req.params.id);
 
   res.json({ lists, sub_captain_lists: subCaptainLists, assigned_lists: assignedLists, team_members: teamMembers, sub_captains: subCaptains });
 });
 
-// Create list
+// Create list — blocked for captains (each captain gets one auto-created "My Voters" list)
 router.post('/captains/:id/lists', requireCaptainAuth, (req, res) => {
-  const { name, team_member_id, list_type } = req.body;
-  if (!name) return res.status(400).json({ error: 'List name is required.' });
-  const result = db.prepare(
-    'INSERT INTO captain_lists (captain_id, team_member_id, name, list_type) VALUES (?, ?, ?, ?)'
-  ).run(req.params.id, team_member_id || null, name, list_type || 'general');
-  res.json({ success: true, id: result.lastInsertRowid });
+  return res.status(403).json({ error: 'Captains are limited to one list. Your "My Voters" list was created automatically.' });
 });
 
 // Rename list

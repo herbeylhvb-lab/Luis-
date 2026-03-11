@@ -329,34 +329,37 @@ async function refreshSidebar() {
   }
   myLists.forEach(function(l) { myEl.appendChild(makeListItem(l)); });
 
-  // Unified "My Team" section — each member is expandable to show their lists
+  // Hierarchical "My Team" section — sub-captains nested under their parent
   var teamContainer = document.getElementById('myTeamContainer');
   var myTeamSection = document.getElementById('myTeamSection');
   teamContainer.textContent = '';
   var subCaptains = captainState.captain.sub_captains || [];
   var teamMembers = captainState.captain.team_members || [];
 
-  // Build combined people list (dedup sub-captains vs legacy team members)
-  var teamPeople = [];
-  var seenNames = {};
-  subCaptains.forEach(function(sc) {
-    // Gather this sub-captain's lists from subCaptainLists
-    var memberLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
-    // Also gather team-assigned lists (legacy) matching this name
-    var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
-    // Find matching team_member record for delete API
-    var matchingTm = teamMembers.find(function(tm) { return tm.name === sc.name; });
-    teamPeople.push({ name: sc.name, code: sc.code, id: sc.id, isActive: sc.is_active, type: 'captain', lists: memberLists, legacyLists: legacyLists, teamMemberId: matchingTm ? matchingTm.id : null });
-    seenNames[sc.name] = true;
+  // Build tree: direct children vs deeper descendants using parent_captain_id
+  var scIdSet = {};
+  subCaptains.forEach(function(sc) { scIdSet[sc.id] = sc; });
+  var myId = captainState.captain.id;
+
+  // Top-level = those whose parent is the logged-in captain
+  var topLevelSc = subCaptains.filter(function(sc) {
+    return sc.parent_captain_id === myId;
   });
-  teamMembers.forEach(function(tm) {
-    if (!seenNames[tm.name]) {
-      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === tm.name; });
-      teamPeople.push({ name: tm.name, type: 'member', teamMemberId: tm.id, lists: [], legacyLists: legacyLists });
+  // Children map: parent_id -> [children]
+  var scChildrenOf = {};
+  subCaptains.forEach(function(sc) {
+    if (sc.parent_captain_id !== myId && scIdSet[sc.parent_captain_id]) {
+      if (!scChildrenOf[sc.parent_captain_id]) scChildrenOf[sc.parent_captain_id] = [];
+      scChildrenOf[sc.parent_captain_id].push(sc);
     }
   });
 
-  if (teamPeople.length > 0) {
+  // Legacy team members not already in sub-captains
+  var seenNames = {};
+  subCaptains.forEach(function(sc) { seenNames[sc.name] = true; });
+  var legacyOnly = teamMembers.filter(function(tm) { return !seenNames[tm.name]; });
+
+  if (subCaptains.length > 0 || legacyOnly.length > 0) {
     myTeamSection.style.display = '';
 
     // "View All Team Voters" master button
@@ -365,7 +368,6 @@ async function refreshSidebar() {
     var allLabel = document.createElement('span');
     allLabel.textContent = 'All Team Voters';
     allBtn.appendChild(allLabel);
-    // Count total team voters
     var totalTeamVoters = 0;
     subCaptainLists.forEach(function(l) { totalTeamVoters += (l.voter_count || 0); });
     teamLists.forEach(function(l) { totalTeamVoters += (l.voter_count || 0); });
@@ -376,24 +378,51 @@ async function refreshSidebar() {
     allBtn.addEventListener('click', function() { selectAllTeamVoters(); });
     teamContainer.appendChild(allBtn);
 
-    teamPeople.forEach(function(p) {
-      // Member row (clickable to expand)
+    // Recursive renderer for sub-captain tree
+    function renderTeamNode(sc, indentLevel) {
+      var memberLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
+      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
+      var matchingTm = teamMembers.find(function(tm) { return tm.name === sc.name; });
+      var children = scChildrenOf[sc.id] || [];
+
+      // Member row with indent
       var row = document.createElement('div');
-      row.className = 'team-member-row' + (captainState.expandedTeamMember === p.name ? ' expanded' : '');
+      row.className = 'team-member-row' + (captainState.expandedTeamMember === sc.name ? ' expanded' : '');
+      row.style.paddingLeft = (12 + indentLevel * 20) + 'px';
+      if (indentLevel > 0) {
+        row.style.borderLeft = '2px solid #334155';
+        row.style.marginLeft = (indentLevel * 8) + 'px';
+        row.style.background = '#0d1525';
+      }
+
       var leftDiv = document.createElement('div');
+      // Tree connector for nested
+      if (indentLevel > 0) {
+        var connector = document.createElement('span');
+        connector.style.cssText = 'color:#475569;margin-right:4px;font-size:11px';
+        connector.textContent = '\u2514\u2500 ';
+        leftDiv.appendChild(connector);
+      }
       var arrow = document.createElement('span');
       arrow.className = 'expand-icon';
       arrow.textContent = '\u25B6 ';
       leftDiv.appendChild(arrow);
       var nameSpan = document.createElement('span');
       nameSpan.className = 'member-name';
-      nameSpan.textContent = p.name;
+      nameSpan.textContent = sc.name;
       leftDiv.appendChild(nameSpan);
+      // Show sub-captain count badge
+      if (children.length > 0) {
+        var badge = document.createElement('span');
+        badge.style.cssText = 'margin-left:6px;font-size:10px;padding:1px 6px;background:#1e3a5f;color:#60a5fa;border-radius:8px';
+        badge.textContent = children.length + ' sub';
+        leftDiv.appendChild(badge);
+      }
       row.appendChild(leftDiv);
-      if (p.code) {
+      if (sc.code) {
         var codeEl = document.createElement('span');
         codeEl.className = 'member-code';
-        codeEl.textContent = p.code;
+        codeEl.textContent = sc.code;
         row.appendChild(codeEl);
       }
       row.addEventListener('click', (function(person) {
@@ -401,29 +430,29 @@ async function refreshSidebar() {
           captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
           refreshSidebar();
         };
-      })(p));
+      })(sc));
       teamContainer.appendChild(row);
 
       // Expandable lists container
       var listsDiv = document.createElement('div');
-      listsDiv.className = 'team-member-lists' + (captainState.expandedTeamMember === p.name ? ' open' : '');
+      listsDiv.className = 'team-member-lists' + (captainState.expandedTeamMember === sc.name ? ' open' : '');
+      if (indentLevel > 0) {
+        listsDiv.style.marginLeft = (indentLevel * 8) + 'px';
+      }
       var allMemberLists = [];
-      // Sub-captain owned lists
-      p.lists.forEach(function(l) {
-        allMemberLists.push({ id: l.id, name: l.name, voter_count: l.voter_count, type: 'subcaptain', sub_captain_id: l.sub_captain_id || p.id });
+      memberLists.forEach(function(l) {
+        allMemberLists.push({ id: l.id, name: l.name, voter_count: l.voter_count, type: 'subcaptain', sub_captain_id: l.sub_captain_id || sc.id });
       });
-      // Legacy assigned lists
-      p.legacyLists.forEach(function(l) {
+      legacyLists.forEach(function(l) {
         allMemberLists.push({ id: l.id, name: l.name, voter_count: l.voter_count, type: 'captain' });
       });
-      // Remove team member button
-      if (p.teamMemberId) {
+      if (matchingTm) {
         var removeBtn = document.createElement('button');
         removeBtn.style.cssText = 'display:block;width:calc(100% - 32px);margin:8px 16px;padding:6px 10px;background:#991b1b;color:#fca5a5;border:1px solid #dc2626;border-radius:6px;font-size:12px;cursor:pointer';
-        removeBtn.textContent = 'Remove ' + p.name;
+        removeBtn.textContent = 'Remove ' + sc.name;
         removeBtn.addEventListener('click', (function(person) {
-          return function(e) { e.stopPropagation(); removeTeamMember(person.teamMemberId, person.name); };
-        })(p));
+          return function(e) { e.stopPropagation(); removeTeamMember(person.id, person.name); };
+        })(matchingTm));
         listsDiv.appendChild(removeBtn);
       }
       if (allMemberLists.length === 0) {
@@ -452,6 +481,73 @@ async function refreshSidebar() {
             return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
           })(ml));
         }
+        listsDiv.appendChild(item);
+      });
+      teamContainer.appendChild(listsDiv);
+
+      // Render children recursively (nested under this captain)
+      children.forEach(function(child) {
+        renderTeamNode(child, indentLevel + 1);
+      });
+    }
+
+    // Render top-level sub-captains (and their trees)
+    topLevelSc.forEach(function(sc) {
+      renderTeamNode(sc, 0);
+    });
+
+    // Legacy-only team members (not sub-captains)
+    legacyOnly.forEach(function(tm) {
+      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === tm.name; });
+      var row = document.createElement('div');
+      row.className = 'team-member-row' + (captainState.expandedTeamMember === tm.name ? ' expanded' : '');
+      var leftDiv = document.createElement('div');
+      var arrow = document.createElement('span');
+      arrow.className = 'expand-icon';
+      arrow.textContent = '\u25B6 ';
+      leftDiv.appendChild(arrow);
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'member-name';
+      nameSpan.textContent = tm.name;
+      leftDiv.appendChild(nameSpan);
+      row.appendChild(leftDiv);
+      row.addEventListener('click', (function(person) {
+        return function() {
+          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+          refreshSidebar();
+        };
+      })(tm));
+      teamContainer.appendChild(row);
+
+      var listsDiv = document.createElement('div');
+      listsDiv.className = 'team-member-lists' + (captainState.expandedTeamMember === tm.name ? ' open' : '');
+      var removeBtn = document.createElement('button');
+      removeBtn.style.cssText = 'display:block;width:calc(100% - 32px);margin:8px 16px;padding:6px 10px;background:#991b1b;color:#fca5a5;border:1px solid #dc2626;border-radius:6px;font-size:12px;cursor:pointer';
+      removeBtn.textContent = 'Remove ' + tm.name;
+      removeBtn.addEventListener('click', (function(person) {
+        return function(e) { e.stopPropagation(); removeTeamMember(person.id, person.name); };
+      })(tm));
+      listsDiv.appendChild(removeBtn);
+      if (legacyLists.length === 0) {
+        var emptyMsg = document.createElement('div');
+        emptyMsg.style.cssText = 'padding:8px 16px;color:#475569;font-size:12px';
+        emptyMsg.textContent = 'No lists yet';
+        listsDiv.appendChild(emptyMsg);
+      }
+      legacyLists.forEach(function(l) {
+        var item = document.createElement('div');
+        var isActive = (captainState.selectedListType === 'captain' && captainState.selectedListId === l.id);
+        item.className = 'list-item' + (isActive ? ' active' : '');
+        var left = document.createElement('div');
+        left.textContent = l.name;
+        item.appendChild(left);
+        var count = document.createElement('span');
+        count.className = 'count';
+        count.textContent = l.voter_count || 0;
+        item.appendChild(count);
+        item.addEventListener('click', (function(listItem) {
+          return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
+        })(l));
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -1473,85 +1569,7 @@ async function removeVoterFromList(voterId) {
 }
 
 // ===================== LIST MANAGEMENT =====================
-
-function showNewListModal() {
-  var overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = 'newListModal';
-
-  var box = document.createElement('div');
-  box.className = 'modal-box';
-
-  var h3 = document.createElement('h3');
-  h3.textContent = 'Create New List';
-  box.appendChild(h3);
-
-  var fg1 = document.createElement('div');
-  fg1.className = 'form-group';
-  var lbl1 = document.createElement('label');
-  lbl1.textContent = 'List Name';
-  fg1.appendChild(lbl1);
-  var inp = document.createElement('input');
-  inp.type = 'text';
-  inp.id = 'newListName';
-  inp.placeholder = 'e.g., Precinct 42';
-  fg1.appendChild(inp);
-  box.appendChild(fg1);
-
-  var fg2 = document.createElement('div');
-  fg2.className = 'form-group';
-  var lbl2 = document.createElement('label');
-  lbl2.textContent = 'Assign to Team Member (optional)';
-  fg2.appendChild(lbl2);
-  var select = document.createElement('select');
-  select.id = 'newListTeamMember';
-  var defaultOpt = document.createElement('option');
-  defaultOpt.value = '';
-  defaultOpt.textContent = '-- My List --';
-  select.appendChild(defaultOpt);
-  // Populate team members
-  var members = (captainState.captain.team_members || []);
-  members.forEach(function(m) {
-    var opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = m.name;
-    select.appendChild(opt);
-  });
-  fg2.appendChild(select);
-  box.appendChild(fg2);
-
-  var btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
-
-  var createBtn = document.createElement('button');
-  createBtn.className = 'btn btn-captain';
-  createBtn.textContent = 'Create';
-  createBtn.addEventListener('click', createList);
-  btnRow.appendChild(createBtn);
-
-  var cancelBtn = document.createElement('button');
-  cancelBtn.className = 'btn btn-secondary';
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.addEventListener('click', function() { closeModal('newListModal'); });
-  btnRow.appendChild(cancelBtn);
-
-  box.appendChild(btnRow);
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-}
-
-async function createList() {
-  var name = document.getElementById('newListName').value.trim();
-  if (!name) { alert('Please enter a list name.'); return; }
-  var teamMemberId = document.getElementById('newListTeamMember').value || null;
-  await api('/api/captains/' + captainState.captain.id + '/lists', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, team_member_id: teamMemberId })
-  });
-  closeModal('newListModal');
-  refreshSidebar();
-}
+// (List creation removed — each captain gets one auto-created "My Voters" list)
 
 function closeModal(id) {
   var m = document.getElementById(id);
