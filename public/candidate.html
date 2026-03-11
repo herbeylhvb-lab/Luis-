@@ -985,41 +985,67 @@ function renderAllLists() {
     });
   }
 
-  // Captain lists (read-only view)
-  var captainLists = [];
-  captains.forEach(function(cap) {
-    (cap.lists || []).forEach(function(l) {
-      captainLists.push({ list: l, captain: cap });
+  // Captain lists — show as tree with captain name, sub-captains indented
+  if (captains.length > 0) {
+    var capIdSet = new Set(captains.map(function(c) { return c.id; }));
+    var capTopLevel = captains.filter(function(c) { return !c.parent_captain_id || !capIdSet.has(c.parent_captain_id); });
+    var capChildrenOf = {};
+    captains.forEach(function(c) {
+      if (c.parent_captain_id && capIdSet.has(c.parent_captain_id)) {
+        if (!capChildrenOf[c.parent_captain_id]) capChildrenOf[c.parent_captain_id] = [];
+        capChildrenOf[c.parent_captain_id].push(c);
+      }
     });
-  });
 
-  if (captainLists.length > 0) {
+    var totalCapLists = captains.reduce(function(s, c) { return s + (c.lists || []).length; }, 0);
     var capTitle = document.createElement('div');
     capTitle.style.cssText = 'font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px;font-weight:600';
-    capTitle.textContent = 'Captain Voter Lists (' + captainLists.length + ')';
+    capTitle.textContent = 'Captain Voter Lists (' + totalCapLists + ')';
     container.appendChild(capTitle);
 
-    captainLists.forEach(function(item) {
+    function renderCapListRow(cap, indent) {
+      var totalVoters = 0;
+      (cap.lists || []).forEach(function(l) { totalVoters += (l.voter_count || 0); });
       var row = document.createElement('div');
       row.className = 'list-row';
       row.style.cursor = 'pointer';
-      row.onclick = function() { viewCaptainList(item.list.id, item.list.name, item.captain.name); };
+      if (indent > 0) {
+        row.style.marginLeft = (indent * 24) + 'px';
+        row.style.borderLeft = '3px solid #334155';
+        row.style.paddingLeft = '12px';
+      }
+      row.onclick = function() {
+        var listId = (cap.lists && cap.lists[0]) ? cap.lists[0].id : null;
+        if (listId) viewCaptainList(listId, cap.name, cap.name);
+      };
       var left = document.createElement('div');
       var nameEl = document.createElement('div');
       nameEl.className = 'list-name';
-      nameEl.textContent = item.list.name;
+      nameEl.textContent = cap.name;
+      if (indent > 0) {
+        var subTag = document.createElement('span');
+        subTag.style.cssText = 'font-size:10px;color:#64748b;margin-left:8px;font-weight:400';
+        subTag.textContent = 'Sub-Captain';
+        nameEl.appendChild(subTag);
+      }
       left.appendChild(nameEl);
       var metaEl = document.createElement('div');
       metaEl.className = 'list-meta';
-      metaEl.textContent = 'Captain: ' + item.captain.name + '  \u00B7  Click to view voters';
+      metaEl.textContent = 'Code: ' + cap.code + '  \u00B7  Click to view voters';
       left.appendChild(metaEl);
       row.appendChild(left);
       var count = document.createElement('div');
       count.className = 'voter-count';
-      count.textContent = item.list.voter_count || 0;
+      count.textContent = totalVoters;
       row.appendChild(count);
       container.appendChild(row);
-    });
+
+      // Render sub-captain lists indented
+      var subs = capChildrenOf[cap.id] || [];
+      subs.forEach(function(sub) { renderCapListRow(sub, indent + 1); });
+    }
+
+    capTopLevel.forEach(function(cap) { renderCapListRow(cap, 0); });
   }
 
   if (lists.length === 0 && captainLists.length === 0) {
