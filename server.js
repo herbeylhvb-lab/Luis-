@@ -604,6 +604,12 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error.' });
 });
 
+// One-time user reset: set RESET_USERS=true in Railway env vars, deploy, then REMOVE it
+if (process.env.RESET_USERS === 'true') {
+  const deleted = db.prepare('DELETE FROM users').run();
+  console.log(`⚠️  RESET_USERS: Deleted ${deleted.changes} user(s). Remove RESET_USERS env var now!`);
+}
+
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('CampaignText HQ running on port ' + PORT);
