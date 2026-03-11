@@ -30,6 +30,7 @@ COPY package.json ./
 COPY server.js ./
 COPY db.js ./
 COPY routes/ ./routes/
+COPY lib/ ./lib/
 COPY public/ ./public/
 
 # Create data directory for SQLite database
