@@ -5651,11 +5651,27 @@ async function loadCaptains() {
       return;
     }
 
+    // Build tree: top-level captains first, sub-captains indented
+    const captainIdSet = new Set(captains.map(c => c.id));
+    const topLevel = captains.filter(c => !c.parent_captain_id || !captainIdSet.has(c.parent_captain_id));
+    const childrenOf = {};
     captains.forEach(c => {
+      if (c.parent_captain_id && captainIdSet.has(c.parent_captain_id)) {
+        if (!childrenOf[c.parent_captain_id]) childrenOf[c.parent_captain_id] = [];
+        childrenOf[c.parent_captain_id].push(c);
+      }
+    });
+
+    function renderAdminCaptainCard(c, indentLevel) {
+      const wrapper = document.createElement('div');
+      if (indentLevel > 0) {
+        wrapper.style.cssText = 'margin-left:' + (indentLevel * 32) + 'px;border-left:3px solid #334155;padding-left:12px';
+      }
+
       const card = document.createElement('div');
       card.className = 'captain-card';
       card.dataset.captainName = (c.name || '').toLowerCase();
-      card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:12px';
+      card.style.cssText = 'background:' + (indentLevel > 0 ? '#0d1525' : '#0f172a') + ';border:1px solid ' + (indentLevel > 0 ? '#475569' : '#334155') + ';border-radius:12px;padding:20px;margin-bottom:12px';
 
       // Header row: name + code + status
       const header = document.createElement('div');
@@ -5665,6 +5681,12 @@ async function loadCaptains() {
       const name = document.createElement('div');
       name.style.cssText = 'font-weight:700;font-size:16px';
       name.textContent = c.name;
+      if (indentLevel > 0) {
+        const subTag = document.createElement('span');
+        subTag.style.cssText = 'font-size:11px;color:#64748b;font-weight:400;margin-left:8px';
+        subTag.textContent = 'Sub-Captain';
+        name.appendChild(subTag);
+      }
       left.appendChild(name);
 
       const codeRow = document.createElement('div');
@@ -5802,8 +5824,15 @@ async function loadCaptains() {
         card.appendChild(teamDiv);
       }
 
-      el.appendChild(card);
-    });
+      wrapper.appendChild(card);
+      el.appendChild(wrapper);
+
+      // Render sub-captains indented
+      const subs = childrenOf[c.id] || [];
+      subs.forEach(sub => renderAdminCaptainCard(sub, indentLevel + 1));
+    }
+
+    topLevel.forEach(c => renderAdminCaptainCard(c, 0));
   } catch (err) {
     console.error('Failed to load captains:', err);
   }
@@ -6064,11 +6093,41 @@ async function showCandidateDetail(id, name) {
   document.getElementById('candidateDetailCard').style.display = '';
   try {
     var capData = await api('/api/candidates/' + id + '/captains');
+    var allCaps = capData.captains || [];
     var capTbody = document.querySelector('#candidateCaptainsTable tbody');
     capTbody.textContent = '';
-    (capData.captains || []).forEach(function(c) {
+
+    // Build tree for candidate's captains
+    var capIdSet = new Set(allCaps.map(function(c) { return c.id; }));
+    var capTopLevel = allCaps.filter(function(c) { return !c.parent_captain_id || !capIdSet.has(c.parent_captain_id); });
+    var capChildrenOf = {};
+    allCaps.forEach(function(c) {
+      if (c.parent_captain_id && capIdSet.has(c.parent_captain_id)) {
+        if (!capChildrenOf[c.parent_captain_id]) capChildrenOf[c.parent_captain_id] = [];
+        capChildrenOf[c.parent_captain_id].push(c);
+      }
+    });
+
+    function renderCapRow(c, indent) {
       var tr = document.createElement('tr');
-      var tdN = document.createElement('td'); tdN.textContent = c.name; tr.appendChild(tdN);
+      if (indent > 0) tr.style.background = '#0d1525';
+      var tdN = document.createElement('td');
+      tdN.style.paddingLeft = (indent * 24 + 8) + 'px';
+      if (indent > 0) {
+        var arrow = document.createElement('span');
+        arrow.style.cssText = 'color:#475569;margin-right:6px';
+        arrow.textContent = '\u2514\u2500';
+        tdN.appendChild(arrow);
+      }
+      var nameText = document.createTextNode(c.name);
+      tdN.appendChild(nameText);
+      if (indent > 0) {
+        var subTag = document.createElement('span');
+        subTag.style.cssText = 'font-size:10px;color:#64748b;margin-left:6px';
+        subTag.textContent = 'sub';
+        tdN.appendChild(subTag);
+      }
+      tr.appendChild(tdN);
       var tdC = document.createElement('td');
       var code = document.createElement('code');
       code.style.cssText = 'background:#1e293b;padding:2px 4px;border-radius:4px;font-size:11px;cursor:pointer';
@@ -6083,7 +6142,11 @@ async function showCandidateDetail(id, name) {
       sb.textContent = c.is_active ? 'Active' : 'Off';
       tdS.appendChild(sb); tr.appendChild(tdS);
       capTbody.appendChild(tr);
-    });
+      // Render children
+      (capChildrenOf[c.id] || []).forEach(function(sub) { renderCapRow(sub, indent + 1); });
+    }
+
+    capTopLevel.forEach(function(c) { renderCapRow(c, 0); });
     if ((capData.captains || []).length === 0) {
       var emptyTr = document.createElement('tr');
       var emptyTd = document.createElement('td');

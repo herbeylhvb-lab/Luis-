@@ -187,7 +187,7 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
 
   // Load dashboard data
   const captains = db.prepare(`
-    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at
+    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id
     FROM captains c WHERE c.candidate_id = ? ORDER BY c.name
   `).all(candidate.id);
 
@@ -241,7 +241,7 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
 
   const captains = db.prepare(`
-    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at
+    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id
     FROM captains c WHERE c.candidate_id = ? ORDER BY c.name
   `).all(candidate.id);
 
@@ -432,6 +432,83 @@ router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateA
   if (!list) return res.status(404).json({ error: 'List not found.' });
   db.prepare('DELETE FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
   res.json({ success: true });
+});
+
+// View voters on a captain's list (read-only for candidate)
+router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth, (req, res) => {
+  // Verify list belongs to a captain under this candidate
+  const list = db.prepare(`
+    SELECT cl.*, c.name as captain_name FROM captain_lists cl
+    JOIN captains c ON cl.captain_id = c.id
+    WHERE cl.id = ? AND c.candidate_id = ?
+  `).get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'Captain list not found.' });
+  const voters = db.prepare(`
+    SELECT v.*, clv.added_at FROM captain_list_voters clv
+    JOIN voters v ON clv.voter_id = v.id
+    WHERE clv.list_id = ? ORDER BY clv.added_at DESC
+  `).all(req.params.listId);
+  res.json({ list, voters });
+});
+
+// Master list: all unique voters across ALL lists with source info
+router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
+  const candidateIdParam = req.params.id;
+
+  // Gather all voter appearances from both admin and captain lists
+  const rows = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip,
+           v.phone, v.party, v.precinct,
+           source_name, source_type, list_name, added_at
+    FROM (
+      SELECT alv.voter_id, 'My List' as source_name, 'admin' as source_type,
+             al.name as list_name, alv.added_at
+      FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id
+      WHERE al.candidate_id = ?
+      UNION ALL
+      SELECT clv.voter_id, c.name as source_name, 'captain' as source_type,
+             cl.name as list_name, clv.added_at
+      FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captains c ON cl.captain_id = c.id
+      WHERE c.candidate_id = ?
+    ) sources
+    JOIN voters v ON sources.voter_id = v.id
+    ORDER BY v.last_name, v.first_name
+  `).all(candidateIdParam, candidateIdParam);
+
+  // Group by voter_id — each voter gets an array of which lists they're on
+  const voterMap = new Map();
+  for (const row of rows) {
+    if (!voterMap.has(row.id)) {
+      voterMap.set(row.id, {
+        id: row.id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        address: row.address,
+        city: row.city,
+        zip: row.zip,
+        phone: row.phone,
+        party: row.party,
+        precinct: row.precinct,
+        lists: []
+      });
+    }
+    voterMap.get(row.id).lists.push({
+      source_name: row.source_name,
+      source_type: row.source_type,
+      list_name: row.list_name,
+      added_at: row.added_at
+    });
+  }
+
+  const voters = Array.from(voterMap.values());
+  const totalAppearances = rows.length;
+  const uniqueVoters = voters.length;
+  const overlaps = voters.filter(v => v.lists.length > 1).length;
+
+  res.json({ voters, totalAppearances, uniqueVoters, overlaps });
 });
 
 // Assign a candidate's list to one of their captains

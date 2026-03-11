@@ -145,6 +145,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   .search-right{min-width:100%;max-height:50vh}
   .tab-btn{padding:10px 14px;font-size:13px}
 }
+/* MASTER LIST */
+.master-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+.master-stats{display:flex;gap:16px}
+.master-stat{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px 20px;text-align:center}
+.master-stat .num{font-size:1.5rem;font-weight:800;color:#818cf8}
+.master-stat .label{font-size:11px;color:#64748b;text-transform:uppercase}
+.master-search{margin-bottom:16px}
+.master-search input{width:100%;max-width:400px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;outline:none}
+.master-search input:focus{border-color:#818cf8}
+.master-table{width:100%;border-collapse:collapse}
+.master-table thead th{text-align:left;padding:10px 12px;font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #334155;background:#1e293b;position:sticky;top:0;z-index:1}
+.master-table tbody td{padding:10px 12px;border-bottom:1px solid #1e293b;font-size:13px;vertical-align:top}
+.master-table tbody tr:hover{background:#1e293b}
+.source-tag{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;margin:2px 2px}
+.source-tag.admin{background:#312e81;color:#a5b4fc}
+.source-tag.captain{background:#064e3b;color:#6ee7b7}
+.overlap-badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;background:#78350f;color:#fcd34d;margin-left:6px}
+
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
@@ -179,6 +197,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="tab-btn" data-tab="search" onclick="switchTab('search')">Voter Search</button>
     <button class="tab-btn" data-tab="lists" onclick="switchTab('lists')">My Lists</button>
+    <button class="tab-btn" data-tab="master" onclick="switchTab('master')">Master List</button>
   </div>
 
   <!-- ===================== DASHBOARD TAB ===================== -->
@@ -244,6 +263,40 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <button class="btn btn-sm btn-primary" onclick="showNewListModal()">+ New List</button>
       </div>
       <div id="allListsView"></div>
+    </div>
+  </div>
+
+  <!-- ===================== MASTER LIST TAB ===================== -->
+  <div id="tab-master" class="tab-content">
+    <div class="dash-container">
+      <div class="master-header">
+        <div>
+          <h2 style="font-size:18px;margin-bottom:4px">Master Voter List</h2>
+          <p style="font-size:13px;color:#64748b">Every voter across all your lists — see who has them</p>
+        </div>
+        <div class="master-stats" id="masterStats"></div>
+      </div>
+      <div class="master-search">
+        <input type="text" id="masterSearchInput" placeholder="Filter by name, address, captain..." oninput="filterMasterList()">
+      </div>
+      <div style="overflow-x:auto">
+        <table class="master-table">
+          <thead>
+            <tr>
+              <th>Voter</th>
+              <th>Address</th>
+              <th>Party</th>
+              <th>Phone</th>
+              <th>On Lists</th>
+            </tr>
+          </thead>
+          <tbody id="masterTableBody"></tbody>
+        </table>
+      </div>
+      <div id="masterEmpty" class="empty-state" style="display:none">
+        <div class="icon">&#128203;</div>
+        <p>No voters on any lists yet.</p>
+      </div>
     </div>
   </div>
 </div>
@@ -353,6 +406,7 @@ function switchTab(tab) {
 
   if (tab === 'search') populateListSelector();
   if (tab === 'lists') renderAllLists();
+  if (tab === 'master') loadMasterList();
 }
 
 // ===================== DASHBOARD RENDERING =====================
@@ -406,13 +460,34 @@ function renderCaptainCards(captains) {
     return;
   }
 
+  // Build tree: top-level captains (no parent or parent not in this candidate's captains)
+  var captainIds = new Set(captains.map(function(c) { return c.id; }));
+  var topLevel = captains.filter(function(c) {
+    return !c.parent_captain_id || !captainIds.has(c.parent_captain_id);
+  });
+  var childrenOf = {};
+  captains.forEach(function(c) {
+    if (c.parent_captain_id && captainIds.has(c.parent_captain_id)) {
+      if (!childrenOf[c.parent_captain_id]) childrenOf[c.parent_captain_id] = [];
+      childrenOf[c.parent_captain_id].push(c);
+    }
+  });
+
   // Find max voters for progress bar scaling
   var maxVoters = Math.max.apply(null, captains.map(function(c) { return c.total_voters || 0; }));
   if (maxVoters < 10) maxVoters = 10;
 
-  captains.forEach(function(cap) {
+  function renderCaptainCard(cap, indentLevel) {
+    var wrapper = document.createElement('div');
+    if (indentLevel > 0) {
+      wrapper.style.cssText = 'margin-left:' + (indentLevel * 32) + 'px;border-left:3px solid #334155;padding-left:12px';
+    }
+
     var card = document.createElement('div');
     card.className = 'captain-card';
+    if (indentLevel > 0) {
+      card.style.cssText = 'border-color:#475569;background:#1a2332';
+    }
 
     // Header row: name + code
     var header = document.createElement('div');
@@ -422,6 +497,12 @@ function renderCaptainCards(captains) {
     info.className = 'captain-info';
     var h3 = document.createElement('h3');
     h3.textContent = cap.name;
+    if (indentLevel > 0) {
+      var subBadge = document.createElement('span');
+      subBadge.style.cssText = 'font-size:11px;color:#64748b;font-weight:400;margin-left:8px';
+      subBadge.textContent = 'Sub-Captain';
+      h3.appendChild(subBadge);
+    }
     info.appendChild(h3);
 
     var meta = document.createElement('div');
@@ -449,7 +530,7 @@ function renderCaptainCards(captains) {
     header.appendChild(codeEl);
     card.appendChild(header);
 
-    // Voter count (captains have one list)
+    // Voter count
     var totalVoters = cap.total_voters || 0;
     var statsRow = document.createElement('div');
     statsRow.className = 'captain-stats';
@@ -466,13 +547,44 @@ function renderCaptainCards(captains) {
     vs.appendChild(vsLabel);
     statsRow.appendChild(vs);
 
+    // Show sub-captain count for top-level captains
+    var subs = childrenOf[cap.id] || [];
+    if (subs.length > 0) {
+      var subStat = document.createElement('div');
+      subStat.className = 'captain-stat';
+      var subNum = document.createElement('div');
+      subNum.className = 'num';
+      subNum.textContent = subs.length;
+      subStat.appendChild(subNum);
+      var subLabel = document.createElement('div');
+      subLabel.className = 'label';
+      subLabel.textContent = 'Sub-Captains';
+      subStat.appendChild(subLabel);
+      statsRow.appendChild(subStat);
+
+      // Total voters across this captain + all subs
+      var teamVoters = totalVoters;
+      subs.forEach(function(s) { teamVoters += (s.total_voters || 0); });
+      var teamStat = document.createElement('div');
+      teamStat.className = 'captain-stat';
+      var teamNum = document.createElement('div');
+      teamNum.className = 'num';
+      teamNum.textContent = teamVoters;
+      teamStat.appendChild(teamNum);
+      var teamLabel = document.createElement('div');
+      teamLabel.className = 'label';
+      teamLabel.textContent = 'Team Total';
+      teamStat.appendChild(teamLabel);
+      statsRow.appendChild(teamStat);
+    }
+
     card.appendChild(statsRow);
 
     // Progress bar
     var pbar = document.createElement('div');
     pbar.className = 'progress-bar';
     var pfill = document.createElement('div');
-    pfill.className = 'progress-fill purple';
+    pfill.className = 'progress-fill ' + (indentLevel > 0 ? 'blue' : 'purple');
     var pct = maxVoters > 0 ? Math.min((totalVoters / maxVoters) * 100, 100) : 0;
     pfill.style.width = Math.max(pct, 2) + '%';
     pbar.appendChild(pfill);
@@ -490,7 +602,19 @@ function renderCaptainCards(captains) {
     portalLink.appendChild(a);
     card.appendChild(portalLink);
 
-    container.appendChild(card);
+    wrapper.appendChild(card);
+    container.appendChild(wrapper);
+
+    // Render sub-captains indented
+    if (subs.length > 0) {
+      subs.forEach(function(sub) {
+        renderCaptainCard(sub, indentLevel + 1);
+      });
+    }
+  }
+
+  topLevel.forEach(function(cap) {
+    renderCaptainCard(cap, 0);
   });
 }
 
@@ -840,6 +964,8 @@ function renderAllLists() {
     captainLists.forEach(function(item) {
       var row = document.createElement('div');
       row.className = 'list-row';
+      row.style.cursor = 'pointer';
+      row.onclick = function() { viewCaptainList(item.list.id, item.list.name, item.captain.name); };
       var left = document.createElement('div');
       var nameEl = document.createElement('div');
       nameEl.className = 'list-name';
@@ -847,7 +973,7 @@ function renderAllLists() {
       left.appendChild(nameEl);
       var metaEl = document.createElement('div');
       metaEl.className = 'list-meta';
-      metaEl.textContent = 'Captain: ' + item.captain.name;
+      metaEl.textContent = 'Captain: ' + item.captain.name + '  \u00B7  Click to view voters';
       left.appendChild(metaEl);
       row.appendChild(left);
       var count = document.createElement('div');
@@ -866,6 +992,218 @@ function renderAllLists() {
     empty.appendChild(p);
     container.appendChild(empty);
   }
+}
+
+// ===================== CAPTAIN LIST VIEWER =====================
+
+async function viewCaptainList(listId, listName, captainName) {
+  var existing = document.getElementById('captainListViewerOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'captainListViewerOverlay';
+  overlay.className = 'modal-overlay';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;display:flex;flex-direction:column';
+
+  var headerDiv = document.createElement('div');
+  headerDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px';
+  var titleDiv = document.createElement('div');
+  var h3 = document.createElement('h3');
+  h3.style.cssText = 'font-size:16px;margin-bottom:4px';
+  h3.textContent = listName;
+  titleDiv.appendChild(h3);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:13px;color:#64748b';
+  sub.textContent = 'Captain: ' + captainName + '  \u00B7  Loading...';
+  titleDiv.appendChild(sub);
+  headerDiv.appendChild(titleDiv);
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-sm btn-secondary';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { overlay.remove(); };
+  headerDiv.appendChild(closeBtn);
+  box.appendChild(headerDiv);
+
+  var listContainer = document.createElement('div');
+  listContainer.style.cssText = 'flex:1;overflow-y:auto';
+  box.appendChild(listContainer);
+
+  overlay.appendChild(box);
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
+    var data = await resp.json();
+    var voters = data.voters || [];
+    sub.textContent = 'Captain: ' + captainName + '  \u00B7  ' + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+
+    if (voters.length === 0) {
+      var emptyDiv = document.createElement('div');
+      emptyDiv.className = 'right-empty';
+      emptyDiv.textContent = 'No voters on this list yet.';
+      listContainer.appendChild(emptyDiv);
+      return;
+    }
+
+    voters.forEach(function(v) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid #334155;font-size:13px';
+      var infoDiv = document.createElement('div');
+      var nameEl = document.createElement('div');
+      nameEl.style.cssText = 'font-weight:600;color:#e2e8f0';
+      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      infoDiv.appendChild(nameEl);
+      var addrEl = document.createElement('div');
+      addrEl.style.cssText = 'color:#64748b;font-size:12px;margin-top:2px';
+      addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+      infoDiv.appendChild(addrEl);
+      if (v.phone) {
+        var phoneEl = document.createElement('div');
+        phoneEl.style.cssText = 'color:#64748b;font-size:12px';
+        phoneEl.textContent = v.phone;
+        infoDiv.appendChild(phoneEl);
+      }
+      row.appendChild(infoDiv);
+      if (v.party) {
+        var partyBadge = document.createElement('span');
+        partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
+        partyBadge.textContent = v.party;
+        row.appendChild(partyBadge);
+      }
+      listContainer.appendChild(row);
+    });
+  } catch (e) {
+    sub.textContent = 'Error loading voters';
+    console.error(e);
+  }
+}
+
+// ===================== MASTER LIST =====================
+
+var masterListData = [];
+
+async function loadMasterList() {
+  var tbody = document.getElementById('masterTableBody');
+  var emptyEl = document.getElementById('masterEmpty');
+  var statsEl = document.getElementById('masterStats');
+  tbody.textContent = '';
+  emptyEl.style.display = 'none';
+  statsEl.textContent = '';
+
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/master-list');
+    var data = await resp.json();
+    masterListData = data.voters || [];
+
+    var stats = [
+      { num: data.uniqueVoters || 0, label: 'Unique Voters' },
+      { num: data.totalAppearances || 0, label: 'List Entries' },
+      { num: data.overlaps || 0, label: 'On Multiple Lists' }
+    ];
+    stats.forEach(function(s) {
+      var card = document.createElement('div');
+      card.className = 'master-stat';
+      var num = document.createElement('div');
+      num.className = 'num';
+      num.textContent = s.num;
+      card.appendChild(num);
+      var label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = s.label;
+      card.appendChild(label);
+      statsEl.appendChild(card);
+    });
+
+    if (masterListData.length === 0) {
+      emptyEl.style.display = '';
+      return;
+    }
+
+    renderMasterRows(masterListData);
+  } catch (e) {
+    console.error('master list error:', e);
+  }
+}
+
+function filterMasterList() {
+  var q = (document.getElementById('masterSearchInput').value || '').trim().toLowerCase();
+  if (!q) {
+    renderMasterRows(masterListData);
+    return;
+  }
+  var filtered = masterListData.filter(function(v) {
+    var text = (v.first_name + ' ' + v.last_name + ' ' + v.address + ' ' + v.city + ' ' + v.phone + ' ' + v.party + ' ' + v.precinct).toLowerCase();
+    v.lists.forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
+    return text.indexOf(q) !== -1;
+  });
+  renderMasterRows(filtered);
+}
+
+function renderMasterRows(voters) {
+  var tbody = document.getElementById('masterTableBody');
+  tbody.textContent = '';
+
+  voters.forEach(function(v) {
+    var tr = document.createElement('tr');
+
+    var tdName = document.createElement('td');
+    var nameText = document.createElement('div');
+    nameText.style.fontWeight = '600';
+    nameText.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    tdName.appendChild(nameText);
+    if (v.precinct) {
+      var precEl = document.createElement('div');
+      precEl.style.cssText = 'font-size:11px;color:#64748b;margin-top:2px';
+      precEl.textContent = 'Pct ' + v.precinct;
+      tdName.appendChild(precEl);
+    }
+    tr.appendChild(tdName);
+
+    var tdAddr = document.createElement('td');
+    tdAddr.style.color = '#94a3b8';
+    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    tr.appendChild(tdAddr);
+
+    var tdParty = document.createElement('td');
+    if (v.party) {
+      var partyBadge = document.createElement('span');
+      partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
+      partyBadge.textContent = v.party;
+      tdParty.appendChild(partyBadge);
+    }
+    tr.appendChild(tdParty);
+
+    var tdPhone = document.createElement('td');
+    tdPhone.style.color = '#94a3b8';
+    tdPhone.textContent = v.phone || '';
+    tr.appendChild(tdPhone);
+
+    var tdLists = document.createElement('td');
+    v.lists.forEach(function(l) {
+      var tag = document.createElement('span');
+      tag.className = 'source-tag ' + l.source_type;
+      if (l.source_type === 'captain') {
+        tag.textContent = l.source_name;
+      } else {
+        tag.textContent = l.list_name;
+      }
+      tag.title = l.list_name + (l.source_type === 'captain' ? ' (Captain: ' + l.source_name + ')' : ' (Your list)');
+      tdLists.appendChild(tag);
+    });
+    if (v.lists.length > 1) {
+      var overlap = document.createElement('span');
+      overlap.className = 'overlap-badge';
+      overlap.textContent = v.lists.length + '\u00D7';
+      overlap.title = 'On ' + v.lists.length + ' lists';
+      tdLists.appendChild(overlap);
+    }
+    tr.appendChild(tdLists);
+
+    tbody.appendChild(tr);
+  });
 }
 
 // ===================== MODALS =====================
