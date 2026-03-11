@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const db = require('../db');
+const { asyncHandler } = require('../utils');
 
 // Check if any users exist (for first-time setup)
 router.get('/auth/status', (req, res) => {
-  const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+  const count = (db.prepare('SELECT COUNT(*) as c FROM users').get() || { c: 0 }).c;
   const loggedIn = !!(req.session && req.session.userId);
 
   // Google OAuth availability
@@ -35,13 +36,13 @@ router.get('/auth/status', (req, res) => {
 });
 
 // First-time setup: create the initial admin account
-router.post('/auth/setup', async (req, res) => {
-  const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+router.post('/auth/setup', asyncHandler(async (req, res) => {
+  const count = (db.prepare('SELECT COUNT(*) as c FROM users').get() || { c: 0 }).c;
   if (count > 0) return res.status(400).json({ error: 'Setup already completed. Use login.' });
 
   const { username, password, displayName } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
-  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
   const hash = await bcrypt.hash(password, 10);
   const result = db.prepare('INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)').run(
@@ -55,10 +56,10 @@ router.post('/auth/setup', async (req, res) => {
   req.session.role = 'admin';
 
   res.json({ success: true, message: 'Admin account created.' });
-});
+}));
 
 // Login
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', asyncHandler(async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
 
@@ -77,24 +78,26 @@ router.post('/auth/login', async (req, res) => {
   req.session.role = user.role;
 
   res.json({ success: true, user: { id: user.id, username: user.username, displayName: user.display_name } });
-});
+}));
 
 // Logout
 router.post('/auth/logout', (req, res) => {
   req.session.destroy(function(err) {
+    if (err) console.error('Session destroy error:', err.message);
     res.json({ success: true });
   });
 });
 
 // Change password
-router.post('/auth/change-password', async (req, res) => {
+router.post('/auth/change-password', asyncHandler(async (req, res) => {
   if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Not logged in.' });
 
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required.' });
-  if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'User not found. Please log in again.' });
   const valid = await bcrypt.compare(currentPassword, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Current password is incorrect.' });
 
@@ -102,6 +105,58 @@ router.post('/auth/change-password', async (req, res) => {
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.session.userId);
 
   res.json({ success: true, message: 'Password updated.' });
+}));
+
+// ── User management (admin only) ──
+
+function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Not logged in.' });
+  if (req.session.role !== 'admin') return res.status(403).json({ error: 'Admin access required.' });
+  next();
+}
+
+// List all users
+router.get('/users', requireAdmin, (req, res) => {
+  const users = db.prepare('SELECT id, username, display_name, role, created_at, last_login FROM users ORDER BY id').all();
+  res.json({ users });
+});
+
+// Create user
+router.post('/users', requireAdmin, asyncHandler(async (req, res) => {
+  const { username, password, displayName, role } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  const validRoles = ['admin', 'captain', 'blockwalker', 'volunteer'];
+  const userRole = validRoles.includes(role) ? role : 'volunteer';
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    db.prepare('INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)').run(
+      username.toLowerCase().trim(), hash, displayName || username, userRole
+    );
+    res.json({ success: true });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(400).json({ error: 'Username already exists.' });
+    console.error('Create user error:', e.message);
+    return res.status(500).json({ error: 'Failed to create user.' });
+  }
+}));
+
+// Reset user password
+router.put('/users/:id/password', requireAdmin, asyncHandler(async (req, res) => {
+  const { password } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  const hash = await bcrypt.hash(password, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
+  res.json({ success: true });
+}));
+
+// Delete user
+router.delete('/users/:id', requireAdmin, (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (isNaN(userId) || userId <= 0) return res.status(400).json({ error: 'Invalid user ID.' });
+  if (userId === req.session.userId) return res.status(400).json({ error: 'Cannot delete yourself.' });
+  db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  res.json({ success: true });
 });
 
 module.exports = router;

@@ -22,7 +22,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .btn{display:inline-flex;align-items:center;gap:6px;padding:12px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
 .btn:hover{opacity:0.85}
 .btn:disabled{opacity:0.5;cursor:not-allowed}
-.btn-captain{background:#f59e0b;color:#000;width:100%;justify-content:center}
+.btn-captain{background:#f59e0b;color:#000;justify-content:center}
 .btn-primary{background:#818cf8;color:#fff}
 .btn-success{background:#22c55e;color:#fff}
 .btn-danger{background:#ef4444;color:#fff}
@@ -49,12 +49,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .list-item.active{background:#334155;color:#f59e0b;border-left-color:#f59e0b}
 .list-item .count{font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:9999px}
 .team-tag{font-size:11px;color:#818cf8;margin-left:4px}
+.team-member-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;font-size:14px;color:#e2e8f0;border-left:3px solid transparent;transition:background 0.15s}
+.team-member-row:hover{background:#334155}
+.team-member-row.expanded{background:#1a2536;border-left-color:#818cf8}
+.team-member-row .member-name{font-weight:600;font-size:13px}
+.team-member-row .member-code{color:#64748b;font-size:11px;font-family:monospace;letter-spacing:1px}
+.team-member-row .expand-icon{color:#64748b;font-size:12px;transition:transform 0.2s}
+.team-member-row.expanded .expand-icon{transform:rotate(90deg)}
+.team-member-lists{padding-left:16px;background:#0f172a;display:none}
+.team-member-lists.open{display:block}
+.team-member-lists .list-item{padding:8px 16px 8px 12px;font-size:13px}
+.team-all-btn{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;font-size:13px;font-weight:600;color:#f59e0b;transition:background 0.15s;border-left:3px solid transparent}
+.team-all-btn:hover{background:#334155}
+.team-all-btn.active{background:#334155;border-left-color:#f59e0b}
 .sidebar-actions{padding:12px 16px;border-top:1px solid #334155;margin-top:auto}
 .sidebar-btn{display:block;width:100%;padding:8px;border:1px dashed #475569;border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;text-align:center;margin-bottom:8px}
 .sidebar-btn:hover{border-color:#f59e0b;color:#f59e0b}
 
 /* Center panel */
-.center-panel{flex:1;overflow-y:auto;padding:20px}
+.center-panel{width:340px;flex-shrink:0;overflow-y:auto;padding:20px}
 .search-bar{position:relative;margin-bottom:20px}
 .search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
 .search-bar input:focus{border-color:#f59e0b}
@@ -82,13 +95,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .empty-state{text-align:center;padding:3rem 1rem;color:#64748b}
 .empty-state .icon{font-size:3rem;margin-bottom:0.5rem}
 
-/* Right panel */
-.right-panel{width:350px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column}
+/* Right panel — voter list (main focus area) */
+.right-panel{flex:1;min-width:400px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;display:flex;flex-direction:column}
 .right-header{padding:16px;border-bottom:1px solid #334155}
 .right-header h3{font-size:15px;margin-bottom:2px}
 .right-header .sub{font-size:12px;color:#64748b}
 .right-list{flex:1;overflow-y:auto;padding:8px}
-.right-voter{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155;font-size:13px}
+.right-voter{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155;font-size:13px}
 .right-voter:last-child{border-bottom:none}
 .right-voter .name{font-weight:600;color:#e2e8f0}
 .right-voter .addr{color:#64748b;font-size:12px;margin-top:2px}
@@ -106,7 +119,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 @media(max-width:900px){
   .app-layout{flex-direction:column;height:auto}
   .sidebar{width:100%;max-height:40vh;border-right:none;border-bottom:1px solid #334155}
-  .right-panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid #334155}
+  .center-panel{width:100%;flex-shrink:1}
+  .right-panel{width:100%;min-width:0;max-height:50vh;border-left:none;border-top:1px solid #334155}
 }
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
@@ -144,7 +158,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <label>Captain Code</label>
       <input type="text" id="captainCode" class="code-input" placeholder="A3F82C" maxlength="6">
     </div>
-    <button class="btn btn-captain" id="btnLogin" onclick="loginCaptain()">Enter Portal</button>
+    <button class="btn btn-captain" id="btnLogin" onclick="loginCaptain()" style="width:100%">Enter Portal</button>
     <div class="error-msg" id="loginError"></div>
     <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
   </div>
@@ -166,8 +180,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="sidebar-section">My Lists</div>
       <div id="myListsContainer"></div>
 
-      <div class="sidebar-section">Team Lists</div>
-      <div id="teamListsContainer"></div>
+      <div class="sidebar-section" id="myTeamSection" style="display:none">My Team</div>
+      <div id="myTeamContainer"></div>
+
+      <div class="sidebar-section" id="assignedListsSection" style="display:none">Assigned by Admin</div>
+      <div id="assignedListsContainer"></div>
 
       <div class="sidebar-actions">
         <button class="sidebar-btn" onclick="showNewListModal()">+ New List</button>
@@ -178,8 +195,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <!-- CENTER: Search -->
     <div class="center-panel">
       <div class="search-bar">
-        <input type="text" id="voterSearch" placeholder="Search voters by name, address, or phone..." oninput="debouncedSearch()">
+        <input type="text" id="voterSearch" placeholder="Search by name, phone, VANID..." oninput="debouncedSearch()">
         <span class="hint">min 2 chars</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        <div class="form-group"><label>City</label><select id="capCityFilter" onchange="debouncedSearch()"><option value="">All Cities</option></select></div>
+        <div class="form-group"><label>ZIP</label><input type="text" id="capZipFilter" placeholder="All" oninput="debouncedSearch()"></div>
+        <div class="form-group"><label>Precinct</label><input type="text" id="capPrecinctFilter" placeholder="All" oninput="debouncedSearch()"></div>
+        <div class="form-group"><label>Address</label><input type="text" id="capAddressFilter" placeholder="Street..." oninput="debouncedSearch()"></div>
       </div>
       <div id="searchResults">
         <div class="empty-state">
@@ -207,8 +230,26 @@ var captainState = {
   captain: null,
   selectedListId: null,
   selectedListName: '',
+  selectedListType: 'captain',
+  selectedSubCaptainId: null,
+  expandedTeamMember: null,
   searchTimeout: null
 };
+
+// Build voted badge label with party: "Voted (D)", "Voted (R)", or "Voted"
+function votedLabel(v) {
+  var ballot = v.early_voted_ballot || '';
+  var party = '';
+  if (ballot === 'Democrat' || ballot === 'D') party = ' (D)';
+  else if (ballot === 'Republican' || ballot === 'R') party = ' (R)';
+  return '\u2713 Voted' + party;
+}
+function votedBadgeColor(v) {
+  var ballot = v.early_voted_ballot || '';
+  if (ballot === 'Democrat' || ballot === 'D') return { bg: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '#3b82f6' };
+  if (ballot === 'Republican' || ballot === 'R') return { bg: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '#ef4444' };
+  return { bg: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '#22c55e' };
+}
 
 function esc(t) {
   var d = document.createElement('div');
@@ -246,6 +287,7 @@ async function loginCaptain() {
     document.getElementById('appScreen').style.display = '';
     document.getElementById('captainGreeting').textContent = 'Welcome, ' + data.captain.name;
     refreshSidebar();
+    loadCapCityFilter();
   } catch (e) {
     errEl.textContent = 'Network error. Please try again.';
     document.getElementById('btnLogin').disabled = false;
@@ -255,6 +297,7 @@ async function loginCaptain() {
 function logoutCaptain() {
   captainState.captain = null;
   captainState.selectedListId = null;
+  captainState.selectedListType = 'captain';
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('captainCode').value = '';
@@ -266,9 +309,14 @@ function logoutCaptain() {
 async function refreshSidebar() {
   var data = await api('/api/captains/' + captainState.captain.id + '/lists');
   var lists = data.lists || [];
+  var subCaptainLists = data.sub_captain_lists || [];
+  var assignedLists = data.assigned_lists || [];
   captainState.captain.lists = lists;
+  captainState.captain.assigned_lists = assignedLists;
+  if (data.team_members) captainState.captain.team_members = data.team_members;
+  if (data.sub_captains) captainState.captain.sub_captains = data.sub_captains;
 
-  // Separate my lists vs team lists
+  // Separate my lists vs team-assigned lists
   var myLists = lists.filter(function(l) { return !l.team_member_name; });
   var teamLists = lists.filter(function(l) { return l.team_member_name; });
 
@@ -282,20 +330,172 @@ async function refreshSidebar() {
   }
   myLists.forEach(function(l) { myEl.appendChild(makeListItem(l)); });
 
-  var teamEl = document.getElementById('teamListsContainer');
-  teamEl.textContent = '';
-  if (teamLists.length === 0) {
-    var empty2 = document.createElement('div');
-    empty2.style.cssText = 'padding:12px 16px;color:#475569;font-size:13px';
-    empty2.textContent = 'No team lists yet.';
-    teamEl.appendChild(empty2);
+  // Unified "My Team" section — each member is expandable to show their lists
+  var teamContainer = document.getElementById('myTeamContainer');
+  var myTeamSection = document.getElementById('myTeamSection');
+  teamContainer.textContent = '';
+  var subCaptains = captainState.captain.sub_captains || [];
+  var teamMembers = captainState.captain.team_members || [];
+
+  // Build combined people list (dedup sub-captains vs legacy team members)
+  var teamPeople = [];
+  var seenNames = {};
+  subCaptains.forEach(function(sc) {
+    // Gather this sub-captain's lists from subCaptainLists
+    var memberLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
+    // Also gather team-assigned lists (legacy) matching this name
+    var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
+    // Find matching team_member record for delete API
+    var matchingTm = teamMembers.find(function(tm) { return tm.name === sc.name; });
+    teamPeople.push({ name: sc.name, code: sc.code, id: sc.id, isActive: sc.is_active, type: 'captain', lists: memberLists, legacyLists: legacyLists, teamMemberId: matchingTm ? matchingTm.id : null });
+    seenNames[sc.name] = true;
+  });
+  teamMembers.forEach(function(tm) {
+    if (!seenNames[tm.name]) {
+      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === tm.name; });
+      teamPeople.push({ name: tm.name, type: 'member', teamMemberId: tm.id, lists: [], legacyLists: legacyLists });
+    }
+  });
+
+  if (teamPeople.length > 0) {
+    myTeamSection.style.display = '';
+
+    // "View All Team Voters" master button
+    var allBtn = document.createElement('div');
+    allBtn.className = 'team-all-btn' + (captainState.selectedListType === 'all-team' ? ' active' : '');
+    var allLabel = document.createElement('span');
+    allLabel.textContent = 'All Team Voters';
+    allBtn.appendChild(allLabel);
+    // Count total team voters
+    var totalTeamVoters = 0;
+    subCaptainLists.forEach(function(l) { totalTeamVoters += (l.voter_count || 0); });
+    teamLists.forEach(function(l) { totalTeamVoters += (l.voter_count || 0); });
+    var allCount = document.createElement('span');
+    allCount.className = 'count';
+    allCount.textContent = totalTeamVoters;
+    allBtn.appendChild(allCount);
+    allBtn.addEventListener('click', function() { selectAllTeamVoters(); });
+    teamContainer.appendChild(allBtn);
+
+    teamPeople.forEach(function(p) {
+      // Member row (clickable to expand)
+      var row = document.createElement('div');
+      row.className = 'team-member-row' + (captainState.expandedTeamMember === p.name ? ' expanded' : '');
+      var leftDiv = document.createElement('div');
+      var arrow = document.createElement('span');
+      arrow.className = 'expand-icon';
+      arrow.textContent = '\u25B6 ';
+      leftDiv.appendChild(arrow);
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'member-name';
+      nameSpan.textContent = p.name;
+      leftDiv.appendChild(nameSpan);
+      row.appendChild(leftDiv);
+      if (p.code) {
+        var codeEl = document.createElement('span');
+        codeEl.className = 'member-code';
+        codeEl.textContent = p.code;
+        row.appendChild(codeEl);
+      }
+      row.addEventListener('click', (function(person) {
+        return function() {
+          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+          refreshSidebar();
+        };
+      })(p));
+      teamContainer.appendChild(row);
+
+      // Expandable lists container
+      var listsDiv = document.createElement('div');
+      listsDiv.className = 'team-member-lists' + (captainState.expandedTeamMember === p.name ? ' open' : '');
+      var allMemberLists = [];
+      // Sub-captain owned lists
+      p.lists.forEach(function(l) {
+        allMemberLists.push({ id: l.id, name: l.name, voter_count: l.voter_count, type: 'subcaptain', sub_captain_id: l.sub_captain_id || p.id });
+      });
+      // Legacy assigned lists
+      p.legacyLists.forEach(function(l) {
+        allMemberLists.push({ id: l.id, name: l.name, voter_count: l.voter_count, type: 'captain' });
+      });
+      // Remove team member button
+      if (p.teamMemberId) {
+        var removeBtn = document.createElement('button');
+        removeBtn.style.cssText = 'display:block;width:calc(100% - 32px);margin:8px 16px;padding:6px 10px;background:#991b1b;color:#fca5a5;border:1px solid #dc2626;border-radius:6px;font-size:12px;cursor:pointer';
+        removeBtn.textContent = 'Remove ' + p.name;
+        removeBtn.addEventListener('click', (function(person) {
+          return function(e) { e.stopPropagation(); removeTeamMember(person.teamMemberId, person.name); };
+        })(p));
+        listsDiv.appendChild(removeBtn);
+      }
+      if (allMemberLists.length === 0) {
+        var emptyMsg = document.createElement('div');
+        emptyMsg.style.cssText = 'padding:8px 16px;color:#475569;font-size:12px';
+        emptyMsg.textContent = 'No lists yet';
+        listsDiv.appendChild(emptyMsg);
+      }
+      allMemberLists.forEach(function(ml) {
+        var item = document.createElement('div');
+        var isActive = (captainState.selectedListType === ml.type && captainState.selectedListId === ml.id);
+        item.className = 'list-item' + (isActive ? ' active' : '');
+        var left = document.createElement('div');
+        left.textContent = ml.name;
+        item.appendChild(left);
+        var count = document.createElement('span');
+        count.className = 'count';
+        count.textContent = ml.voter_count || 0;
+        item.appendChild(count);
+        if (ml.type === 'subcaptain') {
+          item.addEventListener('click', (function(listItem) {
+            return function(e) { e.stopPropagation(); selectSubCaptainList(listItem.id, listItem.name, listItem.sub_captain_id); };
+          })(ml));
+        } else {
+          item.addEventListener('click', (function(listItem) {
+            return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
+          })(ml));
+        }
+        listsDiv.appendChild(item);
+      });
+      teamContainer.appendChild(listsDiv);
+    });
+  } else {
+    myTeamSection.style.display = 'none';
   }
-  teamLists.forEach(function(l) { teamEl.appendChild(makeListItem(l)); });
+
+  // Assigned admin lists
+  var assignedEl = document.getElementById('assignedListsContainer');
+  var assignedSection = document.getElementById('assignedListsSection');
+  assignedEl.textContent = '';
+  if (assignedLists.length > 0) {
+    assignedSection.style.display = '';
+    assignedLists.forEach(function(l) {
+      assignedEl.appendChild(makeAssignedListItem(l));
+    });
+  } else {
+    assignedSection.style.display = 'none';
+  }
+}
+
+function makeAssignedListItem(l) {
+  var item = document.createElement('div');
+  item.className = 'list-item' + (captainState.selectedListType === 'assigned' && captainState.selectedListId === l.id ? ' active' : '');
+  var left = document.createElement('div');
+  left.textContent = l.name;
+  var tag = document.createElement('span');
+  tag.className = 'team-tag';
+  tag.textContent = '(admin)';
+  left.appendChild(tag);
+  item.appendChild(left);
+  var count = document.createElement('span');
+  count.className = 'count';
+  count.textContent = l.voter_count || 0;
+  item.appendChild(count);
+  item.addEventListener('click', function() { selectAssignedList(l.id, l.name); });
+  return item;
 }
 
 function makeListItem(l) {
   var item = document.createElement('div');
-  item.className = 'list-item' + (captainState.selectedListId === l.id ? ' active' : '');
+  item.className = 'list-item' + (captainState.selectedListType === 'captain' && captainState.selectedListId === l.id ? ' active' : '');
   var left = document.createElement('div');
   left.textContent = l.name;
   if (l.team_member_name) {
@@ -318,34 +518,146 @@ function makeListItem(l) {
 async function selectList(listId, listName) {
   captainState.selectedListId = listId;
   captainState.selectedListName = listName;
+  captainState.selectedListType = 'captain'; // captain-owned list
   refreshSidebar();
   await loadListVoters();
+  refreshSearchResults();
 }
+
+async function selectAssignedList(listId, listName) {
+  captainState.selectedListId = listId;
+  captainState.selectedListName = listName;
+  captainState.selectedListType = 'assigned'; // admin-assigned list
+  refreshSidebar();
+  await loadListVoters();
+  refreshSearchResults();
+}
+
+async function selectAllTeamVoters() {
+  captainState.selectedListId = null;
+  captainState.selectedListName = 'All Team Voters';
+  captainState.selectedListType = 'all-team';
+  refreshSidebar();
+  await loadAllTeamVoters();
+  refreshSearchResults();
+}
+
+async function loadAllTeamVoters() {
+  var data = await api('/api/captains/' + captainState.captain.id + '/team-voters');
+  var voters = data.voters || [];
+  _currentListVoters = voters;
+  _currentListTab = 'all';
+
+  var nameEl = document.getElementById('rightListName');
+  nameEl.textContent = 'All Team Voters';
+  document.getElementById('rightListSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '') + ' across all team members';
+
+  // Remove action buttons for master view (read-only)
+  var oldCsvBtn = document.getElementById('btnUploadCsv');
+  if (oldCsvBtn) oldCsvBtn.remove();
+  var oldDlBtn = document.getElementById('btnDownloadList');
+  if (oldDlBtn) oldDlBtn.remove();
+  var headerRow = nameEl.parentNode;
+  headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
+
+  var dlBtn = document.createElement('button');
+  dlBtn.id = 'btnDownloadList';
+  dlBtn.className = 'btn btn-xs btn-captain';
+  dlBtn.style.marginLeft = 'auto';
+  dlBtn.textContent = '\u2B07 Download';
+  dlBtn.addEventListener('click', function() { downloadListCsv(); });
+  headerRow.appendChild(dlBtn);
+
+  renderListVoters();
+}
+
+async function selectSubCaptainList(listId, listName, subCaptainId) {
+  captainState.selectedListId = listId;
+  captainState.selectedListName = listName;
+  captainState.selectedListType = 'subcaptain';
+  captainState.selectedSubCaptainId = subCaptainId;
+  refreshSidebar();
+  await loadListVoters();
+  refreshSearchResults();
+}
+
+// Re-run search when a list is selected so Add buttons appear
+function refreshSearchResults() {
+  var q = document.getElementById('voterSearch').value.trim();
+  var city = (document.getElementById('capCityFilter') || {}).value || '';
+  var zip = (document.getElementById('capZipFilter') || {}).value || '';
+  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
+  var address = (document.getElementById('capAddressFilter') || {}).value || '';
+  if (q.length >= 2 || city || zip || precinct || address) {
+    searchVoters();
+  }
+}
+
+function getListApiBase() {
+  var cid = captainState.captain.id;
+  var lid = captainState.selectedListId;
+  if (captainState.selectedListType === 'assigned') {
+    return '/api/captains/' + cid + '/assigned-lists/' + lid;
+  }
+  if (captainState.selectedListType === 'subcaptain') {
+    return '/api/captains/' + captainState.selectedSubCaptainId + '/lists/' + lid;
+  }
+  return '/api/captains/' + cid + '/lists/' + lid;
+}
+
+// Store current list voters for tab filtering and download
+var _currentListVoters = [];
+var _currentListTab = 'all';
 
 async function loadListVoters() {
   if (!captainState.selectedListId) return;
-  var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters');
+  var data = await api(getListApiBase() + '/voters');
   var voters = data.voters || [];
+  _currentListVoters = voters;
+  _currentListTab = 'all';
 
   var nameEl = document.getElementById('rightListName');
   nameEl.textContent = captainState.selectedListName;
   document.getElementById('rightListSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
-  // Add Upload CSV button to right header
+  // Add Upload CSV + Download buttons to right header
   var oldCsvBtn = document.getElementById('btnUploadCsv');
   if (oldCsvBtn) oldCsvBtn.remove();
+  var oldDlBtn = document.getElementById('btnDownloadList');
+  if (oldDlBtn) oldDlBtn.remove();
   var headerRow = nameEl.parentNode;
   headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
-  var csvBtn = document.createElement('button');
-  csvBtn.id = 'btnUploadCsv';
-  csvBtn.className = 'btn btn-xs btn-captain';
-  csvBtn.style.marginLeft = 'auto';
-  csvBtn.textContent = '\uD83D\uDCC4 Upload CSV';
-  csvBtn.addEventListener('click', function() { openCsvImportModal(); });
-  headerRow.appendChild(csvBtn);
 
+  // Download button (always visible)
+  var dlBtn = document.createElement('button');
+  dlBtn.id = 'btnDownloadList';
+  dlBtn.className = 'btn btn-xs btn-captain';
+  dlBtn.style.marginLeft = 'auto';
+  dlBtn.textContent = '\u2B07 Download';
+  dlBtn.addEventListener('click', function() { downloadListCsv(); });
+  headerRow.appendChild(dlBtn);
+
+  if (captainState.selectedListType !== 'assigned') {
+    var csvBtn = document.createElement('button');
+    csvBtn.id = 'btnUploadCsv';
+    csvBtn.className = 'btn btn-xs btn-captain';
+    csvBtn.textContent = '\uD83D\uDCC4 Upload CSV';
+    csvBtn.addEventListener('click', function() { openCsvImportModal(); });
+    headerRow.appendChild(csvBtn);
+  }
+
+  renderListVoters();
+}
+
+function renderListVoters() {
+  var voters = _currentListVoters;
+  var tab = _currentListTab;
   var el = document.getElementById('rightListContent');
   el.textContent = '';
+
+  // Counts
+  var votedCount = voters.filter(function(v) { return v.early_voted; }).length;
+  var notVotedCount = voters.length - votedCount;
 
   if (voters.length === 0) {
     var emptyDiv = document.createElement('div');
@@ -355,31 +667,183 @@ async function loadListVoters() {
     return;
   }
 
-  voters.forEach(function(v) {
+  // Tab bar: All | Not Voted | Voted
+  var tabBar = document.createElement('div');
+  tabBar.style.cssText = 'display:flex;border-bottom:2px solid #334155;background:#0f172a';
+  var tabs = [
+    { key: 'all', label: 'All (' + voters.length + ')', color: '#e2e8f0' },
+    { key: 'not_voted', label: 'Not Voted (' + notVotedCount + ')', color: '#f59e0b' },
+    { key: 'voted', label: 'Voted (' + votedCount + ')', color: '#22c55e' }
+  ];
+  tabs.forEach(function(t) {
+    var tabBtn = document.createElement('button');
+    var isActive = tab === t.key;
+    tabBtn.style.cssText = 'flex:1;padding:10px 8px;border:none;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.15s;' +
+      'background:' + (isActive ? '#1e293b' : 'transparent') + ';' +
+      'color:' + (isActive ? t.color : '#64748b') + ';' +
+      'border-bottom:3px solid ' + (isActive ? t.color : 'transparent');
+    tabBtn.textContent = t.label;
+    tabBtn.addEventListener('click', function() { _currentListTab = t.key; renderListVoters(); });
+    tabBar.appendChild(tabBtn);
+  });
+  el.appendChild(tabBar);
+
+  // Filter voters by tab
+  var filtered = voters;
+  if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
+  else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
+
+  if (filtered.length === 0) {
+    var noResults = document.createElement('div');
+    noResults.className = 'right-empty';
+    noResults.textContent = tab === 'voted' ? 'No voters have voted yet.' : 'All voters have voted!';
+    el.appendChild(noResults);
+    return;
+  }
+
+  filtered.forEach(function(v) {
     var row = document.createElement('div');
     row.className = 'right-voter';
 
     var info = document.createElement('div');
+    info.style.cursor = 'pointer';
+    info.addEventListener('click', (function(voter) { return function() { showVoterDetail(voter); }; })(v));
+    var nameRow = document.createElement('div');
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
     var n = document.createElement('div');
     n.className = 'name';
     n.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
-    info.appendChild(n);
+    nameRow.appendChild(n);
+    // Early voted badge with party color
+    var evBadge = document.createElement('span');
+    if (v.early_voted) {
+      var bc = votedBadgeColor(v);
+      evBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:' + bc.bg + ';color:' + bc.color + ';border:1px solid ' + bc.border;
+      evBadge.textContent = votedLabel(v) + (v.early_voted_date ? ' ' + v.early_voted_date : '');
+      evBadge.title = 'Voted' + (v.early_voted_date ? ' on ' + v.early_voted_date : '') + (v.early_voted_ballot ? ' (' + v.early_voted_ballot + ')' : '');
+    } else {
+      evBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b;white-space:nowrap';
+      evBadge.textContent = 'Not Voted';
+    }
+    nameRow.appendChild(evBadge);
+    info.appendChild(nameRow);
     var a = document.createElement('div');
     a.className = 'addr';
     a.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
     info.appendChild(a);
 
+    if (v.phone || v.email) {
+      var contact = document.createElement('div');
+      contact.style.cssText = 'font-size:11px;color:#818cf8;margin-top:2px';
+      var parts = [];
+      if (v.phone) parts.push(v.phone);
+      if (v.email) parts.push(v.email);
+      contact.textContent = parts.join(' \u2022 ');
+      info.appendChild(contact);
+    }
+
+    // Turnout tags in list panel
+    if (v.election_votes && v.election_votes.length > 0) {
+      var tags = document.createElement('div');
+      tags.style.cssText = 'display:flex;gap:3px;flex-wrap:wrap;margin-top:3px';
+      v.election_votes.forEach(function(ev) {
+        var tag = document.createElement('span');
+        var isRep = ev.party_voted === 'R';
+        tag.style.cssText = 'font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;' +
+          (isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444' : 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6');
+        var label = ev.election_name;
+        if (ev.party_voted === 'R') label += ' (R)';
+        else if (ev.party_voted === 'D') label += ' (D)';
+        tag.textContent = label;
+        tags.appendChild(tag);
+      });
+      info.appendChild(tags);
+    }
+
     row.appendChild(info);
 
-    var btn = document.createElement('button');
-    btn.className = 'remove-btn';
-    btn.textContent = '\u00D7';
-    btn.title = 'Remove from list';
-    btn.addEventListener('click', function() { removeVoterFromList(v.id); });
-    row.appendChild(btn);
+    if (captainState.selectedListType !== 'all-team') {
+      var btn = document.createElement('button');
+      btn.className = 'remove-btn';
+      btn.textContent = '\u00D7';
+      btn.title = 'Remove from list';
+      btn.addEventListener('click', function() { removeVoterFromList(v.id); });
+      row.appendChild(btn);
+    }
 
     el.appendChild(row);
   });
+}
+
+// Download current filtered list as CSV
+function downloadListCsv() {
+  var voters = _currentListVoters;
+  var tab = _currentListTab;
+  if (tab === 'voted') voters = voters.filter(function(v) { return v.early_voted; });
+  else if (tab === 'not_voted') voters = voters.filter(function(v) { return !v.early_voted; });
+
+  if (voters.length === 0) { alert('No voters to download.'); return; }
+
+  var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
+  var headers = ['First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
+  var csvRows = [headers.join(',')];
+  voters.forEach(function(v) {
+    var votedStatus = 'Not Voted';
+    if (v.early_voted) {
+      var b = v.early_voted_ballot || '';
+      if (b === 'Democrat' || b === 'D') votedStatus = 'Voted (D)';
+      else if (b === 'Republican' || b === 'R') votedStatus = 'Voted (R)';
+      else votedStatus = 'Voted';
+    }
+    var row = [
+      csvEscape(v.first_name || ''),
+      csvEscape(v.last_name || ''),
+      csvEscape(v.address || ''),
+      csvEscape(v.city || ''),
+      csvEscape(v.zip || ''),
+      csvEscape(v.phone || ''),
+      csvEscape(v.email || ''),
+      csvEscape(v.party || ''),
+      csvEscape(v.precinct || ''),
+      votedStatus,
+      csvEscape(v.early_voted_ballot || ''),
+      csvEscape(v.early_voted_date || '')
+    ];
+    csvRows.push(row.join(','));
+  });
+
+  var csvContent = csvRows.join('\n');
+  var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var link = document.createElement('a');
+  link.href = url;
+  var listName = (captainState.selectedListName || 'list').replace(/[^a-zA-Z0-9]/g, '_');
+  link.download = listName + '_' + (tabLabels[tab] || 'All') + '.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(val) {
+  var s = String(val);
+  if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+// ===================== CITY FILTER =====================
+async function loadCapCityFilter() {
+  try {
+    var data = await api('/api/voters-cities');
+    var sel = document.getElementById('capCityFilter');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">All Cities</option>';
+    (data.cities || []).forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    });
+  } catch (err) {}
 }
 
 // ===================== SEARCH =====================
@@ -391,8 +855,13 @@ function debouncedSearch() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
+  var city = (document.getElementById('capCityFilter') || {}).value || '';
+  var zip = (document.getElementById('capZipFilter') || {}).value || '';
+  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
+  var address = (document.getElementById('capAddressFilter') || {}).value || '';
   var el = document.getElementById('searchResults');
-  if (q.length < 2) {
+  var hasFilter = city || zip || precinct || address;
+  if (q.length < 2 && !hasFilter) {
     el.textContent = '';
     var emptyDiv = document.createElement('div');
     emptyDiv.className = 'empty-state';
@@ -407,7 +876,12 @@ async function searchVoters() {
     return;
   }
 
-  var data = await api('/api/captains/' + captainState.captain.id + '/search?q=' + encodeURIComponent(q));
+  var url = '/api/captains/' + captainState.captain.id + '/search?q=' + encodeURIComponent(q);
+  if (city) url += '&city=' + encodeURIComponent(city);
+  if (zip) url += '&zip=' + encodeURIComponent(zip);
+  if (precinct) url += '&precinct=' + encodeURIComponent(precinct);
+  if (address) url += '&address=' + encodeURIComponent(address);
+  var data = await api(url);
   var voters = data.voters || [];
 
   el.textContent = '';
@@ -434,10 +908,27 @@ async function searchVoters() {
     top.className = 'voter-top';
 
     var nameDiv = document.createElement('div');
+    nameDiv.style.cursor = 'pointer';
+    nameDiv.addEventListener('click', (function(voter) { return function() { showVoterDetail(voter); }; })(v));
+    var nameRow = document.createElement('div');
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
     var nameEl = document.createElement('div');
     nameEl.className = 'voter-name';
     nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
-    nameDiv.appendChild(nameEl);
+    nameRow.appendChild(nameEl);
+    // Early voted badge in search results with party color
+    var evSearchBadge = document.createElement('span');
+    if (v.early_voted) {
+      var sc = votedBadgeColor(v);
+      evSearchBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:' + sc.bg + ';color:' + sc.color + ';border:1px solid ' + sc.border;
+      evSearchBadge.textContent = votedLabel(v) + (v.early_voted_date ? ' ' + v.early_voted_date : '');
+      evSearchBadge.title = 'Voted' + (v.early_voted_date ? ' on ' + v.early_voted_date : '') + (v.early_voted_ballot ? ' (' + v.early_voted_ballot + ')' : '');
+    } else {
+      evSearchBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b;white-space:nowrap';
+      evSearchBadge.textContent = 'Not Voted';
+    }
+    nameRow.appendChild(evSearchBadge);
+    nameDiv.appendChild(nameRow);
 
     var addrEl = document.createElement('div');
     addrEl.className = 'voter-addr';
@@ -445,18 +936,14 @@ async function searchVoters() {
     nameDiv.appendChild(addrEl);
     top.appendChild(nameDiv);
 
-    if (captainState.selectedListId) {
-      var addBtn = document.createElement('button');
-      addBtn.className = 'btn btn-sm btn-captain';
-      addBtn.textContent = '+ Add';
-      addBtn.addEventListener('click', function() { addVoterToList(v.id); });
-      top.appendChild(addBtn);
-    } else {
-      var hint = document.createElement('span');
-      hint.style.cssText = 'font-size:11px;color:#64748b';
-      hint.textContent = 'Select a list first';
-      top.appendChild(hint);
-    }
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-xs btn-captain';
+    addBtn.textContent = '+ Add';
+    addBtn.addEventListener('click', (function(voter) { return function() {
+      if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
+      showAddVoterModal(voter);
+    }; })(v));
+    top.appendChild(addBtn);
     card.appendChild(top);
 
     // Meta badges
@@ -489,6 +976,25 @@ async function searchVoters() {
       meta.appendChild(phoneBadge);
     }
     card.appendChild(meta);
+
+    // Turnout tags (red = Republican primary, blue = everything else)
+    if (v.election_votes && v.election_votes.length > 0) {
+      var turnoutDiv = document.createElement('div');
+      turnoutDiv.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:6px';
+      v.election_votes.forEach(function(ev) {
+        var tag = document.createElement('span');
+        var isRep = ev.party_voted === 'R';
+        tag.style.cssText = 'display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;white-space:nowrap;' +
+          (isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444' : 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6');
+        var label = ev.election_name;
+        if (ev.party_voted === 'R') label += ' (R)';
+        else if (ev.party_voted === 'D') label += ' (D)';
+        tag.textContent = label;
+        tag.title = 'Voted in ' + label;
+        turnoutDiv.appendChild(tag);
+      });
+      card.appendChild(turnoutDiv);
+    }
 
     // Voting history
     if (v.voting_history) {
@@ -526,49 +1032,441 @@ async function loadHousehold(voterId, containerEl) {
     member.className = 'household-member';
 
     var info = document.createElement('div');
+    info.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+    var memberNameSpan = document.createElement('span');
     var memberText = (h.first_name || '') + ' ' + (h.last_name || '');
     if (h.party) memberText += ' \u2022 ' + h.party;
-    info.textContent = memberText;
+    memberNameSpan.textContent = memberText;
+    info.appendChild(memberNameSpan);
+    // Household member voted badge with party color
+    var hhEvBadge = document.createElement('span');
+    if (h.early_voted) {
+      var hc = votedBadgeColor(h);
+      hhEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:' + hc.bg + ';color:' + hc.color + ';border:1px solid ' + hc.border;
+      hhEvBadge.textContent = votedLabel(h);
+    } else {
+      hhEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b';
+      hhEvBadge.textContent = 'Not Voted';
+    }
+    info.appendChild(hhEvBadge);
 
     member.appendChild(info);
 
-    // Household members can always be added to list, even if on another captain's list
-    if (captainState.selectedListId) {
-      var addBtn = document.createElement('button');
-      addBtn.className = 'btn btn-xs btn-captain';
-      addBtn.textContent = '+ Add';
-      addBtn.addEventListener('click', function() { addVoterToList(h.id); });
-      member.appendChild(addBtn);
-    }
+    var addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-xs btn-captain';
+    addBtn.textContent = '+ Add';
+    addBtn.addEventListener('click', (function(hh) { return function() {
+      if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
+      showAddVoterModal(hh);
+    }; })(h));
+    member.appendChild(addBtn);
     section.appendChild(member);
   });
 
   containerEl.appendChild(section);
 }
 
+// ===================== VOTER DETAIL MODAL =====================
+
+async function showVoterDetail(voter) {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'voterDetailModal';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal('voterDetailModal'); });
+
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.maxWidth = '520px';
+
+  // Header
+  var h3 = document.createElement('h3');
+  h3.textContent = (voter.first_name || '') + ' ' + (voter.last_name || '');
+  box.appendChild(h3);
+
+  // Info grid
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px';
+
+  var fields = [
+    ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.state ? ', ' + voter.state : '') + (voter.zip ? ' ' + voter.zip : '')],
+    ['Phone', voter.phone || 'N/A'],
+    ['Email', voter.email || 'N/A'],
+    ['Party', voter.party || 'N/A'],
+    ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
+    ['Precinct', voter.precinct || 'N/A'],
+    ['Reg #', voter.registration_number || 'N/A'],
+    ['Tags', voter.tags || 'None']
+  ];
+  if (voter.secondary_phone) fields.push(['Alt Phone', voter.secondary_phone]);
+  if (voter.middle_name) fields.splice(0, 0, ['Middle Name', voter.middle_name]);
+
+  fields.forEach(function(f) {
+    var label = document.createElement('div');
+    label.style.color = '#64748b';
+    label.textContent = f[0];
+    grid.appendChild(label);
+    var val = document.createElement('div');
+    val.style.color = '#e2e8f0';
+    val.textContent = f[1];
+    grid.appendChild(val);
+  });
+  box.appendChild(grid);
+
+  // Early voting status banner
+  var evStatusDiv = document.createElement('div');
+  evStatusDiv.style.cssText = 'border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px;font-weight:600';
+  if (voter.early_voted) {
+    var detailC = votedBadgeColor(voter);
+    evStatusDiv.style.background = detailC.bg;
+    evStatusDiv.style.border = '1px solid ' + detailC.border;
+    evStatusDiv.style.color = detailC.color;
+    var evText = '\u2705 ' + votedLabel(voter).replace('\u2713 ', '');
+    if (voter.early_voted_ballot) evText += ' — ' + voter.early_voted_ballot + ' ballot';
+    if (voter.early_voted_date) evText += ' on ' + voter.early_voted_date;
+    if (voter.early_voted_method) evText += ' (' + voter.early_voted_method + ')';
+    evStatusDiv.textContent = evText;
+  } else {
+    evStatusDiv.style.background = 'rgba(245,158,11,0.1)';
+    evStatusDiv.style.border = '1px solid rgba(245,158,11,0.3)';
+    evStatusDiv.style.color = '#f59e0b';
+    evStatusDiv.textContent = 'Has not voted yet';
+  }
+  box.appendChild(evStatusDiv);
+
+  // Turnout tags in detail modal
+  if (voter.election_votes && voter.election_votes.length > 0) {
+    var turnoutTitle = document.createElement('h4');
+    turnoutTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8';
+    turnoutTitle.textContent = 'Election Participation';
+    box.appendChild(turnoutTitle);
+    var turnoutWrap = document.createElement('div');
+    turnoutWrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px';
+    voter.election_votes.forEach(function(ev) {
+      var tag = document.createElement('span');
+      var isRep = ev.party_voted === 'R';
+      tag.style.cssText = 'display:inline-block;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:600;' +
+        (isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444' : 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6');
+      var label = ev.election_name;
+      if (ev.party_voted === 'R') label += ' (R)';
+      else if (ev.party_voted === 'D') label += ' (D)';
+      tag.textContent = label;
+      turnoutWrap.appendChild(tag);
+    });
+    box.appendChild(turnoutWrap);
+  }
+
+  // Household section
+  var hhTitle = document.createElement('h4');
+  hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8';
+  hhTitle.textContent = 'Household Members';
+  box.appendChild(hhTitle);
+
+  var hhContainer = document.createElement('div');
+  hhContainer.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px;min-height:40px';
+  hhContainer.textContent = 'Loading...';
+  box.appendChild(hhContainer);
+
+  // Load household async
+  api('/api/captains/' + captainState.captain.id + '/household?voter_id=' + voter.id).then(function(data) {
+    var household = data.household || [];
+    hhContainer.textContent = '';
+    if (household.length === 0) {
+      hhContainer.style.color = '#475569';
+      hhContainer.textContent = 'No other people found at this address.';
+      return;
+    }
+    household.forEach(function(h) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
+      var info = document.createElement('div');
+      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+      var hhNameSpan = document.createElement('span');
+      var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
+      if (h.party) nameText += ' \u2022 ' + h.party;
+      if (h.phone) nameText += ' \u2022 ' + h.phone;
+      hhNameSpan.textContent = nameText;
+      info.appendChild(hhNameSpan);
+      var hhDetailEvBadge = document.createElement('span');
+      if (h.early_voted) {
+        var dc = votedBadgeColor(h);
+        hhDetailEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:' + dc.bg + ';color:' + dc.color + ';border:1px solid ' + dc.border;
+        hhDetailEvBadge.textContent = votedLabel(h);
+      } else {
+        hhDetailEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b';
+        hhDetailEvBadge.textContent = 'Not Voted';
+      }
+      info.appendChild(hhDetailEvBadge);
+      row.appendChild(info);
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-xs btn-captain';
+      addBtn.textContent = '+ Add';
+      addBtn.addEventListener('click', (function(hh) { return function() {
+        if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
+        closeModal('voterDetailModal');
+        showAddVoterModal(hh);
+      }; })(h));
+      row.appendChild(addBtn);
+      hhContainer.appendChild(row);
+    });
+  });
+
+  // Buttons
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px';
+  var addBtn = document.createElement('button');
+  addBtn.className = 'btn btn-captain';
+  addBtn.textContent = captainState.selectedListId ? 'Add to ' + (captainState.selectedListName || 'List') : '+ Add to List';
+  addBtn.addEventListener('click', function() {
+    if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
+    closeModal('voterDetailModal');
+    showAddVoterModal(voter);
+  });
+  btnRow.appendChild(addBtn);
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-secondary';
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', function() { closeModal('voterDetailModal'); });
+  btnRow.appendChild(closeBtn);
+  box.appendChild(btnRow);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
 // ===================== ADD / REMOVE VOTERS =====================
 
-async function addVoterToList(voterId) {
+function showAddVoterModal(voter) {
   if (!captainState.selectedListId) {
     alert('Please select a list first from the sidebar.');
     return;
   }
-  var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters', {
+
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'addVoterModal';
+
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.maxWidth = '500px';
+
+  var h3 = document.createElement('h3');
+  h3.textContent = 'Add to ' + captainState.selectedListName;
+  box.appendChild(h3);
+
+  // Voter info
+  var voterInfo = document.createElement('div');
+  voterInfo.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;margin-bottom:16px';
+  var nameEl = document.createElement('div');
+  nameEl.style.cssText = 'font-weight:700;font-size:16px;margin-bottom:4px';
+  nameEl.textContent = (voter.first_name || '') + ' ' + (voter.last_name || '');
+  voterInfo.appendChild(nameEl);
+  var addrEl = document.createElement('div');
+  addrEl.style.cssText = 'color:#94a3b8;font-size:13px';
+  addrEl.textContent = (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.zip ? ' ' + voter.zip : '');
+  voterInfo.appendChild(addrEl);
+  if (voter.party) {
+    var partyEl = document.createElement('span');
+    var pc = { DEM:'badge-blue', REP:'badge-red', D:'badge-blue', R:'badge-red' };
+    partyEl.className = 'badge ' + (pc[voter.party] || 'badge-gray');
+    partyEl.style.marginTop = '6px';
+    partyEl.textContent = voter.party;
+    voterInfo.appendChild(partyEl);
+  }
+  box.appendChild(voterInfo);
+
+  // Contact info fields
+  var contactLabel = document.createElement('div');
+  contactLabel.style.cssText = 'font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:8px';
+  contactLabel.textContent = 'Contact Info (add or update)';
+  box.appendChild(contactLabel);
+
+  var fg1 = document.createElement('div');
+  fg1.className = 'form-group';
+  var lbl1 = document.createElement('label');
+  lbl1.textContent = 'Phone Number';
+  fg1.appendChild(lbl1);
+  var phoneInp = document.createElement('input');
+  phoneInp.type = 'tel';
+  phoneInp.id = 'addVoterPhone';
+  phoneInp.value = voter.phone || '';
+  phoneInp.placeholder = '+1 555-123-4567';
+  fg1.appendChild(phoneInp);
+  box.appendChild(fg1);
+
+  var fg2 = document.createElement('div');
+  fg2.className = 'form-group';
+  var lbl2 = document.createElement('label');
+  lbl2.textContent = 'Email Address';
+  fg2.appendChild(lbl2);
+  var emailInp = document.createElement('input');
+  emailInp.type = 'email';
+  emailInp.id = 'addVoterEmail';
+  emailInp.value = voter.email || '';
+  emailInp.placeholder = 'voter@example.com';
+  fg2.appendChild(emailInp);
+  box.appendChild(fg2);
+
+  // Household section (loaded async)
+  var hhSection = document.createElement('div');
+  hhSection.id = 'addVoterHousehold';
+  hhSection.style.cssText = 'margin-top:12px;display:none';
+  box.appendChild(hhSection);
+
+  // Load household
+  loadHouseholdForModal(voter.id, hhSection);
+
+  // Buttons
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px';
+
+  var addBtn = document.createElement('button');
+  addBtn.className = 'btn btn-captain';
+  addBtn.textContent = 'Add to List';
+  addBtn.addEventListener('click', function() {
+    submitAddVoter(voter.id);
+  });
+  btnRow.appendChild(addBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { closeModal('addVoterModal'); });
+  btnRow.appendChild(cancelBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+async function loadHouseholdForModal(voterId, containerEl) {
+  var data = await api('/api/captains/' + captainState.captain.id + '/household?voter_id=' + voterId);
+  var household = data.household || [];
+  if (household.length === 0) return;
+
+  containerEl.style.display = '';
+  var label = document.createElement('div');
+  label.style.cssText = 'font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:8px;padding-top:12px;border-top:1px solid #334155';
+  label.textContent = '\uD83C\uDFE0 Household Members (' + household.length + ')';
+  containerEl.appendChild(label);
+
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:8px';
+  hint.textContent = 'Check the box to also add household members to your list:';
+  containerEl.appendChild(hint);
+
+  household.forEach(function(h) {
+    var row = document.createElement('label');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px';
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'hh-checkbox';
+    cb.dataset.voterId = h.id;
+    cb.dataset.voterName = (h.first_name || '') + ' ' + (h.last_name || '');
+    row.appendChild(cb);
+
+    var info = document.createElement('div');
+    info.style.flex = '1';
+    var nameSpan = document.createElement('div');
+    nameSpan.style.fontWeight = '600';
+    nameSpan.textContent = (h.first_name || '') + ' ' + (h.last_name || '');
+    info.appendChild(nameSpan);
+    var detailSpan = document.createElement('div');
+    detailSpan.style.cssText = 'color:#64748b;font-size:12px';
+    var details = [];
+    if (h.party) details.push(h.party);
+    if (h.phone) details.push(h.phone);
+    detailSpan.textContent = details.join(' \u2022 ');
+    info.appendChild(detailSpan);
+    row.appendChild(info);
+
+    containerEl.appendChild(row);
+  });
+
+  // Select all button
+  var selectAll = document.createElement('button');
+  selectAll.className = 'btn btn-xs btn-secondary';
+  selectAll.style.marginTop = '4px';
+  selectAll.textContent = 'Select All Household';
+  selectAll.addEventListener('click', function() {
+    var cbs = containerEl.querySelectorAll('.hh-checkbox');
+    var allChecked = true;
+    for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
+    for (var j = 0; j < cbs.length; j++) { cbs[j].checked = !allChecked; }
+    selectAll.textContent = allChecked ? 'Select All Household' : 'Deselect All';
+  });
+  containerEl.appendChild(selectAll);
+}
+
+async function submitAddVoter(voterId) {
+  if (!captainState.selectedListId) return;
+
+  var phone = (document.getElementById('addVoterPhone').value || '').trim();
+  var email = (document.getElementById('addVoterEmail').value || '').trim();
+
+  var payload = { voter_id: voterId };
+  if (phone) payload.phone = phone;
+  if (email) payload.email = email;
+
+  // Add main voter
+  var listBase = getListApiBase();
+  var data = await api(listBase + '/voters', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ voter_id: voterId })
+    body: JSON.stringify(payload)
   });
-  if (data.already) {
-    alert('This voter is already on this list.');
-    return;
+
+  var addedCount = data.already ? 0 : 1;
+  var alreadyCount = data.already ? 1 : 0;
+
+  // Add checked household members
+  var hhCheckboxes = document.querySelectorAll('#addVoterHousehold .hh-checkbox:checked');
+  for (var i = 0; i < hhCheckboxes.length; i++) {
+    var hhId = parseInt(hhCheckboxes[i].dataset.voterId);
+    var hhData = await api(listBase + '/voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voter_id: hhId })
+    });
+    if (hhData.already) alreadyCount++;
+    else addedCount++;
   }
+
+  closeModal('addVoterModal');
+
+  // Show result
+  if (addedCount > 0) {
+    var msg = addedCount + ' voter' + (addedCount > 1 ? 's' : '') + ' added to ' + captainState.selectedListName;
+    if (alreadyCount > 0) msg += ' (' + alreadyCount + ' already on list)';
+    showToast(msg, 'success');
+  } else {
+    showToast('All selected voters are already on this list.', 'warn');
+  }
+
   await loadListVoters();
   refreshSidebar();
 }
 
+function showToast(msg, type) {
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:10px;font-size:14px;font-weight:600;z-index:200;animation:fadeIn 0.3s ease';
+  if (type === 'success') {
+    toast.style.background = '#052e16';
+    toast.style.color = '#4ade80';
+    toast.style.border = '1px solid #22c55e';
+  } else {
+    toast.style.background = '#422006';
+    toast.style.color = '#fcd34d';
+    toast.style.border = '1px solid #f59e0b';
+  }
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.remove(); }, 3000);
+}
+
 async function removeVoterFromList(voterId) {
   if (!captainState.selectedListId) return;
-  await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/voters/' + voterId, {
+  await api(getListApiBase() + '/voters/' + voterId, {
     method: 'DELETE'
   });
   await loadListVoters();
@@ -647,7 +1545,6 @@ async function createList() {
   var name = document.getElementById('newListName').value.trim();
   if (!name) { alert('Please enter a list name.'); return; }
   var teamMemberId = document.getElementById('newListTeamMember').value || null;
-
   await api('/api/captains/' + captainState.captain.id + '/lists', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -978,7 +1875,7 @@ async function executeCsvImport() {
   if (btn) { btn.disabled = true; btn.textContent = 'Matching...'; }
 
   try {
-    var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/import-csv', {
+    var data = await api(getListApiBase() + '/import-csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rows: rows })
@@ -1155,7 +2052,7 @@ async function confirmCsvMatches() {
   if (btn) { btn.disabled = true; btn.textContent = 'Confirming...'; }
 
   try {
-    var data = await api('/api/captains/' + captainState.captain.id + '/lists/' + captainState.selectedListId + '/confirm-matches', {
+    var data = await api(getListApiBase() + '/confirm-matches', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ matches: matches })
@@ -1198,7 +2095,58 @@ async function addTeamMember() {
     if (loginData.captain) {
       captainState.captain = loginData.captain;
     }
-    alert('Team member "' + name.trim() + '" added!');
+    refreshSidebar();
+
+    // Show the new team member's code in a styled modal
+    var overlay = document.createElement('div');
+    overlay.id = 'teamCodeModal';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:32px;max-width:400px;width:90%;text-align:center';
+    var title = document.createElement('h3');
+    title.style.cssText = 'color:#e2e8f0;margin-bottom:8px';
+    title.textContent = 'Team Member Created!';
+    box.appendChild(title);
+    var desc = document.createElement('p');
+    desc.style.cssText = 'color:#94a3b8;font-size:14px;margin-bottom:16px';
+    desc.textContent = name.trim() + ' now has their own Block Captain code. Share it with them so they can log in and build their own lists.';
+    box.appendChild(desc);
+    var codeBox = document.createElement('div');
+    codeBox.style.cssText = 'background:#0f172a;border:2px solid #3b82f6;border-radius:8px;padding:16px;font-size:28px;font-weight:bold;letter-spacing:6px;color:#3b82f6;margin-bottom:8px;font-family:monospace';
+    codeBox.textContent = data.code;
+    box.appendChild(codeBox);
+    var hint = document.createElement('p');
+    hint.style.cssText = 'color:#64748b;font-size:12px;margin-bottom:16px';
+    hint.textContent = 'You can see their lists in your "Team Member Lists" section.';
+    box.appendChild(hint);
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-captain';
+    closeBtn.textContent = 'Got It';
+    closeBtn.addEventListener('click', function() { overlay.remove(); });
+    box.appendChild(closeBtn);
+    overlay.appendChild(box);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+}
+
+async function removeTeamMember(memberId, name) {
+  if (!confirm('Remove ' + name + ' from your team? Their captain code will be deactivated.')) return;
+  var data = await api('/api/captains/' + captainState.captain.id + '/team/' + memberId, { method: 'DELETE' });
+  if (data.success) {
+    // Refresh captain data
+    var loginData = await api('/api/captains/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: captainState.captain.code })
+    });
+    if (loginData.captain) {
+      captainState.captain = loginData.captain;
+    }
+    captainState.expandedTeamMember = null;
+    refreshSidebar();
+  } else {
+    alert('Failed to remove team member: ' + (data.error || 'Unknown error'));
   }
 }
 </script>

@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
+const { generateJoinCode, asyncHandler, personalizeTemplate } = require('../utils');
+const { getProvider } = require('../providers');
+
+const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 'Too many send requests, slow down.' } });
 
 // ========== HELPERS ==========
-
-function generateJoinCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
 
 function getOnlineVolunteers(sessionId) {
   return db.prepare('SELECT * FROM p2p_volunteers WHERE session_id = ? AND is_online = 1').all(sessionId);
@@ -18,7 +19,7 @@ function getLeastLoadedVolunteer(sessionId, excludeId) {
   let best = null;
   let bestCount = Infinity;
   for (const v of vols) {
-    const count = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status IN ('pending', 'sent', 'in_conversation')").get(v.id).c;
+    const count = (db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status IN ('pending', 'sent', 'in_conversation')").get(v.id) || { c: 0 }).c;
     if (count < bestCount) { bestCount = count; best = v; }
   }
   return best;
@@ -55,46 +56,137 @@ function snapBackConversations(sessionId, volunteerId) {
     .run(volunteerId, sessionId);
 }
 
-function assignFreshBatch(sessionId, volunteerId) {
+const _assignFreshBatch = db.transaction((sessionId, volunteerId) => {
   const unassigned = db.prepare("SELECT id FROM p2p_assignments WHERE session_id = ? AND volunteer_id IS NULL AND status = 'pending' LIMIT 20").all(sessionId);
   for (const a of unassigned) {
     db.prepare('UPDATE p2p_assignments SET volunteer_id = ? WHERE id = ?').run(volunteerId, a.id);
   }
   return unassigned.length;
+});
+function assignFreshBatch(sessionId, volunteerId) {
+  return _assignFreshBatch(sessionId, volunteerId);
 }
 
 // ========== SESSIONS ==========
 
 router.post('/p2p/sessions', (req, res) => {
-  const { name, message_template, assignment_mode, contact_ids } = req.body;
+  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted } = req.body;
   if (!name || !message_template) return res.status(400).json({ error: 'Name and message template required.' });
-  if (!contact_ids || contact_ids.length === 0) return res.status(400).json({ error: 'Select contacts to text.' });
+
+  // Gather contact IDs — from list or direct array
+  let ids = [];
+  let listTotal = 0;
+  let skippedNoPhone = 0;
+  let skippedContacted = 0;
+  if (list_id) {
+    // Count total voters on list (with and without phone)
+    listTotal = (db.prepare('SELECT COUNT(*) as c FROM admin_list_voters WHERE list_id = ?').get(list_id) || { c: 0 }).c;
+
+    // Build contacted voter set if excluding already-contacted
+    let contactedSet = null;
+    if (exclude_contacted) {
+      contactedSet = new Set();
+      // Voter contacts (texts, calls, door-knocks)
+      db.prepare('SELECT DISTINCT voter_id FROM voter_contacts').all().forEach(r => contactedSet.add(r.voter_id));
+      // P2P assignments already sent
+      db.prepare("SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent', 'in_conversation', 'completed')").all()
+        .forEach(r => contactedSet.add('phone:' + r.phone));
+    }
+
+    // Get voters from admin list, auto-create contacts if needed
+    const listVoters = db.prepare(`
+      SELECT v.id as voter_id, v.phone, v.first_name, v.last_name, v.city, v.email
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.phone != ''
+    `).all(list_id);
+
+    skippedNoPhone = listTotal - listVoters.length;
+
+    // Ensure each voter has a contacts table entry (P2P assignments reference contacts)
+    const findContact = db.prepare('SELECT id FROM contacts WHERE phone = ?');
+    const insertContact = db.prepare('INSERT INTO contacts (phone, first_name, last_name, city, email) VALUES (?, ?, ?, ?, ?)');
+    for (const v of listVoters) {
+      // Skip already-contacted voters
+      if (contactedSet && (contactedSet.has(v.voter_id) || contactedSet.has('phone:' + v.phone))) {
+        skippedContacted++;
+        continue;
+      }
+      let contact = findContact.get(v.phone);
+      if (!contact) {
+        try {
+          const r = insertContact.run(v.phone, v.first_name || '', v.last_name || '', v.city || '', v.email || '');
+          ids.push(r.lastInsertRowid);
+        } catch (e) {
+          // Handle race condition: another request inserted this phone between our check and insert
+          contact = findContact.get(v.phone);
+          if (contact) ids.push(contact.id);
+        }
+      } else {
+        ids.push(contact.id);
+      }
+    }
+  } else if (contact_ids && contact_ids.length > 0) {
+    ids = contact_ids;
+  }
+
+  if (ids.length === 0 && skippedContacted > 0) {
+    // All contacts were excluded — return success with stats but no session
+    return res.json({ success: true, id: null, joinCode: null, contactCount: 0, listTotal, skippedNoPhone, skippedContacted });
+  }
+  if (ids.length === 0) return res.status(400).json({ error: 'No contacts with phone numbers found.' });
 
   const joinCode = generateJoinCode();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const result = db.prepare('INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at) VALUES (?, ?, ?, ?, ?)')
-    .run(name, message_template, assignment_mode || 'auto_split', joinCode, expiresAt);
+  const result = db.prepare('INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(name, message_template, assignment_mode || 'auto_split', joinCode, expiresAt, 'campaign');
 
   const sessionId = result.lastInsertRowid;
 
   const insert = db.prepare('INSERT INTO p2p_assignments (session_id, contact_id) VALUES (?, ?)');
-  const addAll = db.transaction((ids) => { for (const id of ids) insert.run(sessionId, id); });
-  addAll(contact_ids);
+  const addAll = db.transaction((cids) => { for (const id of cids) insert.run(sessionId, id); });
+  addAll(ids);
 
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('P2P session created: ' + name + ' (' + contact_ids.length + ' contacts)');
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('P2P session created: ' + name + ' (' + ids.length + ' contacts)');
 
-  res.json({ success: true, id: sessionId, joinCode });
+  res.json({ success: true, id: sessionId, joinCode, contactCount: ids.length, listTotal, skippedNoPhone, skippedContacted });
 });
 
 router.get('/p2p/sessions', (req, res) => {
   const sessions = db.prepare('SELECT * FROM p2p_sessions ORDER BY id DESC').all();
-  for (const s of sessions) {
-    s.totalContacts = db.prepare('SELECT COUNT(*) as c FROM p2p_assignments WHERE session_id = ?').get(s.id).c;
-    s.sent = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE session_id = ? AND status != 'pending' AND status != 'skipped'").get(s.id).c;
-    s.volunteerCount = db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE session_id = ?').get(s.id).c;
-    s.onlineCount = db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE session_id = ? AND is_online = 1').get(s.id).c;
+
+  if (sessions.length > 0) {
+    // Batch assignment stats
+    const assignStats = db.prepare(`
+      SELECT session_id,
+        COUNT(*) as totalContacts,
+        SUM(CASE WHEN status != 'pending' AND status != 'skipped' THEN 1 ELSE 0 END) as sent
+      FROM p2p_assignments GROUP BY session_id
+    `).all();
+    const assignMap = {};
+    for (const s of assignStats) assignMap[s.session_id] = s;
+
+    // Batch volunteer stats
+    const volStats = db.prepare(`
+      SELECT session_id,
+        COUNT(*) as volunteerCount,
+        SUM(CASE WHEN is_online = 1 THEN 1 ELSE 0 END) as onlineCount
+      FROM p2p_volunteers GROUP BY session_id
+    `).all();
+    const volMap = {};
+    for (const v of volStats) volMap[v.session_id] = v;
+
+    for (const s of sessions) {
+      const as = assignMap[s.id] || {};
+      s.totalContacts = as.totalContacts || 0;
+      s.sent = as.sent || 0;
+      const vs = volMap[s.id] || {};
+      s.volunteerCount = vs.volunteerCount || 0;
+      s.onlineCount = vs.onlineCount || 0;
+    }
   }
+
   res.json({ sessions });
 });
 
@@ -102,25 +194,49 @@ router.get('/p2p/sessions/:id', (req, res) => {
   const session = db.prepare('SELECT * FROM p2p_sessions WHERE id = ?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'Session not found.' });
 
-  session.volunteers = db.prepare('SELECT * FROM p2p_volunteers WHERE session_id = ?').all(session.id);
-  for (const v of session.volunteers) {
-    v.sent = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status IN ('sent', 'in_conversation', 'completed')").get(v.id).c;
-    v.activeChats = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status = 'in_conversation'").get(v.id).c;
-    v.remaining = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status = 'pending'").get(v.id).c;
-  }
+  // Single aggregation query replaces 3 queries per volunteer
+  session.volunteers = db.prepare(`
+    SELECT v.*,
+      COALESCE(SUM(CASE WHEN a.status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END), 0) as sent,
+      COALESCE(SUM(CASE WHEN a.status = 'in_conversation' THEN 1 ELSE 0 END), 0) as activeChats,
+      COALESCE(SUM(CASE WHEN a.status = 'pending' THEN 1 ELSE 0 END), 0) as remaining
+    FROM p2p_volunteers v
+    LEFT JOIN p2p_assignments a ON a.volunteer_id = v.id
+    WHERE v.session_id = ?
+    GROUP BY v.id
+  `).all(session.id);
 
-  session.totalContacts = db.prepare('SELECT COUNT(*) as c FROM p2p_assignments WHERE session_id = ?').get(session.id).c;
-  session.totalSent = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE session_id = ? AND status IN ('sent', 'in_conversation', 'completed')").get(session.id).c;
-  session.totalReplies = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE session_id = ? AND status = 'in_conversation'").get(session.id).c;
-  session.remaining = db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE session_id = ? AND status = 'pending'").get(session.id).c;
+  // Single aggregation for session-level stats
+  const sessionStats = db.prepare(`
+    SELECT
+      COUNT(*) as totalContacts,
+      SUM(CASE WHEN status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END) as totalSent,
+      SUM(CASE WHEN status = 'in_conversation' THEN 1 ELSE 0 END) as totalReplies,
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as remaining
+    FROM p2p_assignments WHERE session_id = ?
+  `).get(session.id);
+  session.totalContacts = sessionStats.totalContacts;
+  session.totalSent = sessionStats.totalSent;
+  session.totalReplies = sessionStats.totalReplies;
+  session.remaining = sessionStats.remaining;
 
   res.json({ session });
 });
 
 router.patch('/p2p/sessions/:id', (req, res) => {
+  const session = db.prepare('SELECT id FROM p2p_sessions WHERE id = ?').get(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Session not found.' });
   const { status, assignment_mode } = req.body;
-  if (status) db.prepare('UPDATE p2p_sessions SET status = ? WHERE id = ?').run(status, req.params.id);
-  if (assignment_mode) db.prepare('UPDATE p2p_sessions SET assignment_mode = ? WHERE id = ?').run(assignment_mode, req.params.id);
+  const validStatuses = ['active', 'paused', 'completed'];
+  const validModes = ['auto_split', 'claim'];
+  if (status) {
+    if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status. Must be: ' + validStatuses.join(', ') });
+    db.prepare('UPDATE p2p_sessions SET status = ? WHERE id = ?').run(status, req.params.id);
+  }
+  if (assignment_mode) {
+    if (!validModes.includes(assignment_mode)) return res.status(400).json({ error: 'Invalid mode. Must be: ' + validModes.join(', ') });
+    db.prepare('UPDATE p2p_sessions SET assignment_mode = ? WHERE id = ?').run(assignment_mode, req.params.id);
+  }
   res.json({ success: true });
 });
 
@@ -155,7 +271,7 @@ router.post('/p2p/join', (req, res) => {
 
     if (session.assignment_mode === 'auto_split') {
       const unassigned = db.prepare("SELECT id FROM p2p_assignments WHERE session_id = ? AND volunteer_id IS NULL AND status = 'pending'").all(session.id);
-      const onlineCount = db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE session_id = ? AND is_online = 1').get(session.id).c;
+      const onlineCount = (db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE session_id = ? AND is_online = 1').get(session.id) || { c: 0 }).c;
       const batchSize = Math.ceil(unassigned.length / Math.max(onlineCount, 1));
       const batch = unassigned.slice(0, batchSize);
       for (const a of batch) {
@@ -165,7 +281,7 @@ router.post('/p2p/join', (req, res) => {
   }
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(name + ' joined P2P session: ' + session.name);
-  res.json({ success: true, volunteerId: volunteer.id, sessionId: session.id, sessionName: session.name });
+  res.json({ success: true, volunteerId: volunteer.id, sessionId: session.id, sessionName: session.name, sessionType: session.session_type || 'campaign' });
 });
 
 router.patch('/p2p/volunteers/:id/status', (req, res) => {
@@ -190,6 +306,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
 
   const session = db.prepare('SELECT * FROM p2p_sessions WHERE id = ?').get(vol.session_id);
+  if (!session) return res.status(404).json({ error: 'Session not found.' });
 
   if (session.assignment_mode === 'claim') {
     const unassigned = db.prepare("SELECT id FROM p2p_assignments WHERE session_id = ? AND volunteer_id IS NULL AND status = 'pending' LIMIT 1").get(vol.session_id);
@@ -198,43 +315,56 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
     }
   }
 
+  // Skip opted-out contacts automatically (TCPA compliance)
+  const optedOutPhones = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
+  const pendingAll = db.prepare(`
+    SELECT a.id, c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id
+    WHERE a.volunteer_id = ? AND a.status = 'pending' ORDER BY a.id ASC
+  `).all(req.params.id);
+  for (const p of pendingAll) {
+    if (optedOutPhones.has(p.phone)) {
+      db.prepare("UPDATE p2p_assignments SET status = 'skipped' WHERE id = ?").run(p.id);
+    }
+  }
+
   const assignment = db.prepare(`
-    SELECT a.*, c.phone, c.first_name, c.last_name, c.city
+    SELECT a.*, c.phone, c.first_name, c.last_name, c.city, c.preferred_channel
     FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id
     WHERE a.volunteer_id = ? AND a.status = 'pending'
     ORDER BY a.id ASC LIMIT 1
   `).get(req.params.id);
 
   const activeConversations = db.prepare(`
-    SELECT a.*, c.phone, c.first_name, c.last_name, c.city
+    SELECT a.*, c.phone, c.first_name, c.last_name, c.city, c.preferred_channel
     FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id
     WHERE a.volunteer_id = ? AND a.status = 'in_conversation'
     ORDER BY a.id ASC
   `).all(req.params.id);
 
-  const stats = {
-    total: db.prepare('SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ?').get(req.params.id).c,
-    sent: db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status IN ('sent', 'in_conversation', 'completed')").get(req.params.id).c,
-    remaining: db.prepare("SELECT COUNT(*) as c FROM p2p_assignments WHERE volunteer_id = ? AND status = 'pending'").get(req.params.id).c
-  };
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END) as sent,
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as remaining
+    FROM p2p_assignments WHERE volunteer_id = ?
+  `).get(req.params.id);
 
   let resolvedMessage = null;
   if (assignment) {
-    resolvedMessage = session.message_template
-      .replace(/{firstName}/g, assignment.first_name || '')
-      .replace(/{lastName}/g, assignment.last_name || '')
-      .replace(/{city}/g, assignment.city || '');
+    resolvedMessage = personalizeTemplate(session.message_template, assignment);
   }
 
-  res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template });
+  res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template, sessionType: session.session_type || 'campaign' });
 });
 
 // ========== MESSAGING ==========
 
-router.post('/p2p/send', async (req, res) => {
-  const { volunteerId, assignmentId, message, accountSid, authToken, from } = req.body;
+router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
+  const { volunteerId, assignmentId, message } = req.body;
   if (!volunteerId || !assignmentId || !message) return res.status(400).json({ error: 'volunteerId, assignmentId, and message required.' });
-  if (!accountSid || !authToken || !from) return res.status(400).json({ error: 'Twilio credentials required.' });
+
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured. Set them in Messaging Setup.' });
 
   const vol = db.prepare('SELECT * FROM p2p_volunteers WHERE id = ?').get(volunteerId);
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
@@ -245,25 +375,34 @@ router.post('/p2p/send', async (req, res) => {
   `).get(assignmentId);
   if (!assignment) return res.status(404).json({ error: 'Assignment not found.' });
 
+  // Verify this volunteer owns the assignment
+  if (assignment.volunteer_id !== volunteerId) {
+    return res.status(403).json({ error: 'This assignment belongs to another volunteer.' });
+  }
+
+  // Check opt-out list before sending (TCPA compliance)
+  const optedOut = db.prepare('SELECT id FROM opt_outs WHERE phone = ?').get(assignment.phone);
+  if (optedOut) {
+    db.prepare("UPDATE p2p_assignments SET status = 'skipped' WHERE id = ?").run(assignmentId);
+    return res.json({ success: true, skipped: true, reason: 'Contact has opted out.' });
+  }
+
   try {
-    const twilio = require('twilio');
-    const client = twilio(accountSid, authToken);
-    await client.messages.create({ body: message, from, to: assignment.phone });
-
-    db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name) VALUES (?, ?, 'outbound', ?, ?)")
+    await provider.sendMessage(assignment.phone, message);
+    db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
       .run(assignment.phone, message, vol.session_id, vol.name);
-
     db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(assignmentId);
 
-    res.json({ success: true });
+    res.json({ success: true, smsSent: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('P2P send error:', err.message);
+    res.status(500).json({ error: 'Failed to send message. Check messaging provider configuration.' });
   }
-});
+}));
 
 router.get('/p2p/conversations/:assignmentId', (req, res) => {
   const assignment = db.prepare(`
-    SELECT a.*, c.phone, c.first_name, c.last_name FROM p2p_assignments a
+    SELECT a.*, c.phone, c.first_name, c.last_name, c.preferred_channel FROM p2p_assignments a
     JOIN contacts c ON a.contact_id = c.id WHERE a.id = ?
   `).get(req.params.assignmentId);
   if (!assignment) return res.status(404).json({ error: 'Assignment not found.' });
@@ -275,12 +414,14 @@ router.get('/p2p/conversations/:assignmentId', (req, res) => {
 });
 
 router.patch('/p2p/assignments/:id/complete', (req, res) => {
-  db.prepare("UPDATE p2p_assignments SET status = 'completed', completed_at = datetime('now') WHERE id = ?").run(req.params.id);
+  const result = db.prepare("UPDATE p2p_assignments SET status = 'completed', completed_at = datetime('now') WHERE id = ?").run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Assignment not found.' });
   res.json({ success: true });
 });
 
 router.patch('/p2p/assignments/:id/skip', (req, res) => {
-  db.prepare("UPDATE p2p_assignments SET status = 'skipped' WHERE id = ?").run(req.params.id);
+  const result = db.prepare("UPDATE p2p_assignments SET status = 'skipped' WHERE id = ?").run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Assignment not found.' });
   res.json({ success: true });
 });
 

@@ -1,20 +1,30 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { Jimp } = require('jimp');
-const QRCode = require('qrcode');
 
-// List all events (includes has_flyer flag, excludes full base64)
+const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
+const QRCode = require('qrcode');
+const { asyncHandler } = require('../utils');
+
+// List all events (includes has_flyer flag, excludes full base64) — single query with RSVP stats
 router.get('/events', (req, res) => {
-  const events = db.prepare('SELECT id, title, description, location, event_date, event_time, status, created_at, (flyer_image IS NOT NULL) as has_flyer FROM events ORDER BY event_date DESC').all();
+  const events = db.prepare(`
+    SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_time, e.status, e.created_at,
+      (e.flyer_image IS NOT NULL) as has_flyer,
+      COUNT(er.id) as rsvp_total,
+      SUM(CASE WHEN er.rsvp_status = 'confirmed' THEN 1 ELSE 0 END) as rsvp_confirmed,
+      SUM(CASE WHEN er.rsvp_status = 'declined' THEN 1 ELSE 0 END) as rsvp_declined,
+      SUM(CASE WHEN er.rsvp_status = 'attended' THEN 1 ELSE 0 END) as rsvp_attended
+    FROM events e
+    LEFT JOIN event_rsvps er ON e.id = er.event_id
+    GROUP BY e.id
+    ORDER BY e.event_date DESC
+  `).all();
   for (const e of events) {
-    const stats = db.prepare(`SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN rsvp_status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
-      SUM(CASE WHEN rsvp_status = 'declined' THEN 1 ELSE 0 END) as declined,
-      SUM(CASE WHEN rsvp_status = 'attended' THEN 1 ELSE 0 END) as attended
-    FROM event_rsvps WHERE event_id = ?`).get(e.id);
-    e.rsvpStats = stats;
+    e.rsvpStats = { total: e.rsvp_total, confirmed: e.rsvp_confirmed, declined: e.rsvp_declined, attended: e.rsvp_attended };
+    delete e.rsvp_total; delete e.rsvp_confirmed; delete e.rsvp_declined; delete e.rsvp_attended;
   }
   res.json({ events });
 });
@@ -41,27 +51,45 @@ router.get('/events/:id', (req, res) => {
 router.put('/events/:id', (req, res) => {
   const { title, description, location, event_date, event_time, status, flyer_image } = req.body;
   // If flyer_image is explicitly provided, update it. Otherwise leave existing.
+  let result;
   if (flyer_image !== undefined) {
-    db.prepare(`UPDATE events SET
+    result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), status = COALESCE(?, status),
       flyer_image = ? WHERE id = ?`
     ).run(title, description, location, event_date, event_time, status, flyer_image, req.params.id);
   } else {
-    db.prepare(`UPDATE events SET
+    result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), status = COALESCE(?, status) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, status, req.params.id);
   }
+  if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
   res.json({ success: true });
 });
 
 // Delete event
 router.delete('/events/:id', (req, res) => {
-  db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+  const result = db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
   res.json({ success: true });
+});
+
+// Bulk delete events
+router.post('/events/bulk-delete', bulkDeleteLimiter, (req, res) => {
+  const { ids } = req.body;
+  if (!ids || !ids.length) return res.status(400).json({ error: 'No event IDs provided.' });
+  const del = db.prepare('DELETE FROM events WHERE id = ?');
+  const bulkDel = db.transaction((list) => {
+    let removed = 0;
+    for (const id of list) { if (del.run(id).changes > 0) removed++; }
+    return removed;
+  });
+  const removed = bulkDel(ids);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Bulk deleted ' + removed + ' events');
+  res.json({ success: true, removed });
 });
 
 // --- Serve raw flyer image (for admin preview) ---
@@ -85,8 +113,8 @@ router.get('/events/:id/flyer', (req, res) => {
   }
 });
 
-// --- Composite flyer with voter QR code overlay (used by Twilio MMS) ---
-router.get('/events/:eventId/flyer/:voterToken', async (req, res) => {
+// --- Composite flyer with voter QR code overlay ---
+router.get('/events/:eventId/flyer/:voterToken', asyncHandler(async (req, res) => {
   try {
     const event = db.prepare('SELECT flyer_image, title FROM events WHERE id = ?').get(req.params.eventId);
     if (!event || !event.flyer_image) return res.status(404).send('No flyer');
@@ -144,19 +172,21 @@ router.get('/events/:eventId/flyer/:voterToken', async (req, res) => {
     console.error('Flyer composite error:', err);
     res.status(500).send('Error generating image');
   }
-});
+}));
 
 // Add RSVPs (invite contacts)
 router.post('/events/:id/rsvps', (req, res) => {
   const { rsvps } = req.body;
   if (!rsvps || !rsvps.length) return res.status(400).json({ error: 'No RSVPs provided.' });
   const insert = db.prepare(
-    'INSERT INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, ?)'
   );
   const addMany = db.transaction((list) => {
+    let added = 0;
     for (const r of list) {
-      insert.run(req.params.id, r.contact_phone, r.contact_name || '', r.rsvp_status || 'invited');
+      if (insert.run(req.params.id, r.contact_phone, r.contact_name || '', r.rsvp_status || 'invited').changes > 0) added++;
     }
+    return added;
   });
   addMany(rsvps);
   res.json({ success: true });
@@ -165,9 +195,14 @@ router.post('/events/:id/rsvps', (req, res) => {
 // Update RSVP status
 router.put('/events/:id/rsvps/:rsvpId', (req, res) => {
   const { rsvp_status } = req.body;
-  db.prepare(
+  const validStatuses = ['invited', 'confirmed', 'declined', 'attended', 'maybe'];
+  if (!rsvp_status || !validStatuses.includes(rsvp_status)) {
+    return res.status(400).json({ error: 'Invalid RSVP status. Must be: ' + validStatuses.join(', ') });
+  }
+  const result = db.prepare(
     'UPDATE event_rsvps SET rsvp_status = ?, responded_at = datetime(\'now\') WHERE id = ? AND event_id = ?'
   ).run(rsvp_status, req.params.rsvpId, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'RSVP not found.' });
   res.json({ success: true });
 });
 
@@ -192,6 +227,15 @@ router.post('/events/:id/checkin', (req, res) => {
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(name + ' checked in to: ' + event.title);
   res.json({ success: true, eventTitle: event.title });
+});
+
+// Get the P2P session linked to this event invite (for showing join code)
+router.get('/events/:id/session', (req, res) => {
+  const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+  const session = db.prepare("SELECT id, name, join_code, status, code_expires_at FROM p2p_sessions WHERE name = ? ORDER BY id DESC LIMIT 1")
+    .get('Event Invite: ' + event.title);
+  res.json({ session: session || null });
 });
 
 module.exports = router;

@@ -27,14 +27,18 @@ COPY --from=builder /app/node_modules ./node_modules
 
 # Copy application source code (this layer changes most often — last!)
 COPY package.json ./
-COPY server.js ./
-COPY db.js ./
+COPY server.js db.js utils.js ./
 COPY routes/ ./routes/
+COPY providers/ ./providers/
+COPY middleware/ ./middleware/
 COPY lib/ ./lib/
 COPY public/ ./public/
 
-# Create data directory for SQLite database
-RUN mkdir -p /app/data
+ENV NODE_ENV=production
+ENV DATABASE_DIR=/data
+
+# Create writable directories for SQLite — Railway volume mounts at /data
+RUN mkdir -p /data /app/data && chmod 777 /data /app/data
 
 # Railway injects PORT env var automatically
 EXPOSE ${PORT:-3000}

@@ -2,20 +2,31 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// List all admin lists with counts
+// List all admin lists with counts and captain assignment info
 router.get('/admin-lists', (req, res) => {
-  const lists = db.prepare('SELECT * FROM admin_lists ORDER BY id DESC').all();
+  const lists = db.prepare(`
+    SELECT al.*,
+      COUNT(alv.id) as voterCount,
+      SUM(CASE WHEN v.phone != '' AND v.phone IS NOT NULL THEN 1 ELSE 0 END) as withPhone,
+      c.name as assigned_captain_name
+    FROM admin_lists al
+    LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+    LEFT JOIN voters v ON alv.voter_id = v.id
+    LEFT JOIN captains c ON al.assigned_captain_id = c.id
+    GROUP BY al.id
+    ORDER BY al.id DESC
+  `).all();
   for (const l of lists) {
-    l.voterCount = db.prepare('SELECT COUNT(*) as c FROM admin_list_voters WHERE list_id = ?').get(l.id).c;
+    l.withoutPhone = l.voterCount - (l.withPhone || 0);
   }
   res.json({ lists });
 });
 
 // Create a list
 router.post('/admin-lists', (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, list_type } = req.body;
   if (!name) return res.status(400).json({ error: 'List name is required.' });
-  const result = db.prepare('INSERT INTO admin_lists (name, description) VALUES (?, ?)').run(name, description || '');
+  const result = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)').run(name, description || '', list_type || 'general');
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
@@ -33,15 +44,33 @@ router.get('/admin-lists/:id', (req, res) => {
 
 // Update list
 router.put('/admin-lists/:id', (req, res) => {
-  const { name, description } = req.body;
-  db.prepare('UPDATE admin_lists SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?')
-    .run(name, description, req.params.id);
+  const { name, description, list_type } = req.body;
+  const result = db.prepare('UPDATE admin_lists SET name = COALESCE(?, name), description = COALESCE(?, description), list_type = COALESCE(?, list_type) WHERE id = ?')
+    .run(name, description, list_type, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'List not found.' });
   res.json({ success: true });
+});
+
+// Assign list to a captain (or unassign with captain_id=null)
+router.put('/admin-lists/:id/assign', (req, res) => {
+  const { captain_id } = req.body;
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  if (captain_id) {
+    const captain = db.prepare('SELECT id, name FROM captains WHERE id = ?').get(captain_id);
+    if (!captain) return res.status(404).json({ error: 'Captain not found.' });
+    db.prepare('UPDATE admin_lists SET assigned_captain_id = ? WHERE id = ?').run(captain_id, req.params.id);
+    res.json({ success: true, captain_name: captain.name });
+  } else {
+    db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE id = ?').run(req.params.id);
+    res.json({ success: true, captain_name: null });
+  }
 });
 
 // Delete list
 router.delete('/admin-lists/:id', (req, res) => {
-  db.prepare('DELETE FROM admin_lists WHERE id = ?').run(req.params.id);
+  const result = db.prepare('DELETE FROM admin_lists WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'List not found.' });
   res.json({ success: true });
 });
 
@@ -66,6 +95,20 @@ router.post('/admin-lists/:id/voters', (req, res) => {
 router.delete('/admin-lists/:id/voters/:voterId', (req, res) => {
   db.prepare('DELETE FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.id, req.params.voterId);
   res.json({ success: true });
+});
+
+// Get list contacts as phone targets (for campaigns, surveys, events)
+router.get('/admin-lists/:id/contacts', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const contacts = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.phone, v.email, v.city
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+  res.json({ contacts, total: contacts.length, listName: list.name });
 });
 
 module.exports = router;

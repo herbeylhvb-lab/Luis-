@@ -2,12 +2,42 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+// Try writable directories in order: DATABASE_DIR env, /data (cloud volume mount), ./data (local dev)
+function findWritableDir() {
+  const candidates = [
+    process.env.DATABASE_DIR,
+    '/data',
+    path.join(__dirname, 'data')
+  ].filter(Boolean);
 
-const db = new Database(path.join(dataDir, 'campaign.db'));
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      // Test write access
+      const testFile = path.join(dir, '.write-test');
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+      console.log('Using database directory:', dir);
+      return dir;
+    } catch (e) {
+      console.log('Directory not writable:', dir, e.message);
+    }
+  }
+  throw new Error('No writable directory found for SQLite database');
+}
+
+const dataDir = findWritableDir();
+const dbPath = path.join(dataDir, 'campaign.db');
+const dbExisted = fs.existsSync(dbPath);
+
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+if (!dbExisted) {
+  console.warn('WARNING: Database was created fresh — previous data was lost.');
+  console.warn('  If on Railway, ensure a Volume is mounted at /data to persist data across deploys.');
+}
 
 // --- Migrated tables ---
 
@@ -156,6 +186,8 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_rsvps_event ON event_rsvps(event_id);
 `);
+// Prevent duplicate RSVPs for same contact+event
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rsvps_event_phone ON event_rsvps(event_id, contact_phone)"); } catch (e) { /* duplicates may exist */ }
 
 // --- Phase 2 migrations ---
 
@@ -233,6 +265,9 @@ db.exec(`
 // --- Phase 3: Event flyer image for QR overlay ---
 addColumn("ALTER TABLE events ADD COLUMN flyer_image TEXT DEFAULT NULL");
 
+// Session type for P2P sessions (campaign, event, survey)
+addColumn("ALTER TABLE p2p_sessions ADD COLUMN session_type TEXT DEFAULT 'campaign'");
+
 // P2P columns on messages
 addColumn("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL");
@@ -301,6 +336,9 @@ db.exec(`
 // Voting history on voters (populated via CSV import)
 addColumn("ALTER TABLE voters ADD COLUMN voting_history TEXT DEFAULT ''");
 
+// Precinct / district for geographic targeting
+addColumn("ALTER TABLE voters ADD COLUMN precinct TEXT DEFAULT ''");
+
 // Email column on contacts (for mass email feature)
 addColumn("ALTER TABLE contacts ADD COLUMN email TEXT DEFAULT ''");
 
@@ -335,6 +373,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_alv_voter ON admin_list_voters(voter_id);
 `);
 
+// List type columns for purpose tagging (event, text, survey, block_walk, general)
+addColumn("ALTER TABLE admin_lists ADD COLUMN list_type TEXT DEFAULT 'general'");
+addColumn("ALTER TABLE captain_lists ADD COLUMN list_type TEXT DEFAULT 'general'");
+
+// Admin list can be assigned to a captain — captain can then add voters to it
+addColumn("ALTER TABLE admin_lists ADD COLUMN assigned_captain_id INTEGER DEFAULT NULL");
+
 // Block walking group mode — up to 4 walkers per group
 addColumn("ALTER TABLE block_walks ADD COLUMN join_code TEXT DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN max_walkers INTEGER DEFAULT 4");
@@ -351,6 +396,46 @@ db.exec(`
 // Assigned walker on each address (for group splitting)
 addColumn("ALTER TABLE walk_addresses ADD COLUMN assigned_walker TEXT DEFAULT NULL");
 
+// Real-time walker GPS locations for live map tracking
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walker_locations (
+    id INTEGER PRIMARY KEY,
+    walk_id INTEGER NOT NULL REFERENCES block_walks(id) ON DELETE CASCADE,
+    walker_name TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    accuracy REAL,
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(walk_id, walker_name)
+  );
+  CREATE INDEX IF NOT EXISTS idx_walker_loc_walk ON walker_locations(walk_id);
+`);
+
+// --- Early Voting tracking ---
+addColumn("ALTER TABLE voters ADD COLUMN early_voted INTEGER DEFAULT 0");
+addColumn("ALTER TABLE voters ADD COLUMN early_voted_date TEXT DEFAULT NULL");
+addColumn("ALTER TABLE voters ADD COLUMN early_voted_method TEXT DEFAULT NULL");
+addColumn("ALTER TABLE voters ADD COLUMN early_voted_ballot TEXT DEFAULT NULL");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_early_voted ON voters(early_voted)"); } catch (e) { /* exists */ }
+
+// Additional voter fields for registered voter file imports
+addColumn("ALTER TABLE voters ADD COLUMN middle_name TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN state TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN secondary_phone TEXT DEFAULT ''");
+
+// County voter file fields (VAN exports, county file imports)
+addColumn("ALTER TABLE voters ADD COLUMN county_file_id TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN vanid TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN suffix TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN zip4 TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN address_id TEXT DEFAULT ''");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_vanid ON voters(vanid)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_county_file_id ON voters(county_file_id)"); } catch (e) { /* exists */ }
+
+// State File ID (the voter's unique ID from the county/state voter file)
+addColumn("ALTER TABLE voters ADD COLUMN state_file_id TEXT DEFAULT ''");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(state_file_id)"); } catch (e) { /* exists */ }
+
 // --- Users table (authentication) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -365,24 +450,21 @@ db.exec(`
 `);
 
 // --- Sessions table (express-session store) ---
+// better-sqlite3-session-store expects column "expire" — fix old schema if needed
+try {
+  db.prepare("SELECT expire FROM sessions LIMIT 1").get();
+} catch (e) {
+  // Drop and recreate with correct schema (sessions are ephemeral)
+  db.exec("DROP TABLE IF EXISTS sessions");
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     sid TEXT PRIMARY KEY,
     sess TEXT NOT NULL,
-    expired TEXT NOT NULL
+    expire TEXT NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
+  CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire);
 `);
-
-// --- Google OAuth columns on users ---
-addColumn("ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_email TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_name TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_picture TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_access_token TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_refresh_token TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_token_expiry TEXT DEFAULT NULL");
-try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (e) { /* already exists */ }
 
 // Backfill QR tokens for any existing voters that don't have one
 const { randomBytes } = require('crypto');
@@ -400,6 +482,174 @@ if (votersWithoutToken.length > 0) {
   backfill();
   console.log(`Backfilled QR tokens for ${votersWithoutToken.length} voters`);
 }
+
+// --- Polls & Surveys tables ---
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS surveys (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    status TEXT DEFAULT 'draft',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS survey_questions (
+    id INTEGER PRIMARY KEY,
+    survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+    question_text TEXT NOT NULL,
+    question_type TEXT NOT NULL DEFAULT 'single_choice',
+    sort_order INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_sq_survey ON survey_questions(survey_id);
+
+  CREATE TABLE IF NOT EXISTS survey_options (
+    id INTEGER PRIMARY KEY,
+    question_id INTEGER NOT NULL REFERENCES survey_questions(id) ON DELETE CASCADE,
+    option_text TEXT NOT NULL,
+    option_key TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_so_question ON survey_options(question_id);
+
+  CREATE TABLE IF NOT EXISTS survey_sends (
+    id INTEGER PRIMARY KEY,
+    survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+    phone TEXT NOT NULL,
+    contact_name TEXT DEFAULT '',
+    status TEXT DEFAULT 'sent',
+    current_question_id INTEGER DEFAULT NULL,
+    sent_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_ss_survey ON survey_sends(survey_id);
+  CREATE INDEX IF NOT EXISTS idx_ss_phone ON survey_sends(phone);
+
+  CREATE TABLE IF NOT EXISTS survey_responses (
+    id INTEGER PRIMARY KEY,
+    survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+    send_id INTEGER NOT NULL REFERENCES survey_sends(id) ON DELETE CASCADE,
+    question_id INTEGER NOT NULL REFERENCES survey_questions(id) ON DELETE CASCADE,
+    phone TEXT NOT NULL,
+    response_text TEXT NOT NULL,
+    option_id INTEGER DEFAULT NULL,
+    responded_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_sr_survey ON survey_responses(survey_id);
+  CREATE INDEX IF NOT EXISTS idx_sr_question ON survey_responses(question_id);
+  CREATE INDEX IF NOT EXISTS idx_sr_send ON survey_responses(send_id);
+`);
+
+// --- Election Votes table (voter participation in specific elections) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS election_votes (
+    id INTEGER PRIMARY KEY,
+    voter_id INTEGER NOT NULL REFERENCES voters(id) ON DELETE CASCADE,
+    election_name TEXT NOT NULL,
+    election_date TEXT NOT NULL,
+    election_type TEXT DEFAULT 'general',
+    election_cycle TEXT DEFAULT '',
+    voted INTEGER DEFAULT 1,
+    UNIQUE(voter_id, election_name)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ev_voter ON election_votes(voter_id);
+  CREATE INDEX IF NOT EXISTS idx_ev_election ON election_votes(election_name);
+  CREATE INDEX IF NOT EXISTS idx_ev_date ON election_votes(election_date);
+  CREATE INDEX IF NOT EXISTS idx_ev_cycle ON election_votes(election_cycle);
+  CREATE INDEX IF NOT EXISTS idx_ev_type ON election_votes(election_type);
+`);
+
+// Party voted column on election_votes (R = Republican, D = Democrat, blank = no party / nonpartisan)
+addColumn("ALTER TABLE election_votes ADD COLUMN party_voted TEXT DEFAULT ''");
+
+// --- Performance indexes (added for query optimization) ---
+try {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+    CREATE INDEX IF NOT EXISTS idx_messages_direction ON messages(direction);
+    CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone);
+    CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+    CREATE INDEX IF NOT EXISTS idx_optouts_phone ON opt_outs(phone);
+    CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_walk_addrs_walk_result ON walk_addresses(walk_id, result);
+    CREATE INDEX IF NOT EXISTS idx_walk_addrs_knocked ON walk_addresses(knocked_at);
+    CREATE INDEX IF NOT EXISTS idx_voters_phone ON voters(phone);
+    CREATE INDEX IF NOT EXISTS idx_voters_lastname ON voters(last_name, first_name);
+    CREATE INDEX IF NOT EXISTS idx_voters_support ON voters(support_level);
+    CREATE INDEX IF NOT EXISTS idx_voter_contacts_voter ON voter_contacts(voter_id);
+    CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_id);
+    CREATE INDEX IF NOT EXISTS idx_event_rsvps_status ON event_rsvps(rsvp_status);
+    CREATE INDEX IF NOT EXISTS idx_p2p_sessions_status ON p2p_sessions(status);
+    CREATE INDEX IF NOT EXISTS idx_p2p_assign_session ON p2p_assignments(session_id, status);
+    CREATE INDEX IF NOT EXISTS idx_p2p_assign_volunteer ON p2p_assignments(volunteer_id, status);
+    CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+    CREATE INDEX IF NOT EXISTS idx_admin_list_voters_voter ON admin_list_voters(voter_id);
+
+    -- Composite indexes for common query patterns
+    CREATE INDEX IF NOT EXISTS idx_messages_direction_id ON messages(direction, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_p2p_assign_vol_status ON p2p_assignments(volunteer_id, status);
+    CREATE INDEX IF NOT EXISTS idx_p2p_assign_session_status ON p2p_assignments(session_id, status);
+    CREATE INDEX IF NOT EXISTS idx_survey_sends_survey_status ON survey_sends(survey_id, status);
+    CREATE INDEX IF NOT EXISTS idx_survey_sends_phone_status ON survey_sends(phone, status);
+    CREATE INDEX IF NOT EXISTS idx_voter_contacts_contacted ON voter_contacts(voter_id, contacted_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_captain_list_voters_voter ON captain_list_voters(voter_id, list_id);
+
+    -- Walk and captain performance indexes
+    CREATE INDEX IF NOT EXISTS idx_walk_addrs_assigned ON walk_addresses(walk_id, assigned_walker);
+    CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id);
+    CREATE INDEX IF NOT EXISTS idx_admin_lists_captain ON admin_lists(assigned_captain_id);
+    CREATE INDEX IF NOT EXISTS idx_voters_precinct ON voters(precinct);
+    CREATE INDEX IF NOT EXISTS idx_voters_city ON voters(city);
+    CREATE INDEX IF NOT EXISTS idx_block_walks_join ON block_walks(join_code, status);
+  `);
+} catch (e) { /* indexes already exist */ }
+
+// --- Broadcast campaigns table ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS broadcast_campaigns (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    message TEXT NOT NULL,
+    list_id INTEGER DEFAULT NULL,
+    total_recipients INTEGER DEFAULT 0,
+    sent_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+// --- Channel tracking (SMS vs WhatsApp dual-send) ---
+addColumn("ALTER TABLE messages ADD COLUMN channel TEXT DEFAULT 'sms'");
+// contacts.email already added at line 311; skip duplicate
+addColumn("ALTER TABLE contacts ADD COLUMN preferred_channel TEXT DEFAULT NULL");
+addColumn("ALTER TABLE p2p_assignments ADD COLUMN wa_status TEXT DEFAULT NULL");
+
+// --- Captain hierarchy: team members become real captains ---
+addColumn("ALTER TABLE captains ADD COLUMN parent_captain_id INTEGER DEFAULT NULL");
+
+// --- Election definitions (so elections can exist before any voter is marked) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS elections (
+    id INTEGER PRIMARY KEY,
+    election_name TEXT NOT NULL UNIQUE,
+    election_date TEXT NOT NULL,
+    election_type TEXT DEFAULT 'general',
+    election_cycle TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+// --- Google OAuth columns on users ---
+addColumn("ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_email TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_name TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_picture TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_access_token TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_refresh_token TEXT DEFAULT NULL");
+addColumn("ALTER TABLE users ADD COLUMN google_token_expiry TEXT DEFAULT NULL");
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (e) { /* already exists */ }
 
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

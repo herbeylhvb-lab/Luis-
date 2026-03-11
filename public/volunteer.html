@@ -230,6 +230,20 @@
     .badge-green { background: #052e16; color: #4ade80; }
     .badge-yellow { background: #422006; color: #fcd34d; }
     .badge-blue { background: #0c1a3d; color: #93c5fd; }
+    .badge-purple { background: #2e1065; color: #c4b5fd; }
+    .badge-orange { background: #431407; color: #fdba74; }
+
+    .type-banner {
+      padding: 8px 16px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .type-banner.type-campaign { background: #1e3a5f; color: #93c5fd; }
+    .type-banner.type-event { background: #422006; color: #fdba74; }
+    .type-banner.type-survey { background: #2e1065; color: #c4b5fd; }
 
     .convo-item {
       display: flex;
@@ -422,9 +436,10 @@
 
   <!-- TEXTING SCREEN -->
   <div class="texting-screen" id="textingScreen">
+    <div id="typeBanner" class="type-banner type-campaign" style="display:none"></div>
     <div class="header">
       <div>
-        <h1>&#128241; <span>P2P</span> Texting</h1>
+        <h1>&#128241; <span>P2P</span> Texting <span id="typeBadge" class="badge badge-blue" style="font-size:11px;vertical-align:middle;margin-left:6px"></span></h1>
         <div class="session-info" id="sessionInfo"></div>
       </div>
       <button class="btn-leave" onclick="leaveSession()">Leave</button>
@@ -435,7 +450,7 @@
 
       <!-- CURRENT CONTACT TO TEXT -->
       <div class="card" id="queueCard">
-        <h3>Next Contact</h3>
+        <h3 id="queueCardTitle">Next Contact</h3>
         <div id="queueContent"></div>
       </div>
 
@@ -452,6 +467,33 @@
           <button class="btn btn-sm btn-secondary" onclick="closeConvo()">Back</button>
         </div>
         <div class="convo-messages" id="convoMessages"></div>
+        <!-- AI Suggestion -->
+        <div id="aiSuggestion" style="display:none;background:#1a1a2e;border:1px solid #818cf8;border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:#818cf8">AI Suggested Reply <span id="aiSource" class="badge badge-blue" style="margin-left:4px"></span></span>
+            <span id="aiLoading" style="font-size:12px;color:#64748b">Thinking...</span>
+          </div>
+          <div id="aiSuggestionText" style="color:#e2e8f0;font-size:14px;line-height:1.5;margin-bottom:10px"></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-success" onclick="approveAiSuggestion()">Send As-Is</button>
+            <button class="btn btn-sm btn-secondary" onclick="editAiSuggestion()">Edit First</button>
+            <button class="btn btn-sm btn-secondary" onclick="dismissAiSuggestion()">Write My Own</button>
+          </div>
+        </div>
+        <!-- Grammar Review -->
+        <div id="grammarReview" style="display:none;background:#1a1a2e;border:1px solid #f59e0b;border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:#f59e0b">Grammar Check</span>
+            <span id="grammarLoading" style="font-size:12px;color:#64748b">Checking...</span>
+          </div>
+          <div id="grammarOriginal" style="color:#94a3b8;font-size:12px;margin-bottom:4px;text-decoration:line-through"></div>
+          <div id="grammarCorrected" style="color:#e2e8f0;font-size:14px;line-height:1.5;margin-bottom:10px"></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-success" onclick="acceptGrammarFix()">Send Corrected</button>
+            <button class="btn btn-sm btn-secondary" onclick="sendOriginalAnyway()">Send Original</button>
+            <button class="btn btn-sm btn-secondary" onclick="cancelGrammarReview()">Edit More</button>
+          </div>
+        </div>
         <div class="reply-area">
           <textarea id="replyText" placeholder="Type your reply..."></textarea>
           <button onclick="sendReply()">Send</button>
@@ -468,9 +510,16 @@
       volunteerId: null,
       sessionId: null,
       sessionName: '',
+      sessionType: 'campaign',
       currentAssignmentId: null,
       viewingConvoId: null,
-      credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}')
+      pollInterval: null
+    };
+
+    var typeConfig = {
+      campaign: { label: 'Campaign', icon: '\uD83D\uDCE2', badgeClass: 'badge-blue', bannerClass: 'type-campaign', bannerText: 'Campaign Texting' },
+      event:    { label: 'Event',    icon: '\uD83C\uDF89', badgeClass: 'badge-orange', bannerClass: 'type-event', bannerText: 'Event Invites' },
+      survey:   { label: 'Poll',     icon: '\uD83D\uDCCA', badgeClass: 'badge-purple', bannerClass: 'type-survey', bannerText: 'Poll / Survey' }
     };
 
     // Pre-fill code from URL param (auto-go to P2P if code is provided)
@@ -531,13 +580,28 @@
         volState.volunteerId = data.volunteerId;
         volState.sessionId = data.sessionId;
         volState.sessionName = data.sessionName;
+        volState.sessionType = data.sessionType || 'campaign';
 
         document.getElementById('joinScreen').style.display = 'none';
         document.getElementById('textingScreen').style.display = 'block';
+
+        // Set type badge and banner
+        var tc = typeConfig[volState.sessionType] || typeConfig.campaign;
+        var badgeEl = document.getElementById('typeBadge');
+        badgeEl.className = 'badge ' + tc.badgeClass;
+        badgeEl.style.cssText = 'font-size:11px;vertical-align:middle;margin-left:6px';
+        badgeEl.textContent = tc.icon + ' ' + tc.label;
+
+        var bannerEl = document.getElementById('typeBanner');
+        bannerEl.className = 'type-banner ' + tc.bannerClass;
+        bannerEl.textContent = tc.icon + '  ' + tc.bannerText;
+        bannerEl.style.display = '';
+
         document.getElementById('sessionInfo').textContent = data.sessionName + ' \u2022 ' + name;
 
         loadQueue();
-        setInterval(loadQueue, 10000);
+        if (volState.pollInterval) clearInterval(volState.pollInterval);
+        volState.pollInterval = setInterval(loadQueue, 60000);
       } catch (e) {
         errEl.textContent = 'Network error. Please try again.';
         document.getElementById('btnJoin').disabled = false;
@@ -547,6 +611,10 @@
     async function loadQueue() {
       if (!volState.volunteerId) return;
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
+      // Keep session type in sync
+      if (data.sessionType) volState.sessionType = data.sessionType;
+      var tc = typeConfig[volState.sessionType] || typeConfig.campaign;
+      document.getElementById('queueCardTitle').textContent = 'Next Contact \u2014 ' + tc.icon + ' ' + tc.bannerText;
       var statsEl = document.getElementById('volStats');
       var queueEl = document.getElementById('queueContent');
 
@@ -645,12 +713,12 @@
           info.appendChild(nameEl);
           var phoneEl = document.createElement('div');
           phoneEl.style.cssText = 'font-size:12px;color:#64748b';
-          phoneEl.textContent = c.phone;
+          phoneEl.textContent = c.phone + (c.preferred_channel === 'whatsapp' ? ' (WhatsApp)' : '');
           info.appendChild(phoneEl);
           item.appendChild(info);
           var badge = document.createElement('span');
           badge.className = 'badge badge-yellow';
-          badge.textContent = 'Reply';
+          badge.textContent = c.preferred_channel === 'whatsapp' ? 'WA Reply' : 'Reply';
           item.appendChild(badge);
           item.addEventListener('click', function() { openConvo(c.id); });
           convosList.appendChild(item);
@@ -661,27 +729,23 @@
     }
 
     async function sendText(assignmentId, message) {
-      var creds = volState.credentials;
-      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) {
-        alert('Twilio credentials not configured. Please ask your campaign manager to set up Twilio in the main dashboard first.');
-        return;
-      }
       try {
-        await apiCall('/api/p2p/send', {
+        var resp = await apiCall('/api/p2p/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             volunteerId: volState.volunteerId,
             assignmentId: assignmentId,
-            message: message,
-            accountSid: creds.accountSid,
-            authToken: creds.authToken,
-            from: creds.fromNumber
+            message: message
           })
         });
+        if (resp && resp.error) {
+          alert(resp.error);
+          return;
+        }
         loadQueue();
       } catch (e) {
-        alert('Failed to send. Please try again.');
+        alert('Failed to send. ' + (e.message || 'Please try again.'));
       }
     }
 
@@ -695,6 +759,7 @@
       document.getElementById('queueCard').style.display = 'none';
       document.getElementById('convosCard').style.display = 'none';
       document.getElementById('convoViewCard').style.display = '';
+      document.getElementById('aiSuggestion').style.display = 'none';
 
       var data = await apiCall('/api/p2p/conversations/' + assignmentId);
       document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
@@ -704,28 +769,76 @@
       (data.messages || []).forEach(function(m) {
         var bubble = document.createElement('div');
         bubble.className = 'msg-bubble ' + (m.direction === 'outbound' ? 'msg-outbound' : 'msg-inbound');
-        bubble.textContent = m.body;
+        var channelTag = (m.channel === 'whatsapp') ? ' [WA]' : '';
+        bubble.textContent = m.body + channelTag;
         msgEl.appendChild(bubble);
       });
       msgEl.scrollTop = msgEl.scrollHeight;
-    }
 
-    function closeConvo() {
-      volState.viewingConvoId = null;
-      document.getElementById('convoViewCard').style.display = 'none';
-      document.getElementById('queueCard').style.display = '';
-      loadQueue();
-    }
+      // Show preferred channel indicator if set
+      var prefChannel = data.assignment.preferred_channel;
+      document.getElementById('convoViewTitle').textContent += prefChannel === 'whatsapp' ? ' (prefers WhatsApp)' : '';
 
-    async function sendReply() {
-      var text = document.getElementById('replyText').value.trim();
-      if (!text || !volState.viewingConvoId) return;
-      var creds = volState.credentials;
-      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) {
-        alert('Twilio credentials not configured.');
-        return;
+      // Get AI suggestion for the last inbound message
+      var lastInbound = (data.messages || []).filter(function(m) { return m.direction === 'inbound'; }).pop();
+      if (lastInbound) {
+        fetchAiSuggestion(lastInbound.body, data.assignment.first_name, lastInbound.sentiment, assignmentId);
       }
+    }
+
+    var currentAiSuggestion = '';
+
+    async function fetchAiSuggestion(voterMessage, voterName, sentiment, assignmentId) {
+      var el = document.getElementById('aiSuggestion');
+      el.style.display = '';
+      document.getElementById('aiLoading').style.display = '';
+      document.getElementById('aiSuggestionText').textContent = '';
+      currentAiSuggestion = '';
+      try {
+        var data = await apiCall('/api/p2p/suggest-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            voterMessage: voterMessage,
+            voterName: voterName || 'Voter',
+            sentiment: sentiment || 'neutral',
+            sessionName: volState.sessionName
+          })
+        });
+        document.getElementById('aiLoading').style.display = 'none';
+        if (data.suggestion) {
+          currentAiSuggestion = data.suggestion;
+          document.getElementById('aiSuggestionText').textContent = data.suggestion;
+          document.getElementById('aiSource').textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
+        } else {
+          el.style.display = 'none';
+        }
+      } catch (e) {
+        el.style.display = 'none';
+      }
+    }
+
+    function approveAiSuggestion() {
+      if (!currentAiSuggestion || !volState.viewingConvoId) return;
+      sendReplyText(currentAiSuggestion);
+    }
+
+    function editAiSuggestion() {
+      document.getElementById('replyText').value = currentAiSuggestion;
+      document.getElementById('aiSuggestion').style.display = 'none';
+      document.getElementById('replyText').focus();
+    }
+
+    function dismissAiSuggestion() {
+      document.getElementById('aiSuggestion').style.display = 'none';
       document.getElementById('replyText').value = '';
+      document.getElementById('replyText').focus();
+    }
+
+    async function sendReplyText(text) {
+      if (!text || !volState.viewingConvoId) return;
+      document.getElementById('replyText').value = '';
+      document.getElementById('aiSuggestion').style.display = 'none';
       await apiCall('/api/p2p/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -733,12 +846,74 @@
           volunteerId: volState.volunteerId,
           assignmentId: volState.viewingConvoId,
           message: text,
-          accountSid: creds.accountSid,
-          authToken: creds.authToken,
-          from: creds.fromNumber
+          isReply: true
         })
       });
       openConvo(volState.viewingConvoId);
+    }
+
+    function closeConvo() {
+      volState.viewingConvoId = null;
+      document.getElementById('convoViewCard').style.display = 'none';
+      document.getElementById('aiSuggestion').style.display = 'none';
+      document.getElementById('queueCard').style.display = '';
+      loadQueue();
+    }
+
+    var pendingGrammarOriginal = '';
+
+    async function sendReply() {
+      var text = document.getElementById('replyText').value.trim();
+      if (!text) return;
+
+      // Run grammar check on manually typed replies
+      pendingGrammarOriginal = text;
+      var reviewEl = document.getElementById('grammarReview');
+      reviewEl.style.display = '';
+      document.getElementById('grammarLoading').style.display = '';
+      document.getElementById('grammarOriginal').textContent = '';
+      document.getElementById('grammarCorrected').textContent = '';
+
+      try {
+        var data = await apiCall('/api/p2p/review-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draftText: text })
+        });
+        document.getElementById('grammarLoading').style.display = 'none';
+
+        if (data.changed) {
+          // Show the correction for approval
+          document.getElementById('grammarOriginal').textContent = 'Original: ' + data.original;
+          document.getElementById('grammarCorrected').textContent = data.corrected;
+          pendingGrammarOriginal = data.original;
+        } else {
+          // No changes needed — send immediately
+          reviewEl.style.display = 'none';
+          sendReplyText(text);
+        }
+      } catch (e) {
+        // If review fails, send as-is
+        reviewEl.style.display = 'none';
+        sendReplyText(text);
+      }
+    }
+
+    function acceptGrammarFix() {
+      var corrected = document.getElementById('grammarCorrected').textContent;
+      document.getElementById('grammarReview').style.display = 'none';
+      if (corrected) sendReplyText(corrected);
+    }
+
+    function sendOriginalAnyway() {
+      document.getElementById('grammarReview').style.display = 'none';
+      if (pendingGrammarOriginal) sendReplyText(pendingGrammarOriginal);
+    }
+
+    function cancelGrammarReview() {
+      document.getElementById('grammarReview').style.display = 'none';
+      document.getElementById('replyText').value = pendingGrammarOriginal;
+      document.getElementById('replyText').focus();
     }
 
     async function markComplete() {
@@ -749,6 +924,7 @@
 
     async function leaveSession() {
       if (!volState.volunteerId) return;
+      if (volState.pollInterval) { clearInterval(volState.pollInterval); volState.pollInterval = null; }
       await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -756,6 +932,7 @@
       });
       volState.volunteerId = null;
       document.getElementById('textingScreen').style.display = 'none';
+      document.getElementById('typeBanner').style.display = 'none';
       document.getElementById('roleScreen').style.display = 'flex';
       document.getElementById('btnJoin').disabled = false;
     }

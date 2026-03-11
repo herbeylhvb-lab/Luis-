@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { asyncHandler } = require('../utils');
 
 // Build system prompt from campaign knowledge
 function buildCampaignContext() {
@@ -47,9 +48,10 @@ function findBestScript(voterMessage, sentiment) {
 }
 
 // POST /api/p2p/suggest-reply
-router.post('/p2p/suggest-reply', async (req, res) => {
+router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
   const { voterMessage, voterName, sentiment, sessionName } = req.body;
   if (!voterMessage) return res.status(400).json({ error: 'voterMessage required.' });
+  if (voterMessage.length > 2000) return res.status(400).json({ error: 'Voter message too long (max 2000 chars).' });
 
   const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get();
 
@@ -73,9 +75,11 @@ Generate a short SMS reply:`;
         messages: [{ role: 'user', content: userPrompt }]
       });
 
-      const aiReply = response.content[0].text.trim();
+      const aiReply = response.content && response.content[0] && response.content[0].text
+        ? response.content[0].text.trim()
+        : null;
 
-      if (aiReply !== 'NO_MATCH') {
+      if (aiReply && aiReply !== 'NO_MATCH') {
         return res.json({ source: 'ai', suggestion: aiReply });
       }
     } catch (err) {
@@ -90,6 +94,46 @@ Generate a short SMS reply:`;
   }
 
   res.json({ source: 'none', suggestion: null });
-});
+}));
+
+// POST /api/p2p/review-reply — grammar/spelling check for volunteer-typed replies
+router.post('/p2p/review-reply', asyncHandler(async (req, res) => {
+  const { draftText } = req.body;
+  if (!draftText) return res.status(400).json({ error: 'draftText required.' });
+  if (draftText.length > 2000) return res.status(400).json({ error: 'Draft text too long (max 2000 chars).' });
+
+  // Skip review for very short messages (under 10 chars — e.g. "Thanks!" "Yes" "OK")
+  if (draftText.trim().length < 10) {
+    return res.json({ corrected: draftText.trim(), changed: false });
+  }
+
+  const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get();
+
+  if (apiKey && apiKey.value) {
+    try {
+      const Anthropic = require('@anthropic-ai/sdk').default;
+      const client = new Anthropic({ apiKey: apiKey.value });
+
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-20250414',
+        max_tokens: 400,
+        system: `You are a grammar and spelling checker for SMS campaign texts. Fix grammar, spelling, and punctuation errors in the volunteer's draft message. Keep the same tone, meaning, and length. Only fix actual errors — do not rewrite or improve the message beyond corrections. If the message has no errors, return it exactly as-is. Return ONLY the corrected text, nothing else.`,
+        messages: [{ role: 'user', content: draftText }]
+      });
+
+      const corrected = response.content && response.content[0] && response.content[0].text
+        ? response.content[0].text.trim()
+        : draftText;
+
+      const changed = corrected.toLowerCase() !== draftText.trim().toLowerCase();
+      return res.json({ corrected, changed, original: draftText.trim() });
+    } catch (err) {
+      console.error('AI review error:', err.message);
+    }
+  }
+
+  // No API key or AI failed — pass through
+  res.json({ corrected: draftText.trim(), changed: false });
+}));
 
 module.exports = router;

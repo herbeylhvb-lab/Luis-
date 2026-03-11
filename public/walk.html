@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Block Walk</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
@@ -48,15 +50,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 /* Address list */
 .addr-list{padding:8px}
-.addr-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:8px;cursor:pointer;transition:all 0.2s;position:relative}
+.addr-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px 14px 44px;margin-bottom:8px;cursor:pointer;transition:all 0.2s;position:relative}
 .addr-card:active{transform:scale(0.98)}
 .addr-card.current{border-color:#f59e0b;background:#1c1917}
 .addr-card.done{opacity:0.7;border-color:#334155}
-.addr-card .addr-num{position:absolute;left:-4px;top:-4px;background:#334155;color:#94a3b8;width:24px;height:24px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.addr-card .addr-num{position:absolute;left:12px;top:14px;background:#334155;color:#94a3b8;width:24px;height:24px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .addr-card.done .addr-num{background:#22c55e;color:#fff}
-.addr-card .addr-text{font-size:15px;font-weight:600;margin-left:20px}
-.addr-card .addr-voter{font-size:13px;color:#94a3b8;margin-left:20px;margin-top:2px}
-.addr-card .addr-status{display:flex;align-items:center;gap:6px;margin-top:6px;margin-left:20px}
+.addr-card .addr-text{font-size:15px;font-weight:600}
+.addr-card .addr-voter{font-size:13px;color:#94a3b8;margin-top:2px}
+.addr-card .addr-status{display:flex;align-items:center;gap:6px;margin-top:6px}
 .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
 .badge-green{background:#052e16;color:#4ade80}
 .badge-red{background:#450a0a;color:#fca5a5}
@@ -120,7 +122,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .maps-link:hover{color:#93c5fd}
 
 /* Assigned walker badge */
-.addr-card .addr-walker{font-size:11px;color:#64748b;margin-left:20px;margin-top:2px;font-style:italic}
+.addr-card .addr-walker{font-size:11px;color:#64748b;margin-top:2px;font-style:italic}
+
+/* Map view */
+.view-toggle{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid #334155}
+.view-toggle-btn{padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
+.view-toggle-btn.active{background:#f59e0b;color:#000}
+#mapContainer{display:none;height:calc(100vh - 200px);min-height:300px;background:#1e293b;position:relative}
+#walkMap{height:100%;width:100%;z-index:1}
+.map-legend{position:absolute;bottom:24px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0}
+.map-legend-item{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.map-legend-item:last-child{margin-bottom:0}
+.map-legend-dot{width:12px;height:12px;border-radius:50%;border:2px solid #fff;flex-shrink:0}
+.map-refresh-indicator{position:absolute;top:10px;right:10px;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:6px 10px;z-index:1000;font-size:11px;color:#94a3b8}
 </style>
 </head>
 <body>
@@ -200,7 +214,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <!-- Route optimization bar -->
   <div class="route-bar" id="routeBar">
     <button class="btn btn-sm btn-green" onclick="optimizeRoute()">Optimize Route</button>
+    <button class="btn btn-sm btn-blue" id="btnLiveRoute" onclick="refreshLiveRoute()" style="display:none">Refresh Route</button>
     <a class="maps-link" id="mapsLink" href="#" target="_blank" style="display:none">Open in Google Maps</a>
+    <span id="routeRemaining" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
+  </div>
+
+  <!-- Live group status bar (group mode) -->
+  <div id="liveStatusBar" style="display:none;padding:8px 16px;background:#0f172a;border-bottom:1px solid #334155">
+    <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Live Group Progress</div>
+    <div id="liveWalkerStats" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+  </div>
+
+  <!-- View toggle (List / Map) -->
+  <div style="padding:8px 16px;background:#0f172a;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between">
+    <div class="view-toggle">
+      <button class="view-toggle-btn active" id="btnListView" onclick="setView('list')">List</button>
+      <button class="view-toggle-btn" id="btnMapView" onclick="setView('map')">Map</button>
+    </div>
+    <button class="btn btn-sm" id="btnRegeocode" onclick="regeocodeWalk()" style="display:none;background:#334155;color:#e2e8f0;font-size:11px;padding:4px 8px">Fix Map Pins</button>
+    <span id="mapRefreshNote" style="font-size:11px;color:#64748b;display:none">Auto-refreshes every 60s</span>
+  </div>
+
+  <!-- Map container -->
+  <div id="mapContainer">
+    <div id="walkMap"></div>
+    <div class="map-legend">
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#f59e0b"></div> Your next doors</div>
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#22c55e"></div> Knocked (done)</div>
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#64748b"></div> Other walkers</div>
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#3b82f6"></div> Your location</div>
+    </div>
+    <div class="map-refresh-indicator" id="mapRefreshIndicator" style="display:none">Updating...</div>
   </div>
 
   <!-- Address list -->
@@ -244,11 +288,13 @@ var walkState = {
   gpsLng: null,
   gpsAccuracy: null,
   gpsWatchId: null,
+  locationInterval: null,
   // Group walking
   isGroupMode: false,
   walkerName: '',
   groupMembers: [],
-  mapsUrl: ''
+  mapsUrl: '',
+  routeActive: false
 };
 
 // ===================== LOAD MODE TOGGLE =====================
@@ -364,23 +410,28 @@ async function optimizeRoute() {
   btn.disabled = true;
   btn.textContent = 'Optimizing...';
   try {
-    var res = await fetch('/api/walks/' + walkState.walkId + '/route');
-    var data = await res.json();
-    if (data.mapsUrl) {
-      walkState.mapsUrl = data.mapsUrl;
-      var link = document.getElementById('mapsLink');
-      link.href = data.mapsUrl;
-      link.style.display = '';
-    }
-    // Reload the walk to get updated sort order
     if (walkState.isGroupMode) {
+      // Use per-walker route with current GPS position
+      await fetchWalkerRoute();
       await loadGroupWalk(walkState.walkId, walkState.walkerName);
     } else {
+      var res = await fetch('/api/walks/' + walkState.walkId + '/route');
+      var data = await res.json();
+      if (data.mapsUrl) {
+        walkState.mapsUrl = data.mapsUrl;
+        document.getElementById('mapsLink').href = data.mapsUrl;
+        document.getElementById('mapsLink').style.display = '';
+      }
       var wRes = await fetch('/api/walks/' + walkState.walkId + '/volunteer');
       var wData = await wRes.json();
       walkState.walk = wData.walk;
       renderWalk();
     }
+    // Show live route button for group mode
+    if (walkState.isGroupMode) {
+      document.getElementById('btnLiveRoute').style.display = '';
+    }
+    walkState.routeActive = true;
     btn.textContent = 'Route Optimized!';
     setTimeout(function() { btn.textContent = 'Optimize Route'; btn.disabled = false; }, 2000);
   } catch(e) {
@@ -388,6 +439,69 @@ async function optimizeRoute() {
     btn.textContent = 'Optimize Route';
     btn.disabled = false;
   }
+}
+
+// Fetch optimized route for THIS walker only (uses current GPS)
+async function fetchWalkerRoute() {
+  var url = '/api/walks/' + walkState.walkId + '/walker/' + encodeURIComponent(walkState.walkerName) + '/route';
+  if (walkState.gpsLat && walkState.gpsLng) {
+    url += '?lat=' + walkState.gpsLat + '&lng=' + walkState.gpsLng;
+  }
+  var res = await fetch(url);
+  var data = await res.json();
+  if (data.mapsUrl) {
+    walkState.mapsUrl = data.mapsUrl;
+    document.getElementById('mapsLink').href = data.mapsUrl;
+    document.getElementById('mapsLink').style.display = '';
+  }
+  document.getElementById('routeRemaining').textContent = data.remaining + ' doors left';
+  return data;
+}
+
+// Refresh live route — called after each door knock or manually
+async function refreshLiveRoute() {
+  if (!walkState.isGroupMode || !walkState.routeActive) return;
+  try {
+    await fetchWalkerRoute();
+    await loadGroupWalk(walkState.walkId, walkState.walkerName);
+    // Also refresh group live status
+    await refreshLiveStatus();
+  } catch(e) { /* silent */ }
+}
+
+// Fetch and render live group status
+async function refreshLiveStatus() {
+  if (!walkState.isGroupMode) return;
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/live-status');
+    var data = await res.json();
+    var el = document.getElementById('liveWalkerStats');
+    el.innerHTML = '';
+    var bar = document.getElementById('liveStatusBar');
+    bar.style.display = '';
+
+    for (var name in data.walkerStats) {
+      var s = data.walkerStats[name];
+      var isMe = name === walkState.walkerName;
+      var chip = document.createElement('div');
+      chip.style.cssText = 'background:' + (isMe ? '#422006' : '#1e293b') + ';border:1px solid ' + (isMe ? '#f59e0b' : '#334155') + ';border-radius:8px;padding:6px 10px;font-size:12px;min-width:100px';
+      chip.innerHTML = '<div style="font-weight:700;color:' + (isMe ? '#fcd34d' : '#e2e8f0') + '">' + escHtml(name) + '</div>' +
+        '<div style="color:#94a3b8">' + s.knocked + '/' + s.total + ' done &middot; ' + s.remaining + ' left</div>';
+      el.appendChild(chip);
+    }
+
+    // Update group progress in header
+    walkState.walk.progress = data.progress;
+    var knocked = data.progress.knocked;
+    var total = data.progress.total;
+    document.getElementById('walkMeta').textContent = 'Group progress: ' + knocked + ' of ' + total + ' doors knocked (' + data.progress.remaining + ' remaining)';
+    var pct = total > 0 ? (knocked / total * 100) : 0;
+    document.getElementById('progressFill').style.width = pct + '%';
+  } catch(e) { /* silent */ }
+}
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ===================== GPS TRACKING =====================
@@ -426,12 +540,28 @@ function startGps() {
     },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
   );
+
+  // Broadcast location to server every 60 seconds for live map tracking
+  if (walkState.locationInterval) clearInterval(walkState.locationInterval);
+  walkState.locationInterval = setInterval(function() {
+    if (!walkState.walkId || walkState.gpsLat == null || walkState.gpsAccuracy > 200) return;
+    var name = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
+    fetch('/api/walks/' + walkState.walkId + '/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walker_name: name, lat: walkState.gpsLat, lng: walkState.gpsLng, accuracy: walkState.gpsAccuracy })
+    }).catch(function() {});
+  }, 60000);
 }
 
 function stopGps() {
   if (walkState.gpsWatchId !== null) {
     navigator.geolocation.clearWatch(walkState.gpsWatchId);
     walkState.gpsWatchId = null;
+  }
+  if (walkState.locationInterval) {
+    clearInterval(walkState.locationInterval);
+    walkState.locationInterval = null;
   }
 }
 
@@ -465,15 +595,30 @@ async function loadWalk() {
 
 function exitWalk() {
   stopGps();
+  // Clean up map
+  if (mapState.refreshInterval) { clearInterval(mapState.refreshInterval); mapState.refreshInterval = null; }
+  if (mapState.map) { mapState.map.remove(); mapState.map = null; mapState.initialized = false; }
+  mapState.markers = [];
+  mapState.otherWalkerMarkers = [];
+  mapState.walkerMarker = null;
+  mapState.currentView = 'list';
+
   walkState.walkId = null;
   walkState.walk = null;
   walkState.isGroupMode = false;
   walkState.walkerName = '';
   walkState.groupMembers = [];
   walkState.mapsUrl = '';
+  walkState.routeActive = false;
   document.getElementById('walkScreen').style.display = 'none';
+  document.getElementById('liveStatusBar').style.display = 'none';
+  document.getElementById('btnLiveRoute').style.display = 'none';
   document.getElementById('loadScreen').style.display = '';
   document.getElementById('mapsLink').style.display = 'none';
+  document.getElementById('mapContainer').style.display = 'none';
+  document.getElementById('addrList').style.display = '';
+  document.getElementById('btnListView').className = 'view-toggle-btn active';
+  document.getElementById('btnMapView').className = 'view-toggle-btn';
 }
 
 // ===================== RENDER WALK =====================
@@ -522,6 +667,8 @@ function renderAddressList() {
     var addrText = document.createElement('div');
     addrText.className = 'addr-text';
     var fullAddr = a.address + (a.unit ? ' ' + a.unit : '');
+    if (a.city) fullAddr += ', ' + a.city;
+    if (a.zip) fullAddr += ' ' + a.zip;
     addrText.textContent = fullAddr;
     card.appendChild(addrText);
 
@@ -534,7 +681,7 @@ function renderAddressList() {
     }
 
     // Assigned walker (group mode)
-    if (a.assigned_walker && !walkState.isGroupMode) {
+    if (a.assigned_walker && walkState.isGroupMode) {
       var walkerLabel = document.createElement('div');
       walkerLabel.className = 'addr-walker';
       walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
@@ -680,6 +827,16 @@ async function logDoor() {
     closeDoor();
     renderWalk();
 
+    // Auto-refresh route in group mode (completed doors disappear from map)
+    if (walkState.isGroupMode && walkState.routeActive) {
+      refreshLiveRoute();
+    }
+
+    // Refresh map view if active
+    if (mapState.currentView === 'map') {
+      refreshMapData();
+    }
+
     // Auto-scroll to next unvisited
     var nextIdx = -1;
     for (var i = 0; i < walkState.walk.addresses.length; i++) {
@@ -698,6 +855,274 @@ async function logDoor() {
     btn.textContent = 'Log & Next \u27A1';
   }
 }
+
+// ===================== MAP VIEW =====================
+
+var mapState = {
+  map: null,
+  markers: [],
+  walkerMarker: null,
+  otherWalkerMarkers: [],
+  refreshInterval: null,
+  currentView: 'list',
+  initialized: false
+};
+
+function setView(view) {
+  mapState.currentView = view;
+  document.getElementById('btnListView').className = 'view-toggle-btn' + (view === 'list' ? ' active' : '');
+  document.getElementById('btnMapView').className = 'view-toggle-btn' + (view === 'map' ? ' active' : '');
+  document.getElementById('addrList').style.display = view === 'list' ? '' : 'none';
+  document.getElementById('mapContainer').style.display = view === 'map' ? 'block' : 'none';
+  document.getElementById('mapRefreshNote').style.display = view === 'map' ? '' : 'none';
+  document.getElementById('btnRegeocode').style.display = view === 'map' ? '' : 'none';
+
+  if (view === 'map') {
+    // Small delay so the browser renders the now-visible container before Leaflet measures it
+    setTimeout(function() {
+      initMap();
+      refreshMapData();
+    }, 50);
+    // Auto-refresh every 60 seconds so the map updates as others knock doors
+    if (!mapState.refreshInterval) {
+      mapState.refreshInterval = setInterval(refreshMapData, 60000);
+    }
+  } else {
+    if (mapState.refreshInterval) {
+      clearInterval(mapState.refreshInterval);
+      mapState.refreshInterval = null;
+    }
+  }
+}
+
+function initMap() {
+  if (mapState.initialized && mapState.map) {
+    mapState.map.invalidateSize();
+    return;
+  }
+
+  mapState.map = L.map('walkMap', {
+    zoomControl: true,
+    attributionControl: false
+  }).setView([39.8283, -98.5795], 4); // Default center US
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  }).addTo(mapState.map);
+
+  mapState.initialized = true;
+
+  // Force Leaflet to recalculate size after the container is fully rendered
+  setTimeout(function() { mapState.map.invalidateSize(); }, 100);
+}
+
+function createHouseIcon(color, isDone) {
+  var size = isDone ? 14 : 18;
+  var opacity = isDone ? 0.7 : 1;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + opacity + '"></div>',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
+function createWalkerIcon(color, label) {
+  return L.divIcon({
+    className: '',
+    html: '<div style="display:flex;flex-direction:column;align-items:center">' +
+      '<div style="width:22px;height:22px;border-radius:50%;background:' + color + ';border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5);animation:pulse 2s infinite"></div>' +
+      (label ? '<div style="background:rgba(30,41,59,0.9);color:#e2e8f0;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;margin-top:2px;white-space:nowrap;border:1px solid #334155">' + escHtml(label) + '</div>' : '') +
+      '</div>',
+    iconSize: [22, 36],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -16]
+  });
+}
+
+function getMarkerColor(addr, myName) {
+  if (addr.result && addr.result !== 'not_visited') return '#22c55e'; // Done - green
+  if (myName && addr.assigned_walker === myName) return '#f59e0b'; // My doors - amber
+  if (myName && addr.assigned_walker && addr.assigned_walker !== myName) return '#64748b'; // Others - gray
+  return '#f59e0b'; // Solo mode unvisited - amber
+}
+
+async function regeocodeWalk() {
+  if (!walkState.walkId) return;
+  var btn = document.getElementById('btnRegeocode');
+  btn.disabled = true;
+  btn.textContent = 'Re-geocoding...';
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/geocode?force=true', { method: 'POST' });
+    var data = await res.json();
+    btn.textContent = data.message || 'Done';
+    // Poll for updates as geocoding runs in background
+    var pollCount = 0;
+    var pollInterval = setInterval(function() {
+      refreshMapData();
+      pollCount++;
+      if (pollCount > 120) { clearInterval(pollInterval); btn.textContent = 'Fix Map Pins'; btn.disabled = false; }
+    }, 2000);
+  } catch (e) {
+    btn.textContent = 'Error - try again';
+    btn.disabled = false;
+  }
+}
+
+async function refreshMapData() {
+  if (!walkState.walkId || mapState.currentView !== 'map') return;
+
+  var indicator = document.getElementById('mapRefreshIndicator');
+  indicator.style.display = '';
+
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/map-data');
+    var data = await res.json();
+    if (!res.ok) return;
+
+    renderMap(data.addresses, data.locations, data.progress);
+  } catch (e) {
+    // silent
+  } finally {
+    setTimeout(function() { indicator.style.display = 'none'; }, 500);
+  }
+}
+
+function renderMap(addresses, walkerLocations, progress) {
+  if (!mapState.map) return;
+
+  var myName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || '');
+
+  // Clear old markers
+  mapState.markers.forEach(function(m) { mapState.map.removeLayer(m); });
+  mapState.markers = [];
+  mapState.otherWalkerMarkers.forEach(function(m) { mapState.map.removeLayer(m); });
+  mapState.otherWalkerMarkers = [];
+  if (mapState.walkerMarker) { mapState.map.removeLayer(mapState.walkerMarker); mapState.walkerMarker = null; }
+
+  var bounds = [];
+
+  // Add house markers
+  for (var i = 0; i < addresses.length; i++) {
+    var addr = addresses[i];
+    if (!addr.lat || !addr.lng) continue;
+
+    var color = getMarkerColor(addr, myName);
+    var isDone = addr.result && addr.result !== 'not_visited';
+    var icon = createHouseIcon(color, isDone);
+
+    var popupContent = '<div style="font-size:13px;min-width:150px">' +
+      '<strong>' + escHtml(addr.address) + (addr.unit ? ' ' + escHtml(addr.unit) : '') + '</strong>';
+    if (addr.voter_name) popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name) + '</span>';
+    if (isDone) {
+      popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
+    } else {
+      popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
+      if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
+    }
+    popupContent += '</div>';
+
+    var marker = L.marker([addr.lat, addr.lng], { icon: icon })
+      .bindPopup(popupContent);
+
+    // Clicking an unvisited marker opens the door panel (if it's in the walker's list)
+    (function(address) {
+      marker.on('click', function() {
+        var localAddrs = walkState.walk.addresses;
+        for (var j = 0; j < localAddrs.length; j++) {
+          if (localAddrs[j].id === address.id && localAddrs[j].result === 'not_visited') {
+            openDoor(j);
+            break;
+          }
+        }
+      });
+    })(addr);
+
+    marker.addTo(mapState.map);
+    mapState.markers.push(marker);
+    bounds.push([addr.lat, addr.lng]);
+  }
+
+  // Add other walkers' locations
+  if (walkerLocations && walkerLocations.length > 0) {
+    for (var k = 0; k < walkerLocations.length; k++) {
+      var loc = walkerLocations[k];
+      if (!loc.lat || !loc.lng) continue;
+      var isMe = loc.walker_name === myName;
+      if (isMe) continue; // We show our own position from GPS, not the server data
+
+      var wIcon = createWalkerIcon('#8b5cf6', loc.walker_name);
+      var wMarker = L.marker([loc.lat, loc.lng], { icon: wIcon, zIndexOffset: 1000 })
+        .bindPopup('<strong>' + escHtml(loc.walker_name) + '</strong><br><small>Last updated: ' + (loc.updated_at || 'just now') + '</small>');
+      wMarker.addTo(mapState.map);
+      mapState.otherWalkerMarkers.push(wMarker);
+      bounds.push([loc.lat, loc.lng]);
+    }
+  }
+
+  // Show my position from live GPS
+  if (walkState.gpsLat && walkState.gpsLng) {
+    var meIcon = createWalkerIcon('#3b82f6', myName || 'You');
+    mapState.walkerMarker = L.marker([walkState.gpsLat, walkState.gpsLng], { icon: meIcon, zIndexOffset: 2000 })
+      .bindPopup('<strong>' + escHtml(myName || 'You') + '</strong><br>Your current position');
+    mapState.walkerMarker.addTo(mapState.map);
+    bounds.push([walkState.gpsLat, walkState.gpsLng]);
+  }
+
+  // Fit map to show all markers
+  if (bounds.length > 0) {
+    mapState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+  }
+
+  // Show geocode notice if addresses exist but none have coordinates
+  var existingNotice = document.getElementById('geocodeNotice');
+  if (existingNotice) existingNotice.remove();
+
+  var addressesWithCoords = addresses.filter(function(a) { return a.lat && a.lng; }).length;
+  if (addresses.length > 0 && addressesWithCoords === 0) {
+    var notice = document.createElement('div');
+    notice.id = 'geocodeNotice';
+    notice.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(30,41,59,0.95);border:1px solid #f59e0b;border-radius:12px;padding:20px;text-align:center;max-width:300px';
+    notice.innerHTML = '<div style="font-size:24px;margin-bottom:8px">&#x1F3E0;</div>' +
+      '<div style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:6px">' + addresses.length + ' addresses need mapping</div>' +
+      '<div style="font-size:12px;color:#94a3b8;margin-bottom:12px">House locations are being resolved. This may take a moment for large walks.</div>' +
+      '<button onclick="triggerGeocode()" style="padding:8px 16px;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Locate Houses on Map</button>';
+    document.getElementById('mapContainer').appendChild(notice);
+  } else if (addresses.length > 0 && addressesWithCoords < addresses.length) {
+    // Some but not all are geocoded — show a small indicator
+    var partial = document.createElement('div');
+    partial.id = 'geocodeNotice';
+    partial.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:6px 10px;font-size:11px;color:#94a3b8;cursor:pointer';
+    partial.textContent = addressesWithCoords + '/' + addresses.length + ' mapped';
+    partial.title = 'Click to map remaining addresses';
+    partial.onclick = function() { triggerGeocode(); };
+    document.getElementById('mapContainer').appendChild(partial);
+  }
+}
+
+async function triggerGeocode() {
+  if (!walkState.walkId) return;
+  var notice = document.getElementById('geocodeNotice');
+  if (notice) notice.innerHTML = '<div style="font-size:13px;color:#f59e0b;padding:10px">Locating houses... this may take a moment.</div>';
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/geocode', { method: 'POST' });
+    var data = await res.json();
+    if (notice) notice.innerHTML = '<div style="font-size:13px;color:#22c55e;padding:10px">' + escHtml(data.message) + '</div>';
+    // Poll for updates as geocoding runs in the background
+    if (data.pending > 0) {
+      var pollCount = 0;
+      var pollInterval = setInterval(function() {
+        refreshMapData();
+        pollCount++;
+        if (pollCount > 60) clearInterval(pollInterval); // Stop after ~2 min
+      }, 2000);
+    }
+  } catch (e) {
+    if (notice) notice.innerHTML = '<div style="font-size:13px;color:#ef4444;padding:10px">Failed to start geocoding.</div>';
+  }
+}
+
 </script>
 </body>
 </html>
