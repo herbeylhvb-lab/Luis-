@@ -109,6 +109,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .badge-yellow{background:#422006;color:#fcd34d}
 .badge-purple{background:#2e1065;color:#c4b5fd}
 .badge-gray{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+.badge-voted{background:#052e16;color:#4ade80;border:1px solid #166534}
+.badge-not-voted{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+.voter-id-label{font-size:11px;color:#64748b;margin-top:2px}
+.voter-id-label span{color:#94a3b8;font-family:monospace}
 
 .household-section{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
 .household-section h4{font-size:13px;color:#64748b;margin-bottom:8px}
@@ -284,8 +288,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <thead>
             <tr>
               <th>Voter</th>
+              <th>Voter ID</th>
               <th>Address</th>
               <th>Party</th>
+              <th>Voted</th>
               <th>Phone</th>
               <th>On Lists</th>
             </tr>
@@ -734,8 +740,19 @@ async function searchVoters() {
 
       var nameEl = document.createElement('div');
       nameEl.className = 'voter-name';
-      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      nameEl.textContent = voterFullName(v);
       card.appendChild(nameEl);
+
+      var vid = voterIdDisplay(v);
+      if (vid) {
+        var vidEl = document.createElement('div');
+        vidEl.className = 'voter-id-label';
+        vidEl.textContent = 'ID: ';
+        var vidSpan = document.createElement('span');
+        vidSpan.textContent = vid;
+        vidEl.appendChild(vidSpan);
+        card.appendChild(vidEl);
+      }
 
       var addrEl = document.createElement('div');
       addrEl.className = 'voter-addr';
@@ -750,6 +767,7 @@ async function searchVoters() {
         partyBadge.textContent = v.party;
         meta.appendChild(partyBadge);
       }
+      meta.appendChild(createVotedBadge(v));
       if (v.phone) {
         var phoneBadge = document.createElement('span');
         phoneBadge.className = 'badge badge-green';
@@ -831,8 +849,18 @@ async function loadListVoters(listId) {
       var infoDiv = document.createElement('div');
       var nameEl = document.createElement('div');
       nameEl.className = 'name';
-      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      nameEl.textContent = voterFullName(v);
       infoDiv.appendChild(nameEl);
+      var vid = voterIdDisplay(v);
+      if (vid) {
+        var vidEl = document.createElement('div');
+        vidEl.className = 'voter-id-label';
+        vidEl.textContent = 'ID: ';
+        var vidSpan = document.createElement('span');
+        vidSpan.textContent = vid;
+        vidEl.appendChild(vidSpan);
+        infoDiv.appendChild(vidEl);
+      }
       var addrEl = document.createElement('div');
       addrEl.className = 'addr';
       addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
@@ -843,6 +871,16 @@ async function loadListVoters(listId) {
         phoneEl.textContent = v.phone;
         infoDiv.appendChild(phoneEl);
       }
+      var metaDiv = document.createElement('div');
+      metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
+      if (v.party) {
+        var partyB = document.createElement('span');
+        partyB.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
+        partyB.textContent = v.party;
+        metaDiv.appendChild(partyB);
+      }
+      metaDiv.appendChild(createVotedBadge(v));
+      infoDiv.appendChild(metaDiv);
       row.appendChild(infoDiv);
 
       var removeBtn = document.createElement('button');
@@ -1054,8 +1092,18 @@ async function viewCaptainList(listId, listName, captainName) {
       var infoDiv = document.createElement('div');
       var nameEl = document.createElement('div');
       nameEl.style.cssText = 'font-weight:600;color:#e2e8f0';
-      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      nameEl.textContent = voterFullName(v);
       infoDiv.appendChild(nameEl);
+      var vid = voterIdDisplay(v);
+      if (vid) {
+        var vidEl = document.createElement('div');
+        vidEl.className = 'voter-id-label';
+        vidEl.textContent = 'ID: ';
+        var vidSpan = document.createElement('span');
+        vidSpan.textContent = vid;
+        vidEl.appendChild(vidSpan);
+        infoDiv.appendChild(vidEl);
+      }
       var addrEl = document.createElement('div');
       addrEl.style.cssText = 'color:#64748b;font-size:12px;margin-top:2px';
       addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
@@ -1067,12 +1115,16 @@ async function viewCaptainList(listId, listName, captainName) {
         infoDiv.appendChild(phoneEl);
       }
       row.appendChild(infoDiv);
+      var badgesDiv = document.createElement('div');
+      badgesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;flex-shrink:0';
       if (v.party) {
         var partyBadge = document.createElement('span');
         partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
         partyBadge.textContent = v.party;
-        row.appendChild(partyBadge);
+        badgesDiv.appendChild(partyBadge);
       }
+      badgesDiv.appendChild(createVotedBadge(v));
+      row.appendChild(badgesDiv);
       listContainer.appendChild(row);
     });
   } catch (e) {
@@ -1135,7 +1187,7 @@ function filterMasterList() {
     return;
   }
   var filtered = masterListData.filter(function(v) {
-    var text = (v.first_name + ' ' + v.last_name + ' ' + v.address + ' ' + v.city + ' ' + v.phone + ' ' + v.party + ' ' + v.precinct).toLowerCase();
+    var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
     v.lists.forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
     return text.indexOf(q) !== -1;
   });
@@ -1152,7 +1204,7 @@ function renderMasterRows(voters) {
     var tdName = document.createElement('td');
     var nameText = document.createElement('div');
     nameText.style.fontWeight = '600';
-    nameText.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    nameText.textContent = voterFullName(v);
     tdName.appendChild(nameText);
     if (v.precinct) {
       var precEl = document.createElement('div');
@@ -1161,6 +1213,11 @@ function renderMasterRows(voters) {
       tdName.appendChild(precEl);
     }
     tr.appendChild(tdName);
+
+    var tdVid = document.createElement('td');
+    tdVid.style.cssText = 'color:#94a3b8;font-family:monospace;font-size:12px';
+    tdVid.textContent = voterIdDisplay(v) || '\u2014';
+    tr.appendChild(tdVid);
 
     var tdAddr = document.createElement('td');
     tdAddr.style.color = '#94a3b8';
@@ -1175,6 +1232,10 @@ function renderMasterRows(voters) {
       tdParty.appendChild(partyBadge);
     }
     tr.appendChild(tdParty);
+
+    var tdVoted = document.createElement('td');
+    tdVoted.appendChild(createVotedBadge(v));
+    tr.appendChild(tdVoted);
 
     var tdPhone = document.createElement('td');
     tdPhone.style.color = '#94a3b8';
@@ -1252,6 +1313,38 @@ async function createList() {
 }
 
 // ===================== HELPERS =====================
+
+// Build full voter name: First Middle Last Suffix
+function voterFullName(v) {
+  var parts = [];
+  if (v.first_name) parts.push(v.first_name);
+  if (v.middle_name) parts.push(v.middle_name);
+  if (v.last_name) parts.push(v.last_name);
+  if (v.suffix) parts.push(v.suffix);
+  return parts.join(' ') || 'Unknown';
+}
+
+// Get voter ID display string
+function voterIdDisplay(v) {
+  if (v.state_file_id) return v.state_file_id;
+  if (v.vanid) return v.vanid;
+  if (v.registration_number) return v.registration_number;
+  return '';
+}
+
+// Create voted/not-voted badge element
+function createVotedBadge(v) {
+  var badge = document.createElement('span');
+  var hasVoted = v.early_voted === 1;
+  // Also check election_votes if available
+  if (!hasVoted && v.election_votes && v.election_votes.length > 0) {
+    hasVoted = v.election_votes.some(function(ev) { return ev.voted === 1; });
+  }
+  badge.className = 'badge ' + (hasVoted ? 'badge-voted' : 'badge-not-voted');
+  badge.textContent = hasVoted ? 'Voted' : 'Not Voted';
+  if (hasVoted && v.early_voted_date) badge.title = 'Voted on ' + v.early_voted_date;
+  return badge;
+}
 
 function daysSince(dateStr) {
   if (!dateStr) return 'recently';

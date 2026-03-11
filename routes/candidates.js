@@ -16,6 +16,23 @@ function generateCaptainCode() {
   return randomBytes(3).toString('hex').toUpperCase().slice(0, 6);
 }
 
+// Attach election vote history to voter objects (same pattern as captains.js)
+function attachElectionVotes(voters) {
+  if (!voters || voters.length === 0) return;
+  const ids = voters.map(v => v.id);
+  const evRows = db.prepare(
+    'SELECT voter_id, election_name, election_type, party_voted, voted FROM election_votes WHERE voter_id IN (' + ids.map(() => '?').join(',') + ')'
+  ).all(...ids);
+  const map = {};
+  for (const r of evRows) {
+    if (!map[r.voter_id]) map[r.voter_id] = [];
+    map[r.voter_id].push({ election_name: r.election_name, election_type: r.election_type, party_voted: r.party_voted || '', voted: r.voted });
+  }
+  for (const v of voters) {
+    v.election_votes = map[v.id] || [];
+  }
+}
+
 // Middleware: verify caller is the candidate or an admin
 function requireCandidateAuth(req, res, next) {
   const candidateId = parseInt(req.params.id, 10);
@@ -357,6 +374,7 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
 
   const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
   const voters = db.prepare(`SELECT * FROM voters WHERE ${whereClause} ORDER BY last_name, first_name LIMIT 50`).all(...params);
+  attachElectionVotes(voters);
   res.json({ voters });
 });
 
@@ -408,6 +426,7 @@ router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, r
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? ORDER BY alv.added_at DESC
   `).all(req.params.listId);
+  attachElectionVotes(voters);
   res.json({ list, voters });
 });
 
@@ -448,6 +467,7 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
     JOIN voters v ON clv.voter_id = v.id
     WHERE clv.list_id = ? ORDER BY clv.added_at DESC
   `).all(req.params.listId);
+  attachElectionVotes(voters);
   res.json({ list, voters });
 });
 
@@ -457,8 +477,9 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
 
   // Gather all voter appearances from both admin and captain lists
   const rows = db.prepare(`
-    SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip,
-           v.phone, v.party, v.precinct,
+    SELECT v.id, v.first_name, v.last_name, v.middle_name, v.suffix,
+           v.address, v.city, v.zip, v.phone, v.party, v.precinct,
+           v.state_file_id, v.vanid, v.early_voted, v.early_voted_date,
            source_name, source_type, list_name, added_at
     FROM (
       SELECT alv.voter_id, 'My List' as source_name, 'admin' as source_type,
@@ -486,12 +507,18 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
         id: row.id,
         first_name: row.first_name,
         last_name: row.last_name,
+        middle_name: row.middle_name,
+        suffix: row.suffix,
         address: row.address,
         city: row.city,
         zip: row.zip,
         phone: row.phone,
         party: row.party,
         precinct: row.precinct,
+        state_file_id: row.state_file_id,
+        vanid: row.vanid,
+        early_voted: row.early_voted,
+        early_voted_date: row.early_voted_date,
         lists: []
       });
     }
@@ -504,6 +531,7 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   }
 
   const voters = Array.from(voterMap.values());
+  attachElectionVotes(voters);
   const totalAppearances = rows.length;
   const uniqueVoters = voters.length;
   const overlaps = voters.filter(v => v.lists.length > 1).length;

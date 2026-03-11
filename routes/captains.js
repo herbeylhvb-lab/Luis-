@@ -806,10 +806,14 @@ router.post('/captains/:id/team', requireCaptainAuth, (req, res) => {
   }
   if (!unique) return res.status(500).json({ error: 'Could not generate a unique code. Please try again.' });
 
-  // Create as a real captain with parent_captain_id
+  // Inherit candidate_id from parent captain so sub-captains appear on candidate dashboard
+  const parentCaptain = db.prepare('SELECT candidate_id FROM captains WHERE id = ?').get(req.params.id);
+  const inheritedCandidateId = parentCaptain ? parentCaptain.candidate_id : null;
+
+  // Create as a real captain with parent_captain_id + inherited candidate_id
   const result = db.prepare(
-    'INSERT INTO captains (name, code, parent_captain_id) VALUES (?, ?, ?)'
-  ).run(name.trim(), code, req.params.id);
+    'INSERT INTO captains (name, code, parent_captain_id, candidate_id) VALUES (?, ?, ?, ?)'
+  ).run(name.trim(), code, req.params.id, inheritedCandidateId);
 
   // Auto-create a default list so new team members have one ready to use
   db.prepare(
