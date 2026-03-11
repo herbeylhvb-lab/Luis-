@@ -199,6 +199,10 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
       WHERE cl.captain_id = ?
       GROUP BY cl.id ORDER BY cl.created_at DESC
     `).all(c.id);
+    c.total_voters = (db.prepare(`
+      SELECT COUNT(DISTINCT voter_id) as n FROM captain_list_voters
+      WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
+    `).get(c.id) || { n: 0 }).n;
   }
 
   const lists = db.prepare(`
@@ -209,7 +213,26 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(candidate.id);
 
-  res.json({ candidate, captains, lists });
+  // Aggregate stats
+  const allVoterCount = (db.prepare(`
+    SELECT COUNT(DISTINCT voter_id) as n FROM (
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
+      UNION
+      SELECT alv.voter_id FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+    )
+  `).get(candidate.id, candidate.id) || { n: 0 }).n;
+  const stats = {
+    total_captains: captains.length,
+    active_captains: captains.filter(c => c.is_active).length,
+    total_voters: allVoterCount,
+    total_lists: lists.length,
+    captain_lists: captains.reduce((sum, c) => sum + (c.lists || []).length, 0)
+  };
+
+  res.json({ candidate, captains, lists, stats });
 });
 
 // Portal dashboard refresh
@@ -230,6 +253,11 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
       WHERE cl.captain_id = ?
       GROUP BY cl.id ORDER BY cl.created_at DESC
     `).all(c.id);
+    // Total unique voters across all captain's lists
+    c.total_voters = (db.prepare(`
+      SELECT COUNT(DISTINCT voter_id) as n FROM captain_list_voters
+      WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
+    `).get(c.id) || { n: 0 }).n;
   }
 
   const lists = db.prepare(`
@@ -240,7 +268,38 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(candidate.id);
 
-  res.json({ candidate, captains, lists });
+  // Aggregate stats for dashboard
+  const adminVoterCount = (db.prepare(`
+    SELECT COUNT(DISTINCT alv.voter_id) as n FROM admin_list_voters alv
+    JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+  `).get(candidate.id) || { n: 0 }).n;
+  const captainVoterCount = (db.prepare(`
+    SELECT COUNT(DISTINCT clv.voter_id) as n FROM captain_list_voters clv
+    JOIN captain_lists cl ON clv.list_id = cl.id
+    JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
+  `).get(candidate.id) || { n: 0 }).n;
+  const allVoterCount = (db.prepare(`
+    SELECT COUNT(DISTINCT voter_id) as n FROM (
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
+      UNION
+      SELECT alv.voter_id FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+    )
+  `).get(candidate.id, candidate.id) || { n: 0 }).n;
+
+  const stats = {
+    total_captains: captains.length,
+    active_captains: captains.filter(c => c.is_active).length,
+    total_voters: allVoterCount,
+    admin_voters: adminVoterCount,
+    captain_voters: captainVoterCount,
+    total_lists: lists.length,
+    captain_lists: captains.reduce((sum, c) => sum + (c.lists || []).length, 0)
+  };
+
+  res.json({ candidate, captains, lists, stats });
 });
 
 // Candidate creates their own captain
