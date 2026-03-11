@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vote Villarreal — Port Commissioner Place 4, Port of Brownsville</title>
+  <meta name="description" content="Luis Villarreal for Port Commissioner Place 4. Lowering Costs. Creating Jobs. Navigating Forward.">
+  <meta property="og:title" content="Luis Villarreal for Port Commissioner — Place 4">
+  <meta property="og:description" content="Lowering Costs. Creating Jobs. Navigating Forward.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="headshot.jpg">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ============================================
+       CSS VARIABLES — Edit colors here
+       ============================================ */
+    :root {
+      --red: #B22234;
+      --red-dark: #8B1A29;
+      --blue: #0A2463;
+      --blue-dark: #061840;
+      --blue-light: #1B3A8C;
+      --white: #FFFFFF;
+      --off-white: #F5F5F7;
+      --gold: #C5A44E;
+      --text-dark: #1A1A2E;
+      --text-medium: #4A4A5A;
+      --text-light: #6B6B7B;
+    }
+
+    /* ============================================
+       RESET & BASE
+       ============================================ */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      font-size: 16px;
+    }
+
+    body {
+      font-family: 'Merriweather', Georgia, serif;
+      color: var(--text-dark);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    h1, h2, h3, h4 {
+      font-family: 'Montserrat', 'Helvetica Neue', sans-serif;
+      line-height: 1.2;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ============================================
+       NAVIGATION
+       ============================================ */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(10, 36, 99, 0.95);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      padding: 0 24px;
+      transition: box-shadow 0.3s ease;
+    }
+
+    .nav.scrolled {
+      box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+    }
+
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      height: 48px;
+    }
+
+    .nav-logo img {
+      height: 44px;
+      width: auto;
+    }
+
+    .nav-links {
+      display: flex;
+      list-style: none;
+      gap: 32px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--white);
+    }
+
+    .nav-links .btn-nav {
+      background: var(--red);
+      color: white;
+      padding: 8px 20px;
+      border-radius: 4px;
+      font-weight: 700;
+      transition: background 0.2s;
+    }
+
+    .nav-links .btn-nav:hover {
+      background: var(--red-dark);
+    }
+
+    /* Mobile hamburger */
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      cursor: pointer;
+      gap: 5px;
+      background: none;
+      border: none;
+      padding: 4px;
+    }
+
+    .hamburger span {
+      width: 26px;
+      height: 3px;
+      background: white;
+      border-radius: 2px;
+      transition: all 0.3s ease;
+    }
+
+    .hamburger.active span:nth-child(1) {
+      transform: rotate(45deg) translate(5px, 6px);
+    }
+
+    .hamburger.active span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .hamburger.active span:nth-child(3) {
+      transform: rotate(-45deg) translate(5px, -6px);
+    }
+
+    /* ============================================
+       HERO SECTION
+       ============================================ */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      background: url('port-hero.jpeg') center center / cover no-repeat;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, rgba(6, 24, 64, 0.85) 0%, rgba(10, 36, 99, 0.75) 50%, rgba(27, 58, 140, 0.7) 100%);
+      pointer-events: none;
+    }
+
+    /* Decorative stripes */
+    .hero-stripe {
+      position: absolute;
+      right: -100px;
+      top: 50%;
+      transform: translateY(-50%) rotate(-5deg);
+      width: 300px;
+      opacity: 0.06;
+    }
+
+    .hero-stripe div {
+      height: 8px;
+      background: white;
+      margin-bottom: 8px;
+      border-radius: 4px;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      padding-top: 80px;
+    }
+
+    .hero-eyebrow {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: var(--gold);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .hero-eyebrow::before {
+      content: '';
+      width: 40px;
+      height: 2px;
+      background: var(--gold);
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 900;
+      color: var(--white);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: -1px;
+    }
+
+    .hero h2 {
+      font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+      font-weight: 400;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 32px;
+      max-width: 550px;
+    }
+
+    .hero-tagline {
+      font-family: 'Montserrat', sans-serif;
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      font-weight: 600;
+      color: var(--white);
+      border-left: 4px solid var(--red);
+      padding-left: 16px;
+      margin-bottom: 40px;
+      max-width: 500px;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 14px 32px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+      display: inline-block;
+      text-align: center;
+    }
+
+    .btn-primary {
+      background: var(--red);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--red-dark);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(178, 34, 52, 0.4);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: white;
+      border: 2px solid rgba(255,255,255,0.5);
+    }
+
+    .btn-outline:hover {
+      border-color: white;
+      background: rgba(255,255,255,0.1);
+      transform: translateY(-2px);
+    }
+
+    /* ============================================
+       SECTION STYLES
+       ============================================ */
+    .section {
+      padding: 80px 0;
+    }
+
+    .section-dark {
+      background: var(--blue);
+      color: var(--white);
+    }
+
+    .section-light {
+      background: var(--off-white);
+    }
+
+    .section-title {
+      font-size: clamp(1.8rem, 4vw, 2.5rem);
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .section-subtitle {
+      font-size: 1rem;
+      color: var(--text-medium);
+      margin-bottom: 48px;
+      max-width: 600px;
+    }
+
+    .section-dark .section-subtitle {
+      color: rgba(255,255,255,0.7);
+    }
+
+    .section-label {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      color: var(--red);
+      margin-bottom: 8px;
+    }
+
+    .section-dark .section-label {
+      color: var(--gold);
+    }
+
+    /* ============================================
+       ABOUT SECTION
+       ============================================ */
+    .about-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .about-photo {
+      width: 100%;
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(10, 36, 99, 0.2);
+    }
+
+    .about-photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      border-radius: 8px;
+    }
+
+    .about-photo::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 6px;
+      background: var(--red);
+    }
+
+    .about-text p {
+      margin-bottom: 16px;
+      color: var(--text-medium);
+    }
+
+    .about-text p:first-of-type {
+      font-size: 1.1rem;
+      color: var(--text-dark);
+      font-weight: 700;
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    /* ============================================
+       ISSUES / PLATFORM
+       ============================================ */
+    .issues-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    @media (max-width: 900px) {
+      .issues-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .issue-card {
+      background: white;
+      padding: 32px;
+      border-radius: 8px;
+      border-top: 4px solid var(--red);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .issue-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+    }
+
+    .issue-icon {
+      font-size: 2rem;
+      margin-bottom: 16px;
+    }
+
+    .issue-card h3 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      color: var(--blue);
+    }
+
+    .issue-card p {
+      font-size: 0.95rem;
+      color: var(--text-medium);
+      line-height: 1.6;
+    }
+
+    .issue-card .checklist {
+      list-style: none;
+      margin: 12px 0 16px;
+      padding: 0;
+    }
+
+    .issue-card .checklist li {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      padding: 4px 0 4px 24px;
+      position: relative;
+    }
+
+    .issue-card .checklist li::before {
+      content: '\2713';
+      position: absolute;
+      left: 0;
+      color: var(--red);
+      font-weight: 800;
+    }
+
+    .issue-card .tagline {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: var(--blue);
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 2px solid var(--off-white);
+    }
+
+    /* ============================================
+       PORT STATS
+       ============================================ */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 24px;
+    }
+
+    .stat-card {
+      text-align: center;
+      padding: 32px 16px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+    }
+
+    .stat-number {
+      font-family: 'Montserrat', sans-serif;
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      font-weight: 900;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+
+    .stat-label {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: rgba(255,255,255,0.7);
+    }
+
+    /* endorsements section removed */
+
+    /* ============================================
+       GET INVOLVED
+       ============================================ */
+    .involve-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 24px;
+    }
+
+    .involve-card {
+      text-align: center;
+      padding: 40px 24px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      transition: transform 0.2s;
+    }
+
+    .involve-card:hover {
+      transform: translateY(-4px);
+    }
+
+    .involve-icon {
+      font-size: 2.5rem;
+      margin-bottom: 16px;
+    }
+
+    .involve-card h3 {
+      font-size: 1rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      color: var(--blue);
+    }
+
+    .involve-card p {
+      font-size: 0.9rem;
+      color: var(--text-medium);
+      margin-bottom: 20px;
+    }
+
+    .btn-small {
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700;
+      font-size: 0.8rem;
+      padding: 10px 24px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      background: var(--blue);
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: inline-block;
+    }
+
+    .btn-small:hover {
+      background: var(--blue-light);
+    }
+
+    /* ============================================
+       DONATE CTA
+       ============================================ */
+    .donate-section {
+      background: linear-gradient(135deg, var(--red-dark) 0%, var(--red) 100%);
+      text-align: center;
+      padding: 80px 24px;
+    }
+
+    .donate-section h2 {
+      font-size: clamp(1.8rem, 4vw, 2.5rem);
+      font-weight: 900;
+      color: white;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .donate-section p {
+      color: rgba(255,255,255,0.85);
+      font-size: 1.05rem;
+      max-width: 550px;
+      margin: 0 auto 32px;
+    }
+
+    .btn-donate {
+      background: white;
+      color: var(--red);
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 800;
+      font-size: 1.1rem;
+      padding: 16px 48px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-block;
+    }
+
+    .btn-donate:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }
+
+    /* ============================================
+       FOOTER
+       ============================================ */
+    .footer {
+      background: var(--blue-dark);
+      color: rgba(255,255,255,0.6);
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .footer-social {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .footer-social a {
+      color: rgba(255,255,255,0.6);
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+
+    .footer-social a:hover {
+      color: white;
+    }
+
+    .footer-disclaimer {
+      font-size: 0.75rem;
+      margin-top: 16px;
+      color: rgba(255,255,255,0.35);
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ============================================
+       MOBILE RESPONSIVE
+       ============================================ */
+    @media (max-width: 768px) {
+      .nav-links {
+        display: none;
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        background: var(--blue-dark);
+        flex-direction: column;
+        padding: 24px;
+        gap: 20px;
+      }
+
+      .nav-links.active {
+        display: flex;
+      }
+
+      .hamburger {
+        display: flex;
+      }
+
+      .hero {
+        min-height: 90vh;
+      }
+
+      .hero h1 {
+        font-size: 2.5rem;
+      }
+
+      .about-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+
+      .about-photo {
+        max-height: 400px;
+      }
+
+      .about-photo img {
+        max-height: 400px;
+      }
+
+      .section {
+        padding: 60px 0;
+      }
+
+      .hero-buttons {
+        flex-direction: column;
+      }
+
+      .hero-buttons .btn {
+        text-align: center;
+      }
+    }
+
+    /* ============================================
+       ANIMATIONS
+       ============================================ */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ============================================
+       MODAL FORMS
+       ============================================ */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(10, 36, 99, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: white;
+      border-radius: 12px;
+      max-width: 480px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.3);
+      animation: modalSlideIn 0.3s ease;
+    }
+
+    @keyframes modalSlideIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 28px 0;
+    }
+
+    .modal-header h3 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--blue);
+    }
+
+    .modal-close {
+      background: none; border: none;
+      font-size: 1.5rem; color: var(--text-light);
+      cursor: pointer; padding: 4px 8px;
+      border-radius: 4px; transition: all 0.2s;
+    }
+
+    .modal-close:hover { background: var(--off-white); color: var(--text-dark); }
+
+    .modal-body { padding: 20px 28px 28px; }
+
+    .modal-body p {
+      font-size: 0.9rem; color: var(--text-medium);
+      margin-bottom: 20px; line-height: 1.5;
+    }
+
+    .form-group { margin-bottom: 16px; }
+
+    .form-group label {
+      display: block;
+      font-family: 'Montserrat', sans-serif;
+      font-size: 0.8rem; font-weight: 700;
+      color: var(--text-dark); margin-bottom: 6px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    .form-group input,
+    .form-group textarea {
+      width: 100%; padding: 12px 14px;
+      border: 2px solid #E2E8F0; border-radius: 6px;
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 0.95rem; color: var(--text-dark);
+      transition: border-color 0.2s; outline: none;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus { border-color: var(--blue); }
+
+    .form-group textarea { resize: vertical; min-height: 80px; }
+
+    .btn-submit {
+      width: 100%; padding: 14px;
+      background: var(--blue); color: white;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 700; font-size: 0.95rem;
+      text-transform: uppercase; letter-spacing: 1px;
+      border: none; border-radius: 6px;
+      cursor: pointer; transition: all 0.2s; margin-top: 8px;
+    }
+
+    .btn-submit:hover { background: var(--blue-light); transform: translateY(-1px); }
+
+    .btn-submit:disabled { background: #A0AEC0; cursor: not-allowed; transform: none; }
+
+    .form-success {
+      display: none; text-align: center; padding: 40px 28px;
+    }
+
+    .form-success .success-icon { font-size: 3rem; margin-bottom: 16px; }
+
+    .form-success h4 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 1.2rem; font-weight: 800;
+      color: var(--blue); margin-bottom: 8px;
+    }
+
+    .form-success p { font-size: 0.9rem; color: var(--text-medium); line-height: 1.5; }
+
+    /* ============================================
+       SMS CONSENT CHECKBOX & DISCLOSURE
+       ============================================ */
+    .consent-group {
+      margin: 16px 0 8px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .consent-group input[type="checkbox"] {
+      margin-top: 3px;
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+      accent-color: var(--blue);
+      cursor: pointer;
+    }
+
+    .consent-group label {
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 0.75rem;
+      font-weight: 400;
+      color: var(--text-medium);
+      line-height: 1.5;
+      text-transform: none;
+      letter-spacing: 0;
+      cursor: pointer;
+    }
+
+    .consent-group label a {
+      color: var(--blue);
+      text-decoration: underline;
+    }
+
+    .consent-group label a:hover {
+      color: var(--blue-light);
+    }
+
+    .terms-content h4 {
+      font-family: 'Montserrat', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--blue);
+      margin: 20px 0 8px;
+    }
+
+    .terms-content h4:first-child {
+      margin-top: 0;
+    }
+
+    .terms-content p,
+    .terms-content ul {
+      font-size: 0.85rem;
+      color: var(--text-medium);
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+
+    .terms-content ul {
+      padding-left: 20px;
+    }
+
+    .terms-content ul li {
+      margin-bottom: 4px;
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- ============================
+       NAVIGATION
+       ============================ -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="#hero" class="nav-logo">
+        <img src="logo.jpeg" alt="Elect Luis Villarreal Jr. for Port Commissioner, Brownsville">
+      </a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#about">About</a></li>
+        <li><a href="#issues">Issues</a></li>
+        <li><a href="#involved">Get Involved</a></li>
+        <li><a href="#donate" class="btn-nav">Donate</a></li>
+        <li><a href="/app" class="btn-nav" style="background:var(--gold);color:var(--blue-dark);">Campaign HQ</a></li>
+      </ul>
+      <button class="hamburger" id="hamburger" aria-label="Toggle navigation">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ============================
+       HERO
+       ============================ -->
+  <section class="hero" id="hero">
+    <div class="hero-stripe" aria-hidden="true">
+      <div></div><div></div><div></div><div></div><div></div>
+      <div></div><div></div><div></div><div></div><div></div>
+      <div></div><div></div><div></div>
+    </div>
+    <div class="container hero-content">
+      <div class="hero-eyebrow">Port Commissioner · Place 4</div>
+      <h1>Luis<br>Villarreal Jr.</h1>
+      <div class="hero-tagline" style="font-size:clamp(1.2rem, 3vw, 1.8rem); letter-spacing:4px; text-transform:uppercase; font-weight:700; margin-bottom:8px;">
+        Navigating Forward
+      </div>
+      <div class="hero-tagline">
+        Lowering Costs. Creating Jobs for Our Community.
+      </div>
+      <div class="hero-buttons">
+        <a href="#issues" class="btn btn-primary">See the Plan</a>
+        <a href="#involved" class="btn btn-outline">Get Involved</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================
+       ABOUT
+       ============================ -->
+  <section class="section" id="about">
+    <div class="container">
+      <div class="about-grid">
+        <div class="about-photo fade-in">
+          <img src="headshot.jpg" alt="Luis Villarreal Jr. — Candidate for Port Commissioner, Place 4">
+        </div>
+        <div class="about-text fade-in">
+          <div class="section-label">About Luis</div>
+          <h2 class="section-title">A Voice for<br>Our Port & Community</h2>
+
+          <p>The Port of Brownsville is one of the most important economic engines in South Texas — and every Brownsville family feels its impact.</p>
+
+          <p>When the port runs efficiently, operating costs go down, businesses expand, and new companies move in. That means more good-paying jobs for our community and less pressure on local taxpayers. A well-run port doesn't just help industry — it helps every family in Brownsville.</p>
+
+          <p>Luis Villarreal is running for Port Commissioner, Place 4, to bring a business-minded approach to port leadership — one focused on cutting red tape, driving down costs, and turning savings into jobs and tax relief for our community.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================
+       ISSUES / PLATFORM
+       ============================ -->
+  <section class="section section-light" id="issues">
+    <div class="container">
+      <div class="section-label fade-in">The Plan</div>
+      <h2 class="section-title fade-in">Our Priorities for the Port</h2>
+      <p class="section-subtitle fade-in">Less bureaucracy. Lower costs. More jobs. Stronger infrastructure. A port that works for every Brownsville family.</p>
+
+      <div class="issues-grid">
+        <div class="issue-card fade-in">
+          <div class="issue-icon">📋</div>
+          <h3>Streamline Industrial Permitting</h3>
+          <p>Industrial tenants should not face unnecessary delays or multiple layers of bureaucracy before they can build. I will pursue the creation of a Port Building & Inspection Department so companies can handle plan review and inspections directly within the Port.</p>
+          <ul class="checklist">
+            <li>One coordinated process</li>
+            <li>Faster approvals</li>
+            <li>On-site inspections</li>
+            <li>Clear timelines</li>
+            <li>Full compliance with safety and environmental standards</li>
+          </ul>
+          <div class="tagline">Faster permitting means faster construction — and faster job creation for Brownsville families.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">💰</div>
+          <h3>Lower Costs Through Efficiency</h3>
+          <p>The Port owns and manages its land as a unified industrial complex. We should leverage that scale to reduce costs for tenants — and when the Port saves money, that means less burden on local taxpayers.</p>
+          <ul class="checklist">
+            <li>Coordinated bulk utility purchasing</li>
+            <li>Smarter infrastructure planning</li>
+            <li>Exploring Port-wide insurance frameworks</li>
+            <li>Reducing duplication and administrative overhead</li>
+          </ul>
+          <div class="tagline">Lower costs mean more expansion, more local jobs, and less pressure on Brownsville taxpayers.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">🏆</div>
+          <h3>Compete & Win on the Gulf Coast</h3>
+          <p>Ports across Texas and the Gulf Coast are competing for the same investments. Every company we attract means more jobs for our neighbors — in shipbuilding, logistics, steel fabrication, and industrial growth.</p>
+          <ul class="checklist">
+            <li>Predictable timelines</li>
+            <li>Cost-efficient operations</li>
+            <li>Strong but streamlined oversight</li>
+            <li>Business-ready infrastructure</li>
+          </ul>
+          <div class="tagline">The Port should not move at the speed of paperwork. It should move at the speed of opportunity.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">🏠</div>
+          <h3>More Jobs, Lower Taxes</h3>
+          <p>Every dollar the Port saves through smarter operations is a dollar that benefits Brownsville. An efficient port attracts more businesses, creates more jobs, and generates more revenue — reducing the tax burden on local families.</p>
+          <ul class="checklist">
+            <li>Port efficiencies that translate to community savings</li>
+            <li>More industry means a broader tax base</li>
+            <li>Good-paying jobs in shipbuilding, logistics & manufacturing</li>
+            <li>Reinvesting savings into infrastructure, not overhead</li>
+          </ul>
+          <div class="tagline">When the Port works smarter, Brownsville families pay less and earn more.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">🔒</div>
+          <h3>Transparency & Accountability</h3>
+          <p>The Port of Brownsville belongs to the public — and the public deserves to know how it's being run. I will push for greater openness in how decisions are made, how money is spent, and how contracts are awarded.</p>
+          <ul class="checklist">
+            <li>Open and accessible board meetings</li>
+            <li>Public access to port contracts and financials</li>
+            <li>Regular community reporting on port performance</li>
+            <li>Clear accountability for how taxpayer resources are used</li>
+          </ul>
+          <div class="tagline">Sunlight is the best disinfectant. Our port should have nothing to hide.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">🤝</div>
+          <h3>Local Hiring & Workforce Development</h3>
+          <p>When the Port grows, Brownsville families should be first in line for those jobs. I will work to connect our local workforce — through TSC, UTRGV, and trade programs — directly to port employment opportunities.</p>
+          <ul class="checklist">
+            <li>Partner with local colleges and trade schools</li>
+            <li>Prioritize hiring from the Brownsville community</li>
+            <li>Create apprenticeship and training pipelines</li>
+            <li>Support certifications in welding, logistics, heavy equipment & more</li>
+          </ul>
+          <div class="tagline">Our port should put our people to work first.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">🚧</div>
+          <h3>Infrastructure Investment</h3>
+          <p>Aging docks, outdated roads, and limited rail connections hold the Port back from reaching its full potential. Modern infrastructure attracts modern industry — and the better-paying jobs that come with it.</p>
+          <ul class="checklist">
+            <li>Upgrade aging docks and cargo facilities</li>
+            <li>Improve port roads and rail connections</li>
+            <li>Modernize utilities to meet industrial demand</li>
+            <li>Plan infrastructure that supports long-term growth</li>
+          </ul>
+          <div class="tagline">Better infrastructure today means better jobs tomorrow.</div>
+        </div>
+
+        <div class="issue-card fade-in">
+          <div class="issue-icon">🌎</div>
+          <h3>Grow International Trade</h3>
+          <p>Brownsville sits on one of the most strategic trade corridors in North America. Our port should be leveraging that position to expand cross-border commerce and attract international shippers looking for a reliable Gulf Coast gateway.</p>
+          <ul class="checklist">
+            <li>Strengthen U.S.–Mexico trade partnerships</li>
+            <li>Attract international shipping lines and logistics companies</li>
+            <li>Position Brownsville as a North American trade hub</li>
+            <li>Support nearshoring opportunities for manufacturers</li>
+          </ul>
+          <div class="tagline">Our location is our advantage. Let's use it.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================
+       PORT BY THE NUMBERS
+       ============================ -->
+  <section class="section section-dark" id="port-stats">
+    <div class="container">
+      <div class="section-label fade-in">Why This Race Matters</div>
+      <h2 class="section-title fade-in">The Port of Brownsville by the Numbers</h2>
+      <p class="section-subtitle fade-in">When the port thrives, Brownsville thrives. An efficient port means more jobs, stronger businesses, and lower taxes for our community.</p>
+
+      <div class="stats-grid">
+        <div class="stat-card fade-in">
+          <div class="stat-number">$3B</div>
+          <div class="stat-label">Annual Economic Impact</div>
+        </div>
+        <div class="stat-card fade-in">
+          <div class="stat-number">51,000</div>
+          <div class="stat-label">Jobs Supported</div>
+        </div>
+        <div class="stat-card fade-in">
+          <div class="stat-number">40,000</div>
+          <div class="stat-label">Acres — Largest Public Port in the U.S.</div>
+        </div>
+        <div class="stat-card fade-in">
+          <div class="stat-number">17 mi</div>
+          <div class="stat-label">Ship Channel to the Gulf of Mexico</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================
+       GET INVOLVED
+       ============================ -->
+  <section class="section section-light" id="involved">
+    <div class="container">
+      <div class="section-label fade-in">Get Involved</div>
+      <h2 class="section-title fade-in">Join the Campaign</h2>
+      <p class="section-subtitle fade-in">Every door knocked and every sign planted makes a difference. Here's how you can help.</p>
+
+      <div class="involve-grid">
+        <div class="involve-card fade-in">
+          <div class="involve-icon">✊</div>
+          <h3>Want to Help?</h3>
+          <p>Knock doors, make calls, and help spread the word in your neighborhood.</p>
+          <button class="btn-small" onclick="openModal('volunteerModal')">Sign Up</button>
+        </div>
+
+        <div class="involve-card fade-in">
+          <div class="involve-icon">🪧</div>
+          <h3>Request a Yard Sign</h3>
+          <p>Show your support! We'll deliver a campaign yard sign right to your door.</p>
+          <button class="btn-small" onclick="openModal('signModal')">Request Sign</button>
+        </div>
+
+        <div class="involve-card fade-in">
+          <div class="involve-icon">📣</div>
+          <h3>Spread the Word</h3>
+          <p>Follow us on social media and share our message with friends and family.</p>
+          <a href="#" class="btn-small">Follow Us</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================
+       DONATE CTA
+       ============================ -->
+  <section class="donate-section" id="donate">
+    <div class="container">
+      <h2 class="fade-in">Fuel This Campaign</h2>
+      <p class="fade-in">Your contribution powers our grassroots effort to modernize the Port, create jobs, and deliver savings that benefit every Brownsville family.</p>
+      <button class="btn-donate fade-in" onclick="openModal('donateModal')">Donate Now</button>
+    </div>
+  </section>
+
+  <!-- ============================
+       FOOTER
+       ============================ -->
+  <footer class="footer">
+    <div class="footer-social">
+      <!-- TODO: Replace # with your actual social media URLs -->
+      <a href="#">Facebook</a>
+      <a href="#">Instagram</a>
+      <a href="#">X / Twitter</a>
+    </div>
+    <p>&copy; 2025 Villarreal for Port Commissioner, Place 4</p>
+    <p class="footer-disclaimer">
+      Paid for by Villarreal for Port Commissioner. Jose Luna, Treasurer.
+      <br>1615 Guadalajara Ave, Brownsville, TX 78526
+    </p>
+    <p class="footer-disclaimer" style="margin-top:12px;">
+      <a href="#" onclick="openModal('privacyModal'); return false;" style="color:rgba(255,255,255,0.5); text-decoration:underline;">Privacy Policy</a>
+      &nbsp;&middot;&nbsp;
+      <a href="#" onclick="openModal('termsModal'); return false;" style="color:rgba(255,255,255,0.5); text-decoration:underline;">Terms &amp; Conditions</a>
+    </p>
+  </footer>
+
+  <!-- ============================
+       VOLUNTEER SIGN-UP MODAL
+       ============================ -->
+  <div class="modal-overlay" id="volunteerModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>✊ Want to Help?</h3>
+        <button class="modal-close" onclick="closeModal('volunteerModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="volunteerForm">
+        <p>Fill this out and we'll reach out with volunteer opportunities!</p>
+        <form onsubmit="submitForm(event, 'volunteer')">
+          <input type="hidden" name="_subject" value="New Volunteer Sign-Up">
+          <input type="hidden" name="form_type" value="Volunteer Sign-Up">
+          <div class="form-group">
+            <label for="vol-name">Name *</label>
+            <input type="text" id="vol-name" name="name" required placeholder="Your full name">
+          </div>
+          <div class="form-group">
+            <label for="vol-email">Email *</label>
+            <input type="email" id="vol-email" name="email" required placeholder="you@email.com">
+          </div>
+          <div class="form-group">
+            <label for="vol-phone">Phone</label>
+            <input type="tel" id="vol-phone" name="phone" placeholder="(956) 555-1234">
+          </div>
+          <div class="form-group">
+            <label for="vol-notes">How can you help?</label>
+            <textarea id="vol-notes" name="notes" placeholder="Door knocking, phone banking, events, etc."></textarea>
+          </div>
+          <div class="consent-group">
+            <input type="checkbox" id="vol-consent" name="sms_consent" value="yes">
+            <label for="vol-consent">By checking this box, you consent to receive calls and texts, including autodialed and automated calls and texts, from Villarreal for Port Commissioner. Reply HELP for help or STOP to end. Message frequency may vary. Msg &amp; data rates may apply. SMS opt-in will not be sold, rented, or shared. <a href="#" onclick="openModal('termsModal'); return false;">Mobile Terms &amp; Conditions</a> &amp; <a href="#" onclick="openModal('privacyModal'); return false;">Privacy Policy</a> apply.</label>
+          </div>
+          <button type="submit" class="btn-submit">Sign Me Up</button>
+        </form>
+      </div>
+      <div class="form-success" id="volunteerSuccess">
+        <div class="success-icon">🎉</div>
+        <h4>You're In!</h4>
+        <p>Thanks for joining the team. We'll be in touch soon!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       YARD SIGN REQUEST MODAL
+       ============================ -->
+  <div class="modal-overlay" id="signModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🪧 Request a Yard Sign</h3>
+        <button class="modal-close" onclick="closeModal('signModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="signForm">
+        <p>Fill this out and we'll deliver a sign right to your door!</p>
+        <form onsubmit="submitForm(event, 'sign')">
+          <input type="hidden" name="_subject" value="New Yard Sign Request">
+          <input type="hidden" name="form_type" value="Yard Sign Request">
+          <div class="form-group">
+            <label for="sign-name">Name *</label>
+            <input type="text" id="sign-name" name="name" required placeholder="Your full name">
+          </div>
+          <div class="form-group">
+            <label for="sign-email">Email *</label>
+            <input type="email" id="sign-email" name="email" required placeholder="you@email.com">
+          </div>
+          <div class="form-group">
+            <label for="sign-phone">Phone</label>
+            <input type="tel" id="sign-phone" name="phone" placeholder="(956) 555-1234">
+          </div>
+          <div class="form-group">
+            <label for="sign-address">Delivery Address *</label>
+            <input type="text" id="sign-address" name="address" required placeholder="123 Main St, Brownsville, TX">
+          </div>
+          <div class="consent-group">
+            <input type="checkbox" id="sign-consent" name="sms_consent" value="yes">
+            <label for="sign-consent">By checking this box, you consent to receive calls and texts, including autodialed and automated calls and texts, from Villarreal for Port Commissioner. Reply HELP for help or STOP to end. Message frequency may vary. Msg &amp; data rates may apply. SMS opt-in will not be sold, rented, or shared. <a href="#" onclick="openModal('termsModal'); return false;">Mobile Terms &amp; Conditions</a> &amp; <a href="#" onclick="openModal('privacyModal'); return false;">Privacy Policy</a> apply.</label>
+          </div>
+          <button type="submit" class="btn-submit">Request My Sign</button>
+        </form>
+      </div>
+      <div class="form-success" id="signSuccess">
+        <div class="success-icon">🪧</div>
+        <h4>Sign Requested!</h4>
+        <p>Thanks for your support. We'll get a yard sign to you soon!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       DONATE MODAL
+       ============================ -->
+  <div class="modal-overlay" id="donateModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>💪 Support the Campaign</h3>
+        <button class="modal-close" onclick="closeModal('donateModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="donateForm">
+        <p>Want to contribute? Leave your info and we'll reach out with details on how to donate.</p>
+        <form onsubmit="submitForm(event, 'donate')">
+          <input type="hidden" name="_subject" value="Donation Inquiry">
+          <input type="hidden" name="form_type" value="Donation Inquiry">
+          <div class="form-group">
+            <label for="don-name">Name *</label>
+            <input type="text" id="don-name" name="name" required placeholder="Your full name">
+          </div>
+          <div class="form-group">
+            <label for="don-email">Email *</label>
+            <input type="email" id="don-email" name="email" required placeholder="you@email.com">
+          </div>
+          <div class="form-group">
+            <label for="don-phone">Phone</label>
+            <input type="tel" id="don-phone" name="phone" placeholder="(956) 555-1234">
+          </div>
+          <div class="consent-group">
+            <input type="checkbox" id="don-consent" name="sms_consent" value="yes">
+            <label for="don-consent">By checking this box, you consent to receive calls and texts, including autodialed and automated calls and texts, to the number provided, including calls and texts regarding donations, from Villarreal for Port Commissioner. Reply HELP for help or STOP to end. Message frequency may vary. Msg &amp; data rates may apply. SMS opt-in will not be sold, rented, or shared. <a href="#" onclick="openModal('termsModal'); return false;">Mobile Terms &amp; Conditions</a> &amp; <a href="#" onclick="openModal('privacyModal'); return false;">Privacy Policy</a> apply.</label>
+          </div>
+          <button type="submit" class="btn-submit">Send My Info</button>
+        </form>
+      </div>
+      <div class="form-success" id="donateSuccess">
+        <div class="success-icon">🙏</div>
+        <h4>Thank You!</h4>
+        <p>We'll reach out soon with donation details. Your support means everything!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       PRIVACY POLICY MODAL
+       ============================ -->
+  <div class="modal-overlay" id="privacyModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Privacy Policy</h3>
+        <button class="modal-close" onclick="closeModal('privacyModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>This website is operated by the Villarreal for Port Commissioner campaign. When you fill out a form on this site, we collect your name, email, phone number, and/or address solely to communicate with you about the campaign.</p>
+        <p>We will never sell, share, or give your personal information to any third party except as required by law. Your information is used only for campaign-related communications such as volunteer coordination, yard sign delivery, and donation follow-ups.</p>
+        <p><strong>Mobile Information:</strong> No mobile information will be shared with third parties or affiliates for marketing or promotional purposes. Text messaging originator opt-in data and consent will not be shared with any third parties.</p>
+        <p>If you have any questions, contact us at <a href="mailto:votevillarreal@gmail.com" style="color:var(--blue); text-decoration:underline;">votevillarreal@gmail.com</a>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       TERMS & CONDITIONS MODAL
+       ============================ -->
+  <div class="modal-overlay" id="termsModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Terms &amp; Conditions</h3>
+        <button class="modal-close" onclick="closeModal('termsModal')">&times;</button>
+      </div>
+      <div class="modal-body terms-content">
+        <h4>Mobile Messaging Terms &amp; Conditions</h4>
+        <p>Villarreal for Port Commissioner (&ldquo;Campaign&rdquo;) offers a mobile messaging program for campaign updates, volunteer opportunities, event information, and donation-related communications (subject to your consent). By opting in to our messaging program, you agree to the following terms.</p>
+
+        <h4>Program Description</h4>
+        <p>Our mobile messaging program sends campaign updates including volunteer opportunities, event notifications, campaign news, yard sign coordination, and information about how to support the campaign through donations. Messages are sent using autodialed technology.</p>
+
+        <h4>Consent &amp; Opt-In</h4>
+        <p>By providing your mobile phone number and checking the consent box on any form on this website, you are consenting to receive calls and texts, including autodialed and automated calls and texts, from Villarreal for Port Commissioner at the number provided. Consent is not a condition of any purchase or participation.</p>
+
+        <h4>Message Frequency</h4>
+        <p>Message frequency may vary. You may receive multiple messages per week during active campaign periods and fewer messages during other times.</p>
+
+        <h4>Opt-Out</h4>
+        <p>You may opt out of receiving messages at any time by replying <strong>STOP</strong>, <strong>QUIT</strong>, <strong>END</strong>, <strong>CANCEL</strong>, or <strong>UNSUBSCRIBE</strong> to any message. After opting out, you will receive one final confirmation message and no further messages will be sent.</p>
+
+        <h4>Help</h4>
+        <p>For help or questions about the messaging program, reply <strong>HELP</strong> to any message, or contact us at <a href="mailto:votevillarreal@gmail.com" style="color:var(--blue); text-decoration:underline;">votevillarreal@gmail.com</a>.</p>
+
+        <h4>Message &amp; Data Rates</h4>
+        <p>Message and data rates may apply. Please contact your wireless carrier for details about your messaging plan and any associated charges.</p>
+
+        <h4>Privacy</h4>
+        <p>Your privacy is important to us. No mobile information will be shared with third parties or affiliates for marketing or promotional purposes. Text messaging originator opt-in data and consent will not be shared with any third parties. Please review our full <a href="#" onclick="openModal('privacyModal'); return false;" style="color:var(--blue); text-decoration:underline;">Privacy Policy</a> for more information.</p>
+
+        <h4>Carrier Liability</h4>
+        <p>Carriers (such as T-Mobile, AT&amp;T, Verizon, etc.) are not liable for delayed or undelivered messages. Message delivery is subject to effective transmission from your wireless service provider.</p>
+
+        <h4>SMS Opt-In Data</h4>
+        <p>SMS opt-in will not be sold, rented, or shared with any third parties.</p>
+
+        <h4>Contact</h4>
+        <p>Villarreal for Port Commissioner<br>
+        1615 Guadalajara Ave, Brownsville, TX 78526<br>
+        <a href="mailto:votevillarreal@gmail.com" style="color:var(--blue); text-decoration:underline;">votevillarreal@gmail.com</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       JAVASCRIPT
+       ============================ -->
+  <script>
+    // Mobile nav toggle
+    const hamburger = document.getElementById('hamburger');
+    const navLinks = document.getElementById('navLinks');
+
+    hamburger.addEventListener('click', () => {
+      hamburger.classList.toggle('active');
+      navLinks.classList.toggle('active');
+    });
+
+    // Close mobile nav on link click
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        hamburger.classList.remove('active');
+        navLinks.classList.remove('active');
+      });
+    });
+
+    // Nav shadow on scroll
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 50);
+    });
+
+    // Fade-in on scroll (Intersection Observer)
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.05, rootMargin: '50px 0px -20px 0px' });
+
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+    // Fallback: make visible any fade-in elements already in viewport on load
+    setTimeout(() => {
+      document.querySelectorAll('.fade-in:not(.visible)').forEach(el => {
+        const rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight + 100) {
+          el.classList.add('visible');
+        }
+      });
+    }, 300);
+
+    // =============================================
+    // MODAL FORMS → Sends to votevillarreal@gmail.com via FormSubmit.co
+    // Zero setup, no account needed, emails go straight to your inbox
+    // =============================================
+
+    const FORM_URL = 'https://formsubmit.co/ajax/votevillarreal@gmail.com';
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    // Close on backdrop click
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeModal(overlay.id);
+      });
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(m => closeModal(m.id));
+      }
+    });
+
+    function submitForm(event, type) {
+      event.preventDefault();
+      const form = event.target;
+      const submitBtn = form.querySelector('.btn-submit');
+      const originalText = submitBtn.textContent;
+
+      // Collect form data as JSON
+      const data = {};
+      new FormData(form).forEach((value, key) => { data[key] = value; });
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending...';
+
+      fetch(FORM_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(data)
+      })
+      .then(response => response.json())
+      .then(result => {
+        const formId = type === 'volunteer' ? 'volunteerForm' : type === 'sign' ? 'signForm' : 'donateForm';
+        const successId = type === 'volunteer' ? 'volunteerSuccess' : type === 'sign' ? 'signSuccess' : 'donateSuccess';
+
+        document.getElementById(formId).style.display = 'none';
+        document.getElementById(successId).style.display = 'block';
+
+        setTimeout(() => {
+          document.getElementById(formId).style.display = '';
+          document.getElementById(successId).style.display = 'none';
+          form.reset();
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+          closeModal(type === 'volunteer' ? 'volunteerModal' : type === 'sign' ? 'signModal' : 'donateModal');
+        }, 4000);
+      })
+      .catch(() => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+        alert('Something went wrong. Please try again!');
+      });
+    }
+  </script>
+
+</body>
+</html>

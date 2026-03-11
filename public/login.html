@@ -95,7 +95,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
     if (data.loggedIn) {
       // Already logged in, redirect to dashboard
-      window.location.href = '/';
+      window.location.href = '/app';
       return;
     }
 
@@ -144,7 +144,7 @@ async function doSetup() {
     });
     var data = await res.json();
     if (!res.ok || data.error) { errEl.textContent = data.error || 'Setup failed'; return; }
-    window.location.href = '/';
+    window.location.href = '/app';
   } catch(e) {
     errEl.textContent = 'Setup failed: ' + e.message;
   } finally {
@@ -170,7 +170,7 @@ async function doLogin() {
     });
     var data = await res.json();
     if (!res.ok || data.error) { errEl.textContent = data.error || 'Login failed'; return; }
-    window.location.href = '/';
+    window.location.href = '/app';
   } catch(e) {
     errEl.textContent = 'Login failed: ' + e.message;
   } finally {

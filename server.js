@@ -95,9 +95,13 @@ function requireAuth(req, res, next) {
 }
 
 // Public routes (no auth needed)
+// Campaign website at root (public, no auth)
+app.use('/site', express.static(path.join(__dirname, 'public', 'site')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'site', 'index.html'));
+});
 // Serve static files ONLY for public assets (CSS, JS, images)
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
-// Static assets
 // Public pages that don't need auth
 app.get('/volunteer', (req, res) => res.sendFile(path.join(__dirname, 'public', 'volunteer.html')));
 app.get('/walk', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walk.html')));
@@ -165,8 +169,10 @@ app.use((req, res, next) => {
   if (req.path === '/login') return next();
   // Allow static login page assets
   if (req.path === '/login.html') return next();
-  // Allow root (serves dashboard or redirects to login)
-  if (req.path === '/') return next();
+  // Allow root campaign site and /site assets
+  if (req.path === '/' || req.path.startsWith('/site')) return next();
+  // Allow /app (handles its own auth redirect)
+  if (req.path === '/app') return next();
 
   // Everything else requires auth
   requireAuth(req, res, next);
@@ -224,7 +230,8 @@ app.get('/health', (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
+// Campaign HQ dashboard — accessible at /app (requires login)
+app.get('/app', (req, res) => {
   if (req.session && req.session.userId) {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
   } else {

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 160" width="720" height="160">
+
+  <!-- ===== ELECT (small, red, upper left) ===== -->
+  <text x="18" y="30" font-family="Montserrat, Arial, sans-serif" font-weight="700" font-size="20" fill="#B22234" letter-spacing="3">ELECT</text>
+
+  <!-- ===== Big Checkmark V ===== -->
+  <path d="M 8 40 L 50 130 L 75 70" stroke="#0A2463" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- ===== LUIS (red, above VILLARREAL) ===== -->
+  <text x="82" y="56" font-family="Montserrat, Arial, sans-serif" font-weight="800" font-size="40" fill="#B22234" letter-spacing="2">LUIS</text>
+
+  <!-- ===== ILLARREAL (big blue, checkmark is the V) ===== -->
+  <text x="78" y="130" font-family="Montserrat, Arial, sans-serif" font-weight="900" font-size="90" fill="#0A2463" letter-spacing="-2">ILLARREAL</text>
+
+  <!-- ===== JR. red box ===== -->
+  <rect x="648" y="68" width="60" height="60" rx="4" fill="#B22234"/>
+  <text x="678" y="108" font-family="Montserrat, Arial, sans-serif" font-weight="900" font-size="30" fill="white" text-anchor="middle">JR.</text>
+
+</svg>
