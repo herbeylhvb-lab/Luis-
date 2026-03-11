@@ -167,7 +167,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .source-tag.captain{background:#064e3b;color:#6ee7b7}
 .overlap-badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;background:#78350f;color:#fcd34d;margin-left:6px}
 
+.btn-icon{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;font-size:12px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:#94a3b8;cursor:pointer;transition:all 0.2s}
+.btn-icon:hover{background:#334155;color:#e2e8f0}
+.action-btns{display:flex;gap:6px;align-items:center}
+.voted-pct{font-size:1.1rem;font-weight:700}
+.voted-pct.green{color:#22c55e}
+.voted-pct.yellow{color:#eab308}
+.voted-pct.red{color:#ef4444}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media print{
+  body{background:#fff!important;color:#000!important}
+  .app-header,.tab-bar,.btn,.btn-icon,.action-btns,.master-search,.btn-leave,.captain-code,.captain-portal-link,.progress-bar{display:none!important}
+  .tab-content{display:block!important;height:auto!important;overflow:visible!important}
+  .master-table thead th{background:#f1f5f9!important;color:#000!important;border-bottom:2px solid #000!important}
+  .master-table tbody td{border-bottom:1px solid #ccc!important;color:#000!important}
+  .badge,.source-tag,.overlap-badge{border:1px solid #999!important;color:#000!important;background:#f1f5f9!important}
+  .master-stat{border:1px solid #ccc!important;background:#fff!important}
+  .master-stat .num{color:#000!important}
+  .master-stat .label{color:#333!important}
+  .stat-card{border:1px solid #ccc!important;background:#fff!important}
+  .stat-card .stat-num{color:#000!important}
+}
 </style>
 </head>
 <body>
@@ -278,7 +298,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <h2 style="font-size:18px;margin-bottom:4px">Master Voter List</h2>
           <p style="font-size:13px;color:#64748b">Every voter across all your lists — see who has them</p>
         </div>
-        <div class="master-stats" id="masterStats"></div>
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div class="master-stats" id="masterStats"></div>
+          <div class="action-btns">
+            <button class="btn-icon" onclick="printMasterList()" title="Print">&#128424; Print</button>
+            <button class="btn-icon" onclick="downloadMasterCSV()" title="Download CSV">&#128229; Download</button>
+          </div>
+        </div>
       </div>
       <div class="master-search">
         <input type="text" id="masterSearchInput" placeholder="Filter by name, address, captain..." oninput="filterMasterList()">
@@ -426,17 +452,23 @@ function renderDashboard(data) {
 function renderStats(stats) {
   var grid = document.getElementById('statsGrid');
   grid.textContent = '';
+  var totalVoters = stats.total_voters || 0;
+  var totalVoted = stats.total_voted || 0;
+  var votedPct = totalVoters > 0 ? Math.round((totalVoted / totalVoters) * 100) : 0;
   var items = [
     { num: stats.total_captains || 0, label: 'Captains' },
-    { num: stats.total_voters || 0, label: 'Total Voters' },
+    { num: totalVoters, label: 'Total Voters' },
     { num: stats.total_lists || 0, label: 'My Lists' },
-    { num: stats.active_captains || 0, label: 'Active Captains' }
+    { num: votedPct + '%', label: '% Voted', isVoted: true }
   ];
   items.forEach(function(item) {
     var card = document.createElement('div');
     card.className = 'stat-card';
     var num = document.createElement('div');
     num.className = 'stat-num';
+    if (item.isVoted) {
+      num.className = 'stat-num voted-pct ' + (votedPct >= 60 ? 'green' : votedPct >= 30 ? 'yellow' : 'red');
+    }
     num.textContent = item.num;
     card.appendChild(num);
     var label = document.createElement('div');
@@ -536,8 +568,10 @@ function renderCaptainCards(captains) {
     header.appendChild(codeEl);
     card.appendChild(header);
 
-    // Voter count
+    // Voter count + voted %
     var totalVoters = cap.total_voters || 0;
+    var votedCount = cap.voted_count || 0;
+    var capVotedPct = totalVoters > 0 ? Math.round((votedCount / totalVoters) * 100) : 0;
     var statsRow = document.createElement('div');
     statsRow.className = 'captain-stats';
 
@@ -552,6 +586,18 @@ function renderCaptainCards(captains) {
     vsLabel.textContent = 'Voters on List';
     vs.appendChild(vsLabel);
     statsRow.appendChild(vs);
+
+    var votedStat = document.createElement('div');
+    votedStat.className = 'captain-stat';
+    var votedNum = document.createElement('div');
+    votedNum.className = 'num voted-pct ' + (capVotedPct >= 60 ? 'green' : capVotedPct >= 30 ? 'yellow' : 'red');
+    votedNum.textContent = capVotedPct + '%';
+    votedStat.appendChild(votedNum);
+    var votedLabel = document.createElement('div');
+    votedLabel.className = 'label';
+    votedLabel.textContent = 'Voted';
+    votedStat.appendChild(votedLabel);
+    statsRow.appendChild(votedStat);
 
     // Show sub-captain count for top-level captains
     var subs = childrenOf[cap.id] || [];
@@ -1048,7 +1094,7 @@ function renderAllLists() {
     capTopLevel.forEach(function(cap) { renderCapListRow(cap, 0); });
   }
 
-  if (lists.length === 0 && captainLists.length === 0) {
+  if (lists.length === 0 && captains.length === 0) {
     var empty = document.createElement('div');
     empty.className = 'empty-state';
     var p = document.createElement('p');
@@ -1083,11 +1129,24 @@ async function viewCaptainList(listId, listName, captainName) {
   sub.textContent = 'Captain: ' + captainName + '  \u00B7  Loading...';
   titleDiv.appendChild(sub);
   headerDiv.appendChild(titleDiv);
+  var btnGroup = document.createElement('div');
+  btnGroup.className = 'action-btns';
+  var printBtn = document.createElement('button');
+  printBtn.className = 'btn-icon';
+  printBtn.innerHTML = '&#128424; Print';
+  printBtn.onclick = function() { printCaptainList(captainName); };
+  btnGroup.appendChild(printBtn);
+  var dlBtn = document.createElement('button');
+  dlBtn.className = 'btn-icon';
+  dlBtn.innerHTML = '&#128229; CSV';
+  dlBtn.onclick = function() { downloadCaptainListCSV(captainName); };
+  btnGroup.appendChild(dlBtn);
   var closeBtn = document.createElement('button');
   closeBtn.className = 'btn btn-sm btn-secondary';
   closeBtn.textContent = 'Close';
   closeBtn.onclick = function() { overlay.remove(); };
-  headerDiv.appendChild(closeBtn);
+  btnGroup.appendChild(closeBtn);
+  headerDiv.appendChild(btnGroup);
   box.appendChild(headerDiv);
 
   var listContainer = document.createElement('div');
@@ -1102,6 +1161,7 @@ async function viewCaptainList(listId, listName, captainName) {
     var resp = await fetch('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
     var data = await resp.json();
     var voters = data.voters || [];
+    captainListVoters = voters;
     sub.textContent = 'Captain: ' + captainName + '  \u00B7  ' + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
     if (voters.length === 0) {
@@ -1162,6 +1222,7 @@ async function viewCaptainList(listId, listName, captainName) {
 // ===================== MASTER LIST =====================
 
 var masterListData = [];
+var captainListVoters = [];
 
 async function loadMasterList() {
   var tbody = document.getElementById('masterTableBody');
@@ -1382,6 +1443,144 @@ function daysSince(dateStr) {
   if (diff < 7) return diff + ' days ago';
   if (diff < 30) return Math.floor(diff / 7) + ' week' + (Math.floor(diff / 7) > 1 ? 's' : '') + ' ago';
   return d.toLocaleDateString();
+}
+
+// ===================== PRINT & DOWNLOAD =====================
+
+function csvEscape(val) {
+  var s = String(val == null ? '' : val);
+  if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function triggerDownload(filename, csvContent) {
+  var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function isVoted(v) {
+  if (v.early_voted === 1) return true;
+  if (v.election_votes && v.election_votes.length > 0) {
+    return v.election_votes.some(function(ev) { return ev.voted === 1; });
+  }
+  return false;
+}
+
+function buildPrintPage(title, subtitle, tableHeaders, rows) {
+  var printStyle = 'body{font-family:Arial,sans-serif;margin:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin-top:12px}th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:12px;text-transform:uppercase}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:12px}.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}';
+  var w = window.open('', '_blank');
+  var doc = w.document;
+  doc.open();
+  var styleEl = doc.createElement('style');
+  styleEl.textContent = printStyle;
+  doc.head.appendChild(styleEl);
+  doc.title = title;
+  var h1 = doc.createElement('h1');
+  h1.textContent = title;
+  doc.body.appendChild(h1);
+  var sub = doc.createElement('div');
+  sub.style.cssText = 'color:#666;font-size:12px;margin-bottom:8px';
+  sub.textContent = subtitle;
+  doc.body.appendChild(sub);
+  var table = doc.createElement('table');
+  var thead = doc.createElement('thead');
+  var headTr = doc.createElement('tr');
+  tableHeaders.forEach(function(h) {
+    var th = doc.createElement('th');
+    th.textContent = h;
+    headTr.appendChild(th);
+  });
+  thead.appendChild(headTr);
+  table.appendChild(thead);
+  var tbody = doc.createElement('tbody');
+  rows.forEach(function(cells) {
+    var tr = doc.createElement('tr');
+    cells.forEach(function(cell) {
+      var td = doc.createElement('td');
+      if (typeof cell === 'object' && cell.className) {
+        var span = doc.createElement('span');
+        span.className = cell.className;
+        span.textContent = cell.text;
+        td.appendChild(span);
+      } else {
+        td.textContent = cell;
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  doc.body.appendChild(table);
+  doc.close();
+  w.focus();
+  setTimeout(function() { w.print(); }, 300);
+}
+
+// --- Master List Print & Download ---
+function printMasterList() {
+  var title = (candidateData.candidate.name || '') + ' \u2014 Master Voter List';
+  var subtitle = masterListData.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
+  var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'];
+  var rows = masterListData.map(function(v) {
+    var voted = isVoted(v);
+    var listsStr = v.lists.map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join(', ');
+    return [
+      voterFullName(v) + (v.precinct ? ' (Pct ' + v.precinct + ')' : ''),
+      voterIdDisplay(v) || '\u2014',
+      (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
+      v.party || '',
+      { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
+      v.phone || '',
+      listsStr
+    ];
+  });
+  buildPrintPage(title, subtitle, headers, rows);
+}
+
+function downloadMasterCSV() {
+  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Precinct', 'Voted', 'Phone', 'On Lists'];
+  var rows = masterListData.map(function(v) {
+    var listsStr = v.lists.map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join('; ');
+    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', v.precinct || '', isVoted(v) ? 'Yes' : 'No', v.phone || '', listsStr].map(csvEscape).join(',');
+  });
+  var csv = headers.join(',') + '\n' + rows.join('\n');
+  var name = (candidateData.candidate.name || 'master').replace(/\s+/g, '_') + '_master_list.csv';
+  triggerDownload(name, csv);
+}
+
+// --- Captain List Print & Download ---
+function printCaptainList(captainName) {
+  var title = captainName + ' \u2014 Voter List';
+  var subtitle = captainListVoters.length + ' voter' + (captainListVoters.length !== 1 ? 's' : '') + ' \u00B7 Printed ' + new Date().toLocaleString();
+  var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone'];
+  var rows = captainListVoters.map(function(v) {
+    var voted = isVoted(v);
+    return [
+      voterFullName(v),
+      voterIdDisplay(v) || '\u2014',
+      (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
+      v.party || '',
+      { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
+      v.phone || ''
+    ];
+  });
+  buildPrintPage(title, subtitle, headers, rows);
+}
+
+function downloadCaptainListCSV(captainName) {
+  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Voted', 'Phone'];
+  var rows = captainListVoters.map(function(v) {
+    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', isVoted(v) ? 'Yes' : 'No', v.phone || ''].map(csvEscape).join(',');
+  });
+  var csv = headers.join(',') + '\n' + rows.join('\n');
+  var name = (captainName || 'captain').replace(/\s+/g, '_') + '_voters.csv';
+  triggerDownload(name, csv);
 }
 </script>
 </body>
