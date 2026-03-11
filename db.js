@@ -651,5 +651,28 @@ addColumn("ALTER TABLE users ADD COLUMN google_refresh_token TEXT DEFAULT NULL")
 addColumn("ALTER TABLE users ADD COLUMN google_token_expiry TEXT DEFAULT NULL");
 try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (e) { /* already exists */ }
 
+// --- Candidates table (multi-candidate support) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS candidates (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    office TEXT DEFAULT '',
+    code TEXT NOT NULL UNIQUE,
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_code ON candidates(code);
+`);
+
+// Link captains to candidates (NULL = admin's direct captains, backward compatible)
+addColumn("ALTER TABLE captains ADD COLUMN candidate_id INTEGER DEFAULT NULL");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_candidate ON captains(candidate_id)"); } catch (e) { /* exists */ }
+
+// Link admin lists to candidates (NULL = admin's direct lists, backward compatible)
+addColumn("ALTER TABLE admin_lists ADD COLUMN candidate_id INTEGER DEFAULT NULL");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lists(candidate_id)"); } catch (e) { /* exists */ }
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

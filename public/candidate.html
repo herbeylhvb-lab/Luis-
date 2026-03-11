@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Candidate Portal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+
+.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
+.login-card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:2rem;max-width:400px;width:100%;text-align:center}
+.login-card h2{font-size:1.5rem;margin-bottom:0.5rem;color:#818cf8}
+.login-card p{color:#94a3b8;font-size:0.9rem;margin-bottom:1.5rem}
+.form-group{margin-bottom:1rem;text-align:left}
+.form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px}
+.form-group input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:16px;outline:none}
+.form-group input:focus{border-color:#818cf8}
+.code-input{text-align:center;font-size:24px!important;letter-spacing:4px;font-weight:700;text-transform:uppercase}
+.error-msg{color:#ef4444;font-size:14px;margin-top:0.5rem}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:12px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
+.btn:hover{opacity:0.85}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn-candidate{background:#818cf8;color:#fff;justify-content:center;width:100%}
+.btn-primary{background:#818cf8;color:#fff}
+.btn-success{background:#22c55e;color:#fff}
+.btn-danger{background:#ef4444;color:#fff}
+.btn-secondary{background:#334155;color:#e2e8f0}
+.btn-sm{padding:6px 14px;font-size:13px}
+.btn-xs{padding:4px 10px;font-size:12px;border-radius:6px}
+
+.app-header{background:#1e293b;border-bottom:1px solid #334155;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
+.app-header h1{font-size:18px;font-weight:700}
+.app-header h1 span{color:#818cf8}
+.app-header .info{font-size:13px;color:#94a3b8}
+.btn-leave{padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}
+
+.app-layout{display:flex;height:calc(100vh - 52px);overflow:hidden}
+
+.sidebar{width:280px;background:#1e293b;border-right:1px solid #334155;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar-section{padding:14px 16px 6px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:1px}
+.list-item{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;font-size:14px;color:#94a3b8;transition:background 0.15s;border-left:3px solid transparent}
+.list-item:hover{background:#334155}
+.list-item.active{background:#334155;color:#818cf8;border-left-color:#818cf8}
+.list-item .count{font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:9999px}
+.captain-row{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;font-size:14px;color:#e2e8f0;border-left:3px solid transparent;transition:background 0.15s}
+.captain-row:hover{background:#334155}
+.captain-row.expanded{background:#1a2536;border-left-color:#818cf8}
+.captain-row .captain-name{font-weight:600;font-size:13px}
+.captain-row .captain-code{color:#64748b;font-size:11px;font-family:monospace;letter-spacing:1px}
+.captain-lists{padding-left:16px;background:#0f172a;display:none}
+.captain-lists.open{display:block}
+.captain-lists .list-item{padding:8px 16px 8px 12px;font-size:13px}
+.sidebar-actions{padding:12px 16px;border-top:1px solid #334155;margin-top:auto}
+.sidebar-btn{display:block;width:100%;padding:8px;border:1px dashed #475569;border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;text-align:center;margin-bottom:8px}
+.sidebar-btn:hover{border-color:#818cf8;color:#818cf8}
+
+.center-panel{width:340px;flex-shrink:0;overflow-y:auto;padding:20px}
+.search-bar{position:relative;margin-bottom:20px}
+.search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
+.search-bar input:focus{border-color:#818cf8}
+.search-bar .hint{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:#64748b}
+
+.voter-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;animation:fadeIn 0.2s ease}
+.voter-card .voter-name{font-weight:700;font-size:16px}
+.voter-card .voter-addr{color:#94a3b8;font-size:13px;margin-top:4px}
+.voter-card .voter-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
+.badge-green{background:#052e16;color:#4ade80}
+.badge-red{background:#450a0a;color:#fca5a5}
+.badge-blue{background:#0c1a3d;color:#93c5fd}
+.badge-yellow{background:#422006;color:#fcd34d}
+.badge-purple{background:#2e1065;color:#c4b5fd}
+.badge-gray{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+
+.household-section{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
+.household-section h4{font-size:13px;color:#64748b;margin-bottom:8px}
+.household-member{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;font-size:13px}
+
+.right-panel{flex:1;min-width:400px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;display:flex;flex-direction:column}
+.right-header{padding:16px;border-bottom:1px solid #334155}
+.right-header h3{font-size:15px;margin-bottom:2px}
+.right-header .sub{font-size:12px;color:#64748b}
+.right-list{flex:1;overflow-y:auto;padding:8px}
+.right-voter{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155;font-size:13px}
+.right-voter:last-child{border-bottom:none}
+.right-voter .name{font-weight:600;color:#e2e8f0}
+.right-voter .addr{color:#64748b;font-size:12px;margin-top:2px}
+.remove-btn{background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;padding:4px 8px;border-radius:4px}
+.remove-btn:hover{background:#450a0a}
+.right-empty{text-align:center;padding:3rem 1rem;color:#475569;font-size:14px}
+
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:400px;width:90%}
+.modal-box h3{margin-bottom:16px;font-size:16px}
+
+@media(max-width:900px){
+  .app-layout{flex-direction:column;height:auto}
+  .sidebar{width:100%;max-height:200px;border-right:none;border-bottom:1px solid #334155}
+  .center-panel{width:100%;padding:12px}
+  .right-panel{min-width:100%;border-left:none;border-top:1px solid #334155;max-height:50vh}
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <h2>Candidate Portal</h2>
+    <p>Enter your 8-character candidate code to access your campaign dashboard.</p>
+    <div class="form-group">
+      <label>Candidate Code</label>
+      <input type="text" id="codeInput" class="code-input" maxlength="8" placeholder="XXXXXXXX" autocomplete="off" autofocus>
+    </div>
+    <div id="loginError" class="error-msg" style="display:none"></div>
+    <button class="btn btn-candidate" id="loginBtn" onclick="doLogin()">Enter Portal</button>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until login) -->
+<div id="mainApp" style="display:none">
+  <div class="app-header">
+    <h1><span id="candidateNameHeader">Candidate</span> <span>Portal</span></h1>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="info" id="candidateOfficeHeader"></span>
+      <button class="btn-leave" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="app-layout">
+    <!-- LEFT SIDEBAR: Captains & Lists -->
+    <div class="sidebar">
+      <div class="sidebar-section">My Captains</div>
+      <div id="captainsSidebar"></div>
+
+      <div class="sidebar-section">My Lists</div>
+      <div id="listsSidebar"></div>
+
+      <div class="sidebar-actions">
+        <button class="sidebar-btn" onclick="showNewCaptainModal()">+ New Captain</button>
+        <button class="sidebar-btn" onclick="showNewListModal()">+ New List</button>
+      </div>
+    </div>
+
+    <!-- CENTER: Voter Search -->
+    <div class="center-panel">
+      <div class="search-bar">
+        <input type="text" id="voterSearch" placeholder="Search voters by name, address, phone..." oninput="debounceSearch()">
+        <span class="hint">Min 2 chars</span>
+      </div>
+      <div id="searchResults">
+        <div style="text-align:center;padding:3rem 1rem;color:#64748b">
+          <div style="font-size:3rem;margin-bottom:0.5rem">\u{1F50D}</div>
+          <p>Search the voter file to find and add voters to your lists.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Selected List Voters -->
+    <div class="right-panel">
+      <div class="right-header">
+        <h3 id="rightTitle">Select a list</h3>
+        <div class="sub" id="rightSub">Click a list in the sidebar to view its voters</div>
+      </div>
+      <div class="right-list" id="rightListContent">
+        <div class="right-empty">No list selected</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEW CAPTAIN MODAL -->
+<div id="newCaptainModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <h3>Create New Captain</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="newCapName" placeholder="Captain name"></div>
+    <div class="form-group"><label>Phone</label><input type="text" id="newCapPhone" placeholder="(555) 123-4567"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="newCapEmail" placeholder="email@example.com"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="createCaptain()">Create</button>
+      <button class="btn btn-secondary" onclick="closeModal('newCaptainModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW LIST MODAL -->
+<div id="newListModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <h3>Create New List</h3>
+    <div class="form-group"><label>List Name *</label><input type="text" id="newListName" placeholder="e.g. Precinct 4 Supporters"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="createList()">Create</button>
+      <button class="btn btn-secondary" onclick="closeModal('newListModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var candidateId = null;
+var candidateData = null;
+var selectedListId = null;
+var selectedListSource = null; // 'admin' or 'captain'
+var searchTimer = null;
+
+function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// Check URL for code parameter
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var code = params.get('code');
+  if (code) {
+    document.getElementById('codeInput').value = code;
+    doLogin();
+  }
+})();
+
+// Login on Enter key
+document.getElementById('codeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogin() {
+  var code = document.getElementById('codeInput').value.trim();
+  if (!code) return;
+  document.getElementById('loginBtn').disabled = true;
+  document.getElementById('loginError').style.display = 'none';
+  try {
+    var resp = await fetch('/api/candidates/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Login failed');
+    candidateId = data.candidate.id;
+    candidateData = data;
+    document.getElementById('candidateNameHeader').textContent = data.candidate.name;
+    document.getElementById('candidateOfficeHeader').textContent = data.candidate.office || '';
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('mainApp').style.display = '';
+    renderSidebar(data);
+  } catch (e) {
+    document.getElementById('loginError').textContent = e.message;
+    document.getElementById('loginError').style.display = 'block';
+  }
+  document.getElementById('loginBtn').disabled = false;
+}
+
+function logout() {
+  candidateId = null;
+  candidateData = null;
+  selectedListId = null;
+  document.getElementById('mainApp').style.display = 'none';
+  document.getElementById('loginScreen').style.display = '';
+  document.getElementById('codeInput').value = '';
+  // Clear URL params
+  window.history.replaceState({}, '', '/candidate');
+}
+
+async function refreshDashboard() {
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/portal');
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error);
+    candidateData = data;
+    renderSidebar(data);
+    if (selectedListId) loadListVoters(selectedListId, selectedListSource);
+  } catch (e) { console.error('refresh error:', e); }
+}
+
+function renderSidebar(data) {
+  // Captains
+  var capContainer = document.getElementById('captainsSidebar');
+  capContainer.textContent = '';
+  (data.captains || []).forEach(function(cap) {
+    var row = document.createElement('div');
+    row.className = 'captain-row';
+    row.onclick = function() {
+      row.classList.toggle('expanded');
+      var listsDiv = row.nextElementSibling;
+      if (listsDiv) listsDiv.classList.toggle('open');
+    };
+
+    var nameSpan = document.createElement('span');
+    nameSpan.className = 'captain-name';
+    nameSpan.textContent = cap.name;
+    row.appendChild(nameSpan);
+
+    var codeSpan = document.createElement('span');
+    codeSpan.className = 'captain-code';
+    codeSpan.textContent = cap.code;
+    codeSpan.style.cursor = 'pointer';
+    codeSpan.onclick = function(e) {
+      e.stopPropagation();
+      navigator.clipboard.writeText(cap.code).catch(function(){});
+    };
+    row.appendChild(codeSpan);
+    capContainer.appendChild(row);
+
+    // Captain's lists
+    var listsDiv = document.createElement('div');
+    listsDiv.className = 'captain-lists';
+    (cap.lists || []).forEach(function(l) {
+      var item = document.createElement('div');
+      item.className = 'list-item';
+      if (selectedListId === l.id && selectedListSource === 'captain') item.classList.add('active');
+      var nameEl = document.createElement('span');
+      nameEl.textContent = l.name;
+      item.appendChild(nameEl);
+      var countEl = document.createElement('span');
+      countEl.className = 'count';
+      countEl.textContent = l.voter_count || 0;
+      item.appendChild(countEl);
+      item.onclick = function(e) {
+        e.stopPropagation();
+        // Captain lists are read-only for the candidate — they can view but not modify
+        selectList(l.id, l.name, l.voter_count || 0, 'captain', cap.id);
+      };
+      listsDiv.appendChild(item);
+    });
+    capContainer.appendChild(listsDiv);
+  });
+  if ((data.captains || []).length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:12px 16px;color:#64748b;font-size:13px';
+    empty.textContent = 'No captains yet';
+    capContainer.appendChild(empty);
+  }
+
+  // My Lists (admin lists scoped to this candidate)
+  var listContainer = document.getElementById('listsSidebar');
+  listContainer.textContent = '';
+  (data.lists || []).forEach(function(l) {
+    var item = document.createElement('div');
+    item.className = 'list-item';
+    if (selectedListId === l.id && selectedListSource === 'admin') item.classList.add('active');
+    var nameEl = document.createElement('span');
+    nameEl.textContent = l.name;
+    item.appendChild(nameEl);
+    var countEl = document.createElement('span');
+    countEl.className = 'count';
+    countEl.textContent = l.voter_count || 0;
+    item.appendChild(countEl);
+    item.onclick = function() { selectList(l.id, l.name, l.voter_count || 0, 'admin'); };
+    listContainer.appendChild(item);
+  });
+  if ((data.lists || []).length === 0) {
+    var emptyL = document.createElement('div');
+    emptyL.style.cssText = 'padding:12px 16px;color:#64748b;font-size:13px';
+    emptyL.textContent = 'No lists yet \u2014 create one below';
+    listContainer.appendChild(emptyL);
+  }
+}
+
+function selectList(listId, listName, voterCount, source, captainId) {
+  selectedListId = listId;
+  selectedListSource = source;
+  // Re-render sidebar to update active states
+  renderSidebar(candidateData);
+  loadListVoters(listId, source, captainId);
+}
+
+async function loadListVoters(listId, source, captainId) {
+  document.getElementById('rightTitle').textContent = '';
+  document.getElementById('rightSub').textContent = 'Loading...';
+  var content = document.getElementById('rightListContent');
+  content.textContent = '';
+
+  try {
+    var voters = [];
+    var listName = '';
+    if (source === 'admin') {
+      var resp = await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/voters');
+      var data = await resp.json();
+      voters = data.voters || [];
+      listName = data.list ? data.list.name : '';
+    } else {
+      // Captain list — use captain portal endpoint
+      var resp2 = await fetch('/api/captains/' + captainId + '/lists/' + listId + '/voters');
+      var data2 = await resp2.json();
+      voters = data2.voters || [];
+      listName = 'Captain List';
+    }
+
+    document.getElementById('rightTitle').textContent = listName || 'List';
+    document.getElementById('rightSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+
+    if (voters.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'right-empty';
+      empty.textContent = 'No voters on this list yet. Search and add voters from the center panel.';
+      content.appendChild(empty);
+      return;
+    }
+
+    voters.forEach(function(v) {
+      var row = document.createElement('div');
+      row.className = 'right-voter';
+
+      var info = document.createElement('div');
+      var nameEl = document.createElement('div');
+      nameEl.className = 'name';
+      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      info.appendChild(nameEl);
+      var addrEl = document.createElement('div');
+      addrEl.className = 'addr';
+      addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+      info.appendChild(addrEl);
+      if (v.phone) {
+        var phoneEl = document.createElement('div');
+        phoneEl.className = 'addr';
+        phoneEl.textContent = v.phone;
+        info.appendChild(phoneEl);
+      }
+      row.appendChild(info);
+
+      // Remove button (only for admin lists the candidate owns)
+      if (source === 'admin') {
+        var removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-btn';
+        removeBtn.textContent = '\u00D7';
+        removeBtn.title = 'Remove from list';
+        removeBtn.onclick = function() { removeVoterFromList(listId, v.id); };
+        row.appendChild(removeBtn);
+      }
+      content.appendChild(row);
+    });
+  } catch (e) {
+    console.error('loadListVoters error:', e);
+    document.getElementById('rightSub').textContent = 'Error loading voters';
+  }
+}
+
+async function removeVoterFromList(listId, voterId) {
+  try {
+    await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + voterId, { method: 'DELETE' });
+    refreshDashboard();
+  } catch (e) { console.error(e); }
+}
+
+// ===================== VOTER SEARCH =====================
+
+function debounceSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(searchVoters, 300);
+}
+
+async function searchVoters() {
+  var q = document.getElementById('voterSearch').value.trim();
+  var results = document.getElementById('searchResults');
+  if (q.length < 2) {
+    results.textContent = '';
+    var hint = document.createElement('div');
+    hint.style.cssText = 'text-align:center;padding:3rem 1rem;color:#64748b';
+    hint.textContent = 'Type at least 2 characters to search';
+    results.appendChild(hint);
+    return;
+  }
+
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/search?q=' + encodeURIComponent(q));
+    var data = await resp.json();
+    var voters = data.voters || [];
+
+    results.textContent = '';
+    if (voters.length === 0) {
+      var noRes = document.createElement('div');
+      noRes.style.cssText = 'text-align:center;padding:2rem;color:#64748b';
+      noRes.textContent = 'No voters found for "' + q + '"';
+      results.appendChild(noRes);
+      return;
+    }
+
+    voters.forEach(function(v) {
+      var card = document.createElement('div');
+      card.className = 'voter-card';
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'voter-name';
+      nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+      card.appendChild(nameEl);
+
+      var addrEl = document.createElement('div');
+      addrEl.className = 'voter-addr';
+      addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+      card.appendChild(addrEl);
+
+      var meta = document.createElement('div');
+      meta.className = 'voter-meta';
+      if (v.party) {
+        var partyBadge = document.createElement('span');
+        partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
+        partyBadge.textContent = v.party;
+        meta.appendChild(partyBadge);
+      }
+      if (v.phone) {
+        var phoneBadge = document.createElement('span');
+        phoneBadge.className = 'badge badge-green';
+        phoneBadge.textContent = v.phone;
+        meta.appendChild(phoneBadge);
+      }
+      if (v.precinct) {
+        var precBadge = document.createElement('span');
+        precBadge.className = 'badge badge-gray';
+        precBadge.textContent = 'Pct ' + v.precinct;
+        meta.appendChild(precBadge);
+      }
+      card.appendChild(meta);
+
+      // Add to list button
+      if (selectedListId && selectedListSource === 'admin') {
+        var addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-sm btn-success';
+        addBtn.style.marginTop = '8px';
+        addBtn.textContent = '+ Add to List';
+        addBtn.onclick = function() { addVoterToList(v.id); };
+        card.appendChild(addBtn);
+      }
+
+      // Household lookup
+      var hhLink = document.createElement('button');
+      hhLink.className = 'btn btn-xs btn-secondary';
+      hhLink.style.marginTop = '8px';
+      hhLink.style.marginLeft = selectedListId ? '8px' : '0';
+      hhLink.textContent = 'Household';
+      hhLink.onclick = function() { loadHousehold(v.id, card); };
+      card.appendChild(hhLink);
+
+      results.appendChild(card);
+    });
+  } catch (e) { console.error('search error:', e); }
+}
+
+async function addVoterToList(voterId) {
+  if (!selectedListId || selectedListSource !== 'admin') return;
+  try {
+    await fetch('/api/candidates/' + candidateId + '/lists/' + selectedListId + '/voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voterIds: [voterId] })
+    });
+    refreshDashboard();
+  } catch (e) { console.error(e); }
+}
+
+async function loadHousehold(voterId, card) {
+  var existing = card.querySelector('.household-section');
+  if (existing) { existing.remove(); return; }
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/household?voter_id=' + voterId);
+    var data = await resp.json();
+    var hh = data.household || [];
+    if (hh.length === 0) return;
+
+    var section = document.createElement('div');
+    section.className = 'household-section';
+    var title = document.createElement('h4');
+    title.textContent = 'Household (' + hh.length + ')';
+    section.appendChild(title);
+
+    hh.forEach(function(m) {
+      var row = document.createElement('div');
+      row.className = 'household-member';
+
+      var info = document.createElement('span');
+      info.textContent = (m.first_name || '') + ' ' + (m.last_name || '') + (m.party ? ' (' + m.party + ')' : '');
+      row.appendChild(info);
+
+      if (selectedListId && selectedListSource === 'admin') {
+        var addBtn = document.createElement('button');
+        addBtn.className = 'btn btn-xs btn-success';
+        addBtn.textContent = '+ Add';
+        addBtn.onclick = function() { addVoterToList(m.id); };
+        row.appendChild(addBtn);
+      }
+      section.appendChild(row);
+    });
+    card.appendChild(section);
+  } catch (e) { console.error(e); }
+}
+
+// ===================== MODALS =====================
+
+function showNewCaptainModal() { document.getElementById('newCaptainModal').style.display = ''; document.getElementById('newCapName').focus(); }
+function showNewListModal() { document.getElementById('newListModal').style.display = ''; document.getElementById('newListName').focus(); }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+async function createCaptain() {
+  var name = document.getElementById('newCapName').value.trim();
+  if (!name) { alert('Captain name is required.'); return; }
+  var phone = document.getElementById('newCapPhone').value.trim();
+  var email = document.getElementById('newCapEmail').value.trim();
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/portal/captains', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, phone: phone, email: email })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed');
+    alert('Captain created!\n\nCode: ' + data.code + '\n\nShare this code so they can log into the Captain Portal at:\n' + window.location.origin + '/captain?code=' + data.code);
+    closeModal('newCaptainModal');
+    document.getElementById('newCapName').value = '';
+    document.getElementById('newCapPhone').value = '';
+    document.getElementById('newCapEmail').value = '';
+    refreshDashboard();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function createList() {
+  var name = document.getElementById('newListName').value.trim();
+  if (!name) { alert('List name is required.'); return; }
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/lists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed');
+    closeModal('newListModal');
+    document.getElementById('newListName').value = '';
+    refreshDashboard();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+</script>
+</body>
+</html>

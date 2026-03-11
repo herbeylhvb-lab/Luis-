@@ -64,7 +64,18 @@ function extractStreetNumber(address) {
 
 // List all captains with stats (batched queries to avoid N+1)
 router.get('/captains', (req, res) => {
-  const captains = db.prepare('SELECT c.*, pc.name as parent_captain_name FROM captains c LEFT JOIN captains pc ON c.parent_captain_id = pc.id ORDER BY c.created_at DESC').all();
+  // Optional candidate_id filter — when provided, only show captains under that candidate
+  const candidateFilter = req.query.candidate_id;
+  let captainQuery = 'SELECT c.*, pc.name as parent_captain_name, cand.name as candidate_name FROM captains c LEFT JOIN captains pc ON c.parent_captain_id = pc.id LEFT JOIN candidates cand ON c.candidate_id = cand.id';
+  const queryParams = [];
+  if (candidateFilter === 'none') {
+    captainQuery += ' WHERE c.candidate_id IS NULL';
+  } else if (candidateFilter) {
+    captainQuery += ' WHERE c.candidate_id = ?';
+    queryParams.push(candidateFilter);
+  }
+  captainQuery += ' ORDER BY c.created_at DESC';
+  const captains = db.prepare(captainQuery).all(...queryParams);
   const captainIds = captains.map(c => c.id);
 
   if (captainIds.length > 0) {
@@ -122,7 +133,7 @@ router.get('/captains', (req, res) => {
 
 // Create captain
 router.post('/captains', (req, res) => {
-  const { name, phone, email } = req.body;
+  const { name, phone, email, candidate_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   let code;
   let unique = false;
@@ -133,8 +144,8 @@ router.post('/captains', (req, res) => {
   }
   if (!unique) return res.status(500).json({ error: 'Could not generate a unique captain code. Please try again.' });
   const result = db.prepare(
-    'INSERT INTO captains (name, code, phone, email) VALUES (?, ?, ?, ?)'
-  ).run(name, code, phone || '', email || '');
+    'INSERT INTO captains (name, code, phone, email, candidate_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(name, code, phone || '', email || '', candidate_id || null);
   // Auto-create a default list so new captains have one ready to use
   db.prepare(
     'INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)'
@@ -168,27 +179,39 @@ router.delete('/captains/:id', (req, res) => {
 
 // All lists rollup — master view of every list (captain + admin)
 router.get('/captains/all-lists', (req, res) => {
+  const candidateFilter = req.query.candidate_id;
+
   // Captain lists with captain name and voter count
-  const captainLists = db.prepare(`
+  let clQuery = `
     SELECT cl.id, cl.name, cl.list_type, cl.created_at,
       c.name as captain_name, c.id as captain_id,
+      c.candidate_id, cand.name as candidate_name,
       COUNT(clv.id) as voter_count,
       ctm.name as team_member_name
     FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
+    LEFT JOIN candidates cand ON c.candidate_id = cand.id
     LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
-    LEFT JOIN captain_team_members ctm ON cl.team_member_id = ctm.id
-    GROUP BY cl.id ORDER BY cl.created_at DESC
-  `).all();
+    LEFT JOIN captain_team_members ctm ON cl.team_member_id = ctm.id`;
+  const clParams = [];
+  if (candidateFilter === 'none') { clQuery += ' WHERE c.candidate_id IS NULL'; }
+  else if (candidateFilter) { clQuery += ' WHERE c.candidate_id = ?'; clParams.push(candidateFilter); }
+  clQuery += ' GROUP BY cl.id ORDER BY cl.created_at DESC';
+  const captainLists = db.prepare(clQuery).all(...clParams);
 
   // Admin lists with voter count
-  const adminLists = db.prepare(`
+  let alQuery = `
     SELECT al.id, al.name, al.description, al.list_type, al.created_at,
+      al.candidate_id, cand.name as candidate_name,
       COUNT(alv.id) as voter_count
     FROM admin_lists al
-    LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
-    GROUP BY al.id ORDER BY al.created_at DESC
-  `).all();
+    LEFT JOIN candidates cand ON al.candidate_id = cand.id
+    LEFT JOIN admin_list_voters alv ON al.id = alv.list_id`;
+  const alParams = [];
+  if (candidateFilter === 'none') { alQuery += ' WHERE al.candidate_id IS NULL'; }
+  else if (candidateFilter) { alQuery += ' WHERE al.candidate_id = ?'; alParams.push(candidateFilter); }
+  alQuery += ' GROUP BY al.id ORDER BY al.created_at DESC';
+  const adminLists = db.prepare(alQuery).all(...alParams);
 
   // Combine into unified format
   const allLists = [];
@@ -196,6 +219,7 @@ router.get('/captains/all-lists', (req, res) => {
     allLists.push({
       id: cl.id, name: cl.name, list_type: cl.list_type || 'general',
       source: 'captain', captain_name: cl.captain_name, captain_id: cl.captain_id,
+      candidate_name: cl.candidate_name || null, candidate_id: cl.candidate_id || null,
       team_member: cl.team_member_name || null,
       voter_count: cl.voter_count, created_at: cl.created_at
     });
@@ -204,6 +228,7 @@ router.get('/captains/all-lists', (req, res) => {
     allLists.push({
       id: al.id, name: al.name, list_type: al.list_type || 'general',
       source: 'admin', captain_name: null, captain_id: null,
+      candidate_name: al.candidate_name || null, candidate_id: al.candidate_id || null,
       description: al.description, team_member: null,
       voter_count: al.voter_count, created_at: al.created_at
     });

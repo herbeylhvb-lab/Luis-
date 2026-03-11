@@ -168,6 +168,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
     <div class="sidebar-section">Captains</div>
     <div class="nav-item" data-page="captains"><span class="icon">&#128081;</span><span>Block Captains</span></div>
+    <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
   </div>
@@ -1484,6 +1485,71 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ==================== CANDIDATES MANAGEMENT ==================== -->
+    <div class="page" id="page-candidates">
+      <div class="stats-grid" id="candidateStatsGrid">
+        <div class="stat-card"><div class="label">Total Candidates</div><div class="value" id="statTotalCandidates">0</div></div>
+        <div class="stat-card"><div class="label">Total Captains</div><div class="value" id="statCandidateCaptains">0</div></div>
+        <div class="stat-card"><div class="label">Total Lists</div><div class="value" id="statCandidateLists">0</div></div>
+        <div class="stat-card"><div class="label">Total Voters</div><div class="value" id="statCandidateVoters">0</div></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0">Candidates</h3>
+          <button class="btn btn-sm btn-primary" onclick="showAddCandidateForm()">+ Add Candidate</button>
+        </div>
+
+        <div id="addCandidateForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div class="form-row-3">
+            <div class="form-group"><label>Candidate Name *</label><input type="text" id="newCandidateName" placeholder="e.g. Maria Rodriguez"></div>
+            <div class="form-group"><label>Office / Position</label><input type="text" id="newCandidateOffice" placeholder="e.g. Judge, Precinct 4"></div>
+            <div class="form-group"><label>Phone</label><input type="text" id="newCandidatePhone" placeholder="(555) 123-4567"></div>
+          </div>
+          <div class="form-row-3">
+            <div class="form-group"><label>Email</label><input type="email" id="newCandidateEmail" placeholder="candidate@example.com"></div>
+            <div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-sm btn-success" onclick="createCandidate()">Create Candidate</button>&nbsp;<button class="btn btn-sm btn-secondary" onclick="hideAddCandidateForm()">Cancel</button></div>
+          </div>
+        </div>
+
+        <div id="candidatesTableWrap">
+          <table class="data-table" id="candidatesTable">
+            <thead><tr><th>Name</th><th>Office</th><th>Code</th><th>Captains</th><th>Lists</th><th>Voters</th><th>Portal Link</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Candidate detail (shown when expanded) -->
+      <div class="card" id="candidateDetailCard" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0" id="candidateDetailTitle">Candidate Detail</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm btn-primary" onclick="addCaptainToCandidate()">+ Add Captain</button>
+            <button class="btn btn-sm btn-success" onclick="addListToCandidate()">+ Add List</button>
+            <button class="btn btn-sm btn-secondary" onclick="closeCandidateDetail()">Close</button>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:16px;margin-bottom:16px">
+          <div style="flex:1">
+            <h4 style="color:#94a3b8;margin-bottom:8px">Captains</h4>
+            <table class="data-table" id="candidateCaptainsTable">
+              <thead><tr><th>Name</th><th>Code</th><th>Lists</th><th>Voters</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div style="flex:1">
+            <h4 style="color:#94a3b8;margin-bottom:8px">Lists</h4>
+            <table class="data-table" id="candidateListsTable">
+              <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ==================== USERS MANAGEMENT ==================== -->
     <div class="page" id="page-users">
       <div class="card">
@@ -1630,6 +1696,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
     if (page === 'captains') { loadCaptains(); loadAllLists(); }
+    if (page === 'candidates') { loadCandidates(); }
     if (page === 'surveys') { showSurveyList(); loadSurveys(); }
     if (page === 'users') loadUsers();
     if (page === 'broadcast') { loadBroadcastPage(); }
@@ -5866,6 +5933,222 @@ async function compileMasterList() {
 
 function closeMasterList() {
   document.getElementById('masterListCard').style.display = 'none';
+}
+
+// ===================== CANDIDATES =====================
+
+var _candidateDetailId = null;
+
+async function loadCandidates() {
+  try {
+    var data = await api('/api/candidates');
+    var candidates = data.candidates || [];
+    var totalCaptains = 0, totalLists = 0, totalVoters = 0;
+    candidates.forEach(function(c) {
+      totalCaptains += c.captain_count || 0;
+      totalLists += (c.list_count || 0) + (c.captain_list_count || 0);
+      totalVoters += c.total_voters || 0;
+    });
+    document.getElementById('statTotalCandidates').textContent = candidates.length;
+    document.getElementById('statCandidateCaptains').textContent = totalCaptains;
+    document.getElementById('statCandidateLists').textContent = totalLists;
+    document.getElementById('statCandidateVoters').textContent = totalVoters;
+
+    var tbody = document.querySelector('#candidatesTable tbody');
+    tbody.textContent = '';
+    if (candidates.length === 0) {
+      var emptyTr = document.createElement('tr');
+      var emptyTd = document.createElement('td');
+      emptyTd.colSpan = 9;
+      emptyTd.style.cssText = 'text-align:center;color:#64748b';
+      emptyTd.textContent = 'No candidates yet. Click + Add Candidate to create one.';
+      emptyTr.appendChild(emptyTd);
+      tbody.appendChild(emptyTr);
+      return;
+    }
+    candidates.forEach(function(c) {
+      var portalUrl = window.location.origin + '/candidate?code=' + c.code;
+      var tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = function() { showCandidateDetail(c.id, c.name); };
+
+      var tdName = document.createElement('td');
+      var strong = document.createElement('strong');
+      strong.textContent = c.name;
+      tdName.appendChild(strong);
+      tr.appendChild(tdName);
+
+      var tdOffice = document.createElement('td');
+      tdOffice.textContent = c.office || '-';
+      tr.appendChild(tdOffice);
+
+      var tdCode = document.createElement('td');
+      var codeEl = document.createElement('code');
+      codeEl.style.cssText = 'background:#1e293b;padding:2px 6px;border-radius:4px;font-size:12px;cursor:pointer';
+      codeEl.textContent = c.code + ' \u{1F4CB}';
+      codeEl.onclick = function(e) { e.stopPropagation(); copyToClip(c.code); };
+      tdCode.appendChild(codeEl);
+      tr.appendChild(tdCode);
+
+      var tdCap = document.createElement('td');
+      tdCap.textContent = c.captain_count || 0;
+      tr.appendChild(tdCap);
+
+      var tdList = document.createElement('td');
+      tdList.textContent = (c.list_count || 0) + (c.captain_list_count || 0);
+      tr.appendChild(tdList);
+
+      var tdVoters = document.createElement('td');
+      tdVoters.textContent = c.total_voters || 0;
+      tr.appendChild(tdVoters);
+
+      var tdPortal = document.createElement('td');
+      var portalCode = document.createElement('code');
+      portalCode.style.cssText = 'background:#1e293b;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;word-break:break-all';
+      portalCode.textContent = portalUrl + ' \u{1F4CB}';
+      portalCode.onclick = function(e) { e.stopPropagation(); copyToClip(portalUrl); };
+      tdPortal.appendChild(portalCode);
+      tr.appendChild(tdPortal);
+
+      var tdStatus = document.createElement('td');
+      var badge = document.createElement('span');
+      badge.className = c.is_active ? 'badge badge-green' : 'badge badge-gray';
+      badge.textContent = c.is_active ? 'Active' : 'Inactive';
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      var tdActions = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-sm btn-danger';
+      btn.textContent = 'Deactivate';
+      btn.onclick = function(e) { e.stopPropagation(); deactivateCandidate(c.id, c.name); };
+      tdActions.appendChild(btn);
+      tr.appendChild(tdActions);
+
+      tbody.appendChild(tr);
+    });
+  } catch (e) { console.error('loadCandidates error:', e); }
+}
+
+function showAddCandidateForm() { document.getElementById('addCandidateForm').style.display = 'block'; document.getElementById('newCandidateName').focus(); }
+function hideAddCandidateForm() { document.getElementById('addCandidateForm').style.display = 'none'; }
+
+async function createCandidate() {
+  var name = document.getElementById('newCandidateName').value.trim();
+  if (!name) { alert('Candidate name is required.'); return; }
+  var office = document.getElementById('newCandidateOffice').value.trim();
+  var phone = document.getElementById('newCandidatePhone').value.trim();
+  var email = document.getElementById('newCandidateEmail').value.trim();
+  try {
+    var data = await apiPost('/api/candidates', { name: name, office: office, phone: phone, email: email });
+    alert('Candidate created! Code: ' + data.code + '\n\nPortal URL: ' + window.location.origin + '/candidate?code=' + data.code);
+    hideAddCandidateForm();
+    document.getElementById('newCandidateName').value = '';
+    document.getElementById('newCandidateOffice').value = '';
+    document.getElementById('newCandidatePhone').value = '';
+    document.getElementById('newCandidateEmail').value = '';
+    loadCandidates();
+  } catch (e) { alert('Error: ' + (e.message || e)); }
+}
+
+async function deactivateCandidate(id, name) {
+  if (!confirm('Deactivate candidate "' + name + '" and all their captains?')) return;
+  await apiDelete('/api/candidates/' + id);
+  loadCandidates();
+  if (_candidateDetailId === id) closeCandidateDetail();
+}
+
+async function showCandidateDetail(id, name) {
+  _candidateDetailId = id;
+  document.getElementById('candidateDetailTitle').textContent = name + ' \u2014 Detail';
+  document.getElementById('candidateDetailCard').style.display = '';
+  try {
+    var capData = await api('/api/candidates/' + id + '/captains');
+    var capTbody = document.querySelector('#candidateCaptainsTable tbody');
+    capTbody.textContent = '';
+    (capData.captains || []).forEach(function(c) {
+      var tr = document.createElement('tr');
+      var tdN = document.createElement('td'); tdN.textContent = c.name; tr.appendChild(tdN);
+      var tdC = document.createElement('td');
+      var code = document.createElement('code');
+      code.style.cssText = 'background:#1e293b;padding:2px 4px;border-radius:4px;font-size:11px;cursor:pointer';
+      code.textContent = c.code;
+      code.onclick = function() { copyToClip(c.code); };
+      tdC.appendChild(code); tr.appendChild(tdC);
+      var tdL = document.createElement('td'); tdL.textContent = (c.lists || []).length; tr.appendChild(tdL);
+      var tdV = document.createElement('td'); tdV.textContent = c.total_voters || 0; tr.appendChild(tdV);
+      var tdS = document.createElement('td');
+      var sb = document.createElement('span');
+      sb.className = c.is_active ? 'badge badge-green' : 'badge badge-gray';
+      sb.textContent = c.is_active ? 'Active' : 'Off';
+      tdS.appendChild(sb); tr.appendChild(tdS);
+      capTbody.appendChild(tr);
+    });
+    if ((capData.captains || []).length === 0) {
+      var emptyTr = document.createElement('tr');
+      var emptyTd = document.createElement('td');
+      emptyTd.colSpan = 5; emptyTd.style.cssText = 'color:#64748b;text-align:center';
+      emptyTd.textContent = 'No captains yet';
+      emptyTr.appendChild(emptyTd); capTbody.appendChild(emptyTr);
+    }
+
+    var listData = await api('/api/candidates/' + id + '/lists');
+    var listTbody = document.querySelector('#candidateListsTable tbody');
+    listTbody.textContent = '';
+    (listData.lists || []).forEach(function(l) {
+      var tr = document.createElement('tr');
+      var tdN = document.createElement('td'); tdN.textContent = l.name; tr.appendChild(tdN);
+      var tdSrc = document.createElement('td');
+      var srcBadge = document.createElement('span');
+      srcBadge.className = l.source === 'captain' ? 'badge badge-blue' : 'badge badge-yellow';
+      srcBadge.textContent = l.source === 'captain' ? 'Captain: ' + (l.captain_name || '?') : 'Admin List';
+      tdSrc.appendChild(srcBadge); tr.appendChild(tdSrc);
+      var tdV = document.createElement('td'); tdV.textContent = l.voter_count || 0; tr.appendChild(tdV);
+      var tdD = document.createElement('td'); tdD.textContent = (l.created_at || '').split('T')[0]; tr.appendChild(tdD);
+      listTbody.appendChild(tr);
+    });
+    if ((listData.lists || []).length === 0) {
+      var emptyTr2 = document.createElement('tr');
+      var emptyTd2 = document.createElement('td');
+      emptyTd2.colSpan = 4; emptyTd2.style.cssText = 'color:#64748b;text-align:center';
+      emptyTd2.textContent = 'No lists yet';
+      emptyTr2.appendChild(emptyTd2); listTbody.appendChild(emptyTr2);
+    }
+  } catch (e) { console.error('showCandidateDetail error:', e); }
+}
+
+function closeCandidateDetail() { _candidateDetailId = null; document.getElementById('candidateDetailCard').style.display = 'none'; }
+
+async function addCaptainToCandidate() {
+  if (!_candidateDetailId) return;
+  var name = prompt('Captain name:');
+  if (!name) return;
+  var phone = prompt('Captain phone (optional):') || '';
+  var email = prompt('Captain email (optional):') || '';
+  try {
+    var data = await apiPost('/api/candidates/' + _candidateDetailId + '/captains', { name: name, phone: phone, email: email });
+    alert('Captain created! Code: ' + data.code);
+    showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+    loadCandidates();
+  } catch (e) { alert('Error: ' + (e.message || e)); }
+}
+
+async function addListToCandidate() {
+  if (!_candidateDetailId) return;
+  var name = prompt('List name:');
+  if (!name) return;
+  try {
+    await apiPost('/api/candidates/' + _candidateDetailId + '/lists', { name: name });
+    showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+    loadCandidates();
+  } catch (e) { alert('Error: ' + (e.message || e)); }
+}
+
+function copyToClip(text) {
+  navigator.clipboard.writeText(text).then(function() {}).catch(function() {
+    var ta = document.createElement('textarea'); ta.value = text;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  });
 }
 
 // ===================== ADMIN LISTS =====================

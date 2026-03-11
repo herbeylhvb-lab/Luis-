@@ -106,6 +106,7 @@ app.get('/scanner', (req, res) => res.sendFile(path.join(__dirname, 'public', 's
 app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkin.html')));
 app.get('/v/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voter-checkin.html')));
 app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'captain.html')));
+app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'candidate.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -145,6 +146,14 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/captains\/\d+\/team/) ||
       req.path.match(/^\/api\/captains\/\d+\/search/) ||
       req.path.match(/^\/api\/captains\/\d+\/household/)) {
+    return next();
+  }
+  // Allow candidate portal endpoints (used by candidate.html without admin auth)
+  if (req.path.match(/^\/api\/candidates\/login/) ||
+      req.path.match(/^\/api\/candidates\/\d+\/portal/) ||
+      req.path.match(/^\/api\/candidates\/\d+\/search/) ||
+      req.path.match(/^\/api\/candidates\/\d+\/household/) ||
+      req.path.match(/^\/api\/candidates\/\d+\/lists/)) {
     return next();
   }
   // Allow messaging provider webhook
@@ -192,6 +201,7 @@ app.use('/api', require('./routes/knowledge'));
 app.use('/api', require('./routes/ai'));
 app.use('/api', require('./routes/p2p'));
 app.use('/api', require('./routes/captains'));
+app.use('/api', require('./routes/candidates'));
 app.use('/api', require('./routes/email'));
 app.use('/api', require('./routes/admin-lists'));
 app.use('/api', require('./routes/surveys'));
