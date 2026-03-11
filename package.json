@@ -1,5 +1,5 @@
 {
-  "name": "campaigntext-hq",
+  "name": "campaigntext",
   "version": "1.0.0",
   "description": "CampaignText HQ - Political Campaign Management Platform",
   "main": "server.js",
