@@ -374,6 +374,14 @@ router.put('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (
   res.json({ success: true });
 });
 
+// Delete a captain from the candidate portal
+router.delete('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (req, res) => {
+  const captain = db.prepare('SELECT id, name FROM captains WHERE id = ? AND candidate_id = ?').get(req.params.captainId, req.params.id);
+  if (!captain) return res.status(404).json({ error: 'Captain not found under this candidate.' });
+  db.prepare('DELETE FROM captains WHERE id = ?').run(req.params.captainId);
+  res.json({ success: true, message: 'Captain "' + captain.name + '" deleted.' });
+});
+
 // Voter search — name-only q, dedicated filters, priority ordering (matches captain search)
 router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
   const { q, phone, vanid, city, zip, precinct, address } = req.query;

@@ -648,9 +648,20 @@ function renderCaptainCards(captains) {
       subStat.appendChild(subLabel);
       statsRow.appendChild(subStat);
 
-      // Total voters across this captain + all subs
-      var teamVoters = totalVoters;
-      subs.forEach(function(s) { teamVoters += (s.total_voters || 0); });
+      // Total voters + voted across this captain + all subs (recursive)
+      function sumTree(id) {
+        var node = captains.find(function(c) { return c.id === id; });
+        var tv = node ? (node.total_voters || 0) : 0;
+        var vc = node ? (node.voted_count || 0) : 0;
+        var kids = childrenOf[id] || [];
+        kids.forEach(function(k) { var s = sumTree(k.id); tv += s.t; vc += s.v; });
+        return { t: tv, v: vc };
+      }
+      var teamTotals = sumTree(cap.id);
+      var teamVoters = teamTotals.t;
+      var teamVoted = teamTotals.v;
+      var teamVotedPct = teamVoters > 0 ? Math.round((teamVoted / teamVoters) * 100) : 0;
+
       var teamStat = document.createElement('div');
       teamStat.className = 'captain-stat';
       var teamNum = document.createElement('div');
@@ -662,6 +673,19 @@ function renderCaptainCards(captains) {
       teamLabel.textContent = 'Team Total';
       teamStat.appendChild(teamLabel);
       statsRow.appendChild(teamStat);
+
+      // Team voted %
+      var teamVotedStat = document.createElement('div');
+      teamVotedStat.className = 'captain-stat';
+      var teamVotedNum = document.createElement('div');
+      teamVotedNum.className = 'num voted-pct ' + (teamVotedPct >= 60 ? 'green' : teamVotedPct >= 30 ? 'yellow' : 'red');
+      teamVotedNum.textContent = teamVotedPct + '%';
+      teamVotedStat.appendChild(teamVotedNum);
+      var teamVotedLabel = document.createElement('div');
+      teamVotedLabel.className = 'label';
+      teamVotedLabel.textContent = 'Team Voted';
+      teamVotedStat.appendChild(teamVotedLabel);
+      statsRow.appendChild(teamVotedStat);
     }
 
     card.appendChild(statsRow);
@@ -687,6 +711,22 @@ function renderCaptainCards(captains) {
     a.textContent = window.location.origin + '/captain?code=' + cap.code;
     portalLink.appendChild(a);
     card.appendChild(portalLink);
+
+    // Action row: toggle active + delete
+    var actRow = document.createElement('div');
+    actRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end';
+    var toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn btn-xs ' + (cap.is_active ? 'btn-secondary' : 'btn-success');
+    toggleBtn.textContent = cap.is_active ? 'Deactivate' : 'Activate';
+    toggleBtn.onclick = (function(c) { return function() { toggleCaptainActive(c.id, c.is_active); }; })(cap);
+    actRow.appendChild(toggleBtn);
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-xs';
+    delBtn.style.cssText = 'background:#dc2626;color:#fff;border:none';
+    delBtn.textContent = '\uD83D\uDDD1 Delete';
+    delBtn.onclick = (function(c) { return function() { deleteCaptain(c.id, c.name); }; })(cap);
+    actRow.appendChild(delBtn);
+    card.appendChild(actRow);
 
     wrapper.appendChild(card);
     container.appendChild(wrapper);
@@ -905,13 +945,14 @@ async function searchVoters() {
       var actions = document.createElement('div');
       actions.style.cssText = 'display:flex;gap:8px;margin-top:10px';
 
-      if (selectedListId) {
-        var addBtn = document.createElement('button');
-        addBtn.className = 'btn btn-sm btn-success';
-        addBtn.textContent = '+ Add to List';
-        addBtn.onclick = function() { addVoterToList(v.id); };
-        actions.appendChild(addBtn);
-      }
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-sm btn-success';
+      addBtn.textContent = '+ Add to List';
+      addBtn.onclick = (function(vid) { return function() {
+        if (!selectedListId) { alert('Please select a list first from the "Add to" dropdown above.'); return; }
+        addVoterToList(vid);
+      }; })(v.id);
+      actions.appendChild(addBtn);
 
       var hhLink = document.createElement('button');
       hhLink.className = 'btn btn-xs btn-secondary';
@@ -1451,6 +1492,30 @@ async function createCaptain() {
     document.getElementById('newCapName').value = '';
     document.getElementById('newCapPhone').value = '';
     document.getElementById('newCapEmail').value = '';
+    refreshDashboard();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function toggleCaptainActive(captainId, currentlyActive) {
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/portal/captains/' + captainId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !currentlyActive })
+    });
+    if (!resp.ok) throw new Error('Failed');
+    refreshDashboard();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deleteCaptain(captainId, captainName) {
+  if (!confirm('Delete captain "' + captainName + '"? This cannot be undone.')) return;
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/portal/captains/' + captainId, {
+      method: 'DELETE'
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed');
     refreshDashboard();
   } catch (e) { alert('Error: ' + e.message); }
 }
