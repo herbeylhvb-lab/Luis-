@@ -556,6 +556,8 @@ function renderCaptainCards(captains) {
     info.appendChild(meta);
     header.appendChild(info);
 
+    var codeWrap = document.createElement('div');
+    codeWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
     var codeEl = document.createElement('span');
     codeEl.className = 'captain-code';
     codeEl.textContent = cap.code;
@@ -565,7 +567,23 @@ function renderCaptainCards(captains) {
       codeEl.textContent = 'Copied!';
       setTimeout(function() { codeEl.textContent = cap.code; }, 1200);
     };
-    header.appendChild(codeEl);
+    codeWrap.appendChild(codeEl);
+    var shareBtn = document.createElement('button');
+    shareBtn.style.cssText = 'background:none;border:1px solid #334155;border-radius:6px;font-size:16px;cursor:pointer;padding:4px 8px;line-height:1';
+    shareBtn.textContent = '\uD83D\uDCE4';
+    shareBtn.title = 'Share login code';
+    shareBtn.onclick = function(e) {
+      e.stopPropagation();
+      var portalUrl = window.location.origin + '/captain';
+      var msg = 'Hey ' + cap.name + '! Here is your Block Captain login code: ' + cap.code + '\n\nGo to ' + portalUrl + ' and enter this code to get started.';
+      if (navigator.share) {
+        navigator.share({ title: 'Block Captain Code', text: msg }).catch(function(){});
+      } else {
+        window.open('sms:?&body=' + encodeURIComponent(msg), '_blank');
+      }
+    };
+    codeWrap.appendChild(shareBtn);
+    header.appendChild(codeWrap);
     card.appendChild(header);
 
     // Voter count + voted %

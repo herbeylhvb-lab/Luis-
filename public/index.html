@@ -5741,6 +5741,18 @@ async function showCandidateDetail(id, name) {
       codeEl.title = 'Click to copy';
       codeEl.onclick = function(e) { e.stopPropagation(); copyToClip(c.code); };
       left.appendChild(codeEl);
+      var shareCodeBtn = document.createElement('button');
+      shareCodeBtn.style.cssText = 'background:none;border:none;font-size:14px;cursor:pointer;padding:2px 4px;line-height:1;vertical-align:middle';
+      shareCodeBtn.textContent = '\uD83D\uDCE4';
+      shareCodeBtn.title = 'Share captain code';
+      shareCodeBtn.onclick = (function(captain) { return function(e) {
+        e.stopPropagation();
+        var portalUrl = window.location.origin + '/captain';
+        var msg = 'Hey ' + captain.name + '! Here is your Block Captain login code: ' + captain.code + '\n\nGo to ' + portalUrl + ' and enter this code to get started.';
+        if (navigator.share) { navigator.share({ title: 'Block Captain Code', text: msg }).catch(function(){}); }
+        else { navigator.clipboard.writeText(msg); shareCodeBtn.textContent = '\u2705'; setTimeout(function() { shareCodeBtn.textContent = '\uD83D\uDCE4'; }, 1500); }
+      }; })(c);
+      left.appendChild(shareCodeBtn);
 
       var statsSpan = document.createElement('span');
       statsSpan.style.cssText = 'font-size:12px;color:#64748b';

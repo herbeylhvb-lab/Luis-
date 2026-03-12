@@ -426,12 +426,38 @@ async function refreshSidebar() {
         leftDiv.appendChild(badge);
       }
       row.appendChild(leftDiv);
+      var rightDiv = document.createElement('div');
+      rightDiv.style.cssText = 'display:flex;align-items:center;gap:6px';
       if (sc.code) {
         var codeEl = document.createElement('span');
         codeEl.className = 'member-code';
         codeEl.textContent = sc.code;
-        row.appendChild(codeEl);
+        codeEl.style.cursor = 'pointer';
+        codeEl.title = 'Tap to copy code';
+        codeEl.addEventListener('click', (function(code) {
+          return function(e) {
+            e.stopPropagation();
+            navigator.clipboard.writeText(code);
+            codeEl.textContent = 'Copied!';
+            setTimeout(function() { codeEl.textContent = code; }, 1500);
+          };
+        })(sc.code));
+        rightDiv.appendChild(codeEl);
+
+        // Share button (iPhone share sheet / SMS fallback)
+        var shareBtn = document.createElement('button');
+        shareBtn.style.cssText = 'background:none;border:none;font-size:18px;cursor:pointer;padding:4px;line-height:1';
+        shareBtn.textContent = '\uD83D\uDCE4';
+        shareBtn.title = 'Share login code';
+        shareBtn.addEventListener('click', (function(person) {
+          return function(e) {
+            e.stopPropagation();
+            shareTeamCode(person.name, person.code);
+          };
+        })(sc));
+        rightDiv.appendChild(shareBtn);
       }
+      row.appendChild(rightDiv);
       row.addEventListener('click', (function(person) {
         return function() {
           captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
@@ -2106,6 +2132,23 @@ async function confirmCsvMatches() {
 
 // ===================== TEAM MANAGEMENT =====================
 
+function shareTeamCode(name, code) {
+  var portalUrl = window.location.origin + '/captain';
+  var message = 'Hey ' + name + '! Here is your Block Captain login code: ' + code + '\n\nGo to ' + portalUrl + ' and enter this code to get started.';
+
+  // Try native share sheet first (works on iPhone Safari)
+  if (navigator.share) {
+    navigator.share({
+      title: 'Block Captain Code for ' + name,
+      text: message
+    }).catch(function() { /* user cancelled, no-op */ });
+  } else {
+    // Fallback: open SMS compose with pre-filled message
+    var smsUrl = 'sms:?&body=' + encodeURIComponent(message);
+    window.open(smsUrl, '_blank');
+  }
+}
+
 async function addTeamMember() {
   var name = prompt('Enter team member name:');
   if (!name || !name.trim()) return;
@@ -2149,11 +2192,30 @@ async function addTeamMember() {
     hint.style.cssText = 'color:#64748b;font-size:12px;margin-bottom:16px';
     hint.textContent = 'You can see their lists in your "Team Member Lists" section.';
     box.appendChild(hint);
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;justify-content:center;flex-wrap:wrap';
+    var shareBtn = document.createElement('button');
+    shareBtn.className = 'btn btn-captain';
+    shareBtn.textContent = '\uD83D\uDCE4 Share Code';
+    shareBtn.addEventListener('click', function() { shareTeamCode(name.trim(), data.code); });
+    btnRow.appendChild(shareBtn);
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'btn';
+    copyBtn.style.cssText = 'background:#334155;color:#e2e8f0;border:1px solid #475569';
+    copyBtn.textContent = '\uD83D\uDCCB Copy Code';
+    copyBtn.addEventListener('click', function() {
+      navigator.clipboard.writeText(data.code);
+      copyBtn.textContent = '\u2705 Copied!';
+      setTimeout(function() { copyBtn.textContent = '\uD83D\uDCCB Copy Code'; }, 2000);
+    });
+    btnRow.appendChild(copyBtn);
     var closeBtn = document.createElement('button');
-    closeBtn.className = 'btn btn-captain';
-    closeBtn.textContent = 'Got It';
+    closeBtn.className = 'btn';
+    closeBtn.style.cssText = 'background:#1e293b;color:#94a3b8;border:1px solid #334155';
+    closeBtn.textContent = 'Done';
     closeBtn.addEventListener('click', function() { overlay.remove(); });
-    box.appendChild(closeBtn);
+    btnRow.appendChild(closeBtn);
+    box.appendChild(btnRow);
     overlay.appendChild(box);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
