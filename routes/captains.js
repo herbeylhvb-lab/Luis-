@@ -146,10 +146,10 @@ router.post('/captains', (req, res) => {
   const result = db.prepare(
     'INSERT INTO captains (name, code, phone, email, candidate_id) VALUES (?, ?, ?, ?, ?)'
   ).run(name, code, phone || '', email || '', candidate_id || null);
-  // Auto-create a default list so new captains have one ready to use
+  // Auto-create a default list named after the captain
   db.prepare(
     'INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)'
-  ).run(result.lastInsertRowid, 'My Voters', 'general');
+  ).run(result.lastInsertRowid, name.trim(), 'general');
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Block Captain created: ' + name + ' (code: ' + code + ')');
   res.json({ success: true, id: result.lastInsertRowid, code });
 });
@@ -319,27 +319,36 @@ function requireCaptainAuth(req, res, next) {
   return res.status(401).json({ error: 'Captain authentication required. Please log in with your code.' });
 }
 
-// Search voters (captain portal) — supports multi-word, name, address, phone, precinct
+// Search voters (captain portal) — name search + dedicated filters for phone, vanid, etc.
 router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
-  const { q, city, zip, precinct, address } = req.query;
-  const hasFilter = city || zip || precinct || address;
-  if ((!q || q.length < 2) && !hasFilter) return res.json({ voters: [] });
+  const { q, phone, vanid, city, zip, precinct, address } = req.query;
+  const hasFilter = phone || vanid || city || zip || precinct || address;
+  if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
   const conditions = [];
   const params = [];
 
-  // Free-text search: split into words — each word must match at least one column
+  // Name-only search: split into words — each word must match first or last name
   if (q && q.trim().length >= 2) {
     const words = q.trim().split(/\s+/).filter(Boolean);
     for (const w of words) {
       const escaped = w.replace(/[\\%_]/g, '\\$&');
       const term = '%' + escaped + '%';
-      conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\' OR precinct LIKE ? ESCAPE '\\' OR registration_number LIKE ? ESCAPE '\\' OR vanid LIKE ? ESCAPE '\\' OR county_file_id LIKE ? ESCAPE '\\' OR state_file_id LIKE ? ESCAPE '\\')");
-      params.push(term, term, term, term, term, term, term, term, term, term);
+      conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
+      params.push(term, term);
     }
   }
 
   // Dedicated filters
+  if (phone) {
+    const phoneEsc = phone.replace(/[\\%_]/g, '\\$&');
+    conditions.push("phone LIKE ? ESCAPE '\\'"); params.push('%' + phoneEsc + '%');
+  }
+  if (vanid) {
+    const vanidEsc = vanid.replace(/[\\%_]/g, '\\$&');
+    conditions.push("(vanid LIKE ? ESCAPE '\\' OR registration_number LIKE ? ESCAPE '\\' OR county_file_id LIKE ? ESCAPE '\\' OR state_file_id LIKE ? ESCAPE '\\')");
+    params.push('%' + vanidEsc + '%', '%' + vanidEsc + '%', '%' + vanidEsc + '%', '%' + vanidEsc + '%');
+  }
   if (city) {
     const cityEsc = city.replace(/[\\%_]/g, '\\$&');
     conditions.push("city LIKE ? ESCAPE '\\'"); params.push('%' + cityEsc + '%');
@@ -815,10 +824,10 @@ router.post('/captains/:id/team', requireCaptainAuth, (req, res) => {
     'INSERT INTO captains (name, code, parent_captain_id, candidate_id) VALUES (?, ?, ?, ?)'
   ).run(name.trim(), code, req.params.id, inheritedCandidateId);
 
-  // Auto-create a default list so new team members have one ready to use
+  // Auto-create a default list named after the team member
   db.prepare(
     'INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)'
-  ).run(result.lastInsertRowid, 'My Voters', 'general');
+  ).run(result.lastInsertRowid, name.trim(), 'general');
 
   // Also add to captain_team_members for backwards compat with list assignment
   const tmResult = db.prepare('INSERT INTO captain_team_members (captain_id, name) VALUES (?, ?)').run(req.params.id, name.trim());

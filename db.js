@@ -674,5 +674,17 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_candidate ON captains(can
 addColumn("ALTER TABLE admin_lists ADD COLUMN candidate_id INTEGER DEFAULT NULL");
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lists(candidate_id)"); } catch (e) { /* exists */ }
 
+// Rename existing "My Voters" lists to the captain's actual name
+try {
+  const renamed = db.prepare(`
+    UPDATE captain_lists SET name = (
+      SELECT c.name FROM captains c WHERE c.id = captain_lists.captain_id
+    )
+    WHERE captain_lists.name = 'My Voters'
+      AND EXISTS (SELECT 1 FROM captains c WHERE c.id = captain_lists.captain_id)
+  `).run();
+  if (renamed.changes > 0) console.log('[migration] Renamed ' + renamed.changes + ' "My Voters" lists to captain names');
+} catch (e) { /* already migrated or no matching lists */ }
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

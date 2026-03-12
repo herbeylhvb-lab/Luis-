@@ -157,8 +157,8 @@ router.post('/candidates/:id/captains', (req, res) => {
   const result = db.prepare(
     'INSERT INTO captains (name, code, phone, email, candidate_id) VALUES (?, ?, ?, ?, ?)'
   ).run(name, code, phone || '', email || '', candidate.id);
-  // Auto-create a default list
-  db.prepare('INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)').run(result.lastInsertRowid, 'My Voters', 'general');
+  // Auto-create a default list named after the captain
+  db.prepare('INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)').run(result.lastInsertRowid, name.trim(), 'general');
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Captain created for ' + candidate.name + ': ' + name);
   res.json({ success: true, id: result.lastInsertRowid, code });
 });
@@ -357,7 +357,7 @@ router.post('/candidates/:id/portal/captains', requireCandidateAuth, (req, res) 
   const result = db.prepare(
     'INSERT INTO captains (name, code, phone, email, candidate_id) VALUES (?, ?, ?, ?, ?)'
   ).run(name, code, phone || '', email || '', req.params.id);
-  db.prepare('INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)').run(result.lastInsertRowid, 'My Voters', 'general');
+  db.prepare('INSERT INTO captain_lists (captain_id, name, list_type) VALUES (?, ?, ?)').run(result.lastInsertRowid, name.trim(), 'general');
   res.json({ success: true, id: result.lastInsertRowid, code });
 });
 

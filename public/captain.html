@@ -194,10 +194,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <!-- CENTER: Search -->
     <div class="center-panel">
       <div class="search-bar">
-        <input type="text" id="voterSearch" placeholder="Search by name, phone, VANID..." oninput="debouncedSearch()">
+        <input type="text" id="voterSearch" placeholder="Search by name..." oninput="debouncedSearch()">
         <span class="hint">min 2 chars</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        <div class="form-group"><label>Phone</label><input type="text" id="capPhoneFilter" placeholder="Phone #" oninput="debouncedSearch()"></div>
+        <div class="form-group"><label>VanID</label><input type="text" id="capVanidFilter" placeholder="VanID" oninput="debouncedSearch()"></div>
         <div class="form-group"><label>City</label><select id="capCityFilter" onchange="debouncedSearch()"><option value="">All Cities</option></select></div>
         <div class="form-group"><label>ZIP</label><input type="text" id="capZipFilter" placeholder="All" oninput="debouncedSearch()"></div>
         <div class="form-group"><label>Precinct</label><input type="text" id="capPrecinctFilter" placeholder="All" oninput="debouncedSearch()"></div>
@@ -328,6 +330,11 @@ async function refreshSidebar() {
     myEl.appendChild(empty);
   }
   myLists.forEach(function(l) { myEl.appendChild(makeListItem(l)); });
+
+  // Auto-select the captain's first list if none is selected yet
+  if (!captainState.selectedListId && myLists.length > 0) {
+    selectList(myLists[0].id, myLists[0].name);
+  }
 
   // Hierarchical "My Team" section — sub-captains nested under their parent
   var teamContainer = document.getElementById('myTeamContainer');
@@ -679,11 +686,13 @@ async function selectSubCaptainList(listId, listName, subCaptainId) {
 // Re-run search when a list is selected so Add buttons appear
 function refreshSearchResults() {
   var q = document.getElementById('voterSearch').value.trim();
+  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
+  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
   var city = (document.getElementById('capCityFilter') || {}).value || '';
   var zip = (document.getElementById('capZipFilter') || {}).value || '';
   var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
   var address = (document.getElementById('capAddressFilter') || {}).value || '';
-  if (q.length >= 2 || city || zip || precinct || address) {
+  if (q.length >= 2 || phone || vanid || city || zip || precinct || address) {
     searchVoters();
   }
 }
@@ -950,12 +959,14 @@ function debouncedSearch() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
+  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
+  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
   var city = (document.getElementById('capCityFilter') || {}).value || '';
   var zip = (document.getElementById('capZipFilter') || {}).value || '';
   var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
   var address = (document.getElementById('capAddressFilter') || {}).value || '';
   var el = document.getElementById('searchResults');
-  var hasFilter = city || zip || precinct || address;
+  var hasFilter = phone || vanid || city || zip || precinct || address;
   if (q.length < 2 && !hasFilter) {
     el.textContent = '';
     var emptyDiv = document.createElement('div');
@@ -972,6 +983,8 @@ async function searchVoters() {
   }
 
   var url = '/api/captains/' + captainState.captain.id + '/search?q=' + encodeURIComponent(q);
+  if (phone) url += '&phone=' + encodeURIComponent(phone);
+  if (vanid) url += '&vanid=' + encodeURIComponent(vanid);
   if (city) url += '&city=' + encodeURIComponent(city);
   if (zip) url += '&zip=' + encodeURIComponent(zip);
   if (precinct) url += '&precinct=' + encodeURIComponent(precinct);

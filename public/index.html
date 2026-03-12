@@ -2867,7 +2867,7 @@ function searchVotersDebounced() { clearTimeout(searchTimeout); searchTimeout = 
 window.searchVotersDebounced = searchVotersDebounced;
 
 async function searchVoters() {
-  const q = (document.getElementById('voterSearch') || {}).value || '';
+  const q = ((document.getElementById('voterSearch') || {}).value || '').trim();
   const party = (document.getElementById('voterPartyFilter') || {}).value || '';
   const support = (document.getElementById('voterSupportFilter') || {}).value || '';
   const precinct = (document.getElementById('voterPrecinctFilter') || {}).value || '';
