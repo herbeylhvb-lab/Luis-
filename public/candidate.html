@@ -257,8 +257,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           </select>
         </div>
         <div class="search-bar">
-          <input type="text" id="voterSearch" placeholder="Search voters by name, address, phone..." oninput="debounceSearch()">
+          <input type="text" id="voterSearch" placeholder="Search by name..." oninput="debounceSearch()">
           <span class="hint">Min 2 chars</span>
+        </div>
+        <div style="margin-bottom:12px">
+          <div class="form-group" style="margin-bottom:8px"><label>City</label><select id="candCityFilter" onchange="debounceSearch()"><option value="">All Cities</option></select></div>
+          <button type="button" id="moreFiltersToggle" onclick="toggleMoreFilters()" style="background:none;border:none;color:#818cf8;font-size:13px;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:4px">
+            <span id="moreFiltersIcon">&#9654;</span> More Filters
+          </button>
+          <div id="moreFiltersPanel" style="display:none;margin-top:8px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div class="form-group"><label>Phone</label><input type="text" id="candPhoneFilter" placeholder="Phone #" oninput="debounceSearch()"></div>
+              <div class="form-group"><label>VanID</label><input type="text" id="candVanidFilter" placeholder="VanID" oninput="debounceSearch()"></div>
+              <div class="form-group"><label>ZIP</label><input type="text" id="candZipFilter" placeholder="All" oninput="debounceSearch()"></div>
+              <div class="form-group"><label>Precinct</label><input type="text" id="candPrecinctFilter" placeholder="All" oninput="debounceSearch()"></div>
+              <div class="form-group" style="grid-column:1/-1"><label>Address</label><input type="text" id="candAddressFilter" placeholder="Street..." oninput="debounceSearch()"></div>
+            </div>
+          </div>
         </div>
         <div id="searchResults">
           <div class="empty-state">
@@ -401,6 +416,7 @@ async function doLogin() {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mainApp').style.display = '';
     renderDashboard(data);
+    loadCandidateCityFilter();
   } catch (e) {
     document.getElementById('loginError').textContent = e.message;
     document.getElementById('loginError').style.display = 'block';
@@ -764,7 +780,8 @@ function onListSelectChange() {
   }
   // Re-render search results to show/hide add buttons
   var q = document.getElementById('voterSearch').value.trim();
-  if (q.length >= 2) searchVoters();
+  var hasFilter = (document.getElementById('candPhoneFilter') || {}).value || (document.getElementById('candVanidFilter') || {}).value || (document.getElementById('candCityFilter') || {}).value || (document.getElementById('candZipFilter') || {}).value || (document.getElementById('candPrecinctFilter') || {}).value || (document.getElementById('candAddressFilter') || {}).value;
+  if (q.length >= 2 || hasFilter) searchVoters();
 }
 
 function debounceSearch() {
@@ -772,10 +789,40 @@ function debounceSearch() {
   searchTimer = setTimeout(searchVoters, 300);
 }
 
+function toggleMoreFilters() {
+  var panel = document.getElementById('moreFiltersPanel');
+  var icon = document.getElementById('moreFiltersIcon');
+  var isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  icon.textContent = isOpen ? '\u25B6' : '\u25BC';
+}
+
+async function loadCandidateCityFilter() {
+  try {
+    var resp = await fetch('/api/voters-cities');
+    var data = await resp.json();
+    var sel = document.getElementById('candCityFilter');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">All Cities</option>';
+    (data.cities || []).forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    });
+  } catch (err) {}
+}
+
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
+  var phone = (document.getElementById('candPhoneFilter') || {}).value || '';
+  var vanid = (document.getElementById('candVanidFilter') || {}).value || '';
+  var city = (document.getElementById('candCityFilter') || {}).value || '';
+  var zip = (document.getElementById('candZipFilter') || {}).value || '';
+  var precinct = (document.getElementById('candPrecinctFilter') || {}).value || '';
+  var address = (document.getElementById('candAddressFilter') || {}).value || '';
   var results = document.getElementById('searchResults');
-  if (q.length < 2) {
+  var hasFilter = phone || vanid || city || zip || precinct || address;
+  if (q.length < 2 && !hasFilter) {
     results.textContent = '';
     var hint = document.createElement('div');
     hint.className = 'empty-state';
@@ -785,7 +832,15 @@ async function searchVoters() {
   }
 
   try {
-    var resp = await fetch('/api/candidates/' + candidateId + '/search?q=' + encodeURIComponent(q));
+    var params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (phone) params.set('phone', phone.trim());
+    if (vanid) params.set('vanid', vanid.trim());
+    if (city) params.set('city', city);
+    if (zip) params.set('zip', zip.trim());
+    if (precinct) params.set('precinct', precinct.trim());
+    if (address) params.set('address', address.trim());
+    var resp = await fetch('/api/candidates/' + candidateId + '/search?' + params.toString());
     var data = await resp.json();
     var voters = data.voters || [];
 
@@ -793,7 +848,7 @@ async function searchVoters() {
     if (voters.length === 0) {
       var noRes = document.createElement('div');
       noRes.className = 'empty-state';
-      noRes.textContent = 'No voters found for "' + q + '"';
+      noRes.textContent = q ? 'No voters found for "' + q + '"' : 'No voters match the selected filters';
       results.appendChild(noRes);
       return;
     }

@@ -374,31 +374,72 @@ router.put('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (
   res.json({ success: true });
 });
 
-// Voter search (same as captain search — queries shared voters table)
+// Voter search — name-only q, dedicated filters, priority ordering (matches captain search)
 router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
-  const { q, city, zip, precinct, address } = req.query;
-  const hasFilter = city || zip || precinct || address;
-  if ((!q || q.length < 2) && !hasFilter) return res.json({ voters: [] });
+  const { q, phone, vanid, city, zip, precinct, address } = req.query;
+  const hasFilter = phone || vanid || city || zip || precinct || address;
+  if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
   const conditions = [];
   const params = [];
 
+  // Name-only search: each word must match first or last name
   if (q && q.trim().length >= 2) {
     const words = q.trim().split(/\s+/).filter(Boolean);
     for (const w of words) {
       const escaped = w.replace(/[\\%_]/g, '\\$&');
       const term = '%' + escaped + '%';
-      conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\' OR city LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\' OR precinct LIKE ? ESCAPE '\\')");
-      params.push(term, term, term, term, term, term);
+      conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
+      params.push(term, term);
     }
   }
-  if (city) { conditions.push("city LIKE ? ESCAPE '\\'"); params.push('%' + city.replace(/[\\%_]/g, '\\$&') + '%'); }
-  if (zip) { conditions.push("zip LIKE ? ESCAPE '\\'"); params.push(zip.replace(/[\\%_]/g, '\\$&') + '%'); }
-  if (precinct) { conditions.push("precinct LIKE ? ESCAPE '\\'"); params.push('%' + precinct.replace(/[\\%_]/g, '\\$&') + '%'); }
-  if (address) { conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + address.replace(/[\\%_]/g, '\\$&') + '%'); }
+
+  // Dedicated filters
+  if (phone) {
+    const phoneEsc = phone.replace(/[\\%_]/g, '\\$&');
+    conditions.push("phone LIKE ? ESCAPE '\\'"); params.push('%' + phoneEsc + '%');
+  }
+  if (vanid) {
+    const vanidEsc = vanid.replace(/[\\%_]/g, '\\$&');
+    conditions.push("(vanid LIKE ? ESCAPE '\\' OR registration_number LIKE ? ESCAPE '\\' OR county_file_id LIKE ? ESCAPE '\\' OR state_file_id LIKE ? ESCAPE '\\')");
+    params.push('%' + vanidEsc + '%', '%' + vanidEsc + '%', '%' + vanidEsc + '%', '%' + vanidEsc + '%');
+  }
+  if (city) {
+    const cityEsc = city.replace(/[\\%_]/g, '\\$&');
+    conditions.push("city LIKE ? ESCAPE '\\'"); params.push('%' + cityEsc + '%');
+  }
+  if (zip) {
+    const zipEsc = zip.replace(/[\\%_]/g, '\\$&');
+    conditions.push("zip LIKE ? ESCAPE '\\'"); params.push(zipEsc + '%');
+  }
+  if (precinct) {
+    const precEsc = precinct.replace(/[\\%_]/g, '\\$&');
+    conditions.push("precinct LIKE ? ESCAPE '\\'"); params.push('%' + precEsc + '%');
+  }
+  if (address) {
+    const addrEsc = address.replace(/[\\%_]/g, '\\$&');
+    conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
+  }
 
   const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
-  const voters = db.prepare(`SELECT * FROM voters WHERE ${whereClause} ORDER BY last_name, first_name LIMIT 50`).all(...params);
+
+  // Priority ordering: exact last_name=3, starts-with=2, first_name match=1
+  let orderClause = 'last_name, first_name';
+  if (q && q.trim().length >= 2) {
+    const words = q.trim().split(/\s+/).filter(Boolean);
+    const orderCases = [];
+    const orderParams = [];
+    for (const w of words) {
+      const escaped = w.replace(/[\\%_]/g, '\\$&');
+      orderCases.push("CASE WHEN last_name = ? THEN 3 WHEN last_name LIKE ? ESCAPE '\\' THEN 2 WHEN first_name LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END");
+      orderParams.push(w, escaped + '%', escaped + '%');
+    }
+    const priorityExpr = orderCases.join(' + ');
+    orderClause = '(' + priorityExpr + ') DESC, last_name, first_name';
+    params.push(...orderParams);
+  }
+
+  const voters = db.prepare(`SELECT * FROM voters WHERE ${whereClause} ORDER BY ${orderClause} LIMIT 50`).all(...params);
   attachElectionVotes(voters);
   res.json({ voters });
 });
