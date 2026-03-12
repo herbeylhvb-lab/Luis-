@@ -148,7 +148,8 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/captains\/\d+\/assigned-lists/) ||
       req.path.match(/^\/api\/captains\/\d+\/team/) ||
       req.path.match(/^\/api\/captains\/\d+\/search/) ||
-      req.path.match(/^\/api\/captains\/\d+\/household/)) {
+      req.path.match(/^\/api\/captains\/\d+\/household/) ||
+      req.path === '/api/voters-cities') {
     return next();
   }
   // Allow candidate portal endpoints (used by candidate.html without admin auth)
