@@ -115,12 +115,44 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:400px;width:90%}
 .modal-box h3{margin-bottom:16px;font-size:16px}
 
+/* Mobile tab bar */
+.mobile-tabs{display:none}
+.mobile-tab{flex:1;display:flex;flex-direction:column;align-items:center;padding:8px 4px 4px;background:none;border:none;color:#64748b;font-size:10px;cursor:pointer;font-weight:600;letter-spacing:0.3px}
+.mobile-tab.active{color:#f59e0b}
+.mobile-tab .tab-icon{font-size:22px;margin-bottom:2px;line-height:1}
+
 /* Responsive */
 @media(max-width:900px){
-  .app-layout{flex-direction:column;height:auto}
-  .sidebar{width:100%;max-height:40vh;border-right:none;border-bottom:1px solid #334155}
-  .center-panel{width:100%;flex-shrink:1}
-  .right-panel{width:100%;min-width:0;max-height:50vh;border-left:none;border-top:1px solid #334155}
+  .mobile-tabs{
+    display:flex;
+    position:fixed;
+    bottom:0;left:0;right:0;
+    background:#1e293b;
+    border-top:1px solid #334155;
+    z-index:50;
+    padding:4px 0 env(safe-area-inset-bottom,8px)
+  }
+  .app-layout{
+    flex-direction:column;
+    height:calc(100vh - 52px - 62px);
+    overflow:hidden
+  }
+  .sidebar,.center-panel,.right-panel{
+    width:100%;display:none!important;
+    max-height:none;overflow-y:auto;
+    border:none!important;min-width:0
+  }
+  .sidebar.mob-on{display:flex!important;flex:1;height:100%}
+  .center-panel.mob-on{display:block!important;flex:1;height:100%}
+  .right-panel.mob-on{display:flex!important;flex:1;height:100%}
+  .center-panel{padding:14px 12px}
+  .voter-card{padding:12px;margin-bottom:8px;border-radius:10px}
+  .voter-card .voter-name{font-size:15px}
+  .voter-card .voter-addr{font-size:12px}
+  .right-voter{padding:8px 10px;font-size:12px}
+  .search-bar input{padding:12px 14px;font-size:14px}
+  .app-header{padding:10px 14px}
+  .app-header h1{font-size:16px}
 }
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
@@ -172,6 +204,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="info" id="captainGreeting"></div>
     </div>
     <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
+  </div>
+
+  <!-- Mobile bottom tab bar -->
+  <div class="mobile-tabs" id="mobileTabs">
+    <button class="mobile-tab active" onclick="switchMobileTab('list')" id="tabList">
+      <span class="tab-icon">&#128203;</span>My List
+    </button>
+    <button class="mobile-tab" onclick="switchMobileTab('search')" id="tabSearch">
+      <span class="tab-icon">&#128269;</span>Search
+    </button>
+    <button class="mobile-tab" onclick="switchMobileTab('team')" id="tabTeam">
+      <span class="tab-icon">&#128101;</span>Team
+    </button>
   </div>
 
   <div class="app-layout">
@@ -243,6 +288,29 @@ var captainState = {
   expandedTeamMember: null,
   searchTimeout: null
 };
+
+// ── Mobile tab switching ──
+function switchMobileTab(tab) {
+  var panels = {
+    list:   document.querySelector('.right-panel'),
+    search: document.querySelector('.center-panel'),
+    team:   document.querySelector('.sidebar')
+  };
+  // Remove mob-on from all panels
+  Object.values(panels).forEach(function(p){ p.classList.remove('mob-on'); });
+  // Remove active from all tabs
+  document.querySelectorAll('.mobile-tab').forEach(function(t){ t.classList.remove('active'); });
+  // Activate selected
+  if (panels[tab]) panels[tab].classList.add('mob-on');
+  var tabBtn = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+  if (tabBtn) tabBtn.classList.add('active');
+}
+// On load, default mobile to "list" tab
+(function(){
+  if (window.innerWidth <= 900) {
+    switchMobileTab('list');
+  }
+})();
 
 // Build voted badge label with party: "Voted (D)", "Voted (R)", or "Voted"
 function votedLabel(v) {
@@ -1594,13 +1662,16 @@ async function submitAddVoter(voterId) {
     showToast('All selected voters are already on this list.', 'warn');
   }
 
+  // On mobile, switch to My List tab so user sees the voter they just added
+  if (window.innerWidth <= 900) switchMobileTab('list');
+
   await loadListVoters();
   refreshSidebar();
 }
 
 function showToast(msg, type) {
   var toast = document.createElement('div');
-  toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:10px;font-size:14px;font-weight:600;z-index:200;animation:fadeIn 0.3s ease';
+  toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:10px;font-size:14px;font-weight:600;z-index:200;animation:fadeIn 0.3s ease';
   if (type === 'success') {
     toast.style.background = '#052e16';
     toast.style.color = '#4ade80';

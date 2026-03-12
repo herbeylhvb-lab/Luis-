@@ -6036,10 +6036,59 @@ async function addCaptainToCandidate() {
   var email = prompt('Captain email (optional):') || '';
   try {
     var data = await apiPost('/api/candidates/' + _candidateDetailId + '/captains', { name: name, phone: phone, email: email });
-    alert('Captain created! Code: ' + data.code);
+    // Show share modal instead of plain alert
+    showCaptainCreatedModal(name, data.code);
     showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
     loadCandidates();
   } catch (e) { alert('Error: ' + (e.message || e)); }
+}
+
+function showCaptainCreatedModal(captainName, captainCode) {
+  var portalUrl = window.location.origin + '/captain';
+  var shareMsg = 'Hey ' + captainName + '! Here is your Block Captain login code: ' + captainCode + '\n\nGo to ' + portalUrl + ' and enter this code to get started.';
+
+  var existing = document.getElementById('captainCreatedOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'captainCreatedOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:380px;width:90%;text-align:center';
+
+  box.innerHTML = '<div style="font-size:2.5rem;margin-bottom:8px">✅</div>'
+    + '<h3 style="font-size:17px;margin-bottom:4px">Captain Created!</h3>'
+    + '<p style="color:#94a3b8;font-size:13px;margin-bottom:16px">' + captainName + '</p>'
+    + '<div style="background:#451a03;border:1px solid #78350f;border-radius:10px;padding:16px;margin-bottom:20px">'
+    + '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Login Code</div>'
+    + '<div style="font-size:28px;font-weight:700;color:#f59e0b;letter-spacing:4px;font-family:monospace">' + captainCode + '</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="ccShareBtn" class="btn btn-primary" style="flex:1;justify-content:center">📤 Share</button>'
+    + '<button id="ccCopyBtn" class="btn btn-secondary" style="flex:1;justify-content:center">📋 Copy</button>'
+    + '<button id="ccDoneBtn" class="btn btn-secondary" style="flex:0 0 auto;justify-content:center">Done</button>'
+    + '</div>';
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  document.getElementById('ccShareBtn').onclick = function() {
+    if (navigator.share) {
+      navigator.share({ title: 'Block Captain Code for ' + captainName, text: shareMsg }).catch(function(){});
+    } else {
+      var smsUrl = 'sms:?&body=' + encodeURIComponent(shareMsg);
+      window.open(smsUrl, '_blank');
+    }
+  };
+  document.getElementById('ccCopyBtn').onclick = function() {
+    navigator.clipboard.writeText(shareMsg).then(function() {
+      document.getElementById('ccCopyBtn').innerHTML = '✅ Copied!';
+      setTimeout(function() { document.getElementById('ccCopyBtn').innerHTML = '📋 Copy'; }, 1500);
+    });
+  };
+  document.getElementById('ccDoneBtn').onclick = function() { overlay.remove(); };
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
 async function viewCandidateListVoters(candidateId, list) {
