@@ -280,14 +280,19 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
     GROUP BY cl.id ORDER BY cl.created_at DESC
   `).all(captain.id);
 
-  // Sub-captain lists (lists belonging to team members who are real captains)
+  // Sub-captain lists — all descendant captains' lists (recursive CTE)
   captain.sub_captain_lists = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
     SELECT cl.*, COUNT(clv.id) as voter_count,
       c.name as sub_captain_name, c.id as sub_captain_id
     FROM captain_lists cl
     LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
     JOIN captains c ON cl.captain_id = c.id
-    WHERE c.parent_captain_id = ?
+    WHERE c.id IN (SELECT id FROM team_tree)
     GROUP BY cl.id ORDER BY c.name, cl.created_at DESC
   `).all(captain.id);
 
@@ -303,7 +308,7 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   res.json({ success: true, captain });
 });
 
-// Middleware: verify the caller is the captain identified by :id (or an admin, or parent captain)
+// Middleware: verify the caller is the captain identified by :id (or an admin, or ancestor captain)
 function requireCaptainAuth(req, res, next) {
   const captainId = parseInt(req.params.id, 10);
   if (isNaN(captainId)) return res.status(400).json({ error: 'Invalid captain ID.' });
@@ -311,10 +316,18 @@ function requireCaptainAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
   // Captain portal users must match their session
   if (req.session && req.session.captainId === captainId) return next();
-  // Parent captains can access their sub-captain's data (read-only team visibility)
+  // Ancestor captains can access any descendant's data (recursive check)
   if (req.session && req.session.captainId) {
-    const target = db.prepare('SELECT parent_captain_id FROM captains WHERE id = ?').get(captainId);
-    if (target && target.parent_captain_id === req.session.captainId) return next();
+    const isDescendant = db.prepare(`
+      WITH RECURSIVE ancestors AS (
+        SELECT parent_captain_id FROM captains WHERE id = ?
+        UNION ALL
+        SELECT c.parent_captain_id FROM captains c JOIN ancestors a ON c.id = a.parent_captain_id
+        WHERE c.parent_captain_id IS NOT NULL
+      )
+      SELECT 1 FROM ancestors WHERE parent_captain_id = ?
+    `).get(captainId, req.session.captainId);
+    if (isDescendant) return next();
   }
   return res.status(401).json({ error: 'Captain authentication required. Please log in with your code.' });
 }
@@ -771,8 +784,15 @@ router.delete('/captains/:id/assigned-lists/:listId/voters/:voterId', requireCap
 
 // Get all voters across all sub-captain lists (master team view)
 router.get('/captains/:id/team-voters', requireCaptainAuth, (req, res) => {
-  // Get all sub-captain IDs under this captain
-  const subCaptainIds = db.prepare('SELECT id FROM captains WHERE parent_captain_id = ?').all(req.params.id).map(r => r.id);
+  // Get ALL descendant sub-captain IDs under this captain (recursive)
+  const subCaptainIds = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
+    SELECT id FROM team_tree
+  `).all(req.params.id).map(r => r.id);
   // Also get legacy team member list voters (lists owned by this captain with team_member_id set)
   const teamMemberListIds = db.prepare('SELECT id FROM captain_lists WHERE captain_id = ? AND team_member_id IS NOT NULL').all(req.params.id).map(r => r.id);
 
