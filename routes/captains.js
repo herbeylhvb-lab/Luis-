@@ -368,25 +368,21 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
 
   const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
 
-  // Build ORDER BY that prioritizes name matches over address/city matches
+  // Build ORDER BY that prioritizes exact/starts-with matches over contains matches
   let orderClause = 'last_name, first_name';
   if (q && q.trim().length >= 2) {
     const words = q.trim().split(/\s+/).filter(Boolean);
-    if (words.length >= 2) {
-      // Prioritize: both words match name fields first, then one word matches a name field
-      const namePriorityCases = [];
-      const namePriorityParams = [];
-      for (const w of words) {
-        const escaped = w.replace(/[\\%_]/g, '\\$&');
-        const term = '%' + escaped + '%';
-        namePriorityCases.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
-        namePriorityParams.push(term, term);
-      }
-      // Count how many search words match a name field — more matches = higher priority (lower sort value)
-      const priorityExpr = namePriorityCases.map(c => 'CASE WHEN ' + c + ' THEN 1 ELSE 0 END').join(' + ');
-      orderClause = '(' + priorityExpr + ') DESC, last_name, first_name';
-      params.push(...namePriorityParams);
+    const orderCases = [];
+    const orderParams = [];
+    for (const w of words) {
+      const escaped = w.replace(/[\\%_]/g, '\\$&');
+      // Exact match on last_name gets highest priority (score 3)
+      orderCases.push("CASE WHEN last_name = ? THEN 3 WHEN last_name LIKE ? ESCAPE '\\' THEN 2 WHEN first_name LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END");
+      orderParams.push(w, escaped + '%', escaped + '%');
     }
+    const priorityExpr = orderCases.join(' + ');
+    orderClause = '(' + priorityExpr + ') DESC, last_name, first_name';
+    params.push(...orderParams);
   }
 
   const voters = db.prepare(`
