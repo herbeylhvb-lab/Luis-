@@ -1743,6 +1743,94 @@ router.post('/voters/import-county-file', upload.single('file'), (req, res) => {
   }
 });
 
+// --- Batch import: accepts pre-processed JSON from local script ---
+router.post('/voters/import-county-batch', express.json({ limit: '10mb' }), (req, res) => {
+  const { voters, votes, ensure_elections } = req.body;
+  if (!voters || !Array.isArray(voters)) return res.status(400).json({ error: 'voters array required' });
+
+  try {
+    // Build VUID lookup
+    const allVoters = db.prepare("SELECT id, registration_number FROM voters WHERE registration_number != ''").all();
+    const vuidMap = {};
+    for (const v of allVoters) vuidMap[String(v.registration_number).trim()] = v.id;
+
+    const insertVoterStmt = db.prepare(`INSERT INTO voters (
+      registration_number, first_name, last_name, middle_name,
+      gender, age, voter_status, precinct,
+      address, city, state, zip, zip4,
+      county_commissioner, justice_of_peace, state_board_ed,
+      state_rep, state_senate, us_congress,
+      city_district, school_district, college_district,
+      hospital_district, navigation_port, port_authority
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TX', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+    const updateVoterStmt = db.prepare(`UPDATE voters SET
+      gender = ?, age = ?, voter_status = ?, precinct = ?,
+      address = CASE WHEN address = '' OR address IS NULL THEN ? ELSE address END,
+      city = CASE WHEN city = '' OR city IS NULL THEN ? ELSE city END,
+      zip = CASE WHEN zip = '' OR zip IS NULL THEN ? ELSE zip END,
+      county_commissioner = ?, justice_of_peace = ?, state_board_ed = ?,
+      state_rep = ?, state_senate = ?, us_congress = ?,
+      city_district = ?, school_district = ?, college_district = ?,
+      hospital_district = ?, navigation_port = ?, port_authority = ?,
+      first_name = CASE WHEN first_name = '' OR first_name IS NULL THEN ? ELSE first_name END,
+      last_name = CASE WHEN last_name = '' OR last_name IS NULL THEN ? ELSE last_name END,
+      middle_name = CASE WHEN middle_name = '' OR middle_name IS NULL THEN ? ELSE middle_name END,
+      zip4 = COALESCE(NULLIF(?, ''), zip4)
+    WHERE id = ?`);
+
+    const insertElectionStmt = db.prepare('INSERT OR IGNORE INTO elections (election_name, election_date, election_type, election_cycle) VALUES (?, ?, ?, ?)');
+    const insertVoteStmt = db.prepare('INSERT OR IGNORE INTO election_votes (voter_id, election_name, election_date, election_type, election_cycle, party_voted) VALUES (?, ?, ?, ?, ?, ?)');
+
+    // Ensure elections exist
+    if (ensure_elections) {
+      for (const e of ensure_elections) insertElectionStmt.run(e.name, e.date, e.type, e.cycle);
+    }
+
+    let created = 0, updated = 0;
+    const batchTx = db.transaction(() => {
+      for (const v of voters) {
+        let voterId = vuidMap[v.vuid];
+        if (voterId) {
+          updateVoterStmt.run(v.gender, v.age, v.status, v.precinct, v.address, v.city, v.zip,
+            v.commish, v.jp, v.sboe, v.stateRep, v.stateSen, v.congress,
+            v.city, v.school, v.college, v.hospital, v.navPort, v.portAuth,
+            v.first, v.last, v.middle, v.zip4, voterId);
+          updated++;
+        } else {
+          const r = insertVoterStmt.run(v.vuid, v.first, v.last, v.middle,
+            v.gender, v.age, v.status, v.precinct, v.address, v.city, v.zip, v.zip4,
+            v.commish, v.jp, v.sboe, v.stateRep, v.stateSen, v.congress,
+            v.city, v.school, v.college, v.hospital, v.navPort, v.portAuth);
+          voterId = r.lastInsertRowid;
+          vuidMap[v.vuid] = voterId;
+          created++;
+        }
+      }
+    });
+    batchTx();
+
+    // Insert votes separately (may reference voters just created)
+    let votesInserted = 0;
+    if (votes && votes.length > 0) {
+      const voteTx = db.transaction(() => {
+        for (const vote of votes) {
+          const vid = vuidMap[vote.vuid];
+          if (!vid) continue;
+          insertVoteStmt.run(vid, vote.name, vote.date, vote.type, vote.cycle, vote.party);
+          votesInserted++;
+        }
+      });
+      voteTx();
+    }
+
+    res.json({ success: true, created, updated, votesInserted });
+  } catch (err) {
+    console.error('Batch import error:', err);
+    res.status(500).json({ error: 'Batch import failed: ' + err.message });
+  }
+});
+
 // --- Universe Builder: Step-by-step segmentation ---
 // Uses temp tables to avoid SQLite bind parameter limits at scale (300K+ voters)
 

@@ -37,7 +37,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { err
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
 // Bulk import paths need a higher body limit (50mb); skip the default 2mb parser for them
-const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich'];
+const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich'];
 app.use((req, res, next) => {
   if (BULK_PATHS.some(p => req.path.startsWith(p))) return next();
   express.json({ limit: '2mb' })(req, res, next);
@@ -88,7 +88,8 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
 
   // Temporary token auth for county file import
-  if (IMPORT_TOKEN && req.headers['x-import-token'] === IMPORT_TOKEN && req.path === '/api/voters/import-county-file') {
+  if (IMPORT_TOKEN && req.headers['x-import-token'] === IMPORT_TOKEN &&
+      (req.path === '/api/voters/import-county-file' || req.path === '/api/voters/import-county-batch')) {
     return next();
   }
 
