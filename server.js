@@ -1,7 +1,6 @@
 const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
-const fs      = require('fs');
 const session = require('express-session');
 const helmet  = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -38,7 +37,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { err
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
 // Bulk import paths need a higher body limit (50mb); skip the default 2mb parser for them
-const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/db-upload', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich'];
+const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich'];
 app.use((req, res, next) => {
   if (BULK_PATHS.some(p => req.path.startsWith(p))) return next();
   express.json({ limit: '2mb' })(req, res, next);
@@ -84,16 +83,8 @@ app.get('/login', (req, res) => {
 });
 
 // Auth middleware — protect admin routes, always require login
-const IMPORT_TOKEN = '3434b7ec328f8b8ca6d6763e4d50d248';
 function requireAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
-
-  // Temporary token auth for county file import & DB transfer
-  if (IMPORT_TOKEN && req.headers['x-import-token'] === IMPORT_TOKEN &&
-      (req.path === '/api/voters/import-county-file' || req.path === '/api/voters/import-county-batch' ||
-       req.path === '/api/db-download' || req.path === '/api/db-upload')) {
-    return next();
-  }
 
   // API requests get 401 (except setup endpoint when no users exist)
   if (req.path.startsWith('/api/')) {
@@ -630,37 +621,7 @@ if (process.env.RESET_USERS === 'true') {
   console.log(`⚠️  RESET_USERS: Deleted ${deleted.changes} user(s). Remove RESET_USERS env var now!`);
 }
 
-// --- Temporary DB download/upload for local merge (token-protected) ---
-const multerDb = require('multer')({ dest: '/tmp/db-uploads/' });
 
-app.get('/api/db-download', (req, res) => {
-  // Checkpoint WAL to ensure all data is in the main file
-  db.pragma('wal_checkpoint(TRUNCATE)');
-  const dbPath = db.name; // better-sqlite3 .name = file path
-  console.log('DB download requested, path:', dbPath);
-  res.download(dbPath, 'campaign.db');
-});
-
-app.post('/api/db-upload', multerDb.single('db'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No db file uploaded.' });
-  try {
-    const dbPath = db.name;
-    console.log('DB upload: replacing', dbPath, 'with', req.file.path, '(' + (req.file.size / 1024 / 1024).toFixed(1) + ' MB)');
-    // Close current connection, replace file
-    db.close();
-    fs.copyFileSync(req.file.path, dbPath);
-    // Clean up WAL/SHM files from old DB
-    try { fs.unlinkSync(dbPath + '-wal'); } catch (e) {}
-    try { fs.unlinkSync(dbPath + '-shm'); } catch (e) {}
-    fs.unlinkSync(req.file.path);
-    res.json({ success: true, message: 'Database replaced. Server restarting...' });
-    // Exit so Railway restarts with new DB
-    setTimeout(() => process.exit(0), 500);
-  } catch (err) {
-    console.error('DB upload error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, '0.0.0.0', () => {
