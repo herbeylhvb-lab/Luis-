@@ -636,7 +636,7 @@ app.post('/api/db-restore', express.raw({type: '*/*', limit: '50mb'}), (req, res
   const secret = req.headers['x-restore-secret'];
   if (secret !== 'cthq-restore-2024-temp') return res.status(403).json({error: 'forbidden'});
   const fs = require('fs');
-  const dbPath = require('path').join(DATA_DIR, 'campaign.db');
+  const dbPath = db.pragma('database_list')[0].file;
   try {
     db.close();
     fs.writeFileSync(dbPath, req.body);
