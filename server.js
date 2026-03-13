@@ -629,6 +629,23 @@ if (process.env.RESET_USERS === 'true') {
 
 
 
+// Temporary DB restore endpoint - remove after use
+app.post('/api/db-restore', express.raw({type: '*/*', limit: '50mb'}), (req, res) => {
+  const secret = req.headers['x-restore-secret'];
+  if (secret !== 'cthq-restore-2024-temp') return res.status(403).json({error: 'forbidden'});
+  const fs = require('fs');
+  const dbPath = require('path').join(DATA_DIR, 'campaign.db');
+  try {
+    db.close();
+    fs.writeFileSync(dbPath, req.body);
+    res.json({ok: true, size: req.body.length});
+    console.log('Database restored (' + req.body.length + ' bytes). Restarting...');
+    setTimeout(() => process.exit(0), 500);
+  } catch(e) {
+    res.status(500).json({error: e.message});
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('CampaignText HQ running on port ' + PORT);
