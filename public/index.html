@@ -1054,6 +1054,9 @@ tr:hover td{background:#1e293b80}
           </div>
         </div>
 
+        <!-- Elections Summary -->
+        <div id="electionsSummary" style="margin-bottom:12px"></div>
+
         <!-- Step 2: Universe — Active Voters -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
           <h4 style="margin-bottom:8px;font-size:14px;color:#22c55e">Step 2: Universe — Active Voters (voted in last N years)</h4>
@@ -5473,6 +5476,7 @@ function getSelectedFilters() {
 
 function renderElectionsSummary() {
   var el = document.getElementById('electionsSummary');
+  if (!el) return;
   if (universeElections.length === 0) {
     el.innerHTML = '<div style="color:#64748b;font-size:13px">No election data imported yet.</div>';
     return;
