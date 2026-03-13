@@ -6420,6 +6420,14 @@ async function viewCandidateListVoters(candidateId, list) {
   headerDiv.appendChild(titleDiv);
   var btnGroup2 = document.createElement('div');
   btnGroup2.style.cssText = 'display:flex;gap:6px';
+  if (list.source !== 'captain') {
+    var uploadBtn2 = document.createElement('button');
+    uploadBtn2.className = 'btn btn-sm';
+    uploadBtn2.style.cssText = 'background:#d97706;border-color:#b45309';
+    uploadBtn2.textContent = '\uD83D\uDCE4 Upload CSV';
+    uploadBtn2.onclick = function() { uploadVotersToList(list.id, listContainer, sub, list, candidateId); };
+    btnGroup2.appendChild(uploadBtn2);
+  }
   var dlBtn2 = document.createElement('button');
   dlBtn2.className = 'btn btn-sm btn-success';
   dlBtn2.textContent = '\u2B07 Download CSV';
@@ -6799,6 +6807,37 @@ async function uploadVotersCSV() {
       if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
       alert(msg);
       loadAdminListVoters(listId);
+    } catch (e) { alert('Upload error: ' + (e.message || e)); }
+  };
+  input.click();
+}
+
+function uploadVotersToList(listId, listContainer, subEl, list, candidateId) {
+  var input = document.createElement('input');
+  input.type = 'file'; input.accept = '.csv,.txt';
+  input.onchange = async function() {
+    var file = input.files[0];
+    if (!file) return;
+    var text = await file.text();
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length === 0) { alert('Empty file.'); return; }
+    var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
+    var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
+    if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
+    var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
+    if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
+    try {
+      var data = await apiPost('/api/admin-lists/' + listId + '/bulk-upload', { identifiers: identifiers });
+      var msg = 'Added: ' + data.added + ' voters';
+      if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
+      if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
+      alert(msg);
+      // Refresh the overlay by re-opening
+      var overlay = document.getElementById('candidateListViewerOverlay');
+      if (overlay) overlay.remove();
+      viewCandidateListVoters(candidateId, list);
+      // Also refresh the candidate detail lists count
+      if (_candidateDetailId) showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''), _candidateDetailCode);
     } catch (e) { alert('Upload error: ' + (e.message || e)); }
   };
   input.click();
