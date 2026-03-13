@@ -981,6 +981,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
             <button class="btn btn-sm" style="background:#0284c7;border-color:#0369a1" onclick="toggleHouseholdView()">🏠 Household View</button>
+            <button class="btn btn-sm" style="background:#d97706;border-color:#b45309" onclick="uploadVotersCSV()">📤 Upload CSV</button>
           </div>
         </div>
         <div id="householdViewContainer" style="display:none;margin-bottom:16px"></div>
@@ -6765,6 +6766,35 @@ async function loadAdminListVoters(listId) {
 }
 
 // ===================== LIST MANAGEMENT TOOLS =====================
+async function uploadVotersCSV() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  var input = document.createElement('input');
+  input.type = 'file'; input.accept = '.csv,.txt';
+  input.onchange = async function() {
+    var file = input.files[0];
+    if (!file) return;
+    var text = await file.text();
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length === 0) { alert('Empty file.'); return; }
+    // Auto-detect header: skip if first value is non-numeric or a common header name
+    var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
+    var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
+    if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
+    var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
+    if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
+    try {
+      var data = await apiPost('/api/admin-lists/' + listId + '/bulk-upload', { identifiers: identifiers });
+      var msg = 'Added: ' + data.added + ' voters';
+      if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
+      if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
+      alert(msg);
+      loadAdminListVoters(listId);
+    } catch (e) { alert('Upload error: ' + (e.message || e)); }
+  };
+  input.click();
+}
+
 window.exportMailerCSV = async function() {
   var listId = state.currentAdminListId;
   if (!listId) return;

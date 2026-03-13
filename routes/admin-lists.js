@@ -91,6 +91,30 @@ router.post('/admin-lists/:id/voters', (req, res) => {
   res.json({ success: true, added });
 });
 
+// Bulk upload voters by identifier (registration_number, county_file_id, or vanid)
+router.post('/admin-lists/:id/bulk-upload', (req, res) => {
+  const { identifiers } = req.body;
+  if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
+  const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ? LIMIT 1');
+  const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
+  const listId = req.params.id;
+  const bulkAdd = db.transaction((ids) => {
+    let added = 0, duplicates = 0;
+    const notFound = [];
+    for (const ident of ids) {
+      const trimmed = String(ident).trim();
+      if (!trimmed) continue;
+      const voter = lookup.get(trimmed, trimmed, trimmed);
+      if (!voter) { notFound.push(trimmed); continue; }
+      const r = insert.run(listId, voter.id);
+      if (r.changes > 0) added++; else duplicates++;
+    }
+    return { added, notFound, duplicates, total: ids.length };
+  });
+  const result = bulkAdd(identifiers);
+  res.json(result);
+});
+
 // Remove voter from list
 router.delete('/admin-lists/:id/voters/:voterId', (req, res) => {
   db.prepare('DELETE FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.id, req.params.voterId);
