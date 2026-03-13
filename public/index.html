@@ -1076,8 +1076,13 @@ tr:hover td{background:#1e293b80}
         <!-- Step 3: Election Targeting -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
           <h4 style="margin-bottom:4px;font-size:14px;color:#818cf8">Step 3: Election Targeting</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:12px">Narrow your universe by requiring voters to have voted in a minimum number of elections per type. Combine with district filters above (e.g. Port of Brownsville + Local Elections >= 2).</p>
-          <div id="electionGroupCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
+          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Click the elections you want to target. Only voters who voted in <strong style="color:#e2e8f0">ALL</strong> selected elections will be included.</p>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <button onclick="selectAllElections()" style="background:#334155;border:none;border-radius:6px;padding:4px 10px;color:#94a3b8;font-size:11px;cursor:pointer">Select All</button>
+            <button onclick="deselectAllElections()" style="background:#334155;border:none;border-radius:6px;padding:4px 10px;color:#94a3b8;font-size:11px;cursor:pointer">Clear All</button>
+            <span id="electionSelCount" style="color:#818cf8;font-size:11px;line-height:26px"></span>
+          </div>
+          <div id="electionGroupCards"></div>
         </div>
 
         <!-- Progress Bar -->
@@ -5530,26 +5535,74 @@ async function renderElectionGroupCards() {
   var colors = { general:'#22c55e', primary:'#3b82f6', local:'#f59e0b', primary_runoff:'#a855f7', constitutional:'#06b6d4', runoff:'#ef4444', general_runoff:'#ef4444', local_runoff:'#f97316', special:'#ec4899' };
   el.innerHTML = electionGroups.map(function(g) {
     var c = colors[g.type] || '#94a3b8';
-    var maxN = Math.min(g.election_count, 10);
-    var opts = '<option value="0">Any (no filter)</option>';
-    for (var i = 1; i <= maxN; i++) opts += '<option value="' + i + '">At least ' + i + '</option>';
-    return '<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;border-left:3px solid ' + c + '">' +
-      '<div style="font-weight:600;font-size:13px;color:' + c + ';margin-bottom:4px">' + escHtml(g.label) + '</div>' +
-      '<div style="color:#64748b;font-size:11px;margin-bottom:8px">' + g.election_count + ' elections</div>' +
-      '<select class="elec-group-select" data-type="' + escHtml(g.type) + '" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px">' + opts + '</select>' +
-      '<div style="margin-top:6px;font-size:10px;color:#475569">' + g.elections.map(function(e) { return escHtml(e.name); }).join(', ') + '</div>' +
+    // Group elections by date so same-day races (TSC, Port, City) appear together
+    var byDate = {};
+    g.elections.forEach(function(e) {
+      var d = e.date || 'unknown';
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(e);
+    });
+    var dateKeys = Object.keys(byDate).sort().reverse();
+    var content = dateKeys.map(function(d) {
+      var dateLabel = d !== 'unknown' ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '';
+      var chips = byDate[d].map(function(e) {
+        var voters = e.voter_count ? ' (' + e.voter_count.toLocaleString() + ')' : '';
+        return '<label class="elec-chip" data-election="' + escHtml(e.name) + '" data-group="' + escHtml(g.type) + '" style="display:inline-flex;align-items:center;gap:4px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;color:#94a3b8;transition:all 0.15s;user-select:none;margin:2px">' +
+          '<input type="checkbox" class="elec-election-cb" value="' + escHtml(e.name) + '" onchange="updateElectionSelCount()" style="accent-color:' + c + ';margin:0">' +
+          '<span>' + escHtml(e.name) + '</span>' +
+          '<span style="color:#475569;font-size:10px">' + voters + '</span>' +
+          '</label>';
+      }).join('');
+      return (dateLabel ? '<div style="color:#64748b;font-size:10px;margin:6px 0 2px 2px;font-weight:600">' + dateLabel + '</div>' : '') +
+        '<div style="display:flex;flex-wrap:wrap">' + chips + '</div>';
+    }).join('');
+    return '<div class="elec-type-card" data-type="' + escHtml(g.type) + '" style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:10px;border-left:3px solid ' + c + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<div style="font-weight:600;font-size:13px;color:' + c + '">' + escHtml(g.label) + ' <span style="color:#64748b;font-size:11px;font-weight:400">(' + g.election_count + ')</span></div>' +
+        '<button onclick="toggleGroupElections(this,\'' + escHtml(g.type) + '\')" style="background:none;border:1px solid #475569;border-radius:4px;padding:2px 8px;color:#94a3b8;font-size:10px;cursor:pointer">Select All</button>' +
+      '</div>' +
+      content +
       '</div>';
   }).join('');
+  updateElectionSelCount();
 }
-function getElectionGroupSelections() {
-  var groups = [];
-  document.querySelectorAll('.elec-group-select').forEach(function(sel) {
-    var minCount = parseInt(sel.value) || 0;
-    if (minCount > 0) {
-      groups.push({ types: [sel.dataset.type], min_count: minCount });
+function getSelectedElections() {
+  var selected = [];
+  document.querySelectorAll('.elec-election-cb:checked').forEach(function(cb) {
+    selected.push(cb.value);
+  });
+  return selected;
+}
+function updateElectionSelCount() {
+  var n = document.querySelectorAll('.elec-election-cb:checked').length;
+  var el = document.getElementById('electionSelCount');
+  if (el) el.textContent = n > 0 ? n + ' election' + (n > 1 ? 's' : '') + ' selected' : '';
+  // Style checked chips
+  document.querySelectorAll('.elec-chip').forEach(function(chip) {
+    var cb = chip.querySelector('input');
+    if (cb && cb.checked) {
+      chip.style.background = '#1e3a5f'; chip.style.borderColor = '#3b82f6'; chip.style.color = '#e2e8f0';
+    } else {
+      chip.style.background = '#0f172a'; chip.style.borderColor = '#334155'; chip.style.color = '#94a3b8';
     }
   });
-  return groups;
+}
+function selectAllElections() {
+  document.querySelectorAll('.elec-election-cb').forEach(function(cb) { cb.checked = true; });
+  updateElectionSelCount();
+}
+function deselectAllElections() {
+  document.querySelectorAll('.elec-election-cb').forEach(function(cb) { cb.checked = false; });
+  updateElectionSelCount();
+}
+function toggleGroupElections(btn, type) {
+  var card = document.querySelector('.elec-type-card[data-type="' + type + '"]');
+  if (!card) return;
+  var cbs = card.querySelectorAll('.elec-election-cb');
+  var allChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
+  cbs.forEach(function(cb) { cb.checked = !allChecked; });
+  btn.textContent = allChecked ? 'Select All' : 'Clear';
+  updateElectionSelCount();
 }
 
 window.selectAllPrecincts = function(checked) {
@@ -5570,9 +5623,9 @@ function hideProgress() {
 function buildUniversePayload() {
   var precincts = Array.from(document.querySelectorAll('.univ-precinct-cb:checked')).map(function(cb) { return cb.value; });
   var yearsBack = parseInt(document.getElementById('universeYearsBack').value) || 8;
-  var elecGroups = getElectionGroupSelections();
+  var selectedElections = getSelectedElections();
   var filters = getSelectedFilters();
-  var payload = { precincts: precincts, years_back: yearsBack, election_groups: elecGroups };
+  var payload = { precincts: precincts, years_back: yearsBack, selected_elections: selectedElections };
   if (filters.genders.length) payload.genders = filters.genders;
   if (filters.age_min) payload.age_min = filters.age_min;
   if (filters.age_max) payload.age_max = filters.age_max;
