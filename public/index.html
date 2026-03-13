@@ -1011,7 +1011,13 @@ tr:hover td{background:#1e293b80}
         <!-- Step 1: Select Precincts -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
           <h4 style="margin-bottom:8px;font-size:14px;color:#f59e0b">Step 1: Select Precincts (your race)</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Choose the precincts relevant to this race. Only voters in these precincts will be included.</p>
+          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Pick a race to auto-select its precincts, or manually check boxes below.</p>
+          <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="racePrecinctSelect" onchange="applyRacePrecincts()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;min-width:260px">
+              <option value="">-- Select a Race to Auto-Fill Precincts --</option>
+            </select>
+            <span id="racePrecinctInfo" style="color:#64748b;font-size:12px"></span>
+          </div>
           <div id="universePrecinctList" style="max-height:200px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px"></div>
           <div style="margin-top:8px;display:flex;gap:8px">
             <button class="btn btn-xs btn-secondary" onclick="selectAllPrecincts(true)">Select All</button>
@@ -5380,6 +5386,17 @@ async function loadUniverseBuilder() {
     universeFilterOptions = await api('/api/voters/filter-options');
     renderFilterOptions();
   } catch (e) {}
+
+  // Load race-to-precinct mapping
+  try {
+    var rp = await api('/api/voters/race-precincts');
+    window._racePrecincts = rp.races || [];
+    var sel = document.getElementById('racePrecinctSelect');
+    sel.innerHTML = '<option value="">-- Select a Race to Auto-Fill Precincts --</option>';
+    (rp.races || []).forEach(function(r, i) {
+      sel.innerHTML += '<option value="' + i + '">' + escHtml(r.race) + ' (' + r.precincts.length + ' precincts)</option>';
+    });
+  } catch (e) {}
 }
 
 function renderFilterOptions() {
@@ -5400,6 +5417,23 @@ function renderFilterOptions() {
   checkboxes('filterPortAuth', fo.port_authorities || [], 'filter-portauth-cb');
   checkboxes('filterCollege', fo.college_districts || [], 'filter-college-cb');
 }
+
+window.applyRacePrecincts = function() {
+  var sel = document.getElementById('racePrecinctSelect');
+  var idx = sel.value;
+  var info = document.getElementById('racePrecinctInfo');
+  if (idx === '' || !window._racePrecincts) { info.textContent = ''; return; }
+  var race = window._racePrecincts[parseInt(idx)];
+  // Uncheck all first, then check only the matching precincts
+  document.querySelectorAll('.univ-precinct-cb').forEach(function(cb) { cb.checked = false; });
+  var matched = 0;
+  race.precincts.forEach(function(p) {
+    var cb = document.querySelector('.univ-precinct-cb[value="' + p + '"]');
+    if (cb) { cb.checked = true; matched++; }
+  });
+  info.textContent = matched + ' precincts selected for ' + race.race;
+  info.style.color = '#22c55e';
+};
 
 function getSelectedFilters() {
   var checked = function(cls) { return Array.from(document.querySelectorAll('.' + cls + ':checked')).map(function(cb) { return cb.value; }); };

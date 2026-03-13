@@ -1709,6 +1709,34 @@ router.get('/voters/filter-options', (req, res) => {
   });
 });
 
+// Race-to-precinct mapping: which precincts fall under each district/race
+router.get('/voters/race-precincts', (req, res) => {
+  const mapCol = (col, label) => {
+    const rows = db.prepare(`SELECT ${col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
+      FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
+      GROUP BY ${col} ORDER BY ${col}`).all();
+    return rows.map(r => ({
+      race: label + ': ' + r.district,
+      district: r.district,
+      type: col,
+      precincts: r.precincts.split(',')
+    }));
+  };
+  const races = [
+    ...mapCol('navigation_port', 'Navigation Port'),
+    ...mapCol('port_authority', 'Port Authority'),
+    ...mapCol('city_district', 'City'),
+    ...mapCol('school_district', 'School District'),
+    ...mapCol('college_district', 'College'),
+    ...mapCol('state_rep', 'State Rep'),
+    ...mapCol('state_senate', 'State Senate'),
+    ...mapCol('us_congress', 'US Congress'),
+    ...mapCol('county_commissioner', 'County Commissioner'),
+    ...mapCol('justice_of_peace', 'Justice of the Peace'),
+  ];
+  res.json({ races });
+});
+
 // --- Universe Builder: Step-by-step segmentation ---
 // Uses temp tables to avoid SQLite bind parameter limits at scale (300K+ voters)
 
