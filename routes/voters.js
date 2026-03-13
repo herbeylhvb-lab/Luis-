@@ -1841,9 +1841,17 @@ function buildStep1Filter(filters) {
   const { precincts, genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = filters;
 
-  if (precincts && precincts.length > 0) {
-    clauses.push('precinct IN (' + precincts.map(() => '?').join(',') + ')');
-    params.push(...precincts);
+  // Handle precincts: "*" means all, string with GLOB means LIKE, array means IN
+  if (precincts && precincts !== '*') {
+    const pArr = Array.isArray(precincts) ? precincts : [precincts];
+    if (pArr.length === 1 && (pArr[0].includes('*') || pArr[0].includes('?'))) {
+      // GLOB pattern: convert * to % and ? to _ for SQL LIKE
+      clauses.push('precinct LIKE ?');
+      params.push(pArr[0].replace(/\*/g, '%').replace(/\?/g, '_'));
+    } else if (pArr.length > 0) {
+      clauses.push('precinct IN (' + pArr.map(() => '?').join(',') + ')');
+      params.push(...pArr);
+    }
   }
   if (genders && genders.length > 0) {
     clauses.push('gender IN (' + genders.map(() => '?').join(',') + ')');
