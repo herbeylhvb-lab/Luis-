@@ -174,8 +174,6 @@ app.use((req, res, next) => {
   if (req.path === '/' || req.path.startsWith('/site')) return next();
   // Allow /app (handles its own auth redirect)
   if (req.path === '/app') return next();
-  if (req.path === '/api/db-export' || req.path === '/api/db-restore') return next();
-
   // Everything else requires auth
   requireAuth(req, res, next);
 });
@@ -630,32 +628,6 @@ if (process.env.RESET_USERS === 'true') {
 
 
 
-// Temporary DB export/restore endpoints - remove after migration
-app.get('/api/db-export', (req, res) => {
-  const secret = req.headers['x-restore-secret'];
-  if (secret !== 'cthq-restore-2024-temp') return res.status(403).json({error: 'forbidden'});
-  const fs = require('fs');
-  const dbPath = db.pragma('database_list')[0].file;
-  db.pragma('wal_checkpoint(TRUNCATE)');
-  res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', 'attachment; filename=campaign.db');
-  res.send(fs.readFileSync(dbPath));
-});
-app.post('/api/db-restore', express.raw({type: '*/*', limit: '500mb'}), (req, res) => {
-  const secret = req.headers['x-restore-secret'];
-  if (secret !== 'cthq-restore-2024-temp') return res.status(403).json({error: 'forbidden'});
-  const fs = require('fs');
-  const dbPath = db.pragma('database_list')[0].file;
-  try {
-    db.close();
-    fs.writeFileSync(dbPath, req.body);
-    res.json({ok: true, size: req.body.length});
-    console.log('Database restored (' + req.body.length + ' bytes). Restarting...');
-    setTimeout(() => process.exit(0), 500);
-  } catch(e) {
-    res.status(500).json({error: e.message});
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, '0.0.0.0', () => {
