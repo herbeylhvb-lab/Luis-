@@ -730,6 +730,7 @@ router.get('/voters/filter-options', (req, res) => {
     state_senates: opt('state_senate'),
     us_congress: opt('us_congress'),
     parties: db.prepare("SELECT DISTINCT party_voted as v FROM election_votes WHERE party_voted != '' AND party_voted IS NOT NULL ORDER BY party_voted").all().map(r => r.v),
+    voter_statuses: opt('voter_status'),
   });
 });
 
@@ -763,12 +764,36 @@ router.get('/voters/race-precincts', (req, res) => {
 
 // --- Wildcard :id routes MUST come after all static-segment routes above ---
 
-// Get voter detail with contact history
+// Get voter detail with contact history and election votes
 router.get('/voters/:id', (req, res) => {
   const voter = db.prepare('SELECT * FROM voters WHERE id = ?').get(req.params.id);
   if (!voter) return res.status(404).json({ error: 'Voter not found.' });
   voter.contactHistory = db.prepare('SELECT * FROM voter_contacts WHERE voter_id = ? ORDER BY contacted_at DESC').all(req.params.id);
+  voter.election_history = db.prepare('SELECT election_name, election_date, election_type, election_cycle, party_voted FROM election_votes WHERE voter_id = ? ORDER BY election_date DESC').all(req.params.id);
   res.json({ voter });
+});
+
+// Toggle a single election vote for a voter
+router.post('/voters/:id/election-votes', (req, res) => {
+  const voter = db.prepare('SELECT id FROM voters WHERE id = ?').get(req.params.id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  const { election_name, action } = req.body;
+  if (!election_name || !action) return res.status(400).json({ error: 'election_name and action (add/remove) required.' });
+
+  if (action === 'add') {
+    // Look up election details from elections table or existing votes
+    const elInfo = db.prepare('SELECT election_date, election_type, election_cycle FROM elections WHERE election_name = ?').get(election_name)
+      || db.prepare('SELECT election_date, election_type, election_cycle FROM election_votes WHERE election_name = ? LIMIT 1').get(election_name)
+      || {};
+    db.prepare('INSERT OR IGNORE INTO election_votes (voter_id, election_name, election_date, election_type, election_cycle) VALUES (?, ?, ?, ?, ?)')
+      .run(req.params.id, election_name, elInfo.election_date || '', elInfo.election_type || '', elInfo.election_cycle || '');
+    res.json({ success: true, action: 'added' });
+  } else if (action === 'remove') {
+    db.prepare('DELETE FROM election_votes WHERE voter_id = ? AND election_name = ?').run(req.params.id, election_name);
+    res.json({ success: true, action: 'removed' });
+  } else {
+    res.status(400).json({ error: 'action must be "add" or "remove".' });
+  }
 });
 
 // Update voter
@@ -1521,7 +1546,7 @@ function buildStep1Filter(filters) {
   const clauses = [];
   const params = [];
   const { precincts, genders, age_min, age_max, cities, school_districts, college_districts,
-          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = filters;
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = filters;
 
   // Handle precincts: "*" means all, string with GLOB means LIKE, array means IN
   if (precincts && precincts !== '*') {
@@ -1569,6 +1594,10 @@ function buildStep1Filter(filters) {
     clauses.push('us_congress IN (' + us_congress.map(() => '?').join(',') + ')');
     params.push(...us_congress);
   }
+  if (voter_statuses && voter_statuses.length > 0) {
+    clauses.push('voter_status IN (' + voter_statuses.map(() => '?').join(',') + ')');
+    params.push(...voter_statuses);
+  }
 
   // Minimum elections filter: only voters who voted in at least N distinct elections
   if (min_elections != null && min_elections > 0) {
@@ -1590,13 +1619,13 @@ router.post('/universe/build', (req, res) => {
   const { precincts, years_back, election_cycles, priority_elections,
           list_name_universe, list_name_sub, list_name_priority,
           genders, age_min, age_max, cities, school_districts, college_districts,
-          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = req.body;
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
-    state_reps, us_congress, parties, min_elections });
+    state_reps, us_congress, parties, min_elections, voter_statuses });
 
   // Check if election data exists
   const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
@@ -1715,13 +1744,13 @@ router.post('/universe/build', (req, res) => {
 router.post('/universe/preview', (req, res) => {
   const { precincts, years_back, election_cycles, priority_elections,
           genders, age_min, age_max, cities, school_districts, college_districts,
-          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = req.body;
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
-    state_reps, us_congress, parties, min_elections });
+    state_reps, us_congress, parties, min_elections, voter_statuses });
 
   // Check if election data exists — if not, use "basic mode" (all Step 1 voters)
   const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;

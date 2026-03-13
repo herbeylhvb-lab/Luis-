@@ -883,7 +883,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-xs" id="btnBulkMarkVoted" style="display:none;background:#2563eb;color:#fff" onclick="showBulkMarkVotedModal()">Mark as Voted (<span class="sel-count">0</span>)</button>
             <button class="btn btn-xs" id="btnBulkUnmarkVoted" style="display:none;background:#92400e;color:#fff" onclick="showBulkUnmarkVotedModal()">Unmark Voted (<span class="sel-count">0</span>)</button>
           </div>
-          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:90px">Turnout</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
+          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:90px">Turnout</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
         </div>
       </div>
       <!-- VOTER DETAIL VIEW -->
@@ -919,6 +919,11 @@ tr:hover td{background:#1e293b80}
           <div class="form-group"><label>Notes</label><textarea id="vdNotes" rows="3"></textarea></div>
           <button class="btn btn-primary" onclick="saveVoterDetail()">Save Changes</button>
           <button class="btn btn-secondary" style="margin-left:8px" onclick="showVoterTouchpoints(state.currentVoterId)">&#128200; View All Touchpoints</button>
+        </div>
+        <div class="card">
+          <h3>Election History</h3>
+          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Check/uncheck to mark which elections this voter participated in.</p>
+          <div id="vdElectionHistory" style="max-height:300px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px"></div>
         </div>
         <div class="card">
           <h3>Contact History</h3>
@@ -1006,6 +1011,9 @@ tr:hover td{background:#1e293b80}
             <!-- Gender -->
             <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Gender</label>
             <div id="filterGender" style="display:flex;gap:8px;margin-top:4px"></div></div>
+            <!-- Voter Status -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Voter Status</label>
+            <div id="filterVoterStatus" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div></div>
             <!-- Age Range -->
             <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Age Range</label>
             <div style="display:flex;gap:4px;align-items:center;margin-top:4px"><input type="number" id="filterAgeMin" placeholder="Min" min="18" max="120" style="width:70px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"><span style="color:#64748b">to</span><input type="number" id="filterAgeMax" placeholder="Max" min="18" max="120" style="width:70px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"></div></div>
@@ -2929,7 +2937,7 @@ async function searchVoters() {
   const voters = data.voters || [];
   document.getElementById('voterCount').textContent = voters.length;
   const tbody = document.getElementById('votersBody');
-  if (voters.length === 0) { tbody.innerHTML = '<tr><td colspan="12" style="color:#64748b;text-align:center">No voters found.</td></tr>'; return; }
+  if (voters.length === 0) { tbody.innerHTML = '<tr><td colspan="13" style="color:#64748b;text-align:center">No voters found.</td></tr>'; return; }
   tbody.innerHTML = voters.map(v => {
     var evBadge = '--';
     if (v.early_voted) {
@@ -2943,7 +2951,7 @@ async function searchVoters() {
     var fullAddr = escHtml(v.address || '');
     if (v.city) fullAddr += ', ' + escHtml(v.city);
     if (v.zip) fullAddr += ' ' + escHtml(v.zip);
-    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td>' + turnoutTags + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
+    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap">' + v.id + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td>' + turnoutTags + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
   }).join('');
 }
 window.searchVoters = searchVoters;
@@ -3023,6 +3031,39 @@ async function loadVoterDetail(id) {
     evEl.innerHTML = '<span style="color:#f59e0b">Has not voted early</span>' +
       ' <button class="btn btn-xs" style="background:#7c3aed;color:#fff;margin-left:12px" onclick="markEarlyVoted(' + v.id + ')">Mark as Voted</button>';
   }
+  // Election history
+  var ehEl = document.getElementById('vdElectionHistory');
+  try {
+    var allElections = (await api('/api/election-votes/elections')).elections || [];
+    var voterElections = {};
+    (v.election_history || []).forEach(function(ev) { voterElections[ev.election_name] = ev; });
+    if (allElections.length === 0) {
+      ehEl.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px">No elections in database.</div>';
+    } else {
+      ehEl.innerHTML = allElections.map(function(el) {
+        var checked = voterElections[el.election_name] ? ' checked' : '';
+        var partyTag = '';
+        if (voterElections[el.election_name] && voterElections[el.election_name].party_voted) {
+          var p = voterElections[el.election_name].party_voted;
+          var cls = p === 'DEM' || p === 'Democrat' || p === 'D' ? 'badge-blue' : p === 'REP' || p === 'Republican' || p === 'R' ? 'badge-red' : 'badge-gray';
+          partyTag = ' <span class="badge ' + cls + '" style="font-size:10px">' + escHtml(p) + '</span>';
+        }
+        return '<label style="display:flex;align-items:center;gap:6px;padding:4px 6px;font-size:13px;cursor:pointer;border-bottom:1px solid #1e293b">'
+          + '<input type="checkbox" class="vd-election-cb" data-election="' + escHtml(el.election_name) + '" style="accent-color:#818cf8"' + checked + '> '
+          + escHtml(el.election_name) + partyTag
+          + ' <span style="color:#64748b;font-size:11px;margin-left:auto">' + escHtml(el.election_date || '') + '</span></label>';
+      }).join('');
+      // Attach change handlers
+      ehEl.querySelectorAll('.vd-election-cb').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          var action = cb.checked ? 'add' : 'remove';
+          apiPost('/api/voters/' + v.id + '/election-votes', { election_name: cb.dataset.election, action: action })
+            .catch(function(err) { alert('Error: ' + err.message); cb.checked = !cb.checked; });
+        });
+      });
+    }
+  } catch (e) { ehEl.innerHTML = '<div style="color:#ef4444;font-size:13px">Error loading elections.</div>'; }
+
   // Contact history
   const tbody = document.getElementById('voterContactsBody');
   if (!v.contactHistory || v.contactHistory.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b">No contact history.</td></tr>'; }
@@ -5351,13 +5392,13 @@ async function loadUniverseBuilder() {
     universeElections = eData.elections || [];
     renderElectionsSummary();
     renderCycleAndPriorityLists();
-  } catch (e) {}
+  } catch (e) { console.error('Failed to load elections:', e); }
 
   // Load filter options for demographics/districts
   try {
     universeFilterOptions = await api('/api/voters/filter-options');
     renderFilterOptions();
-  } catch (e) {}
+  } catch (e) { console.error('Failed to load filter options:', e); }
 
   // Load race-to-precinct mapping
   try {
@@ -5381,6 +5422,7 @@ function renderFilterOptions() {
     }).join('');
   }
   checkboxes('filterGender', fo.genders || [], 'filter-gender-cb');
+  checkboxes('filterVoterStatus', fo.voter_statuses || [], 'filter-voterstatus-cb');
   checkboxes('filterParty', fo.parties || [], 'filter-party-cb');
   checkboxes('filterStateRep', fo.state_reps || [], 'filter-staterep-cb');
   checkboxes('filterCity', fo.cities || [], 'filter-city-cb');
@@ -5414,6 +5456,7 @@ function getSelectedFilters() {
   var minElections = document.getElementById('filterMinElections').value;
   return {
     genders: checked('filter-gender-cb'),
+    voter_statuses: checked('filter-voterstatus-cb'),
     parties: checked('filter-party-cb'),
     state_reps: checked('filter-staterep-cb'),
     cities: checked('filter-city-cb'),
@@ -5440,10 +5483,26 @@ function renderElectionsSummary() {
     }).join('') + '</div>';
 }
 
+function deriveCycle(election) {
+  // Use election_cycle if available, otherwise derive from election_name or election_type
+  if (election.election_cycle) return election.election_cycle;
+  var name = (election.election_name || '').toUpperCase();
+  var monthMap = { JANUARY: 'january', FEBRUARY: 'february', MARCH: 'march', APRIL: 'april',
+    MAY: 'may', JUNE: 'june', JULY: 'july', AUGUST: 'august', SEPTEMBER: 'september',
+    OCTOBER: 'october', NOVEMBER: 'november', DECEMBER: 'december' };
+  for (var m in monthMap) { if (name.indexOf(m) !== -1) return monthMap[m]; }
+  // Fall back to election_type
+  if (election.election_type) return election.election_type.toLowerCase();
+  return '';
+}
+
 function renderCycleAndPriorityLists() {
-  // Distinct cycles
+  // Distinct cycles (derived from election_cycle or election_name)
   var cycles = {};
-  universeElections.forEach(function(e) { if (e.election_cycle) cycles[e.election_cycle] = true; });
+  universeElections.forEach(function(e) {
+    var c = deriveCycle(e);
+    if (c) { cycles[c] = true; e._derived_cycle = c; }
+  });
   var cycleList = Object.keys(cycles).sort();
   var cEl = document.getElementById('universeCycleList');
   if (cycleList.length === 0) {
@@ -5697,7 +5756,7 @@ async function createCandidate() {
   var email = document.getElementById('newCandidateEmail').value.trim();
   try {
     var data = await apiPost('/api/candidates', { name: name, office: office, phone: phone, email: email });
-    alert('Candidate created! Code: ' + data.code + '\n\nPortal URL: ' + window.location.origin + '/candidate?code=' + data.code);
+    showCandidateShareModal(name, data.code, true);
     hideAddCandidateForm();
     document.getElementById('newCandidateName').value = '';
     document.getElementById('newCandidateOffice').value = '';
@@ -6141,6 +6200,64 @@ function showCaptainShareModal(captainName, captainCode, isNew) {
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
+function showCandidateShareModal(candidateName, candidateCode, isNew) {
+  var portalUrl = window.location.origin + '/candidate?code=' + candidateCode;
+  var shareMsg = 'Hey ' + candidateName + '! Here is your Candidate portal login code: ' + candidateCode + '\n\nGo to ' + portalUrl + ' to access your dashboard.';
+
+  var existing = document.getElementById('candidateShareOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'candidateShareOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:380px;width:90%;text-align:center';
+
+  var headerIcon = isNew ? '✅' : '📤';
+  var headerText = isNew ? 'Candidate Created!' : 'Share Candidate Code';
+
+  box.innerHTML = '<div style="font-size:2.5rem;margin-bottom:8px">' + headerIcon + '</div>'
+    + '<h3 style="font-size:17px;margin-bottom:4px">' + headerText + '</h3>'
+    + '<p style="color:#94a3b8;font-size:13px;margin-bottom:16px">' + escHtml(candidateName) + '</p>'
+    + '<div style="background:#1e1b4b;border:1px solid #4338ca;border-radius:10px;padding:16px;margin-bottom:12px">'
+    + '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Login Code</div>'
+    + '<div id="candCodeDisplay" style="font-size:28px;font-weight:700;color:#818cf8;letter-spacing:4px;font-family:monospace;cursor:pointer" title="Click to copy">' + candidateCode + '</div>'
+    + '</div>'
+    + '<div style="margin-bottom:16px"><a href="' + portalUrl + '" target="_blank" style="color:#818cf8;font-size:12px;word-break:break-all">' + portalUrl + '</a></div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="candShareBtn" class="btn btn-primary" style="flex:1;justify-content:center">📤 Share</button>'
+    + '<button id="candCopyBtn" class="btn btn-secondary" style="flex:1;justify-content:center">📋 Copy</button>'
+    + '<button id="candDoneBtn" class="btn btn-secondary" style="flex:0 0 auto;justify-content:center">Done</button>'
+    + '</div>';
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  document.getElementById('candCodeDisplay').onclick = function() {
+    navigator.clipboard.writeText(candidateCode).then(function() {
+      document.getElementById('candCodeDisplay').style.color = '#22c55e';
+      setTimeout(function() { document.getElementById('candCodeDisplay').style.color = '#818cf8'; }, 1500);
+    });
+  };
+  document.getElementById('candShareBtn').onclick = function() {
+    if (navigator.share) {
+      navigator.share({ title: 'Candidate Portal for ' + candidateName, text: shareMsg }).catch(function(){});
+    } else {
+      var smsUrl = 'sms:?&body=' + encodeURIComponent(shareMsg);
+      window.open(smsUrl, '_blank');
+    }
+  };
+  document.getElementById('candCopyBtn').onclick = function() {
+    navigator.clipboard.writeText(shareMsg).then(function() {
+      document.getElementById('candCopyBtn').innerHTML = '✅ Copied!';
+      setTimeout(function() { document.getElementById('candCopyBtn').innerHTML = '📋 Copy'; }, 1500);
+    });
+  };
+  document.getElementById('candDoneBtn').onclick = function() { overlay.remove(); };
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+}
+
 async function viewCandidateListVoters(candidateId, list) {
   var existing = document.getElementById('candidateListViewerOverlay');
   if (existing) existing.remove();
@@ -6210,7 +6327,7 @@ async function viewCandidateListVoters(candidateId, list) {
     table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
     var thead = document.createElement('thead');
     var headTr = document.createElement('tr');
-    ['Voter', 'Address', 'Party', 'Phone'].forEach(function(h) {
+    ['ID', 'Voter', 'Address', 'Party', 'Phone'].forEach(function(h) {
       var th = document.createElement('th');
       th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
       th.textContent = h;
@@ -6221,6 +6338,10 @@ async function viewCandidateListVoters(candidateId, list) {
     var tbody = document.createElement('tbody');
     voters.forEach(function(v) {
       var tr = document.createElement('tr');
+      var tdId = document.createElement('td');
+      tdId.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#64748b;font-size:11px';
+      tdId.textContent = v.id || v.voter_id || '';
+      tr.appendChild(tdId);
       var tdName = document.createElement('td');
       tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
       tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
@@ -6277,12 +6398,13 @@ function downloadVotersCsv(voters, filename) {
     return s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1
       ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  var headers = ['First Name','Last Name','Address','City','Zip','Phone','Party','Precinct'];
+  var headers = ['Voter ID','First Name','Last Name','Address','City','Zip','Phone','Party','Precinct'];
   var hasLists = voters.length > 0 && voters[0].lists;
   if (hasLists) headers.push('Sources');
   var rows = [headers.join(',')];
   voters.forEach(function(v) {
     var row = [
+      csvEsc(v.id || v.voter_id || ''),
       csvEsc(v.first_name), csvEsc(v.last_name), csvEsc(v.address),
       csvEsc(v.city), csvEsc(v.zip), csvEsc(v.phone),
       csvEsc(v.party), csvEsc(v.precinct)

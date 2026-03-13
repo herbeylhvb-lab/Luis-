@@ -87,6 +87,9 @@ router.post('/candidates', (req, res) => {
   const result = db.prepare(
     'INSERT INTO candidates (name, office, code, phone, email) VALUES (?, ?, ?, ?, ?)'
   ).run(name, office || '', code, phone || '', email || '');
+  // Auto-create a default "Main" list for the candidate
+  db.prepare('INSERT INTO admin_lists (name, description, list_type, candidate_id) VALUES (?, ?, ?, ?)')
+    .run('Main', 'Default list for ' + name, 'general', result.lastInsertRowid);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate created: ' + name + ' (' + (office || 'No office') + ')');
   res.json({ success: true, id: result.lastInsertRowid, code });
 });

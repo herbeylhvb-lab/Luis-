@@ -917,8 +917,12 @@ function renderListVoters() {
     nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
     var n = document.createElement('div');
     n.className = 'name';
-    n.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    n.textContent = (v.first_name || '') + (v.middle_name ? ' ' + v.middle_name : '') + ' ' + (v.last_name || '');
     nameRow.appendChild(n);
+    var idBadge = document.createElement('span');
+    idBadge.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
+    idBadge.textContent = '#' + (v.id || v.voter_id || '');
+    nameRow.appendChild(idBadge);
     // Early voted badge with party color
     var evBadge = document.createElement('span');
     if (v.early_voted) {
@@ -990,7 +994,7 @@ function downloadListCsv() {
   if (voters.length === 0) { alert('No voters to download.'); return; }
 
   var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
-  var headers = ['First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
+  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
   var csvRows = [headers.join(',')];
   voters.forEach(function(v) {
     var votedStatus = 'Not Voted';
@@ -1001,6 +1005,7 @@ function downloadListCsv() {
       else votedStatus = 'Voted';
     }
     var row = [
+      csvEscape(v.id || v.voter_id || ''),
       csvEscape(v.first_name || ''),
       csvEscape(v.last_name || ''),
       csvEscape(v.address || ''),
@@ -1133,7 +1138,7 @@ async function searchVoters() {
     nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
     var nameEl = document.createElement('div');
     nameEl.className = 'voter-name';
-    nameEl.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    nameEl.textContent = (v.first_name || '') + (v.middle_name ? ' ' + v.middle_name : '') + ' ' + (v.last_name || '');
     nameRow.appendChild(nameEl);
     // Early voted badge in search results with party color
     var evSearchBadge = document.createElement('span');
@@ -1299,7 +1304,7 @@ async function showVoterDetail(voter) {
 
   // Header
   var h3 = document.createElement('h3');
-  h3.textContent = (voter.first_name || '') + ' ' + (voter.last_name || '');
+  h3.textContent = (voter.first_name || '') + (voter.middle_name ? ' ' + voter.middle_name : '') + ' ' + (voter.last_name || '');
   box.appendChild(h3);
 
   // Info grid

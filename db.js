@@ -708,5 +708,34 @@ try {
   if (renamed.changes > 0) console.log('[migration] Renamed ' + renamed.changes + ' "My Voters" lists to captain names');
 } catch (e) { /* already migrated or no matching lists */ }
 
+// --- Populate election_cycle from election_name where missing ---
+try {
+  const monthMap = {
+    JANUARY: 'january', FEBRUARY: 'february', MARCH: 'march', APRIL: 'april',
+    MAY: 'may', JUNE: 'june', JULY: 'july', AUGUST: 'august',
+    SEPTEMBER: 'september', OCTOBER: 'october', NOVEMBER: 'november', DECEMBER: 'december'
+  };
+  const empty = db.prepare("SELECT DISTINCT election_name FROM election_votes WHERE election_cycle IS NULL OR election_cycle = ''").all();
+  if (empty.length > 0) {
+    const upd = db.prepare("UPDATE election_votes SET election_cycle = ? WHERE election_name = ? AND (election_cycle IS NULL OR election_cycle = '')");
+    let count = 0;
+    const tx = db.transaction(() => {
+      for (const row of empty) {
+        const upper = (row.election_name || '').toUpperCase();
+        let cycle = '';
+        for (const [m, c] of Object.entries(monthMap)) {
+          if (upper.includes(m)) { cycle = c; break; }
+        }
+        if (cycle) {
+          upd.run(cycle, row.election_name);
+          count++;
+        }
+      }
+    });
+    tx();
+    if (count > 0) console.log('[migration] Populated election_cycle for ' + count + ' election names');
+  }
+} catch (e) { console.error('[migration] election_cycle backfill error:', e.message); }
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;
