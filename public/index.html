@@ -2720,7 +2720,7 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
           return '<div class="check-item"><input type="checkbox" class="walk-precinct-cb" value="' + escHtml(p) + '"> ' + escHtml(p) + '</div>';
         }).join('');
       } else {
-        el.innerHTML = '<span style="color:#64748b;font-size:13px">No precincts found. Import voters with precinct data first.</span>';
+        el.innerHTML = '<span style="color:#f59e0b;font-size:13px">No precinct data yet. Import the county voter file to get precincts.</span>';
       }
     } catch (e) {}
   }
@@ -5369,7 +5369,8 @@ async function loadUniverseBuilder() {
         return '<div class="check-item"><input type="checkbox" class="univ-precinct-cb" value="' + escHtml(p) + '" checked> ' + escHtml(p) + '</div>';
       }).join('');
     } else {
-      el.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px">No precincts found. Import voters with precinct data first.</div>';
+      el.innerHTML = '<div style="color:#f59e0b;font-size:13px;padding:8px">No precinct data yet — use demographic & district filters below, or import the county voter file to get precincts.' +
+        (data.total ? ' <strong>' + data.total.toLocaleString() + ' voters</strong> in database.' : '') + '</div>';
     }
   } catch (e) {}
 
@@ -5672,7 +5673,7 @@ window.previewUniverse = async function() {
     var el = document.getElementById('universePreview');
     el.style.display = '';
     el.innerHTML = '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="label">In Precincts</div><div class="value">' + data.total_in_precincts + '</div><div class="sub">Total registered</div></div>' +
+      '<div class="stat-card"><div class="label">' + (precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts + '</div><div class="sub">' + (precincts.length > 0 ? 'Total registered' : 'Matching filters') + '</div></div>' +
       '<div class="stat-card"><div class="label">Universe</div><div class="value" style="color:#22c55e">' + data.universe + '</div><div class="sub">Voted in last ' + yearsBack + ' yrs</div></div>' +
       '<div class="stat-card"><div class="label">Sub-Universe</div><div class="value" style="color:#818cf8">' + data.sub_universe + '</div><div class="sub">' + (cycles.length > 0 ? cycles.join(', ') : 'Same as universe') + '</div></div>' +
       '<div class="stat-card"><div class="label">Priority</div><div class="value" style="color:#ef4444">' + data.priority + '</div><div class="sub">Voted in selected elections</div></div>' +

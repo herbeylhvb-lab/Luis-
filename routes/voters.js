@@ -932,9 +932,14 @@ router.get('/voters-touchpoints/stats', (req, res) => {
 
 // --- Distinct precincts for filter dropdown ---
 router.get('/voters-precincts', (req, res) => {
-  // Filter out bad data (phone numbers, long strings) — precincts are short numeric/alphanumeric codes
-  const rows = db.prepare("SELECT DISTINCT precinct FROM voters WHERE precinct != '' AND precinct IS NOT NULL AND LENGTH(precinct) <= 10 ORDER BY CAST(precinct AS INTEGER), precinct").all();
-  res.json({ precincts: rows.map(r => r.precinct) });
+  // Filter out obvious bad data (phone numbers are 10 digits with no letters)
+  // Real precincts: numeric 1-4 digits, or short alphanumeric codes
+  const rows = db.prepare(`SELECT precinct, COUNT(*) as cnt FROM voters
+    WHERE precinct != '' AND precinct IS NOT NULL
+    AND precinct NOT GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9]*'
+    GROUP BY precinct ORDER BY CAST(precinct AS INTEGER), precinct`).all();
+  const total = db.prepare("SELECT COUNT(*) as c FROM voters").get().c;
+  res.json({ precincts: rows.map(r => r.precinct), counts: rows.map(r => r.cnt), total });
 });
 
 // Get distinct cities for dropdown filters
