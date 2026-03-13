@@ -921,7 +921,7 @@ function renderListVoters() {
     nameRow.appendChild(n);
     var idBadge = document.createElement('span');
     idBadge.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
-    idBadge.textContent = '#' + (v.id || v.voter_id || '');
+    idBadge.textContent = '#' + (v.registration_number || v.county_file_id || v.vanid || '');
     nameRow.appendChild(idBadge);
     // Early voted badge with party color
     var evBadge = document.createElement('span');
@@ -1005,7 +1005,7 @@ function downloadListCsv() {
       else votedStatus = 'Voted';
     }
     var row = [
-      csvEscape(v.id || v.voter_id || ''),
+      csvEscape(v.registration_number || v.county_file_id || v.vanid || ''),
       csvEscape(v.first_name || ''),
       csvEscape(v.last_name || ''),
       csvEscape(v.address || ''),

@@ -403,6 +403,7 @@ tr:hover td{background:#1e293b80}
                 <option value="">-- Select a list --</option>
               </select>
               <div id="p2pListCount" style="font-size:13px;color:#94a3b8;margin-top:6px"></div>
+              <div id="p2pPrecinctFilter" style="display:none;margin-top:8px"></div>
             </div>
             <div class="form-group" style="margin-top:4px">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
@@ -1180,6 +1181,7 @@ tr:hover td{background:#1e293b80}
           <div id="inviteListWrap" style="display:none">
             <div class="form-group"><label>Select List</label><select id="inviteListSelect" onchange="updateInviteListCount()"></select></div>
             <div style="margin-bottom:12px;font-size:13px;color:#94a3b8">Contacts in list: <strong id="inviteListCount">0</strong></div>
+            <div id="invitePrecinctFilter" style="display:none;margin-bottom:12px"></div>
           </div>
           <div id="inviteContactsWrap">
             <div class="check-list" id="inviteContactList"></div>
@@ -1312,6 +1314,7 @@ tr:hover td{background:#1e293b80}
             </div>
             <div id="surveyListSelectWrap" style="display:none">
               <div class="form-group"><label>Select List</label><select id="surveyTargetList"></select></div>
+              <div id="surveyPrecinctFilter" style="display:none;margin-bottom:8px"></div>
             </div>
             <div style="margin-bottom:12px;font-size:13px;color:#94a3b8">Contacts will be reached: <strong id="surveyTargetCount">0</strong></div>
             <button class="btn btn-success" onclick="sendSurvey()">Send Survey &amp; Start Poll</button>
@@ -1348,6 +1351,7 @@ tr:hover td{background:#1e293b80}
             <option value="all">All Voters with Phone Numbers</option>
           </select>
         </div>
+        <div id="broadcastPrecinctFilter" style="display:none;margin-top:8px"></div>
         <div style="margin-bottom:16px"><div style="font-size:13px;color:#94a3b8">Recipients: <strong id="broadcastCount">0</strong></div></div>
         <button class="btn btn-warning" id="btnSendBroadcast">Send Broadcast Now</button>
         <span style="font-size:12px;color:#64748b;margin-left:12px">Messages sent automatically to all recipients</span>
@@ -1632,6 +1636,46 @@ async function apiDelete(path) {
 async function apiPatch(path, body) {
   return api(path, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
 }
+// ---- Shared Precinct Filter Component ----
+async function loadPrecinctFilter(listId, containerId, onChangeFn) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+  if (!listId) { container.innerHTML = ''; container.style.display = 'none'; return; }
+  try {
+    var data = await api('/api/admin-lists/' + listId + '/precincts');
+    var precincts = data.precincts || [];
+    if (precincts.length === 0) {
+      container.innerHTML = '<div style="font-size:12px;color:#64748b;padding:4px">No precinct data for this list.</div>';
+      container.style.display = '';
+      return;
+    }
+    container.style.display = '';
+    var html = '<label style="font-size:13px;color:#94a3b8;margin-bottom:6px;display:block;font-weight:500">Filter by Precinct <span style="font-size:11px;color:#64748b">(optional — leave unchecked for all)</span></label>';
+    html += '<div style="display:flex;gap:4px;margin-bottom:6px"><button class="btn btn-secondary btn-xs" onclick="toggleAllPrecincts(\'' + containerId + '\',true)">All</button><button class="btn btn-secondary btn-xs" onclick="toggleAllPrecincts(\'' + containerId + '\',false)">None</button></div>';
+    html += '<div style="max-height:140px;overflow-y:auto;border:1px solid #334155;border-radius:6px;padding:4px">';
+    for (var i = 0; i < precincts.length; i++) {
+      var p = precincts[i];
+      html += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:13px">' +
+        '<input type="checkbox" class="precinct-cb" data-container="' + containerId + '" value="' + escHtml(p.precinct) + '" style="width:16px;height:16px;accent-color:#818cf8"' +
+        (onChangeFn ? ' onchange="' + onChangeFn + '()"' : '') + '>' +
+        '<span>' + escHtml(p.precinct) + '</span>' +
+        '<span style="color:#64748b;font-size:11px;margin-left:auto">' + p.count + ' voters (' + p.withPhone + ' w/ phone)</span>' +
+        '</label>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (e) { container.innerHTML = ''; container.style.display = 'none'; }
+}
+function getSelectedPrecincts(containerId) {
+  var cbs = document.querySelectorAll('#' + containerId + ' .precinct-cb:checked');
+  return Array.from(cbs).map(function(cb) { return cb.value; });
+}
+function toggleAllPrecincts(containerId, selectAll) {
+  document.querySelectorAll('#' + containerId + ' .precinct-cb').forEach(function(cb) { cb.checked = selectAll; });
+  var first = document.querySelector('#' + containerId + ' .precinct-cb');
+  if (first) first.dispatchEvent(new Event('change'));
+}
+
 function partyBadge(p) {
   const colors = { D: 'badge-blue', R: 'badge-red', I: 'badge-purple', NP: 'badge-gray' };
   const names = { D: 'Dem', R: 'Rep', I: 'Ind', NP: 'NP' };
@@ -4493,8 +4537,10 @@ window.updateInviteListCount = async function() {
   if (listId) {
     const data = await api('/api/admin-lists/' + listId + '/contacts');
     document.getElementById('inviteListCount').textContent = data.total || 0;
+    loadPrecinctFilter(listId, 'invitePrecinctFilter');
   } else {
     document.getElementById('inviteListCount').textContent = '0';
+    loadPrecinctFilter(null, 'invitePrecinctFilter');
   }
 };
 
@@ -4508,6 +4554,8 @@ window.sendEventInvites = async function() {
     const listId = document.getElementById('inviteListSelect').value;
     if (!listId) { alert('Please select a list.'); return; }
     body = { list_id: Number(listId) };
+    const precincts = getSelectedPrecincts('invitePrecinctFilter');
+    if (precincts.length > 0) body.precinct_filter = precincts;
     count = parseInt(document.getElementById('inviteListCount').textContent) || 0;
   } else {
     const selected = [...document.querySelectorAll('.invite-check:checked')].map(cb => parseInt(cb.value));
@@ -4816,14 +4864,15 @@ async function loadP2pLists() {
 function updateP2pListCount() {
   const sel = document.getElementById('p2pListSelect');
   const el = document.getElementById('p2pListCount');
-  if (!sel.value) { el.innerHTML = ''; return; }
+  if (!sel.value) { el.innerHTML = ''; loadPrecinctFilter(null, 'p2pPrecinctFilter'); return; }
   const l = _p2pListData[sel.value];
-  if (!l) { el.innerHTML = ''; return; }
+  if (!l) { el.innerHTML = ''; loadPrecinctFilter(null, 'p2pPrecinctFilter'); return; }
   var pct = l.voterCount > 0 ? Math.round((l.withPhone / l.voterCount) * 100) : 0;
   var color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
   el.innerHTML = '<span style="color:#22c55e;font-weight:600">' + (l.withPhone || 0).toLocaleString() + '</span> have phone numbers, ' +
     '<span style="color:#ef4444;font-weight:600">' + (l.withoutPhone || 0).toLocaleString() + '</span> missing' +
     ' &mdash; <span style="color:' + color + ';font-weight:600">' + pct + '% coverage</span>';
+  loadPrecinctFilter(sel.value, 'p2pPrecinctFilter');
 }
 
 document.getElementById('btnCreateP2pSession').addEventListener('click', async () => {
@@ -4840,6 +4889,8 @@ document.getElementById('btnCreateP2pSession').addEventListener('click', async (
     if (!listId) return alert('Select a list.');
     body.list_id = Number(listId);
     body.exclude_contacted = document.getElementById('p2pExcludeContacted').checked;
+    const precincts = getSelectedPrecincts('p2pPrecinctFilter');
+    if (precincts.length > 0) body.precinct_filter = precincts;
   } else {
     const contact_ids = [...document.querySelectorAll('.p2p-contact-cb:checked')].map(cb => Number(cb.value));
     if (contact_ids.length === 0) return alert('Select at least one contact.');
@@ -6416,7 +6467,7 @@ async function viewCandidateListVoters(candidateId, list) {
       var tr = document.createElement('tr');
       var tdId = document.createElement('td');
       tdId.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#64748b;font-size:11px';
-      tdId.textContent = v.id || v.voter_id || '';
+      tdId.textContent = v.registration_number || v.county_file_id || v.vanid || '';
       tr.appendChild(tdId);
       var tdName = document.createElement('td');
       tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
@@ -7200,13 +7251,16 @@ async function updateSurveyTargetCount() {
   const type = document.getElementById('surveyTargetType').value;
   if (type === 'contacts') {
     document.getElementById('surveyTargetCount').textContent = state.contacts.length;
+    loadPrecinctFilter(null, 'surveyPrecinctFilter');
   } else {
     const listId = document.getElementById('surveyTargetList').value;
     if (listId) {
       const data = await api('/api/admin-lists/' + listId + '/contacts');
       document.getElementById('surveyTargetCount').textContent = data.total || 0;
+      loadPrecinctFilter(listId, 'surveyPrecinctFilter');
     } else {
       document.getElementById('surveyTargetCount').textContent = '0';
+      loadPrecinctFilter(null, 'surveyPrecinctFilter');
     }
   }
 }
@@ -7219,6 +7273,8 @@ window.sendSurvey = async function() {
     const listId = document.getElementById('surveyTargetList').value;
     if (!listId) { alert('Please select a list.'); return; }
     body = { list_id: Number(listId) };
+    const precincts = getSelectedPrecincts('surveyPrecinctFilter');
+    if (precincts.length > 0) body.precinct_filter = precincts;
   } else {
     body = { contact_ids: state.contacts.map(c => c.id) };
   }
@@ -7344,12 +7400,14 @@ async function updateBroadcastCount() {
       var d = await api('/api/stats');
       document.getElementById('broadcastCount').textContent = d.voters || 0;
     } catch (e) { document.getElementById('broadcastCount').textContent = '?'; }
+    loadPrecinctFilter(null, 'broadcastPrecinctFilter');
   } else {
     var listId = target.replace('list_', '');
     try {
       var d2 = await api('/api/admin-lists/' + listId + '/contacts');
       document.getElementById('broadcastCount').textContent = d2.total || 0;
     } catch (e) { document.getElementById('broadcastCount').textContent = '?'; }
+    loadPrecinctFilter(listId, 'broadcastPrecinctFilter');
   }
 }
 
@@ -7367,7 +7425,11 @@ document.getElementById('btnSendBroadcast').addEventListener('click', async func
   document.getElementById('btnSendBroadcast').disabled = true;
   try {
     var body = { message: msg, footer: footer, name: name };
-    if (listId) body.list_id = listId;
+    if (listId) {
+      body.list_id = listId;
+      var precincts = getSelectedPrecincts('broadcastPrecinctFilter');
+      if (precincts.length > 0) body.precinct_filter = precincts;
+    }
     var result = await apiPost('/api/broadcast/send', body);
     if (result.success) {
       el.innerHTML = '<div class="alert alert-success">Broadcast sent! ' + result.sent + ' delivered, ' + result.failed + ' failed out of ' + result.total + ' recipients.</div>';

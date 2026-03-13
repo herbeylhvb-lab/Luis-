@@ -515,19 +515,25 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
 
 // --- Send event invites via P2P session (TCPA compliant) ---
 app.post('/api/events/:id/invite', (req, res) => {
-  const { contactIds, list_id, messageTemplate } = req.body;
+  const { contactIds, list_id, messageTemplate, precinct_filter } = req.body;
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
 
   // Gather contacts — from list or individual IDs
   let contacts = [];
   if (list_id) {
-    contacts = db.prepare(`
+    let listSql = `
       SELECT v.id, v.phone, v.first_name, v.last_name
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
       WHERE alv.list_id = ? AND v.phone != ''
-    `).all(list_id);
+    `;
+    const listParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      listSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      listParams.push(...precinct_filter);
+    }
+    contacts = db.prepare(listSql).all(...listParams);
   } else if (contactIds && contactIds.length > 0) {
     const getC = db.prepare('SELECT * FROM contacts WHERE id = ?');
     for (const cid of contactIds) {

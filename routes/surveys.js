@@ -119,7 +119,7 @@ router.delete('/surveys/:surveyId/questions/:qId', (req, res) => {
 
 // Send survey via P2P session (TCPA compliant)
 router.post('/surveys/:id/send', (req, res) => {
-  const { contact_ids, list_id } = req.body;
+  const { contact_ids, list_id, precinct_filter } = req.body;
   const survey = db.prepare('SELECT * FROM surveys WHERE id = ?').get(req.params.id);
   if (!survey) return res.status(404).json({ error: 'Survey not found.' });
   if (survey.status === 'closed') return res.status(400).json({ error: 'Cannot send a closed survey. Reopen it first.' });
@@ -131,12 +131,18 @@ router.post('/surveys/:id/send', (req, res) => {
   let contacts = [];
   if (list_id) {
     // Get contacts from admin list (voters with phones)
-    contacts = db.prepare(`
+    let listSql = `
       SELECT v.id, v.phone, v.first_name, v.last_name
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
       WHERE alv.list_id = ? AND v.phone != ''
-    `).all(list_id);
+    `;
+    const listParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      listSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      listParams.push(...precinct_filter);
+    }
+    contacts = db.prepare(listSql).all(...listParams);
   } else if (contact_ids && contact_ids.length > 0) {
     const getContact = db.prepare('SELECT id, phone, first_name, last_name FROM contacts WHERE id = ?');
     for (const cid of contact_ids) {

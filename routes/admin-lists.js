@@ -111,6 +111,22 @@ router.get('/admin-lists/:id/contacts', (req, res) => {
   res.json({ contacts, total: contacts.length, listName: list.name });
 });
 
+// Get distinct precincts within a list (for precinct sub-filtering)
+router.get('/admin-lists/:id/precincts', (req, res) => {
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const precincts = db.prepare(`
+    SELECT v.precinct, COUNT(*) as count,
+      SUM(CASE WHEN v.phone != '' AND v.phone IS NOT NULL THEN 1 ELSE 0 END) as withPhone
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.precinct != '' AND v.precinct IS NOT NULL
+    GROUP BY v.precinct
+    ORDER BY v.precinct
+  `).all(req.params.id);
+  res.json({ precincts });
+});
+
 // Export for mailer — one row per household (dedup by address)
 router.get('/admin-lists/:id/export-mailer', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);

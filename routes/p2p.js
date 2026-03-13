@@ -70,7 +70,7 @@ function assignFreshBatch(sessionId, volunteerId) {
 // ========== SESSIONS ==========
 
 router.post('/p2p/sessions', (req, res) => {
-  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted } = req.body;
+  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted, precinct_filter } = req.body;
   if (!name || !message_template) return res.status(400).json({ error: 'Name and message template required.' });
 
   // Gather contact IDs — from list or direct array
@@ -94,12 +94,18 @@ router.post('/p2p/sessions', (req, res) => {
     }
 
     // Get voters from admin list, auto-create contacts if needed
-    const listVoters = db.prepare(`
+    let listSql = `
       SELECT v.id as voter_id, v.phone, v.first_name, v.last_name, v.city, v.email
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
       WHERE alv.list_id = ? AND v.phone != ''
-    `).all(list_id);
+    `;
+    const listParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      listSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      listParams.push(...precinct_filter);
+    }
+    const listVoters = db.prepare(listSql).all(...listParams);
 
     skippedNoPhone = listTotal - listVoters.length;
 

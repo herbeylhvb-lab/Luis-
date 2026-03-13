@@ -8,7 +8,7 @@ const { phoneDigits, asyncHandler, personalizeTemplate } = require('../utils');
 
 // Create a broadcast campaign — sends to all contacts in a list or all contacts with phone
 router.post('/broadcast/send', asyncHandler(async (req, res) => {
-  const { message, list_id, footer, name } = req.body;
+  const { message, list_id, footer, name, precinct_filter } = req.body;
   if (!message) return res.status(400).json({ error: 'Message is required.' });
 
   const provider = getProvider();
@@ -17,12 +17,18 @@ router.post('/broadcast/send', asyncHandler(async (req, res) => {
   // Gather recipients
   let recipients = [];
   if (list_id) {
-    recipients = db.prepare(`
+    let sql = `
       SELECT v.id as voter_id, v.phone, v.first_name, v.last_name, v.city
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
       WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
-    `).all(list_id);
+    `;
+    const params = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      sql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      params.push(...precinct_filter);
+    }
+    recipients = db.prepare(sql).all(...params);
   } else {
     // All contacts with phone numbers
     const voters = db.prepare("SELECT id as voter_id, phone, first_name, last_name, city FROM voters WHERE phone != '' AND phone IS NOT NULL LIMIT 10000").all();
