@@ -980,34 +980,6 @@ tr:hover td{background:#1e293b80}
         <h3>Universe Builder</h3>
         <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Build your voter universe in 3 steps: select precincts, filter by voting history, then identify priority targets.</p>
 
-        <!-- Step 0: Import County Voter File -->
-        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
-          <h4 style="margin-bottom:8px;font-size:14px;color:#818cf8">Step 0: Import County Voter File</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:12px">Upload the Cameron County voter registration file (.xlsx) to import demographics, districts, and election history.</p>
-          <button class="btn btn-sm btn-primary" id="btnShowCountyImport" onclick="toggleCountyImport()">Import County File</button>
-          <div id="countyImportPanel" style="display:none;margin-top:12px">
-            <div class="form-group"><label>Upload County Voter File (.xlsx)</label><input type="file" id="countyFileUpload" accept=".xlsx,.xls" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:13px;width:100%"></div>
-            <button class="btn btn-sm btn-success" onclick="uploadCountyFile()">Upload &amp; Import</button>
-            <div id="countyImportProgress" style="display:none;margin-top:8px"><div style="background:#334155;border-radius:4px;height:8px;overflow:hidden"><div id="countyImportBar" style="background:#818cf8;height:100%;width:0%;transition:width 0.5s"></div></div><div id="countyImportStatus" style="margin-top:4px;font-size:13px;color:#94a3b8">Uploading...</div></div>
-          </div>
-          <div id="countyImportResult" style="margin-top:12px"></div>
-
-          <!-- Legacy CSV election import (collapsed) -->
-          <details style="margin-top:12px"><summary style="cursor:pointer;color:#64748b;font-size:12px">Or import election data from CSV...</summary>
-          <div style="margin-top:8px">
-            <div class="form-group"><label>Upload Election CSV</label><input type="file" id="electionFileUpload" accept=".csv,.txt" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:13px;width:100%" onchange="loadElectionFile(this)"></div>
-            <div class="form-group"><label>Or Paste CSV Data</label><textarea id="electionCsvData" rows="5" placeholder="registration_number,first_name,last_name,address,nov_2024,mar_2024,may_2023,nov_2022,port_2023&#10;REG10001,John,Doe,123 Main St,Y,N,Y,Y,Y"></textarea></div>
-            <div id="electionColumnMapper" style="display:none;margin-bottom:12px"></div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-sm btn-warning" onclick="previewElectionColumns()">Map Columns</button>
-              <button class="btn btn-sm btn-success" id="btnRunElectionImport" style="display:none" onclick="runElectionImport()">Import</button>
-            </div>
-            <div id="electionImportStatus" style="margin-top:8px;font-size:13px;color:#94a3b8"></div>
-          </div>
-          </details>
-          <div id="electionsSummary" style="margin-top:12px"></div>
-        </div>
-
         <!-- Step 1: Select Precincts -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
           <h4 style="margin-bottom:8px;font-size:14px;color:#f59e0b">Step 1: Select Precincts (your race)</h4>
@@ -5356,7 +5328,6 @@ function showVoterQrModal(url, voterName) {
 // ===================== UNIVERSE BUILDER =====================
 
 var universeElections = [];
-var electionColumnMappings = [];
 var universeFilterOptions = {};
 
 async function loadUniverseBuilder() {
@@ -5456,51 +5427,6 @@ function getSelectedFilters() {
   };
 }
 
-window.toggleCountyImport = function() {
-  var panel = document.getElementById('countyImportPanel');
-  panel.style.display = panel.style.display === 'none' ? '' : 'none';
-};
-
-window.uploadCountyFile = async function() {
-  var fileInput = document.getElementById('countyFileUpload');
-  if (!fileInput.files || !fileInput.files[0]) { alert('Please select an .xlsx file first.'); return; }
-  var file = fileInput.files[0];
-  var progressDiv = document.getElementById('countyImportProgress');
-  var statusEl = document.getElementById('countyImportStatus');
-  var barEl = document.getElementById('countyImportBar');
-  progressDiv.style.display = '';
-  barEl.style.width = '10%';
-  statusEl.textContent = 'Uploading ' + file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)...';
-
-  var formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    barEl.style.width = '40%';
-    statusEl.textContent = 'Processing... this may take a few minutes for large files.';
-    var resp = await fetch('/api/voters/import-county-file', { method: 'POST', body: formData, credentials: 'same-origin' });
-    var data = await resp.json();
-    barEl.style.width = '100%';
-    if (data.success) {
-      statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Import complete!</span>';
-      document.getElementById('countyImportResult').innerHTML =
-        '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:12px;font-size:13px">' +
-        '<div style="font-weight:600;color:#22c55e;margin-bottom:4px">County File Imported Successfully</div>' +
-        '<div style="color:#94a3b8">Total rows: <strong>' + data.total_rows + '</strong></div>' +
-        '<div style="color:#94a3b8">New voters created: <strong style="color:#22c55e">' + data.created + '</strong></div>' +
-        '<div style="color:#94a3b8">Existing updated: <strong style="color:#818cf8">' + data.updated + '</strong></div>' +
-        '<div style="color:#94a3b8">Election votes added: <strong style="color:#f59e0b">' + data.votes_inserted + '</strong></div>' +
-        '</div>';
-      // Refresh filter options and elections
-      loadUniverseBuilder();
-    } else {
-      statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(data.error || 'Unknown error') + '</span>';
-    }
-  } catch (e) {
-    barEl.style.width = '100%';
-    statusEl.innerHTML = '<span style="color:#ef4444">Upload failed: ' + escHtml(e.message || 'Network error') + '</span>';
-  }
-};
 
 function renderElectionsSummary() {
   var el = document.getElementById('electionsSummary');
@@ -5541,108 +5467,6 @@ function renderCycleAndPriorityLists() {
 
 window.selectAllPrecincts = function(checked) {
   document.querySelectorAll('.univ-precinct-cb').forEach(function(cb) { cb.checked = checked; });
-};
-
-window.toggleElectionImport = function() {
-  var panel = document.getElementById('electionImportPanel');
-  panel.style.display = panel.style.display === 'none' ? '' : 'none';
-};
-
-window.loadElectionFile = function(input) {
-  var file = input.files[0];
-  if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    document.getElementById('electionCsvData').value = e.target.result;
-    document.getElementById('electionImportStatus').textContent = 'File loaded: ' + file.name;
-  };
-  reader.readAsText(file);
-};
-
-window.previewElectionColumns = function() {
-  var raw = document.getElementById('electionCsvData').value.trim();
-  if (!raw) { alert('Please paste or upload CSV data first.'); return; }
-  var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-  var header = parseCsvLine(lines[0]);
-  // Identify columns that look like election data (not voter identity fields)
-  var idCols = ['registration_number', 'voter_id', 'reg_num', 'first_name', 'last_name', 'phone', 'email', 'address', 'city', 'zip', 'party', 'precinct'];
-  var electionCols = header.filter(function(h) { return idCols.indexOf(h.toLowerCase()) === -1 && h.length > 0; });
-
-  if (electionCols.length === 0) {
-    document.getElementById('electionImportStatus').textContent = 'No election columns detected. Make sure CSV has columns beyond voter identity fields.';
-    return;
-  }
-
-  electionColumnMappings = electionCols.map(function(c) {
-    return { column: c, name: c.replace(/_/g, ' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); }), date: '', type: 'general', cycle: '' };
-  });
-
-  var mapper = document.getElementById('electionColumnMapper');
-  mapper.style.display = '';
-  mapper.innerHTML = '<strong style="font-size:13px;color:#94a3b8;display:block;margin-bottom:8px">Map ' + electionCols.length + ' election columns:</strong>' +
-    '<div class="table-wrap"><table><thead><tr><th>CSV Column</th><th>Election Name</th><th>Date</th><th>Type</th><th>Cycle</th></tr></thead><tbody>' +
-    electionColumnMappings.map(function(m, i) {
-      return '<tr>' +
-        '<td style="font-weight:600">' + escHtml(m.column) + '</td>' +
-        '<td><input type="text" class="el-map-name" data-idx="' + i + '" value="' + escHtml(m.name) + '" style="width:100%;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"></td>' +
-        '<td><input type="date" class="el-map-date" data-idx="' + i + '" value="" style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"></td>' +
-        '<td><select class="el-map-type" data-idx="' + i + '" style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"><option value="general">General</option><option value="primary">Primary</option><option value="special">Special</option><option value="runoff">Runoff</option><option value="municipal">Municipal</option></select></td>' +
-        '<td><select class="el-map-cycle" data-idx="' + i + '" style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"><option value="">--</option><option value="november">November</option><option value="march">March</option><option value="may">May</option><option value="june">June</option><option value="august">August</option></select></td>' +
-        '</tr>';
-    }).join('') +
-    '</tbody></table></div>';
-
-  document.getElementById('btnRunElectionImport').style.display = '';
-  document.getElementById('electionImportStatus').textContent = 'Found ' + electionCols.length + ' election columns. Fill in names, dates, and cycles, then click Import.';
-};
-
-window.runElectionImport = async function() {
-  var raw = document.getElementById('electionCsvData').value.trim();
-  if (!raw) return;
-  var statusEl = document.getElementById('electionImportStatus');
-  statusEl.textContent = 'Importing...';
-
-  // Gather mappings from UI
-  var elections = [];
-  document.querySelectorAll('.el-map-name').forEach(function(input) {
-    var i = parseInt(input.dataset.idx);
-    var m = electionColumnMappings[i];
-    var nameInput = input;
-    var dateInput = document.querySelector('.el-map-date[data-idx="' + i + '"]');
-    var typeInput = document.querySelector('.el-map-type[data-idx="' + i + '"]');
-    var cycleInput = document.querySelector('.el-map-cycle[data-idx="' + i + '"]');
-    elections.push({
-      column: m.column.toLowerCase(),
-      name: nameInput.value || m.name,
-      date: dateInput.value || '',
-      type: typeInput.value || 'general',
-      cycle: cycleInput.value || ''
-    });
-  });
-
-  // Parse CSV rows
-  var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-  var header = parseCsvLine(lines[0]).map(function(h) { return h.toLowerCase(); });
-  var rows = [];
-  for (var i = 1; i < lines.length; i++) {
-    var cols = parseCsvLine(lines[i]);
-    var row = {};
-    header.forEach(function(h, idx) { row[h] = cols[idx] || ''; });
-    rows.push(row);
-  }
-
-  try {
-    var result = await apiPost('/api/election-votes/import', { rows: rows, elections: elections });
-    statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">' + result.votes_recorded + ' vote records added for ' + result.matched + ' matched voters</span>' +
-      (result.not_found > 0 ? ' <span style="color:#f59e0b">(' + result.not_found + ' not found)</span>' : '');
-    // Refresh
-    var eData = await api('/api/election-votes/elections');
-    universeElections = eData.elections || [];
-    renderElectionsSummary();
-    renderCycleAndPriorityLists();
-  } catch (e) {
-    statusEl.textContent = 'Import failed: ' + (e.message || 'Unknown error');
-  }
 };
 
 window.previewUniverse = async function() {
