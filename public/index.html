@@ -883,7 +883,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-xs" id="btnBulkMarkVoted" style="display:none;background:#2563eb;color:#fff" onclick="showBulkMarkVotedModal()">Mark as Voted (<span class="sel-count">0</span>)</button>
             <button class="btn btn-xs" id="btnBulkUnmarkVoted" style="display:none;background:#92400e;color:#fff" onclick="showBulkUnmarkVotedModal()">Unmark Voted (<span class="sel-count">0</span>)</button>
           </div>
-          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:90px">Turnout</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
+          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:60px">Elections</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
         </div>
       </div>
       <!-- VOTER DETAIL VIEW -->
@@ -974,8 +974,16 @@ tr:hover td{background:#1e293b80}
           </div>
           <div id="adminListSearchResults" style="margin-top:8px"></div>
         </div>
-        <h4 style="margin-bottom:8px">Voters in List <span class="badge badge-green" id="adminListVoterCount">0</span></h4>
-        <div class="table-wrap"><table><thead><tr><th>Name</th><th>Phone</th><th>City</th><th>Party</th><th>Support</th><th>Actions</th></tr></thead><tbody id="adminListVotersBody"></tbody></table></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <h4 style="margin:0">Voters in List <span class="badge badge-green" id="adminListVoterCount">0</span></h4>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
+            <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
+            <button class="btn btn-sm" style="background:#0284c7;border-color:#0369a1" onclick="toggleHouseholdView()">🏠 Household View</button>
+          </div>
+        </div>
+        <div id="householdViewContainer" style="display:none;margin-bottom:16px"></div>
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Address</th><th>City</th><th>Party</th><th>Actions</th></tr></thead><tbody id="adminListVotersBody"></tbody></table></div>
       </div>
       </div><!-- end lists-tab sub-page -->
 
@@ -1065,24 +1073,30 @@ tr:hover td{background:#1e293b80}
           </div>
         </div>
 
-        <!-- Step 3: Sub-Universe — Election Cycles -->
+        <!-- Step 3: Election Targeting -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
-          <h4 style="margin-bottom:8px;font-size:14px;color:#818cf8">Step 3: Sub-Universe — Voted in Specific Cycles</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Pick which election cycles matter. Only voters who participated in at least one of these will be in the sub-universe.</p>
-          <div id="universeCycleList" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+          <h4 style="margin-bottom:4px;font-size:14px;color:#818cf8">Step 3: Election Targeting</h4>
+          <p style="color:#64748b;font-size:12px;margin-bottom:12px">Narrow your universe by requiring voters to have voted in a minimum number of elections per type. Combine with district filters above (e.g. Port of Brownsville + Local Elections >= 2).</p>
+          <div id="electionGroupCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px"></div>
         </div>
 
-        <!-- Step 4: Priority — Specific Elections -->
-        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
-          <h4 style="margin-bottom:8px;font-size:14px;color:#ef4444">Step 4: Priority Voters — Voted in Specific Elections</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Select specific elections (e.g. Port election, City Council). Voters who participated are your priority targets. Everyone else in the sub-universe is extra voters to win over.</p>
-          <div id="universePriorityList" style="max-height:200px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px"></div>
+        <!-- Progress Bar -->
+        <div id="universeProgressBar" style="display:none;margin-bottom:16px">
+          <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:16px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+              <span style="color:#e2e8f0;font-size:13px;font-weight:600" id="progressLabel">Processing...</span>
+              <span style="color:#818cf8;font-size:13px;font-weight:600" id="progressPct">0%</span>
+            </div>
+            <div style="background:#334155;border-radius:8px;height:10px;overflow:hidden">
+              <div id="progressFill" style="background:linear-gradient(90deg,#818cf8,#6366f1);height:100%;width:0%;transition:width 0.4s ease;border-radius:8px"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Preview & Build -->
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
           <button class="btn btn-primary" onclick="previewUniverse()">Preview Counts</button>
-          <button class="btn btn-success" onclick="buildUniverse()">Build & Create Lists</button>
+          <button class="btn btn-success" onclick="buildUniverse()">Build & Create List</button>
         </div>
 
         <!-- Results -->
@@ -2950,11 +2964,13 @@ async function searchVoters() {
       else if (bl === 'Republican' || bl === 'R') { evClass = 'badge-red'; evLabel = 'Voted (R)'; }
       evBadge = '<span class="badge ' + evClass + '" title="' + evLabel + ' ' + escHtml(v.early_voted_date || '') + '">' + evLabel + '</span>';
     } else { evBadge = '<span class="badge badge-gray">--</span>'; }
-    var turnoutTags = buildTurnoutTags(v.election_votes || []);
+    var elecCount = (v.election_votes || []).length;
+    var elecBadge = elecCount > 0 ? '<span class="badge badge-blue" title="Voted in ' + elecCount + ' elections">' + elecCount + '</span>' : '<span class="badge badge-gray">0</span>';
     var fullAddr = escHtml(v.address || '');
     if (v.city) fullAddr += ', ' + escHtml(v.city);
     if (v.zip) fullAddr += ' ' + escHtml(v.zip);
-    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap">' + v.id + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td>' + turnoutTags + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
+    var voterId = escHtml(v.registration_number || v.county_file_id || v.vanid || '');
+    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap" title="VUID: ' + voterId + '">' + voterId + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td style="text-align:center">' + elecBadge + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
   }).join('');
 }
 window.searchVoters = searchVoters;
@@ -5394,7 +5410,7 @@ async function loadUniverseBuilder() {
     var eData = await api('/api/election-votes/elections');
     universeElections = eData.elections || [];
     renderElectionsSummary();
-    renderCycleAndPriorityLists();
+    renderElectionGroupCards();
   } catch (e) { console.error('Failed to load elections:', e); }
 
   // Load filter options for demographics/districts
@@ -5500,139 +5516,142 @@ function deriveCycle(election) {
   return '';
 }
 
-function renderCycleAndPriorityLists() {
-  // Distinct cycles (derived from election_cycle or election_name)
-  var cycles = {};
-  universeElections.forEach(function(e) {
-    var c = deriveCycle(e);
-    if (c) { cycles[c] = true; e._derived_cycle = c; }
+var electionGroups = [];
+async function renderElectionGroupCards() {
+  var el = document.getElementById('electionGroupCards');
+  try {
+    var data = await api('/api/election-votes/groups');
+    electionGroups = data.groups || [];
+  } catch(e) { electionGroups = []; }
+  if (electionGroups.length === 0) {
+    el.innerHTML = '<div style="color:#64748b;font-size:13px">No election data — import the county voter file to enable election targeting.</div>';
+    return;
+  }
+  var colors = { general:'#22c55e', primary:'#3b82f6', local:'#f59e0b', primary_runoff:'#a855f7', constitutional:'#06b6d4', runoff:'#ef4444', general_runoff:'#ef4444', local_runoff:'#f97316', special:'#ec4899' };
+  el.innerHTML = electionGroups.map(function(g) {
+    var c = colors[g.type] || '#94a3b8';
+    var maxN = Math.min(g.election_count, 10);
+    var opts = '<option value="0">Any (no filter)</option>';
+    for (var i = 1; i <= maxN; i++) opts += '<option value="' + i + '">At least ' + i + '</option>';
+    return '<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;border-left:3px solid ' + c + '">' +
+      '<div style="font-weight:600;font-size:13px;color:' + c + ';margin-bottom:4px">' + escHtml(g.label) + '</div>' +
+      '<div style="color:#64748b;font-size:11px;margin-bottom:8px">' + g.election_count + ' elections</div>' +
+      '<select class="elec-group-select" data-type="' + escHtml(g.type) + '" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px">' + opts + '</select>' +
+      '<div style="margin-top:6px;font-size:10px;color:#475569">' + g.elections.map(function(e) { return escHtml(e.name); }).join(', ') + '</div>' +
+      '</div>';
+  }).join('');
+}
+function getElectionGroupSelections() {
+  var groups = [];
+  document.querySelectorAll('.elec-group-select').forEach(function(sel) {
+    var minCount = parseInt(sel.value) || 0;
+    if (minCount > 0) {
+      groups.push({ types: [sel.dataset.type], min_count: minCount });
+    }
   });
-  var cycleList = Object.keys(cycles).sort();
-  var cEl = document.getElementById('universeCycleList');
-  if (cycleList.length === 0) {
-    cEl.innerHTML = '<div style="color:#64748b;font-size:13px">No cycles found — import election data with cycle information.</div>';
-  } else {
-    cEl.innerHTML = cycleList.map(function(c) {
-      return '<label style="display:flex;align-items:center;gap:4px;background:#1e293b;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer"><input type="checkbox" class="univ-cycle-cb" value="' + escHtml(c) + '" style="accent-color:#818cf8"> ' + escHtml(c) + '</label>';
-    }).join('');
-  }
-
-  // All elections for priority
-  var pEl = document.getElementById('universePriorityList');
-  if (universeElections.length === 0) {
-    pEl.innerHTML = '<div style="color:#64748b;font-size:13px">No elections — import data first.</div>';
-  } else {
-    pEl.innerHTML = universeElections.map(function(e) {
-      return '<div class="check-item"><input type="checkbox" class="univ-priority-cb" value="' + escHtml(e.election_name) + '"> ' + escHtml(e.election_name) + ' <span style="color:#64748b;font-size:11px">(' + e.voter_count + ' voters, ' + escHtml(e.election_date) + ')</span></div>';
-    }).join('');
-  }
+  return groups;
 }
 
 window.selectAllPrecincts = function(checked) {
   document.querySelectorAll('.univ-precinct-cb').forEach(function(cb) { cb.checked = checked; });
 };
 
-window.previewUniverse = async function() {
+function showProgress(label, pct) {
+  var bar = document.getElementById('universeProgressBar');
+  bar.style.display = '';
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressPct').textContent = Math.round(pct) + '%';
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+function hideProgress() {
+  document.getElementById('universeProgressBar').style.display = 'none';
+}
+
+function buildUniversePayload() {
   var precincts = Array.from(document.querySelectorAll('.univ-precinct-cb:checked')).map(function(cb) { return cb.value; });
   var yearsBack = parseInt(document.getElementById('universeYearsBack').value) || 8;
-  var cycles = Array.from(document.querySelectorAll('.univ-cycle-cb:checked')).map(function(cb) { return cb.value; });
-  var priorityElections = Array.from(document.querySelectorAll('.univ-priority-cb:checked')).map(function(cb) { return cb.value; });
+  var elecGroups = getElectionGroupSelections();
   var filters = getSelectedFilters();
+  var payload = { precincts: precincts, years_back: yearsBack, election_groups: elecGroups };
+  if (filters.genders.length) payload.genders = filters.genders;
+  if (filters.age_min) payload.age_min = filters.age_min;
+  if (filters.age_max) payload.age_max = filters.age_max;
+  if (filters.cities.length) payload.cities = filters.cities;
+  if (filters.school_districts.length) payload.school_districts = filters.school_districts;
+  if (filters.college_districts.length) payload.college_districts = filters.college_districts;
+  if (filters.navigation_ports.length) payload.navigation_ports = filters.navigation_ports;
+  if (filters.port_authorities.length) payload.port_authorities = filters.port_authorities;
+  if (filters.state_reps.length) payload.state_reps = filters.state_reps;
+  if (filters.parties.length) payload.parties = filters.parties;
+  if (filters.min_elections) payload.min_elections = filters.min_elections;
+  return { payload, precincts, yearsBack, elecGroups };
+}
 
+window.previewUniverse = async function() {
+  var b = buildUniversePayload();
+  showProgress('Filtering voters...', 10);
   try {
-    var payload = {
-      precincts: precincts, years_back: yearsBack,
-      election_cycles: cycles.length > 0 ? cycles : null,
-      priority_elections: priorityElections.length > 0 ? priorityElections : null
-    };
-    if (filters.genders.length) payload.genders = filters.genders;
-    if (filters.age_min) payload.age_min = filters.age_min;
-    if (filters.age_max) payload.age_max = filters.age_max;
-    if (filters.cities.length) payload.cities = filters.cities;
-    if (filters.school_districts.length) payload.school_districts = filters.school_districts;
-    if (filters.college_districts.length) payload.college_districts = filters.college_districts;
-    if (filters.navigation_ports.length) payload.navigation_ports = filters.navigation_ports;
-    if (filters.port_authorities.length) payload.port_authorities = filters.port_authorities;
-    if (filters.state_reps.length) payload.state_reps = filters.state_reps;
-    if (filters.parties.length) payload.parties = filters.parties;
-    if (filters.min_elections) payload.min_elections = filters.min_elections;
-    var data = await apiPost('/api/universe/preview', payload);
+    showProgress('Checking voting history...', 40);
+    var data = await apiPost('/api/universe/preview', b.payload);
+    showProgress('Done!', 100);
+    setTimeout(hideProgress, 800);
     var el = document.getElementById('universePreview');
     el.style.display = '';
     if (data.basic_mode) {
       el.innerHTML = '<div style="background:#1e293b;border:1px solid #f59e0b;border-radius:8px;padding:12px;margin-bottom:12px">' +
         '<div style="color:#f59e0b;font-weight:600;margin-bottom:4px">Basic Mode — No Election History Data</div>' +
-        '<div style="color:#94a3b8;font-size:13px">Import the county voter file to unlock voting history filters. For now, you can create a list of all matching voters.</div></div>' +
+        '<div style="color:#94a3b8;font-size:13px">Import the county voter file to unlock voting history filters.</div></div>' +
         '<div class="stats-grid">' +
         '<div class="stat-card"><div class="label">Matching Voters</div><div class="value" style="color:#22c55e">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">All registered voters matching your filters</div></div>' +
         '</div>';
     } else {
+      var groupDesc = b.elecGroups.length > 0
+        ? b.elecGroups.map(function(g) { return g.types[0] + ' >= ' + g.min_count; }).join(', ')
+        : 'No election filters';
       el.innerHTML = '<div class="stats-grid">' +
-        '<div class="stat-card"><div class="label">' + (precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">' + (precincts.length > 0 ? 'Total registered' : 'Matching filters') + '</div></div>' +
-        '<div class="stat-card"><div class="label">Universe</div><div class="value" style="color:#22c55e">' + data.universe.toLocaleString() + '</div><div class="sub">Voted in last ' + yearsBack + ' yrs</div></div>' +
-        '<div class="stat-card"><div class="label">Sub-Universe</div><div class="value" style="color:#818cf8">' + data.sub_universe.toLocaleString() + '</div><div class="sub">' + (cycles.length > 0 ? cycles.join(', ') : 'Same as universe') + '</div></div>' +
-        '<div class="stat-card"><div class="label">Priority</div><div class="value" style="color:#ef4444">' + data.priority.toLocaleString() + '</div><div class="sub">Voted in selected elections</div></div>' +
-        '<div class="stat-card"><div class="label">Extra Voters</div><div class="value" style="color:#f59e0b">' + data.extra.toLocaleString() + '</div><div class="sub">Win these over</div></div>' +
+        '<div class="stat-card"><div class="label">' + (b.precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">Total registered</div></div>' +
+        '<div class="stat-card"><div class="label">Active Voters</div><div class="value" style="color:#22c55e">' + data.universe.toLocaleString() + '</div><div class="sub">Voted in last ' + b.yearsBack + ' yrs</div></div>' +
+        '<div class="stat-card"><div class="label">Targeted</div><div class="value" style="color:#818cf8">' + data.targeted.toLocaleString() + '</div><div class="sub">' + groupDesc + '</div></div>' +
         '</div>';
     }
   } catch (e) {
+    hideProgress();
     alert('Preview failed: ' + (e.message || 'Unknown error'));
   }
 };
 
 window.buildUniverse = async function() {
-  var precincts = Array.from(document.querySelectorAll('.univ-precinct-cb:checked')).map(function(cb) { return cb.value; });
-  var yearsBack = parseInt(document.getElementById('universeYearsBack').value) || 8;
-  var cycles = Array.from(document.querySelectorAll('.univ-cycle-cb:checked')).map(function(cb) { return cb.value; });
-  var priorityElections = Array.from(document.querySelectorAll('.univ-priority-cb:checked')).map(function(cb) { return cb.value; });
-  var filters = getSelectedFilters();
-
+  var b = buildUniversePayload();
   var today = new Date().toISOString().split('T')[0];
-  var univName = prompt('Universe list name:', 'Universe - Active Voters ' + today);
-  if (!univName) return;
-  var subName = prompt('Sub-Universe list name:', 'Sub-Universe - ' + (cycles.length > 0 ? cycles.join('+') : 'All Cycles') + ' ' + today);
-  var prioName = priorityElections.length > 0 ? prompt('Priority list name:', 'Priority Voters ' + today) : null;
+  var listName = prompt('List name:', 'Targeted Voters ' + today);
+  if (!listName) return;
+  b.payload.list_name = listName;
 
+  showProgress('Filtering voters...', 10);
   try {
-    var payload = {
-      precincts: precincts, years_back: yearsBack,
-      election_cycles: cycles.length > 0 ? cycles : null,
-      priority_elections: priorityElections.length > 0 ? priorityElections : null,
-      list_name_universe: univName,
-      list_name_sub: subName || null,
-      list_name_priority: prioName || null
-    };
-    if (filters.genders.length) payload.genders = filters.genders;
-    if (filters.age_min) payload.age_min = filters.age_min;
-    if (filters.age_max) payload.age_max = filters.age_max;
-    if (filters.cities.length) payload.cities = filters.cities;
-    if (filters.school_districts.length) payload.school_districts = filters.school_districts;
-    if (filters.college_districts.length) payload.college_districts = filters.college_districts;
-    if (filters.navigation_ports.length) payload.navigation_ports = filters.navigation_ports;
-    if (filters.port_authorities.length) payload.port_authorities = filters.port_authorities;
-    if (filters.state_reps.length) payload.state_reps = filters.state_reps;
-    if (filters.parties.length) payload.parties = filters.parties;
-    if (filters.min_elections) payload.min_elections = filters.min_elections;
-    var data = await apiPost('/api/universe/build', payload);
+    showProgress('Building universe...', 30);
+    showProgress('Applying election targeting...', 60);
+    var data = await apiPost('/api/universe/build', b.payload);
+    showProgress('Creating list...', 90);
+    showProgress('Done!', 100);
+    setTimeout(hideProgress, 800);
     var el = document.getElementById('universeBuildResult');
     el.style.display = '';
-    var html = '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:16px;color:#22c55e;font-weight:600;margin-bottom:12px">Universe built successfully!</div>' +
+    var groupDesc = b.elecGroups.length > 0
+      ? b.elecGroups.map(function(g) { return g.types[0] + ' >= ' + g.min_count; }).join(', ')
+      : 'No election filters';
+    var html = '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:16px;color:#22c55e;font-weight:600;margin-bottom:12px">List built successfully!</div>' +
       '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="label">In Precincts</div><div class="value">' + data.total_in_precincts + '</div></div>' +
-      '<div class="stat-card"><div class="label">Universe</div><div class="value" style="color:#22c55e">' + data.universe + '</div></div>' +
-      '<div class="stat-card"><div class="label">Sub-Universe</div><div class="value" style="color:#818cf8">' + data.sub_universe + '</div></div>' +
-      '<div class="stat-card"><div class="label">Priority</div><div class="value" style="color:#ef4444">' + data.priority + '</div></div>' +
-      '<div class="stat-card"><div class="label">Extra</div><div class="value" style="color:#f59e0b">' + data.extra + '</div></div>' +
+      '<div class="stat-card"><div class="label">Filtered</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">Matching demographics</div></div>' +
+      '<div class="stat-card"><div class="label">Active Voters</div><div class="value" style="color:#22c55e">' + data.universe.toLocaleString() + '</div><div class="sub">Voted in last ' + b.yearsBack + ' yrs</div></div>' +
+      '<div class="stat-card"><div class="label">Targeted</div><div class="value" style="color:#818cf8">' + data.targeted.toLocaleString() + '</div><div class="sub">' + groupDesc + '</div></div>' +
       '</div>';
-    if (data.created) {
-      html += '<div style="margin-top:12px;font-size:13px;color:#94a3b8">';
-      if (data.created.universe) html += 'Universe list created: <strong>' + data.created.universe.added + ' voters</strong><br>';
-      if (data.created.sub_universe) html += 'Sub-Universe list created: <strong>' + data.created.sub_universe.added + ' voters</strong><br>';
-      if (data.created.priority) html += 'Priority list created: <strong>' + data.created.priority.added + ' voters</strong><br>';
-      html += '</div>';
+    if (data.created && data.created.universe) {
+      html += '<div style="margin-top:12px;font-size:13px;color:#94a3b8">List "<strong>' + escHtml(listName) + '</strong>" created with <strong>' + data.created.universe.added.toLocaleString() + ' voters</strong></div>';
     }
     el.innerHTML = html;
   } catch (e) {
+    hideProgress();
     alert('Build failed: ' + (e.message || 'Unknown error'));
   }
 };
@@ -6408,7 +6427,7 @@ function downloadVotersCsv(voters, filename) {
   var rows = [headers.join(',')];
   voters.forEach(function(v) {
     var row = [
-      csvEsc(v.id || v.voter_id || ''),
+      csvEsc(v.registration_number || v.county_file_id || v.vanid || ''),
       csvEsc(v.first_name), csvEsc(v.last_name), csvEsc(v.address),
       csvEsc(v.city), csvEsc(v.zip), csvEsc(v.phone),
       csvEsc(v.party), csvEsc(v.precinct)
@@ -6610,20 +6629,26 @@ async function loadAdminListVoters(listId) {
   var data = await api('/api/admin-lists/' + listId);
   var voters = data.list.voters || [];
   document.getElementById('adminListVoterCount').textContent = voters.length;
+  document.getElementById('householdViewContainer').style.display = 'none';
   var tbody = document.getElementById('adminListVotersBody');
   tbody.textContent = '';
   if (voters.length === 0) {
     var emptyRow = document.createElement('tr');
     var emptyTd = document.createElement('td');
-    emptyTd.colSpan = 6; emptyTd.style.cssText = 'color:#64748b;text-align:center';
+    emptyTd.colSpan = 7; emptyTd.style.cssText = 'color:#64748b;text-align:center';
     emptyTd.textContent = 'No voters in this list. Use search above to add.';
     emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow);
     return;
   }
   voters.forEach(function(v) {
     var tr = document.createElement('tr');
-    [v.first_name + ' ' + v.last_name, v.phone || '', v.city || '', v.party || '', v.support_level || ''].forEach(function(val) {
-      var td = document.createElement('td'); td.textContent = val; tr.appendChild(td);
+    var voterId = v.registration_number || v.county_file_id || v.vanid || '';
+    [voterId, v.first_name + ' ' + v.last_name, v.phone || '', v.address || '', v.city || '', v.party || ''].forEach(function(val, idx) {
+      var td = document.createElement('td');
+      td.textContent = val;
+      if (idx === 0) td.style.cssText = 'color:#64748b;font-size:11px';
+      if (idx === 1) { td.style.cursor = 'pointer'; td.style.color = '#818cf8'; td.onclick = function() { showVoterDetail(v.id); }; }
+      tr.appendChild(td);
     });
     var actTd = document.createElement('td');
     var btn = document.createElement('button');
@@ -6634,6 +6659,72 @@ async function loadAdminListVoters(listId) {
     actTd.appendChild(btn); tr.appendChild(actTd); tbody.appendChild(tr);
   });
 }
+
+// ===================== LIST MANAGEMENT TOOLS =====================
+window.exportMailerCSV = async function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  try {
+    var data = await api('/api/admin-lists/' + listId + '/export-mailer');
+    var rows = [['Address','City','Zip','Precinct','Household Members','Household Size'].join(',')];
+    (data.households || []).forEach(function(h) {
+      rows.push([csvEsc(h.address), csvEsc(h.city), csvEsc(h.zip), csvEsc(h.precinct), csvEsc(h.members), h.household_size].join(','));
+    });
+    var blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'mailer-' + (data.list_name || 'list').replace(/[^a-z0-9]/gi, '_') + '.csv';
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+    alert('Mailer CSV exported: ' + data.total_households + ' households from ' + data.total_voters + ' voters');
+  } catch(e) {
+    alert('Export failed: ' + (e.message || 'Unknown error'));
+  }
+};
+
+function csvEsc(val) {
+  var s = String(val || '');
+  return s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1
+    ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+window.createWalkFromList = async function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  var walkName = prompt('Walk list name (leave blank for auto):') || '';
+  try {
+    var data = await apiPost('/api/admin-lists/' + listId + '/create-walk', { name: walkName || undefined });
+    alert('Walk list created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses + '\nJoin code: ' + data.join_code);
+  } catch(e) {
+    alert('Failed: ' + (e.message || 'Unknown error'));
+  }
+};
+
+window.toggleHouseholdView = async function() {
+  var container = document.getElementById('householdViewContainer');
+  if (container.style.display !== 'none') { container.style.display = 'none'; return; }
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  try {
+    var data = await api('/api/admin-lists/' + listId + '/households');
+    var hh = data.households || [];
+    var totalVoters = hh.reduce(function(s, h) { return s + h.household_size; }, 0);
+    var html = '<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px">' +
+      '<div style="font-weight:600;color:#e2e8f0;margin-bottom:8px">🏠 ' + hh.length + ' households from ' + totalVoters + ' voters</div>';
+    hh.forEach(function(h) {
+      html += '<div style="padding:6px 0;border-bottom:1px solid #334155;font-size:13px">' +
+        '<span style="color:#e2e8f0;font-weight:500">' + escHtml(h.address) + ', ' + escHtml(h.city) + ' ' + escHtml(h.zip) + '</span>' +
+        '<span style="color:#64748b;margin-left:8px">(' + h.household_size + ')</span>' +
+        '<div style="color:#94a3b8;font-size:11px;margin-top:2px">' + escHtml(h.members) + '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+    container.style.display = '';
+  } catch(e) {
+    alert('Failed: ' + (e.message || 'Unknown error'));
+  }
+};
 
 // ===================== VOTER TOUCHPOINTS =====================
 async function showVoterTouchpoints(voterId) {

@@ -1480,6 +1480,54 @@ router.get('/election-votes/elections', (req, res) => {
   res.json({ elections });
 });
 
+// Get elections grouped by type for universe builder targeting
+router.get('/election-votes/groups', (req, res) => {
+  const rows = db.prepare(`
+    SELECT election_type, election_name, election_date, COUNT(DISTINCT voter_id) as voter_count
+    FROM election_votes
+    GROUP BY election_name
+    ORDER BY election_type, election_date DESC
+  `).all();
+
+  // Also include elections with zero votes
+  const definedOnly = db.prepare(`
+    SELECT election_type, election_name, election_date
+    FROM elections
+    WHERE election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)
+  `).all();
+  for (const e of definedOnly) {
+    rows.push({ election_type: e.election_type, election_name: e.election_name, election_date: e.election_date, voter_count: 0 });
+  }
+
+  // Group by type
+  const groups = {};
+  const typeLabels = {
+    general: 'General Elections (Nov)',
+    primary: 'Primary Elections (Mar)',
+    local: 'Local Elections (May)',
+    primary_runoff: 'Primary Runoffs',
+    constitutional: 'Constitutional Amendments',
+    runoff: 'Runoffs',
+    general_runoff: 'General Runoffs',
+    local_runoff: 'Local Runoffs',
+    special: 'Special Elections'
+  };
+  for (const r of rows) {
+    const t = r.election_type || 'other';
+    if (!groups[t]) {
+      groups[t] = { type: t, label: typeLabels[t] || t, elections: [], total_voters: 0 };
+    }
+    groups[t].elections.push({ name: r.election_name, date: r.election_date, voter_count: r.voter_count });
+    groups[t].total_voters = Math.max(groups[t].total_voters, r.voter_count);
+  }
+  // Sort elections within each group by date descending
+  for (const g of Object.values(groups)) {
+    g.elections.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    g.election_count = g.elections.length;
+  }
+  res.json({ groups: Object.values(groups) });
+});
+
 // Create a new election definition
 router.post('/elections', (req, res) => {
   const { name, date, type, cycle } = req.body;
@@ -1616,8 +1664,8 @@ function buildStep1Filter(filters) {
 }
 
 router.post('/universe/build', (req, res) => {
-  const { precincts, years_back, election_cycles, priority_elections,
-          list_name_universe, list_name_sub, list_name_priority,
+  const { precincts, years_back, election_cycles, priority_elections, election_groups,
+          list_name, list_name_universe, list_name_sub, list_name_priority,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
@@ -1627,8 +1675,10 @@ router.post('/universe/build', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses });
 
-  // Check if election data exists
   const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
+
+  // Parse election groups: [{ types: ['local'], min_count: 2 }, ...]
+  const activeGroups = (election_groups || []).filter(g => g.min_count > 0);
 
   const buildTx = db.transaction(() => {
     // Step 1: filtered voters -> temp table
@@ -1637,18 +1687,19 @@ router.post('/universe/build', (req, res) => {
     db.prepare('INSERT OR IGNORE INTO _univ_precinct SELECT DISTINCT voters.id FROM voters' + step1.partyJoin + ' WHERE ' + step1.where).run(...step1.params);
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _univ_precinct').get() || { c: 0 }).c;
 
-    // Basic mode: no election data — use all Step 1 voters as the universe
+    // Basic mode: no election data
     if (!hasElectionData) {
       const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)');
       const created = {};
-      if (list_name_universe) {
-        const r = insertList.run(list_name_universe, 'All registered voters matching filters', 'general');
+      const finalName = list_name || list_name_universe;
+      if (finalName) {
+        const r = insertList.run(finalName, 'All registered voters matching filters', 'general');
         const listId = r.lastInsertRowid;
         const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_precinct').run(listId);
         created.universe = { listId, added: added.changes };
       }
       db.exec('DROP TABLE IF EXISTS _univ_precinct');
-      return { totalInPrecincts, universeCount: totalInPrecincts, subUniverseCount: totalInPrecincts, priorityCount: 0, extraCount: totalInPrecincts, created, basicMode: true };
+      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, created, basicMode: true };
     }
 
     // Step 2: universe — voted in last N years
@@ -1660,79 +1711,83 @@ router.post('/universe/build', (req, res) => {
       WHERE ev.election_date >= ?`).run(cutoffDate);
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_universe').get() || { c: 0 }).c;
 
-    // Step 3: sub-universe — voted in specific cycles
-    db.exec('DROP TABLE IF EXISTS _univ_sub');
-    let subUniverseCount;
-    if (election_cycles && election_cycles.length > 0) {
-      db.exec('CREATE TEMP TABLE _univ_sub (voter_id INTEGER PRIMARY KEY)');
-      const cPh = election_cycles.map(() => '?').join(',');
-      db.prepare(`INSERT INTO _univ_sub
-        SELECT DISTINCT ev.voter_id FROM election_votes ev
-        INNER JOIN _univ_universe uu ON ev.voter_id = uu.voter_id
-        WHERE ev.election_cycle IN (${cPh})`).run(...election_cycles);
-      subUniverseCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_sub').get() || { c: 0 }).c;
+    // Step 3: Election Group Targeting (new system)
+    // Each group: voters who voted in at least N elections of that type
+    // Multiple groups = AND logic
+    let targetedCount = universeCount;
+    db.exec('DROP TABLE IF EXISTS _univ_targeted');
+    if (activeGroups.length > 0) {
+      db.exec('CREATE TEMP TABLE _univ_targeted AS SELECT * FROM _univ_universe');
+      for (const g of activeGroups) {
+        const types = g.types || [g.type];
+        const typePh = types.map(() => '?').join(',');
+        db.exec('DROP TABLE IF EXISTS _univ_grp_tmp');
+        db.exec('CREATE TEMP TABLE _univ_grp_tmp (voter_id INTEGER PRIMARY KEY)');
+        db.prepare(`INSERT INTO _univ_grp_tmp
+          SELECT voter_id FROM election_votes
+          WHERE election_type IN (${typePh}) AND voter_id IN (SELECT voter_id FROM _univ_targeted)
+          GROUP BY voter_id HAVING COUNT(DISTINCT election_name) >= ?`).run(...types, g.min_count);
+        // Intersect: replace targeted with only voters who passed this group
+        db.exec('DROP TABLE IF EXISTS _univ_targeted2');
+        db.exec('CREATE TEMP TABLE _univ_targeted2 AS SELECT voter_id FROM _univ_targeted WHERE voter_id IN (SELECT voter_id FROM _univ_grp_tmp)');
+        db.exec('DROP TABLE IF EXISTS _univ_targeted');
+        db.exec('ALTER TABLE _univ_targeted2 RENAME TO _univ_targeted');
+        db.exec('DROP TABLE IF EXISTS _univ_grp_tmp');
+      }
+      targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
     } else {
-      db.exec('CREATE TEMP TABLE _univ_sub AS SELECT * FROM _univ_universe');
-      subUniverseCount = universeCount;
+      db.exec('CREATE TEMP TABLE _univ_targeted AS SELECT * FROM _univ_universe');
     }
 
-    // Step 4: priority — voted in specific elections
-    db.exec('DROP TABLE IF EXISTS _univ_priority');
+    // Backward compat: old cycle/priority system
+    let subUniverseCount = universeCount;
     let priorityCount = 0;
+    if (election_cycles && election_cycles.length > 0) {
+      const cPh = election_cycles.map(() => '?').join(',');
+      subUniverseCount = (db.prepare(`SELECT COUNT(DISTINCT ev.voter_id) as c FROM election_votes ev
+        INNER JOIN _univ_universe uu ON ev.voter_id = uu.voter_id
+        WHERE ev.election_cycle IN (${cPh})`).get(...election_cycles) || { c: 0 }).c;
+    }
     if (priority_elections && priority_elections.length > 0) {
-      db.exec('CREATE TEMP TABLE _univ_priority (voter_id INTEGER PRIMARY KEY)');
       const pPh = priority_elections.map(() => '?').join(',');
-      db.prepare(`INSERT INTO _univ_priority
-        SELECT DISTINCT ev.voter_id FROM election_votes ev
-        INNER JOIN _univ_sub us ON ev.voter_id = us.voter_id
-        WHERE ev.election_name IN (${pPh})`).run(...priority_elections);
-      priorityCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_priority').get() || { c: 0 }).c;
-    } else {
-      db.exec('CREATE TEMP TABLE _univ_priority (voter_id INTEGER PRIMARY KEY)');
+      priorityCount = (db.prepare(`SELECT COUNT(DISTINCT ev.voter_id) as c FROM election_votes ev
+        INNER JOIN _univ_universe uu ON ev.voter_id = uu.voter_id
+        WHERE ev.election_name IN (${pPh})`).get(...priority_elections) || { c: 0 }).c;
     }
 
-    const extraCount = subUniverseCount - priorityCount;
-
-    // Create lists via INSERT...SELECT for efficiency
+    // Create lists
     const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)');
     const created = {};
-
-    if (list_name_universe) {
-      const r = insertList.run(list_name_universe, 'Universe: voters in precincts who voted in last ' + (years_back || 8) + ' years', 'general');
+    const finalName = list_name || list_name_universe;
+    if (finalName) {
+      const descParts = ['Targeted voters matching filters'];
+      if (activeGroups.length > 0) {
+        descParts.push(activeGroups.map(g => (g.types || [g.type]).join('/') + ' >= ' + g.min_count).join(', '));
+      }
+      const r = insertList.run(finalName, descParts.join(' — '), 'general');
       const listId = r.lastInsertRowid;
-      const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_universe').run(listId);
+      const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_targeted').run(listId);
       created.universe = { listId, added: added.changes };
     }
-    if (list_name_sub) {
-      const r = insertList.run(list_name_sub, 'Sub-universe: voters who voted in ' + (election_cycles || []).join(', ') + ' elections', 'general');
-      const listId = r.lastInsertRowid;
-      const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_sub').run(listId);
-      created.sub_universe = { listId, added: added.changes };
-    }
-    if (list_name_priority) {
-      const r = insertList.run(list_name_priority, 'Priority: voters who voted in ' + (priority_elections || []).join(', '), 'general');
-      const listId = r.lastInsertRowid;
-      const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_priority').run(listId);
-      created.priority = { listId, added: added.changes };
-    }
 
-    // Cleanup temp tables
-    db.exec('DROP TABLE IF EXISTS _univ_precinct; DROP TABLE IF EXISTS _univ_universe; DROP TABLE IF EXISTS _univ_sub; DROP TABLE IF EXISTS _univ_priority');
+    // Cleanup
+    db.exec('DROP TABLE IF EXISTS _univ_precinct; DROP TABLE IF EXISTS _univ_universe; DROP TABLE IF EXISTS _univ_targeted');
 
-    return { totalInPrecincts, universeCount, subUniverseCount, priorityCount, extraCount, created, basicMode: false };
+    return { totalInPrecincts, universeCount, targetedCount, subUniverseCount, priorityCount, extraCount: subUniverseCount - priorityCount, created, basicMode: false };
   });
 
   const result = buildTx();
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Universe built: ' + result.totalInPrecincts + ' in precincts, ' + result.universeCount + ' universe, ' +
-    result.subUniverseCount + ' sub-universe, ' + result.priorityCount + ' priority, ' + result.extraCount + ' extra'
+    result.targetedCount + ' targeted'
   );
 
   res.json({
     success: true,
     total_in_precincts: result.totalInPrecincts,
     universe: result.universeCount,
+    targeted: result.targetedCount,
     sub_universe: result.subUniverseCount,
     priority: result.priorityCount,
     extra: result.extraCount,
@@ -1742,7 +1797,7 @@ router.post('/universe/build', (req, res) => {
 
 // Preview universe counts without creating lists
 router.post('/universe/preview', (req, res) => {
-  const { precincts, years_back, election_cycles, priority_elections,
+  const { precincts, years_back, election_cycles, priority_elections, election_groups,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
@@ -1752,8 +1807,8 @@ router.post('/universe/preview', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses });
 
-  // Check if election data exists — if not, use "basic mode" (all Step 1 voters)
   const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
+  const activeGroups = (election_groups || []).filter(g => g.min_count > 0);
 
   const previewTx = db.transaction(() => {
     db.exec('DROP TABLE IF EXISTS _prev_precinct');
@@ -1761,10 +1816,9 @@ router.post('/universe/preview', (req, res) => {
     db.prepare('INSERT OR IGNORE INTO _prev_precinct SELECT DISTINCT voters.id FROM voters' + step1.partyJoin + ' WHERE ' + step1.where).run(...step1.params);
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _prev_precinct').get() || { c: 0 }).c;
 
-    // Basic mode: no election data — all Step 1 voters count as the universe
     if (!hasElectionData) {
       db.exec('DROP TABLE IF EXISTS _prev_precinct');
-      return { totalInPrecincts, universeCount: totalInPrecincts, subUniverseCount: totalInPrecincts, priorityCount: 0, basicMode: true };
+      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, basicMode: true };
     }
 
     db.exec('DROP TABLE IF EXISTS _prev_universe');
@@ -1775,42 +1829,40 @@ router.post('/universe/preview', (req, res) => {
       WHERE ev.election_date >= ?`).run(cutoffDate);
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_universe').get() || { c: 0 }).c;
 
-    let subUniverseCount;
-    db.exec('DROP TABLE IF EXISTS _prev_sub');
-    if (election_cycles && election_cycles.length > 0) {
-      db.exec('CREATE TEMP TABLE _prev_sub (voter_id INTEGER PRIMARY KEY)');
-      const cPh = election_cycles.map(() => '?').join(',');
-      db.prepare(`INSERT INTO _prev_sub
-        SELECT DISTINCT ev.voter_id FROM election_votes ev
-        INNER JOIN _prev_universe pu ON ev.voter_id = pu.voter_id
-        WHERE ev.election_cycle IN (${cPh})`).run(...election_cycles);
-      subUniverseCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_sub').get() || { c: 0 }).c;
-    } else {
-      subUniverseCount = universeCount;
+    // Election group targeting
+    let targetedCount = universeCount;
+    if (activeGroups.length > 0) {
+      db.exec('DROP TABLE IF EXISTS _prev_targeted');
+      db.exec('CREATE TEMP TABLE _prev_targeted AS SELECT * FROM _prev_universe');
+      for (const g of activeGroups) {
+        const types = g.types || [g.type];
+        const typePh = types.map(() => '?').join(',');
+        db.exec('DROP TABLE IF EXISTS _prev_grp_tmp');
+        db.exec('CREATE TEMP TABLE _prev_grp_tmp (voter_id INTEGER PRIMARY KEY)');
+        db.prepare(`INSERT INTO _prev_grp_tmp
+          SELECT voter_id FROM election_votes
+          WHERE election_type IN (${typePh}) AND voter_id IN (SELECT voter_id FROM _prev_targeted)
+          GROUP BY voter_id HAVING COUNT(DISTINCT election_name) >= ?`).run(...types, g.min_count);
+        db.exec('DROP TABLE IF EXISTS _prev_targeted2');
+        db.exec('CREATE TEMP TABLE _prev_targeted2 AS SELECT voter_id FROM _prev_targeted WHERE voter_id IN (SELECT voter_id FROM _prev_grp_tmp)');
+        db.exec('DROP TABLE IF EXISTS _prev_targeted');
+        db.exec('ALTER TABLE _prev_targeted2 RENAME TO _prev_targeted');
+        db.exec('DROP TABLE IF EXISTS _prev_grp_tmp');
+      }
+      targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_targeted').get() || { c: 0 }).c;
+      db.exec('DROP TABLE IF EXISTS _prev_targeted');
     }
 
-    let priorityCount = 0;
-    if (priority_elections && priority_elections.length > 0 && subUniverseCount > 0) {
-      const subTable = (election_cycles && election_cycles.length > 0) ? '_prev_sub' : '_prev_universe';
-      if (!['_prev_sub', '_prev_universe'].includes(subTable)) throw new Error('Invalid table');
-      const pPh = priority_elections.map(() => '?').join(',');
-      priorityCount = (db.prepare(`SELECT COUNT(DISTINCT ev.voter_id) as c FROM election_votes ev
-        INNER JOIN ${subTable} ps ON ev.voter_id = ps.voter_id
-        WHERE ev.election_name IN (${pPh})`).get(...priority_elections) || { c: 0 }).c;
-    }
+    db.exec('DROP TABLE IF EXISTS _prev_precinct; DROP TABLE IF EXISTS _prev_universe');
 
-    db.exec('DROP TABLE IF EXISTS _prev_precinct; DROP TABLE IF EXISTS _prev_universe; DROP TABLE IF EXISTS _prev_sub');
-
-    return { totalInPrecincts, universeCount, subUniverseCount, priorityCount, basicMode: false };
+    return { totalInPrecincts, universeCount, targetedCount, basicMode: false };
   });
 
   const r = previewTx();
   res.json({
     total_in_precincts: r.totalInPrecincts,
     universe: r.universeCount,
-    sub_universe: r.subUniverseCount,
-    priority: r.priorityCount,
-    extra: r.subUniverseCount - r.priorityCount,
+    targeted: r.targetedCount,
     basic_mode: r.basicMode || false
   });
 });

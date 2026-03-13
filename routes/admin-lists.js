@@ -111,4 +111,113 @@ router.get('/admin-lists/:id/contacts', (req, res) => {
   res.json({ contacts, total: contacts.length, listName: list.name });
 });
 
+// Export for mailer — one row per household (dedup by address)
+router.get('/admin-lists/:id/export-mailer', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const households = db.prepare(`
+    SELECT
+      TRIM(v.address) as address,
+      TRIM(v.city) as city,
+      TRIM(v.zip) as zip,
+      v.precinct,
+      GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
+      COUNT(*) as household_size
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
+    ORDER BY v.city, v.address
+  `).all(req.params.id);
+
+  res.json({
+    list_name: list.name,
+    total_voters: households.reduce((s, h) => s + h.household_size, 0),
+    total_households: households.length,
+    households
+  });
+});
+
+// Get household summary for a list
+router.get('/admin-lists/:id/households', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const households = db.prepare(`
+    SELECT
+      TRIM(v.address) as address,
+      TRIM(v.city) as city,
+      TRIM(v.zip) as zip,
+      v.precinct,
+      GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
+      GROUP_CONCAT(v.id) as voter_ids,
+      COUNT(*) as household_size
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
+    ORDER BY v.city, v.address
+  `).all(req.params.id);
+
+  res.json({ households, total_households: households.length });
+});
+
+// Create a block walk from list voters
+router.post('/admin-lists/:id/create-walk', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const voters = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip, v.phone
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+  `).all(req.params.id);
+
+  if (voters.length === 0) return res.status(400).json({ error: 'List has no voters.' });
+
+  // Generate a join code
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let joinCode = '';
+  for (let i = 0; i < 6; i++) joinCode += chars[Math.floor(Math.random() * chars.length)];
+
+  const walkName = req.body.name || ('Walk from: ' + list.name);
+
+  // Create the walk
+  const walkResult = db.prepare(
+    'INSERT INTO block_walks (name, join_code, status) VALUES (?, ?, ?)'
+  ).run(walkName, joinCode, 'active');
+  const walkId = walkResult.lastInsertRowid;
+
+  // Add addresses from voters (group by household)
+  const insertAddr = db.prepare(
+    'INSERT INTO walk_addresses (walk_id, address, city, zip, voter_name, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+  );
+  const addrMap = {};
+  for (const v of voters) {
+    const key = (v.address || '').toLowerCase().trim() + '|' + (v.city || '').toLowerCase().trim() + '|' + (v.zip || '').trim();
+    if (!addrMap[key]) {
+      addrMap[key] = { address: v.address, city: v.city, zip: v.zip, names: [] };
+    }
+    addrMap[key].names.push((v.first_name + ' ' + v.last_name).trim());
+  }
+  let addedAddresses = 0;
+  const addrs = Object.values(addrMap);
+  for (let i = 0; i < addrs.length; i++) {
+    const a = addrs[i];
+    insertAddr.run(walkId, a.address || '', a.city || '', a.zip || '', a.names.join(', '), i);
+    addedAddresses++;
+  }
+
+  res.json({
+    success: true,
+    walk_id: walkId,
+    join_code: joinCode,
+    walk_name: walkName,
+    added_addresses: addedAddresses,
+    total_voters: voters.length
+  });
+});
+
 module.exports = router;
