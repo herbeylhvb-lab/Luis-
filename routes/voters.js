@@ -1820,12 +1820,29 @@ router.post('/universe/build', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections });
 
+  // Check if election data exists
+  const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
+
   const buildTx = db.transaction(() => {
     // Step 1: filtered voters -> temp table
     db.exec('DROP TABLE IF EXISTS _univ_precinct');
     db.exec('CREATE TEMP TABLE _univ_precinct (voter_id INTEGER PRIMARY KEY)');
     db.prepare('INSERT OR IGNORE INTO _univ_precinct SELECT DISTINCT voters.id FROM voters' + step1.partyJoin + ' WHERE ' + step1.where).run(...step1.params);
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _univ_precinct').get() || { c: 0 }).c;
+
+    // Basic mode: no election data — use all Step 1 voters as the universe
+    if (!hasElectionData) {
+      const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)');
+      const created = {};
+      if (list_name_universe) {
+        const r = insertList.run(list_name_universe, 'All registered voters matching filters', 'general');
+        const listId = r.lastInsertRowid;
+        const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_precinct').run(listId);
+        created.universe = { listId, added: added.changes };
+      }
+      db.exec('DROP TABLE IF EXISTS _univ_precinct');
+      return { totalInPrecincts, universeCount: totalInPrecincts, subUniverseCount: totalInPrecincts, priorityCount: 0, extraCount: totalInPrecincts, created, basicMode: true };
+    }
 
     // Step 2: universe — voted in last N years
     db.exec('DROP TABLE IF EXISTS _univ_universe');
@@ -1895,7 +1912,7 @@ router.post('/universe/build', (req, res) => {
     // Cleanup temp tables
     db.exec('DROP TABLE IF EXISTS _univ_precinct; DROP TABLE IF EXISTS _univ_universe; DROP TABLE IF EXISTS _univ_sub; DROP TABLE IF EXISTS _univ_priority');
 
-    return { totalInPrecincts, universeCount, subUniverseCount, priorityCount, extraCount, created };
+    return { totalInPrecincts, universeCount, subUniverseCount, priorityCount, extraCount, created, basicMode: false };
   });
 
   const result = buildTx();
@@ -1928,11 +1945,20 @@ router.post('/universe/preview', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections });
 
+  // Check if election data exists — if not, use "basic mode" (all Step 1 voters)
+  const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
+
   const previewTx = db.transaction(() => {
     db.exec('DROP TABLE IF EXISTS _prev_precinct');
     db.exec('CREATE TEMP TABLE _prev_precinct (voter_id INTEGER PRIMARY KEY)');
     db.prepare('INSERT OR IGNORE INTO _prev_precinct SELECT DISTINCT voters.id FROM voters' + step1.partyJoin + ' WHERE ' + step1.where).run(...step1.params);
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _prev_precinct').get() || { c: 0 }).c;
+
+    // Basic mode: no election data — all Step 1 voters count as the universe
+    if (!hasElectionData) {
+      db.exec('DROP TABLE IF EXISTS _prev_precinct');
+      return { totalInPrecincts, universeCount: totalInPrecincts, subUniverseCount: totalInPrecincts, priorityCount: 0, basicMode: true };
+    }
 
     db.exec('DROP TABLE IF EXISTS _prev_universe');
     db.exec('CREATE TEMP TABLE _prev_universe (voter_id INTEGER PRIMARY KEY)');
@@ -1958,7 +1984,6 @@ router.post('/universe/preview', (req, res) => {
 
     let priorityCount = 0;
     if (priority_elections && priority_elections.length > 0 && subUniverseCount > 0) {
-      // Table name from hardcoded conditional — whitelist check for defense-in-depth
       const subTable = (election_cycles && election_cycles.length > 0) ? '_prev_sub' : '_prev_universe';
       if (!['_prev_sub', '_prev_universe'].includes(subTable)) throw new Error('Invalid table');
       const pPh = priority_elections.map(() => '?').join(',');
@@ -1969,7 +1994,7 @@ router.post('/universe/preview', (req, res) => {
 
     db.exec('DROP TABLE IF EXISTS _prev_precinct; DROP TABLE IF EXISTS _prev_universe; DROP TABLE IF EXISTS _prev_sub');
 
-    return { totalInPrecincts, universeCount, subUniverseCount, priorityCount };
+    return { totalInPrecincts, universeCount, subUniverseCount, priorityCount, basicMode: false };
   });
 
   const r = previewTx();
@@ -1978,7 +2003,8 @@ router.post('/universe/preview', (req, res) => {
     universe: r.universeCount,
     sub_universe: r.subUniverseCount,
     priority: r.priorityCount,
-    extra: r.subUniverseCount - r.priorityCount
+    extra: r.subUniverseCount - r.priorityCount,
+    basic_mode: r.basicMode || false
   });
 });
 

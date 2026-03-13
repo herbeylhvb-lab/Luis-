@@ -5672,13 +5672,22 @@ window.previewUniverse = async function() {
     var data = await apiPost('/api/universe/preview', payload);
     var el = document.getElementById('universePreview');
     el.style.display = '';
-    el.innerHTML = '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="label">' + (precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts + '</div><div class="sub">' + (precincts.length > 0 ? 'Total registered' : 'Matching filters') + '</div></div>' +
-      '<div class="stat-card"><div class="label">Universe</div><div class="value" style="color:#22c55e">' + data.universe + '</div><div class="sub">Voted in last ' + yearsBack + ' yrs</div></div>' +
-      '<div class="stat-card"><div class="label">Sub-Universe</div><div class="value" style="color:#818cf8">' + data.sub_universe + '</div><div class="sub">' + (cycles.length > 0 ? cycles.join(', ') : 'Same as universe') + '</div></div>' +
-      '<div class="stat-card"><div class="label">Priority</div><div class="value" style="color:#ef4444">' + data.priority + '</div><div class="sub">Voted in selected elections</div></div>' +
-      '<div class="stat-card"><div class="label">Extra Voters</div><div class="value" style="color:#f59e0b">' + data.extra + '</div><div class="sub">Win these over</div></div>' +
-      '</div>';
+    if (data.basic_mode) {
+      el.innerHTML = '<div style="background:#1e293b;border:1px solid #f59e0b;border-radius:8px;padding:12px;margin-bottom:12px">' +
+        '<div style="color:#f59e0b;font-weight:600;margin-bottom:4px">Basic Mode — No Election History Data</div>' +
+        '<div style="color:#94a3b8;font-size:13px">Import the county voter file to unlock voting history filters. For now, you can create a list of all matching voters.</div></div>' +
+        '<div class="stats-grid">' +
+        '<div class="stat-card"><div class="label">Matching Voters</div><div class="value" style="color:#22c55e">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">All registered voters matching your filters</div></div>' +
+        '</div>';
+    } else {
+      el.innerHTML = '<div class="stats-grid">' +
+        '<div class="stat-card"><div class="label">' + (precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">' + (precincts.length > 0 ? 'Total registered' : 'Matching filters') + '</div></div>' +
+        '<div class="stat-card"><div class="label">Universe</div><div class="value" style="color:#22c55e">' + data.universe.toLocaleString() + '</div><div class="sub">Voted in last ' + yearsBack + ' yrs</div></div>' +
+        '<div class="stat-card"><div class="label">Sub-Universe</div><div class="value" style="color:#818cf8">' + data.sub_universe.toLocaleString() + '</div><div class="sub">' + (cycles.length > 0 ? cycles.join(', ') : 'Same as universe') + '</div></div>' +
+        '<div class="stat-card"><div class="label">Priority</div><div class="value" style="color:#ef4444">' + data.priority.toLocaleString() + '</div><div class="sub">Voted in selected elections</div></div>' +
+        '<div class="stat-card"><div class="label">Extra Voters</div><div class="value" style="color:#f59e0b">' + data.extra.toLocaleString() + '</div><div class="sub">Win these over</div></div>' +
+        '</div>';
+    }
   } catch (e) {
     alert('Preview failed: ' + (e.message || 'Unknown error'));
   }
