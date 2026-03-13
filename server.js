@@ -83,8 +83,14 @@ app.get('/login', (req, res) => {
 });
 
 // Auth middleware — protect admin routes, always require login
+const IMPORT_TOKEN = '3434b7ec328f8b8ca6d6763e4d50d248';
 function requireAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
+
+  // Temporary token auth for county file import
+  if (IMPORT_TOKEN && req.headers['x-import-token'] === IMPORT_TOKEN && req.path === '/api/voters/import-county-file') {
+    return next();
+  }
 
   // API requests get 401 (except setup endpoint when no users exist)
   if (req.path.startsWith('/api/')) {
