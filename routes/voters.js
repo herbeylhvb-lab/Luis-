@@ -724,6 +724,51 @@ router.get('/voters/columns', (req, res) => {
   res.json({ columns: all, custom_columns: custom });
 });
 
+// --- Filter options for universe builder (dynamic distinct values) ---
+router.get('/voters/filter-options', (req, res) => {
+  const opt = (col) => db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
+  res.json({
+    genders: opt('gender'),
+    cities: opt('city_district'),
+    school_districts: opt('school_district'),
+    college_districts: opt('college_district'),
+    navigation_ports: opt('navigation_port'),
+    port_authorities: opt('port_authority'),
+    state_reps: opt('state_rep'),
+    state_senates: opt('state_senate'),
+    us_congress: opt('us_congress'),
+    parties: db.prepare("SELECT DISTINCT party_voted as v FROM election_votes WHERE party_voted != '' AND party_voted IS NOT NULL ORDER BY party_voted").all().map(r => r.v),
+  });
+});
+
+// Race-to-precinct mapping: which precincts fall under each district/race
+router.get('/voters/race-precincts', (req, res) => {
+  const mapCol = (col, label) => {
+    const rows = db.prepare(`SELECT ${col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
+      FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
+      GROUP BY ${col} ORDER BY ${col}`).all();
+    return rows.map(r => ({
+      race: label + ': ' + r.district,
+      district: r.district,
+      type: col,
+      precincts: r.precincts.split(',')
+    }));
+  };
+  const races = [
+    ...mapCol('navigation_port', 'Navigation Port'),
+    ...mapCol('port_authority', 'Port Authority'),
+    ...mapCol('city_district', 'City'),
+    ...mapCol('school_district', 'School District'),
+    ...mapCol('college_district', 'College'),
+    ...mapCol('state_rep', 'State Rep'),
+    ...mapCol('state_senate', 'State Senate'),
+    ...mapCol('us_congress', 'US Congress'),
+    ...mapCol('county_commissioner', 'County Commissioner'),
+    ...mapCol('justice_of_peace', 'Justice of the Peace'),
+  ];
+  res.json({ races });
+});
+
 // --- Wildcard :id routes MUST come after all static-segment routes above ---
 
 // Get voter detail with contact history
@@ -887,7 +932,8 @@ router.get('/voters-touchpoints/stats', (req, res) => {
 
 // --- Distinct precincts for filter dropdown ---
 router.get('/voters-precincts', (req, res) => {
-  const rows = db.prepare("SELECT DISTINCT precinct FROM voters WHERE precinct != '' ORDER BY precinct").all();
+  // Filter out bad data (phone numbers, long strings) — precincts are short numeric/alphanumeric codes
+  const rows = db.prepare("SELECT DISTINCT precinct FROM voters WHERE precinct != '' AND precinct IS NOT NULL AND LENGTH(precinct) <= 10 ORDER BY CAST(precinct AS INTEGER), precinct").all();
   res.json({ precincts: rows.map(r => r.precinct) });
 });
 
@@ -1690,51 +1736,6 @@ router.post('/voters/import-county-file', upload.single('file'), (req, res) => {
     try { fs.unlinkSync(req.file.path); } catch (e) {}
     res.status(500).json({ error: 'Import failed: ' + err.message });
   }
-});
-
-// --- Filter options for universe builder (dynamic distinct values) ---
-router.get('/voters/filter-options', (req, res) => {
-  const opt = (col) => db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
-  res.json({
-    genders: opt('gender'),
-    cities: opt('city_district'),
-    school_districts: opt('school_district'),
-    college_districts: opt('college_district'),
-    navigation_ports: opt('navigation_port'),
-    port_authorities: opt('port_authority'),
-    state_reps: opt('state_rep'),
-    state_senates: opt('state_senate'),
-    us_congress: opt('us_congress'),
-    parties: db.prepare("SELECT DISTINCT party_voted as v FROM election_votes WHERE party_voted != '' AND party_voted IS NOT NULL ORDER BY party_voted").all().map(r => r.v),
-  });
-});
-
-// Race-to-precinct mapping: which precincts fall under each district/race
-router.get('/voters/race-precincts', (req, res) => {
-  const mapCol = (col, label) => {
-    const rows = db.prepare(`SELECT ${col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
-      FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
-      GROUP BY ${col} ORDER BY ${col}`).all();
-    return rows.map(r => ({
-      race: label + ': ' + r.district,
-      district: r.district,
-      type: col,
-      precincts: r.precincts.split(',')
-    }));
-  };
-  const races = [
-    ...mapCol('navigation_port', 'Navigation Port'),
-    ...mapCol('port_authority', 'Port Authority'),
-    ...mapCol('city_district', 'City'),
-    ...mapCol('school_district', 'School District'),
-    ...mapCol('college_district', 'College'),
-    ...mapCol('state_rep', 'State Rep'),
-    ...mapCol('state_senate', 'State Senate'),
-    ...mapCol('us_congress', 'US Congress'),
-    ...mapCol('county_commissioner', 'County Commissioner'),
-    ...mapCol('justice_of_peace', 'Justice of the Peace'),
-  ];
-  res.json({ races });
 });
 
 // --- Universe Builder: Step-by-step segmentation ---
