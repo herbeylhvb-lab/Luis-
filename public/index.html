@@ -1528,6 +1528,7 @@ tr:hover td{background:#1e293b80}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <h3 style="margin-bottom:0" id="candidateDetailTitle">Candidate Detail</h3>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="shareCandidateCode()">📤 Share via Text</button>
             <button class="btn btn-sm btn-warning" onclick="viewCandidateMasterList()">&#128203; Master List</button>
             <button class="btn btn-sm btn-primary" onclick="addCaptainToCandidate()">+ Add Captain</button>
             <button class="btn btn-sm btn-success" onclick="addListToCandidate()">+ Add List</button>
@@ -5805,7 +5806,7 @@ async function loadCandidates() {
       var portalUrl = window.location.origin + '/candidate?code=' + c.code;
       var tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
-      tr.onclick = function() { showCandidateDetail(c.id, c.name); };
+      tr.onclick = function() { showCandidateDetail(c.id, c.name, c.code); };
 
       var tdName = document.createElement('td');
       var strong = document.createElement('strong');
@@ -5907,8 +5908,10 @@ async function activateCandidate(id, name) {
   loadCandidates();
 }
 
-async function showCandidateDetail(id, name) {
+var _candidateDetailCode = null;
+async function showCandidateDetail(id, name, code) {
   _candidateDetailId = id;
+  _candidateDetailCode = code || null;
   document.getElementById('candidateDetailTitle').textContent = name + ' \u2014 Detail';
   document.getElementById('candidateDetailCard').style.display = '';
   try {
@@ -6106,7 +6109,13 @@ async function showCandidateDetail(id, name) {
   } catch (e) { console.error('showCandidateDetail error:', e); }
 }
 
-function closeCandidateDetail() { _candidateDetailId = null; document.getElementById('candidateDetailCard').style.display = 'none'; }
+function closeCandidateDetail() { _candidateDetailId = null; _candidateDetailCode = null; document.getElementById('candidateDetailCard').style.display = 'none'; }
+
+function shareCandidateCode() {
+  if (!_candidateDetailCode) { alert('No candidate code available.'); return; }
+  var name = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+  showCandidateShareModal(name, _candidateDetailCode, false);
+}
 
 // Master List — shows all unique voters across all captains for the current candidate
 async function viewCandidateMasterList() {
