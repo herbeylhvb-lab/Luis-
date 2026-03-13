@@ -980,12 +980,21 @@ tr:hover td{background:#1e293b80}
         <h3>Universe Builder</h3>
         <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Build your voter universe in 3 steps: select precincts, filter by voting history, then identify priority targets.</p>
 
-        <!-- Step 0: Import Election History -->
+        <!-- Step 0: Import County Voter File -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
-          <h4 style="margin-bottom:8px;font-size:14px;color:#818cf8">Step 0: Import Election History Data</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:12px">Upload county voter file with election participation columns. Map each election column to a name, date, and cycle (November, March, May, etc.).</p>
-          <button class="btn btn-sm btn-primary" id="btnShowElectionImport" onclick="toggleElectionImport()">Import Election Data</button>
-          <div id="electionImportPanel" style="display:none;margin-top:12px">
+          <h4 style="margin-bottom:8px;font-size:14px;color:#818cf8">Step 0: Import County Voter File</h4>
+          <p style="color:#64748b;font-size:12px;margin-bottom:12px">Upload the Cameron County voter registration file (.xlsx) to import demographics, districts, and election history.</p>
+          <button class="btn btn-sm btn-primary" id="btnShowCountyImport" onclick="toggleCountyImport()">Import County File</button>
+          <div id="countyImportPanel" style="display:none;margin-top:12px">
+            <div class="form-group"><label>Upload County Voter File (.xlsx)</label><input type="file" id="countyFileUpload" accept=".xlsx,.xls" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:13px;width:100%"></div>
+            <button class="btn btn-sm btn-success" onclick="uploadCountyFile()">Upload &amp; Import</button>
+            <div id="countyImportProgress" style="display:none;margin-top:8px"><div style="background:#334155;border-radius:4px;height:8px;overflow:hidden"><div id="countyImportBar" style="background:#818cf8;height:100%;width:0%;transition:width 0.5s"></div></div><div id="countyImportStatus" style="margin-top:4px;font-size:13px;color:#94a3b8">Uploading...</div></div>
+          </div>
+          <div id="countyImportResult" style="margin-top:12px"></div>
+
+          <!-- Legacy CSV election import (collapsed) -->
+          <details style="margin-top:12px"><summary style="cursor:pointer;color:#64748b;font-size:12px">Or import election data from CSV...</summary>
+          <div style="margin-top:8px">
             <div class="form-group"><label>Upload Election CSV</label><input type="file" id="electionFileUpload" accept=".csv,.txt" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:13px;width:100%" onchange="loadElectionFile(this)"></div>
             <div class="form-group"><label>Or Paste CSV Data</label><textarea id="electionCsvData" rows="5" placeholder="registration_number,first_name,last_name,address,nov_2024,mar_2024,may_2023,nov_2022,port_2023&#10;REG10001,John,Doe,123 Main St,Y,N,Y,Y,Y"></textarea></div>
             <div id="electionColumnMapper" style="display:none;margin-bottom:12px"></div>
@@ -995,6 +1004,7 @@ tr:hover td{background:#1e293b80}
             </div>
             <div id="electionImportStatus" style="margin-top:8px;font-size:13px;color:#94a3b8"></div>
           </div>
+          </details>
           <div id="electionsSummary" style="margin-top:12px"></div>
         </div>
 
@@ -1006,6 +1016,55 @@ tr:hover td{background:#1e293b80}
           <div style="margin-top:8px;display:flex;gap:8px">
             <button class="btn btn-xs btn-secondary" onclick="selectAllPrecincts(true)">Select All</button>
             <button class="btn btn-xs btn-secondary" onclick="selectAllPrecincts(false)">Select None</button>
+          </div>
+        </div>
+
+        <!-- Step 1b: Demographics & District Filters -->
+        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
+          <h4 style="margin-bottom:8px;font-size:14px;color:#06b6d4">Step 1b: Filter by Demographics &amp; Districts</h4>
+          <p style="color:#64748b;font-size:12px;margin-bottom:12px">Narrow your universe by demographics, city, school district, port district, and more. Leave blank to include all.</p>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <!-- Gender -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Gender</label>
+            <div id="filterGender" style="display:flex;gap:8px;margin-top:4px"></div></div>
+            <!-- Age Range -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Age Range</label>
+            <div style="display:flex;gap:4px;align-items:center;margin-top:4px"><input type="number" id="filterAgeMin" placeholder="Min" min="18" max="120" style="width:70px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"><span style="color:#64748b">to</span><input type="number" id="filterAgeMax" placeholder="Max" min="18" max="120" style="width:70px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"></div></div>
+            <!-- Party -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Party (Primary History)</label>
+            <div id="filterParty" style="display:flex;gap:8px;margin-top:4px"></div></div>
+            <!-- State Rep -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">State Representative</label>
+            <div id="filterStateRep" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div></div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <!-- Minimum Elections Voted -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Minimum Elections Voted In</label>
+            <div style="display:flex;gap:6px;align-items:center;margin-top:4px"><input type="number" id="filterMinElections" placeholder="e.g. 3" min="1" max="39" style="width:80px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"><span style="color:#64748b;font-size:11px">Only voters who voted in at least this many elections</span></div></div>
+            <div></div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <!-- City -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">City</label>
+            <div id="filterCity" style="max-height:120px;overflow-y:auto;margin-top:4px"></div></div>
+            <!-- School District -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">School District</label>
+            <div id="filterSchool" style="max-height:120px;overflow-y:auto;margin-top:4px"></div></div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+            <!-- Port District (Navigation) -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Navigation/Port District</label>
+            <div id="filterNavPort" style="margin-top:4px"></div></div>
+            <!-- Port Authority -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Port Authority</label>
+            <div id="filterPortAuth" style="margin-top:4px"></div></div>
+            <!-- College -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">College District</label>
+            <div id="filterCollege" style="margin-top:4px"></div></div>
           </div>
         </div>
 
@@ -5292,6 +5351,7 @@ function showVoterQrModal(url, voterName) {
 
 var universeElections = [];
 var electionColumnMappings = [];
+var universeFilterOptions = {};
 
 async function loadUniverseBuilder() {
   // Load precincts
@@ -5314,7 +5374,98 @@ async function loadUniverseBuilder() {
     renderElectionsSummary();
     renderCycleAndPriorityLists();
   } catch (e) {}
+
+  // Load filter options for demographics/districts
+  try {
+    universeFilterOptions = await api('/api/voters/filter-options');
+    renderFilterOptions();
+  } catch (e) {}
 }
+
+function renderFilterOptions() {
+  var fo = universeFilterOptions;
+  function checkboxes(containerId, values, cls) {
+    var el = document.getElementById(containerId);
+    if (!values || values.length === 0) { el.innerHTML = '<span style="color:#64748b;font-size:12px">No data</span>'; return; }
+    el.innerHTML = values.map(function(v) {
+      return '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:2px 0"><input type="checkbox" class="' + cls + '" value="' + escHtml(v) + '" style="accent-color:#06b6d4"> ' + escHtml(v) + '</label>';
+    }).join('');
+  }
+  checkboxes('filterGender', fo.genders || [], 'filter-gender-cb');
+  checkboxes('filterParty', fo.parties || [], 'filter-party-cb');
+  checkboxes('filterStateRep', fo.state_reps || [], 'filter-staterep-cb');
+  checkboxes('filterCity', fo.cities || [], 'filter-city-cb');
+  checkboxes('filterSchool', fo.school_districts || [], 'filter-school-cb');
+  checkboxes('filterNavPort', fo.navigation_ports || [], 'filter-navport-cb');
+  checkboxes('filterPortAuth', fo.port_authorities || [], 'filter-portauth-cb');
+  checkboxes('filterCollege', fo.college_districts || [], 'filter-college-cb');
+}
+
+function getSelectedFilters() {
+  var checked = function(cls) { return Array.from(document.querySelectorAll('.' + cls + ':checked')).map(function(cb) { return cb.value; }); };
+  var ageMin = document.getElementById('filterAgeMin').value;
+  var ageMax = document.getElementById('filterAgeMax').value;
+  var minElections = document.getElementById('filterMinElections').value;
+  return {
+    genders: checked('filter-gender-cb'),
+    parties: checked('filter-party-cb'),
+    state_reps: checked('filter-staterep-cb'),
+    cities: checked('filter-city-cb'),
+    school_districts: checked('filter-school-cb'),
+    navigation_ports: checked('filter-navport-cb'),
+    port_authorities: checked('filter-portauth-cb'),
+    college_districts: checked('filter-college-cb'),
+    age_min: ageMin ? parseInt(ageMin) : null,
+    age_max: ageMax ? parseInt(ageMax) : null,
+    min_elections: minElections ? parseInt(minElections) : null
+  };
+}
+
+window.toggleCountyImport = function() {
+  var panel = document.getElementById('countyImportPanel');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+};
+
+window.uploadCountyFile = async function() {
+  var fileInput = document.getElementById('countyFileUpload');
+  if (!fileInput.files || !fileInput.files[0]) { alert('Please select an .xlsx file first.'); return; }
+  var file = fileInput.files[0];
+  var progressDiv = document.getElementById('countyImportProgress');
+  var statusEl = document.getElementById('countyImportStatus');
+  var barEl = document.getElementById('countyImportBar');
+  progressDiv.style.display = '';
+  barEl.style.width = '10%';
+  statusEl.textContent = 'Uploading ' + file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)...';
+
+  var formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    barEl.style.width = '40%';
+    statusEl.textContent = 'Processing... this may take a few minutes for large files.';
+    var resp = await fetch('/api/voters/import-county-file', { method: 'POST', body: formData, credentials: 'same-origin' });
+    var data = await resp.json();
+    barEl.style.width = '100%';
+    if (data.success) {
+      statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Import complete!</span>';
+      document.getElementById('countyImportResult').innerHTML =
+        '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:12px;font-size:13px">' +
+        '<div style="font-weight:600;color:#22c55e;margin-bottom:4px">County File Imported Successfully</div>' +
+        '<div style="color:#94a3b8">Total rows: <strong>' + data.total_rows + '</strong></div>' +
+        '<div style="color:#94a3b8">New voters created: <strong style="color:#22c55e">' + data.created + '</strong></div>' +
+        '<div style="color:#94a3b8">Existing updated: <strong style="color:#818cf8">' + data.updated + '</strong></div>' +
+        '<div style="color:#94a3b8">Election votes added: <strong style="color:#f59e0b">' + data.votes_inserted + '</strong></div>' +
+        '</div>';
+      // Refresh filter options and elections
+      loadUniverseBuilder();
+    } else {
+      statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(data.error || 'Unknown error') + '</span>';
+    }
+  } catch (e) {
+    barEl.style.width = '100%';
+    statusEl.innerHTML = '<span style="color:#ef4444">Upload failed: ' + escHtml(e.message || 'Network error') + '</span>';
+  }
+};
 
 function renderElectionsSummary() {
   var el = document.getElementById('electionsSummary');
@@ -5464,13 +5615,26 @@ window.previewUniverse = async function() {
   var yearsBack = parseInt(document.getElementById('universeYearsBack').value) || 8;
   var cycles = Array.from(document.querySelectorAll('.univ-cycle-cb:checked')).map(function(cb) { return cb.value; });
   var priorityElections = Array.from(document.querySelectorAll('.univ-priority-cb:checked')).map(function(cb) { return cb.value; });
+  var filters = getSelectedFilters();
 
   try {
-    var data = await apiPost('/api/universe/preview', {
+    var payload = {
       precincts: precincts, years_back: yearsBack,
       election_cycles: cycles.length > 0 ? cycles : null,
       priority_elections: priorityElections.length > 0 ? priorityElections : null
-    });
+    };
+    if (filters.genders.length) payload.genders = filters.genders;
+    if (filters.age_min) payload.age_min = filters.age_min;
+    if (filters.age_max) payload.age_max = filters.age_max;
+    if (filters.cities.length) payload.cities = filters.cities;
+    if (filters.school_districts.length) payload.school_districts = filters.school_districts;
+    if (filters.college_districts.length) payload.college_districts = filters.college_districts;
+    if (filters.navigation_ports.length) payload.navigation_ports = filters.navigation_ports;
+    if (filters.port_authorities.length) payload.port_authorities = filters.port_authorities;
+    if (filters.state_reps.length) payload.state_reps = filters.state_reps;
+    if (filters.parties.length) payload.parties = filters.parties;
+    if (filters.min_elections) payload.min_elections = filters.min_elections;
+    var data = await apiPost('/api/universe/preview', payload);
     var el = document.getElementById('universePreview');
     el.style.display = '';
     el.innerHTML = '<div class="stats-grid">' +
@@ -5490,6 +5654,7 @@ window.buildUniverse = async function() {
   var yearsBack = parseInt(document.getElementById('universeYearsBack').value) || 8;
   var cycles = Array.from(document.querySelectorAll('.univ-cycle-cb:checked')).map(function(cb) { return cb.value; });
   var priorityElections = Array.from(document.querySelectorAll('.univ-priority-cb:checked')).map(function(cb) { return cb.value; });
+  var filters = getSelectedFilters();
 
   var today = new Date().toISOString().split('T')[0];
   var univName = prompt('Universe list name:', 'Universe - Active Voters ' + today);
@@ -5498,14 +5663,26 @@ window.buildUniverse = async function() {
   var prioName = priorityElections.length > 0 ? prompt('Priority list name:', 'Priority Voters ' + today) : null;
 
   try {
-    var data = await apiPost('/api/universe/build', {
+    var payload = {
       precincts: precincts, years_back: yearsBack,
       election_cycles: cycles.length > 0 ? cycles : null,
       priority_elections: priorityElections.length > 0 ? priorityElections : null,
       list_name_universe: univName,
       list_name_sub: subName || null,
       list_name_priority: prioName || null
-    });
+    };
+    if (filters.genders.length) payload.genders = filters.genders;
+    if (filters.age_min) payload.age_min = filters.age_min;
+    if (filters.age_max) payload.age_max = filters.age_max;
+    if (filters.cities.length) payload.cities = filters.cities;
+    if (filters.school_districts.length) payload.school_districts = filters.school_districts;
+    if (filters.college_districts.length) payload.college_districts = filters.college_districts;
+    if (filters.navigation_ports.length) payload.navigation_ports = filters.navigation_ports;
+    if (filters.port_authorities.length) payload.port_authorities = filters.port_authorities;
+    if (filters.state_reps.length) payload.state_reps = filters.state_reps;
+    if (filters.parties.length) payload.parties = filters.parties;
+    if (filters.min_elections) payload.min_elections = filters.min_elections;
+    var data = await apiPost('/api/universe/build', payload);
     var el = document.getElementById('universeBuildResult');
     el.style.display = '';
     var html = '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:16px;color:#22c55e;font-weight:600;margin-bottom:12px">Universe built successfully!</div>' +

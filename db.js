@@ -436,6 +436,28 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_county_file_id ON voters(co
 addColumn("ALTER TABLE voters ADD COLUMN state_file_id TEXT DEFAULT ''");
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(state_file_id)"); } catch (e) { /* exists */ }
 
+// --- Voter demographics & district assignments (from county voter file) ---
+addColumn("ALTER TABLE voters ADD COLUMN gender TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN age INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE voters ADD COLUMN county_commissioner TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN justice_of_peace TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN state_board_ed TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN state_rep TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN state_senate TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN us_congress TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN city_district TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN school_district TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN college_district TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN hospital_district TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN navigation_port TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN port_authority TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_gender ON voters(gender)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_rep ON voters(state_rep)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_us_congress ON voters(us_congress)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_school_district ON voters(school_district)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_port_authority ON voters(port_authority)"); } catch (e) { /* exists */ }
+
 // --- Users table (authentication) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (

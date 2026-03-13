@@ -1,10 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const XLSX = require('xlsx');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
 const db = require('../db');
 const { generateQrToken } = require('../db');
 const { phoneDigits, normalizePhone } = require('../utils');
 const { queueSync } = require('../lib/google-sheets-sync');
+
+// Multer config for county voter file upload (50MB limit, temp directory)
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Fire-and-forget sync after data mutations
 function triggerSync(req) {
@@ -1462,26 +1470,327 @@ router.post('/election-votes/bulk-remove', (req, res) => {
   res.json({ success: true, removed });
 });
 
+// --- Import Cameron County Voter File (XLSX) via file upload ---
+// Runs on the server against the production DB (Railway volume)
+
+const ELECTION_MAP = {
+  'GN16': { name: 'General Nov 2016', date: '2016-11-08', type: 'general', cycle: 'november' },
+  'GN18': { name: 'General Nov 2018', date: '2018-11-06', type: 'general', cycle: 'november' },
+  'GN20': { name: 'General Nov 2020', date: '2020-11-03', type: 'general', cycle: 'november' },
+  'GN22': { name: 'General Nov 2022', date: '2022-11-08', type: 'general', cycle: 'november' },
+  'GN24': { name: 'General Nov 2024', date: '2024-11-05', type: 'general', cycle: 'november' },
+  'P16':  { name: 'Primary Mar 2016', date: '2016-03-01', type: 'primary', cycle: 'march' },
+  'P18':  { name: 'Primary Mar 2018', date: '2018-03-06', type: 'primary', cycle: 'march' },
+  'P20':  { name: 'Primary Mar 2020', date: '2020-03-03', type: 'primary', cycle: 'march' },
+  'P22':  { name: 'Primary Mar 2022', date: '2022-03-01', type: 'primary', cycle: 'march' },
+  'P24':  { name: 'Primary Mar 2024', date: '2024-03-05', type: 'primary', cycle: 'march' },
+  'PR18': { name: 'Primary Runoff May 2018', date: '2018-05-22', type: 'primary_runoff', cycle: 'may' },
+  'PR20': { name: 'Primary Runoff Jul 2020', date: '2020-07-14', type: 'primary_runoff', cycle: 'july' },
+  'PR22': { name: 'Primary Runoff May 2022', date: '2022-05-24', type: 'primary_runoff', cycle: 'may' },
+  'PR24': { name: 'Primary Runoff May 2024', date: '2024-05-28', type: 'primary_runoff', cycle: 'may' },
+  'GR20': { name: 'General Runoff 2020', date: '2020-12-15', type: 'general_runoff', cycle: 'december' },
+  'GR24': { name: 'General Runoff 2024', date: '2024-12-14', type: 'general_runoff', cycle: 'december' },
+  'R622': { name: 'Runoff Jun 2022', date: '2022-06-14', type: 'runoff', cycle: 'june' },
+  'R624': { name: 'Runoff Jun 2024', date: '2024-06-18', type: 'runoff', cycle: 'june' },
+  'R625': { name: 'Runoff Jun 2025', date: '2025-06-17', type: 'runoff', cycle: 'june' },
+  'CA19': { name: 'Constitutional Amendment 2019', date: '2019-11-05', type: 'constitutional', cycle: 'november' },
+  'CA2023': { name: 'Constitutional Amendment 2023', date: '2023-11-07', type: 'constitutional', cycle: 'november' },
+  'CA21': { name: 'Constitutional Amendment 2021', date: '2021-11-02', type: 'constitutional', cycle: 'november' },
+  'CA25': { name: 'Constitutional Amendment 2025', date: '2025-05-03', type: 'constitutional', cycle: 'may' },
+  'CDD5': { name: 'City/District Dec 5', date: '2020-12-05', type: 'local', cycle: 'december' },
+  'SP34': { name: 'Special Election 2023', date: '2023-11-07', type: 'special', cycle: 'november' },
+  '516':  { name: 'Local May 2016', date: '2016-05-07', type: 'local', cycle: 'may' },
+  '517':  { name: 'Local May 2017', date: '2017-05-06', type: 'local', cycle: 'may' },
+  '518':  { name: 'Local May 2018', date: '2018-05-05', type: 'local', cycle: 'may' },
+  '519':  { name: 'Local May 2019', date: '2019-05-04', type: 'local', cycle: 'may' },
+  '521':  { name: 'Local May 2021', date: '2021-05-01', type: 'local', cycle: 'may' },
+  '522':  { name: 'Local May 2022', date: '2022-05-07', type: 'local', cycle: 'may' },
+  '523':  { name: 'Local May 2023', date: '2023-05-06', type: 'local', cycle: 'may' },
+  '524':  { name: 'Local May 2024', date: '2024-05-04', type: 'local', cycle: 'may' },
+  '525':  { name: 'Local May 2025', date: '2025-05-03', type: 'local', cycle: 'may' },
+  '616':  { name: 'Local Jun 2016', date: '2016-06-18', type: 'local_runoff', cycle: 'june' },
+  '618':  { name: 'Local Jun 2018', date: '2018-06-16', type: 'local_runoff', cycle: 'june' },
+  '619':  { name: 'Local Jun 2019', date: '2019-06-15', type: 'local_runoff', cycle: 'june' },
+  '621':  { name: 'Local Jun 2021', date: '2021-06-05', type: 'local_runoff', cycle: 'june' },
+  '623':  { name: 'Local Jun 2023', date: '2023-06-10', type: 'local_runoff', cycle: 'june' },
+};
+
+const COUNTY_CITY_LABELS = {
+  'CBR': 'Brownsville', 'CBV': 'Bayview', 'CHG': 'Harlingen', 'CLA': 'La Feria',
+  'CLV': 'Los Fresnos', 'CPR': 'Port Isabel', 'CRV': 'Rio Hondo', 'CSB': 'San Benito',
+  'CSP': 'South Padre Island', 'CSX': 'Santa Rosa', 'CLI': 'Laguna Vista',
+  'CLC': 'Los Indios', 'CCO': 'Combes', 'CRG': 'Rancho Viejo', 'CPT': 'Palm Valley',
+};
+const COUNTY_SCHOOL_LABELS = {
+  'IBR': 'Brownsville ISD', 'IHG': 'Harlingen ISD', 'ILA': 'La Feria ISD',
+  'ILO': 'Los Fresnos ISD', 'IPI': 'Point Isabel ISD', 'ISB': 'San Benito ISD',
+  'IRH': 'Rio Hondo ISD', 'ISR': 'Santa Rosa ISD',
+};
+const COUNTY_NAV_PORT_LABELS = { 'BND': 'Port of Brownsville', 'PIS': 'Port Isabel Navigation District' };
+const COUNTY_PORT_AUTH_LABELS = { 'SAN': 'Port of San Benito' };
+
+const COUNTY_COL = {
+  VUID: 0, STATUS: 1, PRECINCT: 2, NAME: 3,
+  STREET_NUM: 5, STREET_NAME: 6, PRE_DIR: 7, STREET_NAME2: 8, STREET_TYPE: 9, UNIT: 10,
+  CITY: 13, STATE: 14, ZIP5: 15, ZIP4: 16, AGE: 24, GENDER: 25,
+  COUNTY_COMMISSIONER: 26, JUSTICE_OF_PEACE: 27, STATE_BOARD_ED: 28,
+  STATE_REP: 29, STATE_SENATE: 30, US_CONGRESS: 31, CITY_DISTRICT: 32,
+  HOSPITAL: 34, COLLEGE: 35, SCHOOL: 49,
+  NAVIGATION_PORT: 85, PORT_AUTHORITY: 90, SINGLE_MEMBER_PORT: 99,
+  ELECTION_START: 113,
+};
+
+function countyParseName(nameStr) {
+  if (!nameStr) return { last: '', first: '', middle: '' };
+  const parts = String(nameStr).split(',');
+  const last = (parts[0] || '').trim();
+  const rest = (parts[1] || '').trim().split(/\s+/);
+  return { last, first: rest[0] || '', middle: rest.slice(1).join(' ') };
+}
+
+function countyBuildAddress(row) {
+  return [row[COUNTY_COL.STREET_NUM], row[COUNTY_COL.PRE_DIR], row[COUNTY_COL.STREET_NAME],
+    row[COUNTY_COL.STREET_NAME2], row[COUNTY_COL.STREET_TYPE],
+    row[COUNTY_COL.UNIT] ? `#${row[COUNTY_COL.UNIT]}` : ''
+  ].filter(Boolean).map(p => String(p).trim()).filter(Boolean).join(' ');
+}
+
+router.post('/voters/import-county-file', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+
+  try {
+    console.log('Reading county voter file:', req.file.originalname, '(' + (req.file.size / 1024 / 1024).toFixed(1) + ' MB)');
+    const workbook = XLSX.readFile(req.file.path, { dense: false });
+    const sheetName = workbook.SheetNames[0];
+    const data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' });
+    const rows = data.slice(1); // skip header
+
+    // Build VUID lookup for existing voters
+    const allVoters = db.prepare("SELECT id, registration_number FROM voters WHERE registration_number != ''").all();
+    const vuidMap = {};
+    for (const v of allVoters) vuidMap[String(v.registration_number).trim()] = v.id;
+
+    // Prepared statements
+    const insertVoterStmt = db.prepare(`INSERT INTO voters (
+      registration_number, first_name, last_name, middle_name,
+      gender, age, voter_status, precinct,
+      address, city, state, zip, zip4,
+      county_commissioner, justice_of_peace, state_board_ed,
+      state_rep, state_senate, us_congress,
+      city_district, school_district, college_district,
+      hospital_district, navigation_port, port_authority
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'TX', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+    const updateVoterStmt = db.prepare(`UPDATE voters SET
+      gender = ?, age = ?, voter_status = ?, precinct = ?,
+      address = CASE WHEN address = '' OR address IS NULL THEN ? ELSE address END,
+      city = CASE WHEN city = '' OR city IS NULL THEN ? ELSE city END,
+      zip = CASE WHEN zip = '' OR zip IS NULL THEN ? ELSE zip END,
+      county_commissioner = ?, justice_of_peace = ?, state_board_ed = ?,
+      state_rep = ?, state_senate = ?, us_congress = ?,
+      city_district = ?, school_district = ?, college_district = ?,
+      hospital_district = ?, navigation_port = ?, port_authority = ?,
+      first_name = CASE WHEN first_name = '' OR first_name IS NULL THEN ? ELSE first_name END,
+      last_name = CASE WHEN last_name = '' OR last_name IS NULL THEN ? ELSE last_name END,
+      middle_name = CASE WHEN middle_name = '' OR middle_name IS NULL THEN ? ELSE middle_name END,
+      zip4 = COALESCE(NULLIF(?, ''), zip4)
+    WHERE id = ?`);
+
+    const insertElectionStmt = db.prepare('INSERT OR IGNORE INTO elections (election_name, election_date, election_type, election_cycle) VALUES (?, ?, ?, ?)');
+    const insertVoteStmt = db.prepare('INSERT OR IGNORE INTO election_votes (voter_id, election_name, election_date, election_type, election_cycle, party_voted) VALUES (?, ?, ?, ?, ?, ?)');
+
+    // Ensure all elections exist
+    for (const info of Object.values(ELECTION_MAP)) {
+      insertElectionStmt.run(info.name, info.date, info.type, info.cycle);
+    }
+
+    let created = 0, updated = 0, skipped = 0, votesInserted = 0;
+    const BATCH = 500;
+    const C = COUNTY_COL;
+
+    const runBatch = db.transaction((batchRows) => {
+      for (const row of batchRows) {
+        const vuid = String(row[C.VUID] || '').trim();
+        if (!vuid) { skipped++; continue; }
+
+        let voterId = vuidMap[vuid];
+        const { last, first, middle } = countyParseName(row[C.NAME]);
+        const navCode = String(row[C.NAVIGATION_PORT] || '').trim();
+        const portCode = String(row[C.PORT_AUTHORITY] || '').trim();
+        const cityCode = String(row[C.CITY_DISTRICT] || '').trim();
+        const schoolCode = String(row[C.SCHOOL] || '').trim();
+        const navPort = COUNTY_NAV_PORT_LABELS[navCode] || navCode;
+        const portAuth = COUNTY_PORT_AUTH_LABELS[portCode] || portCode;
+        const cityLabel = COUNTY_CITY_LABELS[cityCode] || cityCode;
+        const schoolLabel = COUNTY_SCHOOL_LABELS[schoolCode] || schoolCode;
+        const gender = String(row[C.GENDER] || '').trim();
+        const age = row[C.AGE] ? Number(row[C.AGE]) : null;
+        const status = String(row[C.STATUS] || '').trim();
+        const precinct = String(row[C.PRECINCT] || '').trim();
+        const address = countyBuildAddress(row);
+        const zip = String(row[C.ZIP5] || '').trim();
+        const zip4 = String(row[C.ZIP4] || '').trim();
+        const commish = String(row[C.COUNTY_COMMISSIONER] || '').trim();
+        const jp = String(row[C.JUSTICE_OF_PEACE] || '').trim();
+        const sboe = String(row[C.STATE_BOARD_ED] || '').trim();
+        const stateRep = String(row[C.STATE_REP] || '').trim();
+        const stateSen = String(row[C.STATE_SENATE] || '').trim();
+        const congress = String(row[C.US_CONGRESS] || '').trim();
+        const college = String(row[C.COLLEGE] || '').trim();
+        const hospital = String(row[C.HOSPITAL] || '').trim();
+
+        if (voterId) {
+          updateVoterStmt.run(gender, age, status, precinct, address, cityLabel, zip,
+            commish, jp, sboe, stateRep, stateSen, congress,
+            cityLabel, schoolLabel, college, hospital, navPort, portAuth,
+            first, last, middle, zip4, voterId);
+          updated++;
+        } else {
+          const result = insertVoterStmt.run(vuid, first, last, middle,
+            gender, age, status, precinct, address, cityLabel, zip, zip4,
+            commish, jp, sboe, stateRep, stateSen, congress,
+            cityLabel, schoolLabel, college, hospital, navPort, portAuth);
+          voterId = result.lastInsertRowid;
+          vuidMap[vuid] = voterId;
+          created++;
+        }
+
+        // Election history (41 slots x 3 cols starting at col 113)
+        for (let i = C.ELECTION_START; i < 236; i += 3) {
+          const code = String(row[i] || '').trim();
+          if (!code) continue;
+          const info = ELECTION_MAP[code];
+          if (!info) continue;
+          const party = String(row[i + 1] || '').trim() || null;
+          insertVoteStmt.run(voterId, info.name, info.date, info.type, info.cycle, party);
+          votesInserted++;
+        }
+      }
+    });
+
+    for (let i = 0; i < rows.length; i += BATCH) {
+      runBatch(rows.slice(i, i + BATCH));
+      if ((i + BATCH) % 10000 === 0) console.log(`  Processed ${Math.min(i + BATCH, rows.length)} / ${rows.length} rows...`);
+    }
+
+    // Cleanup temp file
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+
+    console.log(`County import complete: ${created} created, ${updated} updated, ${votesInserted} votes`);
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+      `County voter file imported: ${created} new, ${updated} updated, ${votesInserted} election votes`
+    );
+
+    res.json({
+      success: true, total_rows: rows.length,
+      created, updated, skipped, votes_inserted: votesInserted
+    });
+  } catch (err) {
+    console.error('County file import error:', err);
+    try { fs.unlinkSync(req.file.path); } catch (e) {}
+    res.status(500).json({ error: 'Import failed: ' + err.message });
+  }
+});
+
+// --- Filter options for universe builder (dynamic distinct values) ---
+router.get('/voters/filter-options', (req, res) => {
+  const opt = (col) => db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
+  res.json({
+    genders: opt('gender'),
+    cities: opt('city_district'),
+    school_districts: opt('school_district'),
+    college_districts: opt('college_district'),
+    navigation_ports: opt('navigation_port'),
+    port_authorities: opt('port_authority'),
+    state_reps: opt('state_rep'),
+    state_senates: opt('state_senate'),
+    us_congress: opt('us_congress'),
+    parties: db.prepare("SELECT DISTINCT party_voted as v FROM election_votes WHERE party_voted != '' AND party_voted IS NOT NULL ORDER BY party_voted").all().map(r => r.v),
+  });
+});
+
 // --- Universe Builder: Step-by-step segmentation ---
 // Uses temp tables to avoid SQLite bind parameter limits at scale (300K+ voters)
 
-function buildPrecinctFilter(precincts) {
-  if (!precincts || precincts.length === 0) return '1=1';
-  return 'precinct IN (' + precincts.map(() => '?').join(',') + ')';
+// Build the WHERE clause + params for Step 1 (precincts + demographic/district filters)
+function buildStep1Filter(filters) {
+  const clauses = [];
+  const params = [];
+  const { precincts, genders, age_min, age_max, cities, school_districts, college_districts,
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = filters;
+
+  if (precincts && precincts.length > 0) {
+    clauses.push('precinct IN (' + precincts.map(() => '?').join(',') + ')');
+    params.push(...precincts);
+  }
+  if (genders && genders.length > 0) {
+    clauses.push('gender IN (' + genders.map(() => '?').join(',') + ')');
+    params.push(...genders);
+  }
+  if (age_min != null) { clauses.push('age >= ?'); params.push(age_min); }
+  if (age_max != null) { clauses.push('age <= ?'); params.push(age_max); }
+  if (cities && cities.length > 0) {
+    clauses.push('city_district IN (' + cities.map(() => '?').join(',') + ')');
+    params.push(...cities);
+  }
+  if (school_districts && school_districts.length > 0) {
+    clauses.push('school_district IN (' + school_districts.map(() => '?').join(',') + ')');
+    params.push(...school_districts);
+  }
+  if (college_districts && college_districts.length > 0) {
+    clauses.push('college_district IN (' + college_districts.map(() => '?').join(',') + ')');
+    params.push(...college_districts);
+  }
+  if (navigation_ports && navigation_ports.length > 0) {
+    clauses.push('navigation_port IN (' + navigation_ports.map(() => '?').join(',') + ')');
+    params.push(...navigation_ports);
+  }
+  if (port_authorities && port_authorities.length > 0) {
+    clauses.push('port_authority IN (' + port_authorities.map(() => '?').join(',') + ')');
+    params.push(...port_authorities);
+  }
+  if (state_reps && state_reps.length > 0) {
+    clauses.push('state_rep IN (' + state_reps.map(() => '?').join(',') + ')');
+    params.push(...state_reps);
+  }
+  if (us_congress && us_congress.length > 0) {
+    clauses.push('us_congress IN (' + us_congress.map(() => '?').join(',') + ')');
+    params.push(...us_congress);
+  }
+
+  // Minimum elections filter: only voters who voted in at least N distinct elections
+  if (min_elections != null && min_elections > 0) {
+    clauses.push('voters.id IN (SELECT voter_id FROM election_votes GROUP BY voter_id HAVING COUNT(DISTINCT election_name) >= ?)');
+    params.push(min_elections);
+  }
+
+  // Party filter requires a join to election_votes (voted DEM or REP in any primary)
+  let partyJoin = '';
+  if (parties && parties.length > 0) {
+    partyJoin = ' INNER JOIN election_votes ev_party ON voters.id = ev_party.voter_id AND ev_party.party_voted IN (' + parties.map(() => '?').join(',') + ')';
+    params.push(...parties);
+  }
+
+  return { where: clauses.length > 0 ? clauses.join(' AND ') : '1=1', params, partyJoin };
 }
 
 router.post('/universe/build', (req, res) => {
-  const { precincts, years_back, election_cycles, priority_elections, list_name_universe, list_name_sub, list_name_priority } = req.body;
+  const { precincts, years_back, election_cycles, priority_elections,
+          list_name_universe, list_name_sub, list_name_priority,
+          genders, age_min, age_max, cities, school_districts, college_districts,
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
-  const pctParams = (precincts && precincts.length > 0) ? precincts : [];
-  const pctFilter = buildPrecinctFilter(precincts);
+
+  const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
+    school_districts, college_districts, navigation_ports, port_authorities,
+    state_reps, us_congress, parties, min_elections });
 
   const buildTx = db.transaction(() => {
-    // Step 1: precinct voters -> temp table
+    // Step 1: filtered voters -> temp table
     db.exec('DROP TABLE IF EXISTS _univ_precinct');
     db.exec('CREATE TEMP TABLE _univ_precinct (voter_id INTEGER PRIMARY KEY)');
-    db.prepare('INSERT INTO _univ_precinct SELECT id FROM voters WHERE ' + pctFilter).run(...pctParams);
+    db.prepare('INSERT OR IGNORE INTO _univ_precinct SELECT DISTINCT voters.id FROM voters' + step1.partyJoin + ' WHERE ' + step1.where).run(...step1.params);
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _univ_precinct').get() || { c: 0 }).c;
 
     // Step 2: universe — voted in last N years
@@ -1575,16 +1884,20 @@ router.post('/universe/build', (req, res) => {
 
 // Preview universe counts without creating lists
 router.post('/universe/preview', (req, res) => {
-  const { precincts, years_back, election_cycles, priority_elections } = req.body;
+  const { precincts, years_back, election_cycles, priority_elections,
+          genders, age_min, age_max, cities, school_districts, college_districts,
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
-  const pctParams = (precincts && precincts.length > 0) ? precincts : [];
-  const pctFilter = buildPrecinctFilter(precincts);
+
+  const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
+    school_districts, college_districts, navigation_ports, port_authorities,
+    state_reps, us_congress, parties, min_elections });
 
   const previewTx = db.transaction(() => {
     db.exec('DROP TABLE IF EXISTS _prev_precinct');
     db.exec('CREATE TEMP TABLE _prev_precinct (voter_id INTEGER PRIMARY KEY)');
-    db.prepare('INSERT INTO _prev_precinct SELECT id FROM voters WHERE ' + pctFilter).run(...pctParams);
+    db.prepare('INSERT OR IGNORE INTO _prev_precinct SELECT DISTINCT voters.id FROM voters' + step1.partyJoin + ' WHERE ' + step1.where).run(...step1.params);
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _prev_precinct').get() || { c: 0 }).c;
 
     db.exec('DROP TABLE IF EXISTS _prev_universe');
