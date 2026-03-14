@@ -6788,7 +6788,10 @@ async function uploadVotersCSV() {
   if (!listId) return;
   var input = document.createElement('input');
   input.type = 'file'; input.accept = '.csv,.txt';
+  input.style.cssText = 'position:absolute;top:-9999px;left:-9999px;opacity:0';
+  document.body.appendChild(input);
   input.onchange = async function() {
+    document.body.removeChild(input);
     var file = input.files[0];
     if (!file) return;
     var text = await file.text();
@@ -6815,7 +6818,10 @@ async function uploadVotersCSV() {
 function uploadVotersToList(listId, listContainer, subEl, list, candidateId) {
   var input = document.createElement('input');
   input.type = 'file'; input.accept = '.csv,.txt';
+  input.style.cssText = 'position:absolute;top:-9999px;left:-9999px;opacity:0';
+  document.body.appendChild(input);
   input.onchange = async function() {
+    document.body.removeChild(input);
     var file = input.files[0];
     if (!file) return;
     var text = await file.text();
