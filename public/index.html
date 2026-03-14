@@ -122,7 +122,16 @@ tr:hover td{background:#1e293b80}
   .main{margin-left:60px}
   .form-row,.form-row-3{grid-template-columns:1fr}
   .stats-grid{grid-template-columns:1fr 1fr}
+  #candidatesTableWrap{display:none!important}
+  #candidateCardsMobile{display:block!important}
 }
+.mobile-candidate-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s}
+.mobile-candidate-card:active{border-color:#818cf8}
+.mobile-candidate-card .mc-name{font-size:16px;font-weight:700;color:#f1f5f9;margin-bottom:2px}
+.mobile-candidate-card .mc-office{font-size:12px;color:#64748b;margin-bottom:10px}
+.mobile-candidate-card .mc-stats{display:flex;gap:16px;font-size:12px;color:#94a3b8}
+.mobile-candidate-card .mc-stats .mc-stat-num{font-weight:700;color:#e2e8f0}
+.mobile-candidate-card .mc-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;margin-left:auto}
 /* QR Modal */
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100}
 .modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center}
@@ -884,7 +893,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-xs" id="btnBulkMarkVoted" style="display:none;background:#2563eb;color:#fff" onclick="showBulkMarkVotedModal()">Mark as Voted (<span class="sel-count">0</span>)</button>
             <button class="btn btn-xs" id="btnBulkUnmarkVoted" style="display:none;background:#92400e;color:#fff" onclick="showBulkUnmarkVotedModal()">Unmark Voted (<span class="sel-count">0</span>)</button>
           </div>
-          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:60px">Elections</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
+          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
         </div>
       </div>
       <!-- VOTER DETAIL VIEW -->
@@ -1521,6 +1530,7 @@ tr:hover td{background:#1e293b80}
             <tbody></tbody>
           </table>
         </div>
+        <div id="candidateCardsMobile" style="display:none"></div>
       </div>
 
       <!-- Candidate detail (shown when expanded) -->
@@ -1541,7 +1551,12 @@ tr:hover td{background:#1e293b80}
         <div id="candidateCaptainsContainer"></div>
 
         <!-- All Lists (admin + captain combined) -->
-        <h4 style="color:#94a3b8;margin-bottom:8px;margin-top:20px">All Lists</h4>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;margin-bottom:8px">
+          <h4 style="color:#94a3b8;margin-bottom:0">All Lists</h4>
+          <select id="candidateListSourceFilter" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 10px;color:#e2e8f0;font-size:12px">
+            <option value="all">All Sources</option>
+          </select>
+        </div>
         <table class="data-table" id="candidateListsTable">
           <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th></tr></thead>
           <tbody></tbody>
@@ -1638,6 +1653,45 @@ async function apiDelete(path) {
 async function apiPatch(path, body) {
   return api(path, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
 }
+function inlineEditName(displayEl, currentName, onSaveFn) {
+  var orig = displayEl.textContent;
+  displayEl.textContent = '';
+  var input = document.createElement('input');
+  input.type = 'text'; input.value = currentName;
+  input.style.cssText = 'background:#0f172a;border:1px solid #818cf8;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:14px;width:180px';
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-xs'; saveBtn.style.cssText = 'background:#22c55e;color:#fff;margin-left:6px;padding:3px 10px;border-radius:4px;font-size:12px;border:none;cursor:pointer';
+  saveBtn.textContent = 'Save';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-xs'; cancelBtn.style.cssText = 'background:#475569;color:#e2e8f0;margin-left:4px;padding:3px 10px;border-radius:4px;font-size:12px;border:none;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  displayEl.appendChild(input); displayEl.appendChild(saveBtn); displayEl.appendChild(cancelBtn);
+  input.focus(); input.select();
+  function finish() { displayEl.textContent = orig; }
+  function save() { var v = input.value.trim(); if (v && v !== currentName) { onSaveFn(v); } else { finish(); } }
+  saveBtn.onclick = function(e) { e.stopPropagation(); save(); };
+  cancelBtn.onclick = function(e) { e.stopPropagation(); finish(); };
+  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.stopPropagation(); save(); } if (e.key === 'Escape') { e.stopPropagation(); finish(); } });
+}
+
+function createVotedFilter(onChangeFn) {
+  var select = document.createElement('select');
+  select.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px';
+  [['all','All Voters'],['voted','Voted Only'],['not_voted','Not Yet Voted']].forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o[0]; opt.textContent = o[1];
+    select.appendChild(opt);
+  });
+  select.onchange = function() { onChangeFn(select.value); };
+  return select;
+}
+
+function filterVotersByStatus(voters, status) {
+  if (status === 'voted') return voters.filter(function(v) { return v.early_voted === 1; });
+  if (status === 'not_voted') return voters.filter(function(v) { return v.early_voted !== 1; });
+  return voters;
+}
+
 // ---- Shared Precinct Filter Component ----
 async function loadPrecinctFilter(listId, containerId, onChangeFn) {
   var container = document.getElementById(containerId);
@@ -3015,13 +3069,12 @@ async function searchVoters() {
       else if (bl === 'Republican' || bl === 'R') { evClass = 'badge-red'; evLabel = 'Voted (R)'; }
       evBadge = '<span class="badge ' + evClass + '" title="' + evLabel + ' ' + escHtml(v.early_voted_date || '') + '">' + evLabel + '</span>';
     } else { evBadge = '<span class="badge badge-gray">--</span>'; }
-    var elecCount = (v.election_votes || []).length;
-    var elecBadge = elecCount > 0 ? '<span class="badge badge-blue" title="Voted in ' + elecCount + ' elections">' + elecCount + '</span>' : '<span class="badge badge-gray">0</span>';
+    // Election history badge removed — available via voter detail click
     var fullAddr = escHtml(v.address || '');
     if (v.city) fullAddr += ', ' + escHtml(v.city);
     if (v.zip) fullAddr += ' ' + escHtml(v.zip);
     var voterId = escHtml(v.registration_number || v.county_file_id || v.vanid || '');
-    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap" title="VUID: ' + voterId + '">' + voterId + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td style="text-align:center">' + elecBadge + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
+    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap" title="VUID: ' + voterId + '">' + voterId + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
   }).join('');
 }
 window.searchVoters = searchVoters;
@@ -5884,6 +5937,58 @@ async function loadCandidates() {
 
       tbody.appendChild(tr);
     });
+
+    // Build mobile candidate cards
+    var mobileContainer = document.getElementById('candidateCardsMobile');
+    mobileContainer.textContent = '';
+    candidates.forEach(function(c) {
+      var card = document.createElement('div');
+      card.className = 'mobile-candidate-card';
+      card.onclick = function() { showCandidateDetail(c.id, c.name, c.code); };
+
+      var topRow = document.createElement('div');
+      topRow.style.cssText = 'display:flex;align-items:center;gap:8px';
+
+      var nameDiv = document.createElement('div');
+      nameDiv.className = 'mc-name';
+      nameDiv.textContent = c.name;
+      topRow.appendChild(nameDiv);
+
+      var badge = document.createElement('span');
+      badge.className = 'mc-badge';
+      badge.style.cssText = c.is_active
+        ? 'background:#166534;color:#86efac'
+        : 'background:#1e293b;color:#64748b;border:1px solid #334155';
+      badge.textContent = c.is_active ? 'Active' : 'Inactive';
+      topRow.appendChild(badge);
+      card.appendChild(topRow);
+
+      if (c.office) {
+        var office = document.createElement('div');
+        office.className = 'mc-office';
+        office.textContent = c.office;
+        card.appendChild(office);
+      }
+
+      var statsRow = document.createElement('div');
+      statsRow.className = 'mc-stats';
+      var totalLists = (c.list_count || 0) + (c.captain_list_count || 0);
+      [
+        { n: c.captain_count || 0, l: 'Captains' },
+        { n: totalLists, l: 'Lists' },
+        { n: c.total_voters || 0, l: 'Voters' }
+      ].forEach(function(s) {
+        var stat = document.createElement('span');
+        stat.innerHTML = '<span class="mc-stat-num">' + s.n + '</span> ' + s.l;
+        statsRow.appendChild(stat);
+      });
+      card.appendChild(statsRow);
+
+      mobileContainer.appendChild(card);
+    });
+    if (candidates.length === 0) {
+      mobileContainer.innerHTML = '<div style="text-align:center;color:#64748b;padding:2rem">No candidates yet. Tap + Add Candidate.</div>';
+    }
   } catch (e) { console.error('loadCandidates error:', e); }
 }
 
@@ -5925,13 +6030,61 @@ var _candidateDetailCode = null;
 async function showCandidateDetail(id, name, code) {
   _candidateDetailId = id;
   _candidateDetailCode = code || null;
-  document.getElementById('candidateDetailTitle').textContent = name + ' \u2014 Detail';
+  var titleEl = document.getElementById('candidateDetailTitle');
+  titleEl.textContent = name + ' \u2014 Detail';
+  var editCandBtn = document.createElement('button');
+  editCandBtn.style.cssText = 'background:none;border:none;color:#818cf8;cursor:pointer;font-size:14px;margin-left:8px;vertical-align:middle';
+  editCandBtn.textContent = '\u270F\uFE0F';
+  editCandBtn.title = 'Edit candidate name';
+  editCandBtn.onclick = function(e) {
+    e.stopPropagation();
+    inlineEditName(titleEl, name, async function(newName) {
+      await apiPut('/api/candidates/' + id, { name: newName });
+      showCandidateDetail(id, newName, code);
+      loadCandidates();
+    });
+  };
+  titleEl.appendChild(editCandBtn);
   document.getElementById('candidateDetailCard').style.display = '';
+  // On mobile, hide the candidates list card and scroll to top
+  if (window.innerWidth <= 768) {
+    var listCard = document.getElementById('candidateDetailCard').previousElementSibling;
+    if (listCard) listCard.style.display = 'none';
+    document.getElementById('candidateStatsGrid').style.display = 'none';
+    window.scrollTo(0, 0);
+  }
   try {
     var capData = await api('/api/candidates/' + id + '/captains');
     var allCaps = capData.captains || [];
     var container = document.getElementById('candidateCaptainsContainer');
     container.textContent = '';
+
+    // Progress stats grid
+    var totalV = capData.total_voters || 0;
+    var totalVoted = capData.total_voted || 0;
+    var totalNotVoted = totalV - totalVoted;
+    var completionPct = totalV > 0 ? Math.round((totalVoted / totalV) * 100) : 0;
+    var statsGrid = document.createElement('div');
+    statsGrid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px';
+    [
+      { n: totalV, l: 'Total Voters', bg: '#1e293b', c: '#e2e8f0' },
+      { n: totalVoted, l: 'Voted', bg: '#14532d', c: '#86efac' },
+      { n: totalNotVoted, l: 'Not Voted', bg: '#451a03', c: '#fbbf24' },
+      { n: completionPct + '%', l: 'Completion', bg: completionPct >= 75 ? '#14532d' : completionPct >= 40 ? '#451a03' : '#7f1d1d', c: '#e2e8f0' }
+    ].forEach(function(s) {
+      var card = document.createElement('div');
+      card.style.cssText = 'background:' + s.bg + ';border:1px solid #334155;border-radius:10px;padding:12px;text-align:center';
+      var num = document.createElement('div');
+      num.style.cssText = 'font-size:22px;font-weight:700;color:' + s.c;
+      num.textContent = s.n;
+      card.appendChild(num);
+      var lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:11px;color:#64748b;margin-top:2px';
+      lbl.textContent = s.l;
+      card.appendChild(lbl);
+      statsGrid.appendChild(card);
+    });
+    container.appendChild(statsGrid);
 
     // Build tree for candidate's captains
     var capIdSet = new Set(allCaps.map(function(c) { return c.id; }));
@@ -5976,6 +6129,19 @@ async function showCandidateDetail(id, name, code) {
       nameSpan.textContent = c.name;
       left.appendChild(nameSpan);
 
+      var editCapBtn = document.createElement('button');
+      editCapBtn.style.cssText = 'background:none;border:none;color:#818cf8;cursor:pointer;font-size:12px;padding:2px 4px';
+      editCapBtn.textContent = '\u270F\uFE0F';
+      editCapBtn.title = 'Edit captain name';
+      editCapBtn.onclick = function(e) {
+        e.stopPropagation();
+        inlineEditName(nameSpan, c.name, async function(newName) {
+          await apiPut('/api/captains/' + c.id, { name: newName });
+          showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''), _candidateDetailCode);
+        });
+      };
+      left.appendChild(editCapBtn);
+
       if (indent > 0) {
         var subTag = document.createElement('span');
         subTag.style.cssText = 'font-size:10px;color:#64748b;background:#1e293b;padding:1px 6px;border-radius:4px';
@@ -6001,8 +6167,22 @@ async function showCandidateDetail(id, name, code) {
 
       var statsSpan = document.createElement('span');
       statsSpan.style.cssText = 'font-size:12px;color:#64748b';
-      statsSpan.textContent = (c.lists || []).length + ' lists \u00B7 ' + (c.total_voters || 0) + ' voters';
+      var vc = c.voted_count || 0;
+      var tv = c.total_voters || 0;
+      statsSpan.textContent = tv + ' voters \u00B7 ' + vc + ' voted';
       left.appendChild(statsSpan);
+
+      // Mini progress bar
+      if (tv > 0) {
+        var pBar = document.createElement('div');
+        pBar.style.cssText = 'width:60px;height:6px;background:#1e293b;border-radius:3px;overflow:hidden';
+        var pFill = document.createElement('div');
+        var pct = Math.round((vc / tv) * 100);
+        pFill.style.cssText = 'height:100%;border-radius:3px;background:' + (pct >= 75 ? '#22c55e' : pct >= 40 ? '#eab308' : '#ef4444') + ';width:' + pct + '%';
+        pBar.appendChild(pFill);
+        pBar.title = pct + '% voted';
+        left.appendChild(pBar);
+      }
 
       header.appendChild(left);
 
@@ -6081,53 +6261,164 @@ async function showCandidateDetail(id, name, code) {
       container.appendChild(emptyDiv);
     }
 
-    // All Lists table
+    // All Lists table with source filter
     var listData = await api('/api/candidates/' + id + '/lists');
+    var allLists = listData.lists || [];
     var listTbody = document.querySelector('#candidateListsTable tbody');
-    listTbody.textContent = '';
-    (listData.lists || []).forEach(function(l) {
-      var tr = document.createElement('tr');
-      tr.style.cursor = 'pointer';
-      tr.onmouseover = function() { tr.style.background = '#1e293b'; };
-      tr.onmouseout = function() { tr.style.background = ''; };
-      tr.onclick = function() { viewCandidateListVoters(id, l); };
-      var tdN = document.createElement('td');
-      var nameText = document.createElement('div');
-      nameText.style.fontWeight = '600';
-      nameText.textContent = l.name;
-      tdN.appendChild(nameText);
-      if (l.source === 'captain' && l.captain_name) {
-        var capLabel = document.createElement('div');
-        capLabel.style.cssText = 'font-size:11px;color:#64748b';
-        capLabel.textContent = 'Captain: ' + l.captain_name;
-        tdN.appendChild(capLabel);
+    var listSourceFilter = document.getElementById('candidateListSourceFilter');
+
+    // Populate source filter options
+    listSourceFilter.innerHTML = '<option value="all">All Sources</option><option value="admin">Admin Lists Only</option>';
+    var captainNames = {};
+    allLists.forEach(function(l) {
+      if (l.source === 'captain' && l.captain_name && !captainNames[l.captain_name]) {
+        captainNames[l.captain_name] = true;
       }
-      tr.appendChild(tdN);
-      var tdSrc = document.createElement('td');
-      var srcBadge = document.createElement('span');
-      srcBadge.className = l.source === 'captain' ? 'badge badge-blue' : 'badge badge-yellow';
-      srcBadge.textContent = l.source === 'captain' ? 'Captain' : 'Admin';
-      tdSrc.appendChild(srcBadge); tr.appendChild(tdSrc);
-      var tdV = document.createElement('td'); tdV.textContent = l.voter_count || 0; tr.appendChild(tdV);
-      var tdD = document.createElement('td'); tdD.textContent = (l.created_at || '').split('T')[0]; tr.appendChild(tdD);
-      listTbody.appendChild(tr);
     });
-    if ((listData.lists || []).length === 0) {
-      var emptyTr2 = document.createElement('tr');
-      var emptyTd2 = document.createElement('td');
-      emptyTd2.colSpan = 4; emptyTd2.style.cssText = 'color:#64748b;text-align:center';
-      emptyTd2.textContent = 'No lists yet';
-      emptyTr2.appendChild(emptyTd2); listTbody.appendChild(emptyTr2);
+    Object.keys(captainNames).sort().forEach(function(name) {
+      var opt = document.createElement('option');
+      opt.value = 'captain:' + name;
+      opt.textContent = name;
+      listSourceFilter.appendChild(opt);
+    });
+
+    function renderAllListsTable(lists) {
+      listTbody.textContent = '';
+      lists.forEach(function(l) {
+        var tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.onmouseover = function() { tr.style.background = '#1e293b'; };
+        tr.onmouseout = function() { tr.style.background = ''; };
+        tr.onclick = function() { viewCandidateListVoters(id, l); };
+        var tdN = document.createElement('td');
+        var nameText = document.createElement('div');
+        nameText.style.fontWeight = '600';
+        nameText.textContent = l.name;
+        tdN.appendChild(nameText);
+        if (l.source === 'captain' && l.captain_name) {
+          var capLabel = document.createElement('div');
+          capLabel.style.cssText = 'font-size:11px;color:#64748b';
+          capLabel.textContent = 'Captain: ' + l.captain_name;
+          tdN.appendChild(capLabel);
+        }
+        tr.appendChild(tdN);
+        var tdSrc = document.createElement('td');
+        var srcBadge = document.createElement('span');
+        srcBadge.className = l.source === 'captain' ? 'badge badge-blue' : 'badge badge-yellow';
+        srcBadge.textContent = l.source === 'captain' ? 'Captain' : 'Admin';
+        tdSrc.appendChild(srcBadge); tr.appendChild(tdSrc);
+        var tdV = document.createElement('td'); tdV.textContent = l.voter_count || 0; tr.appendChild(tdV);
+        var tdD = document.createElement('td'); tdD.textContent = (l.created_at || '').split('T')[0]; tr.appendChild(tdD);
+        listTbody.appendChild(tr);
+      });
+      if (lists.length === 0) {
+        var emptyTr2 = document.createElement('tr');
+        var emptyTd2 = document.createElement('td');
+        emptyTd2.colSpan = 4; emptyTd2.style.cssText = 'color:#64748b;text-align:center';
+        emptyTd2.textContent = listSourceFilter.value === 'all' ? 'No lists yet' : 'No lists match this filter';
+        emptyTr2.appendChild(emptyTd2); listTbody.appendChild(emptyTr2);
+      }
     }
+
+    listSourceFilter.onchange = function() {
+      var val = listSourceFilter.value;
+      if (val === 'all') { renderAllListsTable(allLists); return; }
+      if (val === 'admin') { renderAllListsTable(allLists.filter(function(l) { return l.source !== 'captain'; })); return; }
+      // captain:Name
+      var capName = val.replace('captain:', '');
+      renderAllListsTable(allLists.filter(function(l) { return l.source === 'captain' && l.captain_name === capName; }));
+    };
+
+    renderAllListsTable(allLists);
   } catch (e) { console.error('showCandidateDetail error:', e); }
 }
 
-function closeCandidateDetail() { _candidateDetailId = null; _candidateDetailCode = null; document.getElementById('candidateDetailCard').style.display = 'none'; }
+function closeCandidateDetail() {
+  _candidateDetailId = null;
+  _candidateDetailCode = null;
+  document.getElementById('candidateDetailCard').style.display = 'none';
+  // On mobile, restore the candidates list card
+  var detailCard = document.getElementById('candidateDetailCard');
+  var listCard = detailCard.previousElementSibling;
+  if (listCard) listCard.style.display = '';
+  document.getElementById('candidateStatsGrid').style.display = '';
+  window.scrollTo(0, 0);
+}
 
 function shareCandidateCode() {
   if (!_candidateDetailCode) { alert('No candidate code available.'); return; }
   var name = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
   showCandidateShareModal(name, _candidateDetailCode, false);
+}
+
+function renderAdminMasterTable(voters, container) {
+  container.textContent = '';
+  if (voters.length === 0) {
+    var emptyDiv = document.createElement('div');
+    emptyDiv.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
+    emptyDiv.textContent = 'No voters match the current filter.';
+    container.appendChild(emptyDiv);
+    return;
+  }
+  var table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+  var thead = document.createElement('thead');
+  var headTr = document.createElement('tr');
+  ['Voter', 'Address', 'Party', 'Voted', 'Phone', 'Sources'].forEach(function(h) {
+    var th = document.createElement('th');
+    th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
+    th.textContent = h;
+    headTr.appendChild(th);
+  });
+  thead.appendChild(headTr);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  voters.forEach(function(v) {
+    var tr = document.createElement('tr');
+    var tdName = document.createElement('td');
+    tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
+    tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    tr.appendChild(tdName);
+    var tdAddr = document.createElement('td');
+    tdAddr.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
+    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    tr.appendChild(tdAddr);
+    var tdParty = document.createElement('td');
+    tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
+    tdParty.textContent = v.party || '';
+    tr.appendChild(tdParty);
+    var tdVoted = document.createElement('td');
+    tdVoted.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
+    var votedBadge = document.createElement('span');
+    votedBadge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;' + (v.early_voted === 1 ? 'background:#166534;color:#86efac' : 'background:#1e293b;color:#64748b;border:1px solid #334155');
+    votedBadge.textContent = v.early_voted === 1 ? '\u2713 Voted' : 'Not Yet';
+    tdVoted.appendChild(votedBadge);
+    tr.appendChild(tdVoted);
+    var tdPhone = document.createElement('td');
+    tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
+    tdPhone.textContent = v.phone || '';
+    tr.appendChild(tdPhone);
+    var tdSrc = document.createElement('td');
+    tdSrc.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-size:11px';
+    var numLists = (v.lists || []).length;
+    if (numLists > 1) {
+      var badge = document.createElement('span');
+      badge.className = 'badge badge-yellow';
+      badge.textContent = numLists + ' lists';
+      badge.title = (v.lists || []).map(function(s) { return s.source_name + ': ' + s.list_name; }).join(', ');
+      tdSrc.appendChild(badge);
+    } else if (numLists === 1) {
+      tdSrc.textContent = v.lists[0].source_name;
+      tdSrc.style.color = '#64748b';
+    } else {
+      tdSrc.textContent = '-';
+      tdSrc.style.color = '#64748b';
+    }
+    tr.appendChild(tdSrc);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  container.appendChild(table);
 }
 
 // Master List — shows all unique voters across all captains for the current candidate
@@ -6181,6 +6472,7 @@ async function viewCandidateMasterList() {
   try {
     var data = await api('/api/candidates/' + _candidateDetailId + '/master-list');
     var voters = data.voters || [];
+    var allMasterVoters = voters.slice();
     var totalAppearances = data.totalAppearances || 0;
     var overlapCount = data.overlaps || 0;
     sub.textContent = voters.length + ' unique voter' + (voters.length !== 1 ? 's' : '') + ' \u00B7 ' + totalAppearances + ' total appearances';
@@ -6188,71 +6480,49 @@ async function viewCandidateMasterList() {
       sub.textContent += ' \u00B7 ' + overlapCount + ' on multiple lists';
     }
 
-    if (voters.length === 0) {
-      var emptyDiv = document.createElement('div');
-      emptyDiv.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
-      emptyDiv.textContent = 'No voters found for this candidate.';
-      listContainer.appendChild(emptyDiv);
-      return;
+    // Filters: voted + captain
+    var filterWrap = document.createElement('div');
+    filterWrap.style.cssText = 'display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap';
+    var activeVotedStatus = 'all';
+    var activeCaptainFilter = 'all';
+
+    function applyAdminMasterFilters() {
+      var filtered = filterVotersByStatus(allMasterVoters, activeVotedStatus);
+      if (activeCaptainFilter !== 'all') {
+        filtered = filtered.filter(function(v) { return (v.lists || []).some(function(l) { return l.source_name === activeCaptainFilter; }); });
+      }
+      renderAdminMasterTable(filtered, listContainer);
+      sub.textContent = filtered.length + ' of ' + allMasterVoters.length + ' unique voter' + (allMasterVoters.length !== 1 ? 's' : '');
     }
 
-    var table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
-    var thead = document.createElement('thead');
-    var headTr = document.createElement('tr');
-    ['Voter', 'Address', 'Party', 'Phone', 'Sources'].forEach(function(h) {
-      var th = document.createElement('th');
-      th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
-      th.textContent = h;
-      headTr.appendChild(th);
+    var masterVotedFilter = createVotedFilter(function(status) {
+      activeVotedStatus = status;
+      applyAdminMasterFilters();
     });
-    thead.appendChild(headTr);
-    table.appendChild(thead);
-    var tbody = document.createElement('tbody');
-    voters.forEach(function(v) {
-      var tr = document.createElement('tr');
-      var tdName = document.createElement('td');
-      tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
-      tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
-      tr.appendChild(tdName);
-      var tdAddr = document.createElement('td');
-      tdAddr.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
-      tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
-      tr.appendChild(tdAddr);
-      var tdParty = document.createElement('td');
-      tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
-      tdParty.textContent = v.party || '';
-      tr.appendChild(tdParty);
-      var tdPhone = document.createElement('td');
-      tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
-      tdPhone.textContent = v.phone || '';
-      tr.appendChild(tdPhone);
-      var tdSrc = document.createElement('td');
-      tdSrc.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-size:11px';
-      var numLists = (v.lists || []).length;
-      if (numLists > 1) {
-        var badge = document.createElement('span');
-        badge.className = 'badge badge-yellow';
-        badge.textContent = numLists + ' lists';
-        badge.title = (v.lists || []).map(function(s) { return s.source_name + ': ' + s.list_name; }).join(', ');
-        tdSrc.appendChild(badge);
-      } else if (numLists === 1) {
-        tdSrc.textContent = v.lists[0].source_name;
-        tdSrc.style.color = '#64748b';
-      } else {
-        tdSrc.textContent = '-';
-        tdSrc.style.color = '#64748b';
-      }
-      tr.appendChild(tdSrc);
-      tbody.appendChild(tr);
+    filterWrap.appendChild(masterVotedFilter);
+
+    // Captain source filter
+    var captainSelect = document.createElement('select');
+    captainSelect.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px';
+    captainSelect.innerHTML = '<option value="all">All Sources</option>';
+    var srcNames = {};
+    allMasterVoters.forEach(function(v) { (v.lists || []).forEach(function(l) { srcNames[l.source_name] = l.source_type; }); });
+    Object.keys(srcNames).sort().forEach(function(n) {
+      var opt = document.createElement('option');
+      opt.value = n; opt.textContent = n + (srcNames[n] === 'admin' ? ' (Admin)' : '');
+      captainSelect.appendChild(opt);
     });
-    table.appendChild(tbody);
-    listContainer.appendChild(table);
+    captainSelect.onchange = function() { activeCaptainFilter = captainSelect.value; applyAdminMasterFilters(); };
+    filterWrap.appendChild(captainSelect);
+
+    box.insertBefore(filterWrap, listContainer);
+
+    renderAdminMasterTable(voters, listContainer);
 
     // Show download button now that data is loaded
     dlBtn.style.display = '';
     var candName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '').replace(/\s+/g, '_');
-    dlBtn.onclick = function() { downloadVotersCsv(voters, candName + '_Master_List'); };
+    dlBtn.onclick = function() { downloadVotersCsv(allMasterVoters, candName + '_Master_List'); };
   } catch (e) {
     sub.textContent = 'Error loading master list';
     console.error(e);
@@ -6408,6 +6678,63 @@ function showCandidateShareModal(candidateName, candidateCode, isNew) {
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
+function renderAdminListVoterTable(voters, container) {
+  container.textContent = '';
+  if (voters.length === 0) {
+    var emptyDiv = document.createElement('div');
+    emptyDiv.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
+    emptyDiv.textContent = 'No voters match the current filter.';
+    container.appendChild(emptyDiv);
+    return;
+  }
+  var table = document.createElement('table');
+  table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
+  var thead = document.createElement('thead');
+  var headTr = document.createElement('tr');
+  ['ID', 'Voter', 'Address', 'Party', 'Voted', 'Phone'].forEach(function(h) {
+    var th = document.createElement('th');
+    th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
+    th.textContent = h;
+    headTr.appendChild(th);
+  });
+  thead.appendChild(headTr);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  voters.forEach(function(v) {
+    var tr = document.createElement('tr');
+    var tdId = document.createElement('td');
+    tdId.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#64748b;font-size:11px';
+    tdId.textContent = v.registration_number || v.county_file_id || v.vanid || '';
+    tr.appendChild(tdId);
+    var tdName = document.createElement('td');
+    tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
+    tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    tr.appendChild(tdName);
+    var tdAddr = document.createElement('td');
+    tdAddr.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
+    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    tr.appendChild(tdAddr);
+    var tdParty = document.createElement('td');
+    tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
+    tdParty.textContent = v.party || '';
+    tr.appendChild(tdParty);
+    var tdVoted = document.createElement('td');
+    tdVoted.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
+    var votedBadge = document.createElement('span');
+    votedBadge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;' + (v.early_voted === 1 ? 'background:#166534;color:#86efac' : 'background:#1e293b;color:#64748b;border:1px solid #334155');
+    votedBadge.textContent = v.early_voted === 1 ? '\u2713 Voted' : 'Not Yet';
+    tdVoted.appendChild(votedBadge);
+    tr.appendChild(tdVoted);
+    var tdPhone = document.createElement('td');
+    tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
+    tdPhone.textContent = v.phone || '';
+    tr.appendChild(tdPhone);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
 async function viewCandidateListVoters(candidateId, list) {
   var existing = document.getElementById('candidateListViewerOverlay');
   if (existing) existing.remove();
@@ -6479,61 +6806,28 @@ async function viewCandidateListVoters(candidateId, list) {
     }
     var data = await api(endpoint);
     var voters = data.voters || [];
-    sub.textContent = (list.source === 'captain' ? 'Captain: ' + (list.captain_name || '') + '  \u00B7  ' : '') + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+    var allVoters = voters.slice();
+    var prefix = list.source === 'captain' ? 'Captain: ' + (list.captain_name || '') + '  \u00B7  ' : '';
+    sub.textContent = prefix + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
-    if (voters.length === 0) {
-      var emptyDiv = document.createElement('div');
-      emptyDiv.style.cssText = 'text-align:center;color:#64748b;padding:2rem';
-      emptyDiv.textContent = 'No voters on this list yet.';
-      listContainer.appendChild(emptyDiv);
-      return;
-    }
+    // Voted filter
+    var filterWrap = document.createElement('div');
+    filterWrap.style.cssText = 'margin-bottom:10px';
+    var adminVotedFilter = createVotedFilter(function(status) {
+      var filtered = filterVotersByStatus(allVoters, status);
+      renderAdminListVoterTable(filtered, listContainer);
+      sub.textContent = prefix + filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '');
+    });
+    filterWrap.appendChild(adminVotedFilter);
+    box.insertBefore(filterWrap, listContainer);
 
-    var table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
-    var thead = document.createElement('thead');
-    var headTr = document.createElement('tr');
-    ['ID', 'Voter', 'Address', 'Party', 'Phone'].forEach(function(h) {
-      var th = document.createElement('th');
-      th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
-      th.textContent = h;
-      headTr.appendChild(th);
-    });
-    thead.appendChild(headTr);
-    table.appendChild(thead);
-    var tbody = document.createElement('tbody');
-    voters.forEach(function(v) {
-      var tr = document.createElement('tr');
-      var tdId = document.createElement('td');
-      tdId.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#64748b;font-size:11px';
-      tdId.textContent = v.registration_number || v.county_file_id || v.vanid || '';
-      tr.appendChild(tdId);
-      var tdName = document.createElement('td');
-      tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
-      tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
-      tr.appendChild(tdName);
-      var tdAddr = document.createElement('td');
-      tdAddr.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
-      tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
-      tr.appendChild(tdAddr);
-      var tdParty = document.createElement('td');
-      tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
-      tdParty.textContent = v.party || '';
-      tr.appendChild(tdParty);
-      var tdPhone = document.createElement('td');
-      tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
-      tdPhone.textContent = v.phone || '';
-      tr.appendChild(tdPhone);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    listContainer.appendChild(table);
+    renderAdminListVoterTable(voters, listContainer);
 
     // Show download button now that data is loaded
     dlBtn2.style.display = '';
     var safeName = list.name.replace(/\s+/g, '_');
     if (list.captain_name) safeName = list.captain_name.replace(/\s+/g, '_') + '_' + safeName;
-    dlBtn2.onclick = function() { downloadVotersCsv(voters, safeName); };
+    dlBtn2.onclick = function() { downloadVotersCsv(allVoters, safeName); };
   } catch (e) {
     sub.textContent = 'Error loading voters';
     console.error(e);

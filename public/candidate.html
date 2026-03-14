@@ -321,8 +321,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           </div>
         </div>
       </div>
-      <div class="master-search">
-        <input type="text" id="masterSearchInput" placeholder="Filter by name, address, captain..." oninput="filterMasterList()">
+      <div class="master-search" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="masterSearchInput" placeholder="Filter by name, address, captain..." oninput="filterMasterList()" style="flex:1;min-width:200px">
+        <select id="masterVotedFilter" onchange="filterMasterList()" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
+          <option value="all">All Voters</option>
+          <option value="voted">Voted Only</option>
+          <option value="not_voted">Not Yet Voted</option>
+        </select>
+        <select id="masterCaptainFilter" onchange="filterMasterList()" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
+          <option value="all">All Sources</option>
+        </select>
       </div>
       <div style="overflow-x:auto">
         <table class="master-table">
@@ -457,6 +465,74 @@ function switchTab(tab) {
   if (tab === 'master') loadMasterList();
 }
 
+// ===================== HELPERS =====================
+
+async function apiPut(path, body) {
+  var resp = await fetch(path, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  var data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+function inlineEditName(displayEl, currentName, onSaveFn) {
+  var orig = displayEl.textContent;
+  displayEl.textContent = '';
+  var input = document.createElement('input');
+  input.type = 'text'; input.value = currentName;
+  input.style.cssText = 'background:#0f172a;border:1px solid #818cf8;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:14px;width:180px';
+  var saveBtn = document.createElement('button');
+  saveBtn.style.cssText = 'background:#22c55e;color:#fff;margin-left:6px;padding:3px 10px;border-radius:4px;font-size:12px;border:none;cursor:pointer';
+  saveBtn.textContent = 'Save';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'background:#475569;color:#e2e8f0;margin-left:4px;padding:3px 10px;border-radius:4px;font-size:12px;border:none;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  displayEl.appendChild(input); displayEl.appendChild(saveBtn); displayEl.appendChild(cancelBtn);
+  input.focus(); input.select();
+  function finish() { displayEl.textContent = orig; }
+  function save() { var v = input.value.trim(); if (v && v !== currentName) { onSaveFn(v); } else { finish(); } }
+  saveBtn.onclick = function(e) { e.stopPropagation(); save(); };
+  cancelBtn.onclick = function(e) { e.stopPropagation(); finish(); };
+  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.stopPropagation(); save(); } if (e.key === 'Escape') { e.stopPropagation(); finish(); } });
+}
+
+function createVotedFilter(onChangeFn) {
+  var select = document.createElement('select');
+  select.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px';
+  [['all','All Voters'],['voted','Voted Only'],['not_voted','Not Yet Voted']].forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o[0]; opt.textContent = o[1];
+    select.appendChild(opt);
+  });
+  select.onchange = function() { onChangeFn(select.value); };
+  return select;
+}
+
+function filterVotersByStatus(voters, status) {
+  if (status === 'voted') return voters.filter(function(v) { return v.early_voted === 1; });
+  if (status === 'not_voted') return voters.filter(function(v) { return v.early_voted !== 1; });
+  return voters;
+}
+
+function createVoterExpandPanel(v) {
+  var panel = document.createElement('div');
+  panel.className = 'voter-expand-panel';
+  panel.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 12px;margin-top:6px;font-size:12px;color:#94a3b8;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px';
+  var fields = [
+    ['Address', (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '')],
+    ['Phone', v.phone || '\u2014'],
+    ['Party', v.party || '\u2014'],
+    ['Precinct', v.precinct || '\u2014'],
+    ['Voter ID', v.registration_number || v.state_file_id || v.county_file_id || v.vanid || '\u2014'],
+    ['Voted', v.early_voted === 1 ? '\u2713 Yes' + (v.early_voted_date ? ' (' + v.early_voted_date + ')' : '') + (v.early_voted_method ? ' \u2014 ' + v.early_voted_method : '') : 'Not yet']
+  ];
+  fields.forEach(function(f) {
+    var item = document.createElement('div');
+    item.innerHTML = '<span style="color:#64748b">' + f[0] + ':</span> <span style="color:#e2e8f0">' + (f[1] || '') + '</span>';
+    panel.appendChild(item);
+  });
+  return panel;
+}
+
 // ===================== DASHBOARD RENDERING =====================
 
 function renderDashboard(data) {
@@ -472,10 +548,10 @@ function renderStats(stats) {
   var totalVoted = stats.total_voted || 0;
   var votedPct = totalVoters > 0 ? Math.round((totalVoted / totalVoters) * 100) : 0;
   var items = [
-    { num: stats.total_captains || 0, label: 'Captains' },
     { num: totalVoters, label: 'Total Voters' },
-    { num: stats.total_lists || 0, label: 'My Lists' },
-    { num: votedPct + '%', label: '% Voted', isVoted: true }
+    { num: totalVoted, label: 'Voted', cls: 'voted-green' },
+    { num: totalVoters - totalVoted, label: 'Not Voted', cls: 'voted-amber' },
+    { num: votedPct + '%', label: 'Completion', isVoted: true }
   ];
   items.forEach(function(item) {
     var card = document.createElement('div');
@@ -485,6 +561,8 @@ function renderStats(stats) {
     if (item.isVoted) {
       num.className = 'stat-num voted-pct ' + (votedPct >= 60 ? 'green' : votedPct >= 30 ? 'yellow' : 'red');
     }
+    if (item.cls === 'voted-green') num.style.color = '#86efac';
+    if (item.cls === 'voted-amber') num.style.color = '#fbbf24';
     num.textContent = item.num;
     card.appendChild(num);
     var label = document.createElement('div');
@@ -550,13 +628,28 @@ function renderCaptainCards(captains) {
     var info = document.createElement('div');
     info.className = 'captain-info';
     var h3 = document.createElement('h3');
-    h3.textContent = cap.name;
+    h3.style.cssText = 'display:flex;align-items:center;gap:6px';
+    var nameText = document.createElement('span');
+    nameText.textContent = cap.name;
+    h3.appendChild(nameText);
     if (indentLevel > 0) {
       var subBadge = document.createElement('span');
-      subBadge.style.cssText = 'font-size:11px;color:#64748b;font-weight:400;margin-left:8px';
+      subBadge.style.cssText = 'font-size:11px;color:#64748b;font-weight:400';
       subBadge.textContent = 'Sub-Captain';
       h3.appendChild(subBadge);
     }
+    var editCapBtn = document.createElement('button');
+    editCapBtn.style.cssText = 'background:none;border:none;color:#818cf8;cursor:pointer;font-size:12px;padding:2px 4px';
+    editCapBtn.textContent = '\u270F\uFE0F';
+    editCapBtn.title = 'Edit captain name';
+    editCapBtn.onclick = function(e) {
+      e.stopPropagation();
+      inlineEditName(nameText, cap.name, async function(newName) {
+        await apiPut('/api/candidates/' + candidateId + '/portal/captains/' + cap.id, { name: newName });
+        refreshDashboard();
+      });
+    };
+    h3.appendChild(editCapBtn);
     info.appendChild(h3);
 
     var meta = document.createElement('div');
@@ -578,7 +671,8 @@ function renderCaptainCards(captains) {
     codeEl.className = 'captain-code';
     codeEl.textContent = cap.code;
     codeEl.title = 'Click to copy code';
-    codeEl.onclick = function() {
+    codeEl.onclick = function(e) {
+      e.stopPropagation();
       navigator.clipboard.writeText(cap.code).catch(function(){});
       codeEl.textContent = 'Copied!';
       setTimeout(function() { codeEl.textContent = cap.code; }, 1200);
@@ -708,6 +802,7 @@ function renderCaptainCards(captains) {
     var a = document.createElement('a');
     a.href = '/captain?code=' + cap.code;
     a.target = '_blank';
+    a.onclick = function(e) { e.stopPropagation(); };
     a.textContent = window.location.origin + '/captain?code=' + cap.code;
     portalLink.appendChild(a);
     card.appendChild(portalLink);
@@ -718,15 +813,28 @@ function renderCaptainCards(captains) {
     var toggleBtn = document.createElement('button');
     toggleBtn.className = 'btn btn-xs ' + (cap.is_active ? 'btn-secondary' : 'btn-success');
     toggleBtn.textContent = cap.is_active ? 'Deactivate' : 'Activate';
-    toggleBtn.onclick = (function(c) { return function() { toggleCaptainActive(c.id, c.is_active); }; })(cap);
+    toggleBtn.onclick = (function(c) { return function(e) { e.stopPropagation(); toggleCaptainActive(c.id, c.is_active); }; })(cap);
     actRow.appendChild(toggleBtn);
     var delBtn = document.createElement('button');
     delBtn.className = 'btn btn-xs';
     delBtn.style.cssText = 'background:#dc2626;color:#fff;border:none';
     delBtn.textContent = '\uD83D\uDDD1 Delete';
-    delBtn.onclick = (function(c) { return function() { deleteCaptain(c.id, c.name); }; })(cap);
+    delBtn.onclick = (function(c) { return function(e) { e.stopPropagation(); deleteCaptain(c.id, c.name); }; })(cap);
     actRow.appendChild(delBtn);
     card.appendChild(actRow);
+
+    // Tap hint + card click → open voter list
+    if (cap.lists && cap.lists.length > 0) {
+      var hint = document.createElement('div');
+      hint.style.cssText = 'text-align:center;font-size:11px;color:#818cf8;margin-top:8px;padding-top:8px;border-top:1px solid #334155';
+      hint.textContent = 'Tap to view voters \u2192';
+      card.appendChild(hint);
+
+      card.style.cursor = 'pointer';
+      card.onclick = function() {
+        viewCaptainList(cap.lists[0].id, cap.lists[0].name || cap.name, cap.name);
+      };
+    }
 
     wrapper.appendChild(card);
     container.appendChild(wrapper);
@@ -994,81 +1102,86 @@ async function loadListVoters(listId) {
     document.getElementById('rightTitle').textContent = listName;
     document.getElementById('rightSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
-    // Add Upload CSV button to header
+    // Add Upload CSV button + Voted filter to header
     var header = document.querySelector('.right-header');
     var existingUploadBtn = header.querySelector('.upload-csv-btn');
     if (existingUploadBtn) existingUploadBtn.remove();
+    var existingFilter = header.querySelector('.voted-filter-wrap');
+    if (existingFilter) existingFilter.remove();
+
+    var headerControls = document.createElement('div');
+    headerControls.className = 'voted-filter-wrap';
+    headerControls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
+
     var uploadBtn = document.createElement('button');
     uploadBtn.className = 'btn btn-sm upload-csv-btn';
-    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;margin-top:8px;font-size:12px';
+    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;font-size:12px';
     uploadBtn.textContent = '\uD83D\uDCE4 Upload CSV';
     (function(lid) {
       uploadBtn.onclick = function() { showUploadModal(lid); };
     })(listId);
-    header.appendChild(uploadBtn);
+    headerControls.appendChild(uploadBtn);
 
-    if (voters.length === 0) {
-      var empty = document.createElement('div');
-      empty.className = 'right-empty';
-      empty.textContent = 'No voters yet. Search and add voters from the left panel.';
-      content.appendChild(empty);
-      return;
-    }
-
-    voters.forEach(function(v) {
-      var row = document.createElement('div');
-      row.className = 'right-voter';
-
-      var infoDiv = document.createElement('div');
-      var nameEl = document.createElement('div');
-      nameEl.className = 'name';
-      nameEl.textContent = voterFullName(v);
-      infoDiv.appendChild(nameEl);
-      var vid = voterIdDisplay(v);
-      if (vid) {
-        var vidEl = document.createElement('div');
-        vidEl.className = 'voter-id-label';
-        vidEl.textContent = 'ID: ';
-        var vidSpan = document.createElement('span');
-        vidSpan.textContent = vid;
-        vidEl.appendChild(vidSpan);
-        infoDiv.appendChild(vidEl);
-      }
-      var addrEl = document.createElement('div');
-      addrEl.className = 'addr';
-      addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
-      infoDiv.appendChild(addrEl);
-      if (v.phone) {
-        var phoneEl = document.createElement('div');
-        phoneEl.className = 'addr';
-        phoneEl.textContent = v.phone;
-        infoDiv.appendChild(phoneEl);
-      }
-      var metaDiv = document.createElement('div');
-      metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
-      if (v.party) {
-        var partyB = document.createElement('span');
-        partyB.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-        partyB.textContent = v.party;
-        metaDiv.appendChild(partyB);
-      }
-      metaDiv.appendChild(createVotedBadge(v));
-      infoDiv.appendChild(metaDiv);
-      row.appendChild(infoDiv);
-
-      var removeBtn = document.createElement('button');
-      removeBtn.className = 'remove-btn';
-      removeBtn.textContent = '\u00D7';
-      removeBtn.title = 'Remove from list';
-      removeBtn.onclick = function() { removeVoterFromList(listId, v.id); };
-      row.appendChild(removeBtn);
-
-      content.appendChild(row);
+    var allVoters = voters.slice();
+    var votedFilter = createVotedFilter(function(status) {
+      var filtered = filterVotersByStatus(allVoters, status);
+      renderListVoterRows(filtered, content, listId);
+      document.getElementById('rightSub').textContent = filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '');
     });
+    headerControls.appendChild(votedFilter);
+    header.appendChild(headerControls);
+
+    renderListVoterRows(voters, content, listId);
   } catch (e) {
     console.error('loadListVoters error:', e);
     document.getElementById('rightSub').textContent = 'Error loading voters';
   }
+}
+
+function renderListVoterRows(voters, content, listId) {
+  content.textContent = '';
+  if (voters.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'right-empty';
+    empty.textContent = 'No voters match the current filter.';
+    content.appendChild(empty);
+    return;
+  }
+  voters.forEach(function(v) {
+    var row = document.createElement('div');
+    row.className = 'right-voter';
+
+    var infoDiv = document.createElement('div');
+    infoDiv.style.flex = '1';
+    var nameEl = document.createElement('div');
+    nameEl.className = 'name';
+    nameEl.style.cssText = 'cursor:pointer;color:#818cf8';
+    nameEl.textContent = voterFullName(v) + ' \u25B8';
+    nameEl.title = 'Click to expand details';
+    (function(voter, rowEl) {
+      nameEl.onclick = function() {
+        var existing = rowEl.querySelector('.voter-expand-panel');
+        if (existing) { existing.remove(); nameEl.textContent = voterFullName(voter) + ' \u25B8'; return; }
+        nameEl.textContent = voterFullName(voter) + ' \u25BE';
+        rowEl.appendChild(createVoterExpandPanel(voter));
+      };
+    })(v, row);
+    infoDiv.appendChild(nameEl);
+    var metaDiv = document.createElement('div');
+    metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
+    metaDiv.appendChild(createVotedBadge(v));
+    infoDiv.appendChild(metaDiv);
+    row.appendChild(infoDiv);
+
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '\u00D7';
+    removeBtn.title = 'Remove from list';
+    removeBtn.onclick = function() { removeVoterFromList(listId, v.id); };
+    row.appendChild(removeBtn);
+
+    content.appendChild(row);
+  });
 }
 
 async function removeVoterFromList(listId, voterId) {
@@ -1283,13 +1396,29 @@ function renderAllLists() {
       var left = document.createElement('div');
       var nameEl = document.createElement('div');
       nameEl.className = 'list-name';
-      nameEl.textContent = cap.name;
+      nameEl.style.cssText = 'display:flex;align-items:center;gap:6px';
+      var nameText = document.createElement('span');
+      nameText.textContent = cap.name;
+      nameEl.appendChild(nameText);
       if (indent > 0) {
         var subTag = document.createElement('span');
-        subTag.style.cssText = 'font-size:10px;color:#64748b;margin-left:8px;font-weight:400';
+        subTag.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
         subTag.textContent = 'Sub-Captain';
         nameEl.appendChild(subTag);
       }
+      var editBtn = document.createElement('button');
+      editBtn.style.cssText = 'background:none;border:none;color:#818cf8;cursor:pointer;font-size:11px;padding:1px 4px';
+      editBtn.textContent = '\u270F\uFE0F';
+      editBtn.title = 'Edit name';
+      editBtn.onclick = function(e) {
+        e.stopPropagation();
+        inlineEditName(nameText, cap.name, async function(newName) {
+          await apiPut('/api/candidates/' + candidateId + '/portal/captains/' + cap.id, { name: newName });
+          renderAllLists();
+          refreshDashboard();
+        });
+      };
+      nameEl.appendChild(editBtn);
       left.appendChild(nameEl);
       var metaEl = document.createElement('div');
       metaEl.className = 'list-meta';
@@ -1378,61 +1507,61 @@ async function viewCaptainList(listId, listName, captainName) {
     var data = await resp.json();
     var voters = data.voters || [];
     captainListVoters = voters;
+    var allCapVoters = voters.slice();
     sub.textContent = 'Captain: ' + captainName + '  \u00B7  ' + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
-    if (voters.length === 0) {
-      var emptyDiv = document.createElement('div');
-      emptyDiv.className = 'right-empty';
-      emptyDiv.textContent = 'No voters on this list yet.';
-      listContainer.appendChild(emptyDiv);
-      return;
-    }
-
-    voters.forEach(function(v) {
-      var row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid #334155;font-size:13px';
-      var infoDiv = document.createElement('div');
-      var nameEl = document.createElement('div');
-      nameEl.style.cssText = 'font-weight:600;color:#e2e8f0';
-      nameEl.textContent = voterFullName(v);
-      infoDiv.appendChild(nameEl);
-      var vid = voterIdDisplay(v);
-      if (vid) {
-        var vidEl = document.createElement('div');
-        vidEl.className = 'voter-id-label';
-        vidEl.textContent = 'ID: ';
-        var vidSpan = document.createElement('span');
-        vidSpan.textContent = vid;
-        vidEl.appendChild(vidSpan);
-        infoDiv.appendChild(vidEl);
-      }
-      var addrEl = document.createElement('div');
-      addrEl.style.cssText = 'color:#64748b;font-size:12px;margin-top:2px';
-      addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
-      infoDiv.appendChild(addrEl);
-      if (v.phone) {
-        var phoneEl = document.createElement('div');
-        phoneEl.style.cssText = 'color:#64748b;font-size:12px';
-        phoneEl.textContent = v.phone;
-        infoDiv.appendChild(phoneEl);
-      }
-      row.appendChild(infoDiv);
-      var badgesDiv = document.createElement('div');
-      badgesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;flex-shrink:0';
-      if (v.party) {
-        var partyBadge = document.createElement('span');
-        partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-        partyBadge.textContent = v.party;
-        badgesDiv.appendChild(partyBadge);
-      }
-      badgesDiv.appendChild(createVotedBadge(v));
-      row.appendChild(badgesDiv);
-      listContainer.appendChild(row);
+    // Add voted filter below header
+    var filterWrap = document.createElement('div');
+    filterWrap.style.cssText = 'margin-bottom:12px';
+    var capVotedFilter = createVotedFilter(function(status) {
+      var filtered = filterVotersByStatus(allCapVoters, status);
+      renderCaptainVoterRows(filtered, listContainer);
+      sub.textContent = 'Captain: ' + captainName + '  \u00B7  ' + filtered.length + ' of ' + allCapVoters.length + ' voter' + (allCapVoters.length !== 1 ? 's' : '');
     });
+    filterWrap.appendChild(capVotedFilter);
+    box.insertBefore(filterWrap, listContainer);
+
+    renderCaptainVoterRows(voters, listContainer);
   } catch (e) {
     sub.textContent = 'Error loading voters';
     console.error(e);
   }
+}
+
+function renderCaptainVoterRows(voters, container) {
+  container.textContent = '';
+  if (voters.length === 0) {
+    var emptyDiv = document.createElement('div');
+    emptyDiv.className = 'right-empty';
+    emptyDiv.textContent = 'No voters match the current filter.';
+    container.appendChild(emptyDiv);
+    return;
+  }
+  voters.forEach(function(v) {
+    var row = document.createElement('div');
+    row.style.cssText = 'padding:10px 0;border-bottom:1px solid #334155;font-size:13px';
+    var topRow = document.createElement('div');
+    topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
+    var nameEl = document.createElement('div');
+    nameEl.style.cssText = 'font-weight:600;color:#818cf8;cursor:pointer';
+    nameEl.textContent = voterFullName(v) + ' \u25B8';
+    nameEl.title = 'Click to expand details';
+    (function(voter, rowEl) {
+      nameEl.onclick = function() {
+        var existing = rowEl.querySelector('.voter-expand-panel');
+        if (existing) { existing.remove(); nameEl.textContent = voterFullName(voter) + ' \u25B8'; return; }
+        nameEl.textContent = voterFullName(voter) + ' \u25BE';
+        rowEl.appendChild(createVoterExpandPanel(voter));
+      };
+    })(v, row);
+    topRow.appendChild(nameEl);
+    var badgesDiv = document.createElement('div');
+    badgesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;flex-shrink:0';
+    badgesDiv.appendChild(createVotedBadge(v));
+    topRow.appendChild(badgesDiv);
+    row.appendChild(topRow);
+    container.appendChild(row);
+  });
 }
 
 // ===================== MASTER LIST =====================
@@ -1472,6 +1601,20 @@ async function loadMasterList() {
       statsEl.appendChild(card);
     });
 
+    // Populate captain filter
+    var captainFilter = document.getElementById('masterCaptainFilter');
+    captainFilter.innerHTML = '<option value="all">All Sources</option>';
+    var sourceNames = {};
+    masterListData.forEach(function(v) {
+      (v.lists || []).forEach(function(l) { sourceNames[l.source_name] = l.source_type; });
+    });
+    Object.keys(sourceNames).sort().forEach(function(name) {
+      var opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name + (sourceNames[name] === 'admin' ? ' (Admin)' : '');
+      captainFilter.appendChild(opt);
+    });
+
     if (masterListData.length === 0) {
       emptyEl.style.display = '';
       return;
@@ -1485,15 +1628,21 @@ async function loadMasterList() {
 
 function filterMasterList() {
   var q = (document.getElementById('masterSearchInput').value || '').trim().toLowerCase();
-  if (!q) {
-    renderMasterRows(masterListData);
-    return;
+  var votedStatus = (document.getElementById('masterVotedFilter') || {}).value || 'all';
+  var captainVal = (document.getElementById('masterCaptainFilter') || {}).value || 'all';
+  var filtered = filterVotersByStatus(masterListData, votedStatus);
+  if (captainVal !== 'all') {
+    filtered = filtered.filter(function(v) {
+      return (v.lists || []).some(function(l) { return l.source_name === captainVal; });
+    });
   }
-  var filtered = masterListData.filter(function(v) {
-    var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
-    v.lists.forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
-    return text.indexOf(q) !== -1;
-  });
+  if (q) {
+    filtered = filtered.filter(function(v) {
+      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
+      v.lists.forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
+      return text.indexOf(q) !== -1;
+    });
+  }
   renderMasterRows(filtered);
 }
 
@@ -1506,8 +1655,28 @@ function renderMasterRows(voters) {
 
     var tdName = document.createElement('td');
     var nameText = document.createElement('div');
-    nameText.style.fontWeight = '600';
-    nameText.textContent = voterFullName(v);
+    nameText.style.cssText = 'font-weight:600;color:#818cf8;cursor:pointer';
+    nameText.textContent = voterFullName(v) + ' \u25B8';
+    nameText.title = 'Click to expand details';
+    (function(voter, tableRow) {
+      nameText.onclick = function() {
+        var next = tableRow.nextElementSibling;
+        if (next && next.classList.contains('voter-detail-row')) {
+          next.remove();
+          nameText.textContent = voterFullName(voter) + ' \u25B8';
+          return;
+        }
+        nameText.textContent = voterFullName(voter) + ' \u25BE';
+        var detailTr = document.createElement('tr');
+        detailTr.className = 'voter-detail-row';
+        var detailTd = document.createElement('td');
+        detailTd.colSpan = 7;
+        detailTd.style.cssText = 'padding:0 8px 10px';
+        detailTd.appendChild(createVoterExpandPanel(voter));
+        detailTr.appendChild(detailTd);
+        tableRow.parentNode.insertBefore(detailTr, tableRow.nextSibling);
+      };
+    })(v, tr);
     tdName.appendChild(nameText);
     if (v.precinct) {
       var precEl = document.createElement('div');

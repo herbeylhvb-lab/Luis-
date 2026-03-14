@@ -141,8 +141,27 @@ router.get('/candidates/:id/captains', (req, res) => {
       SELECT COUNT(DISTINCT voter_id) as n FROM captain_list_voters
       WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
     `).get(c.id) || { n: 0 }).n;
+    c.voted_count = (db.prepare(`
+      SELECT COUNT(DISTINCT clv.voter_id) as n
+      FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN voters v ON clv.voter_id = v.id
+      WHERE cl.captain_id = ? AND v.early_voted = 1
+    `).get(c.id) || { n: 0 }).n;
   }
-  res.json({ captains });
+
+  // Aggregate totals across all captains
+  const totals = db.prepare(`
+    SELECT COUNT(DISTINCT clv.voter_id) as total_voters,
+      COUNT(DISTINCT CASE WHEN v.early_voted = 1 THEN clv.voter_id END) as total_voted
+    FROM captain_list_voters clv
+    JOIN captain_lists cl ON clv.list_id = cl.id
+    JOIN captains c ON cl.captain_id = c.id
+    JOIN voters v ON clv.voter_id = v.id
+    WHERE c.candidate_id = ?
+  `).get(req.params.id) || { total_voters: 0, total_voted: 0 };
+
+  res.json({ captains, total_voters: totals.total_voters, total_voted: totals.total_voted });
 });
 
 // Admin creates captain under a candidate
