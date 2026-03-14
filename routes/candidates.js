@@ -522,6 +522,27 @@ router.post('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, 
   res.json({ success: true, added });
 });
 
+// Bulk upload voters to a candidate's list by identifier
+router.post('/candidates/:id/lists/:listId/bulk-upload', requireCandidateAuth, (req, res) => {
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const { identifiers } = req.body;
+  if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
+  const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ?');
+  const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
+  let added = 0, duplicates = 0, notFound = [];
+  const tx = db.transaction(() => {
+    for (const ident of identifiers) {
+      const voter = lookup.get(ident, ident, ident);
+      if (!voter) { notFound.push(ident); continue; }
+      const r = insert.run(req.params.listId, voter.id);
+      if (r.changes) added++; else duplicates++;
+    }
+  });
+  tx();
+  res.json({ added, duplicates, notFound, total: identifiers.length });
+});
+
 // Remove voter from a candidate's list
 router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateAuth, (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
