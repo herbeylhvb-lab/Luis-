@@ -998,11 +998,15 @@ async function loadListVoters(listId) {
     var header = document.querySelector('.right-header');
     var existingUploadBtn = header.querySelector('.upload-csv-btn');
     if (existingUploadBtn) existingUploadBtn.remove();
-    var uploadBtn = document.createElement('button');
+    var uploadBtn = document.createElement('label');
     uploadBtn.className = 'btn btn-sm upload-csv-btn';
-    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;margin-top:8px;font-size:12px';
+    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;margin-top:8px;font-size:12px;position:relative;overflow:hidden;cursor:pointer';
     uploadBtn.textContent = '\uD83D\uDCE4 Upload CSV';
-    uploadBtn.onclick = function() { uploadVotersCSVToList(listId); };
+    var fi = document.createElement('input');
+    fi.type = 'file'; fi.accept = '.csv,.txt';
+    fi.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer';
+    fi.onchange = function() { handleCandidateUpload(fi, listId); };
+    uploadBtn.appendChild(fi);
     header.appendChild(uploadBtn);
 
     if (voters.length === 0) {
@@ -1077,45 +1081,32 @@ async function removeVoterFromList(listId, voterId) {
   } catch (e) { console.error(e); }
 }
 
-function uploadVotersCSVToList(listId) {
-  var input = document.createElement('input');
-  input.type = 'file'; input.accept = '.csv,.txt';
-  input.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;opacity:0;z-index:999999;cursor:pointer';
-  document.body.appendChild(input);
-  input.onchange = async function() {
-    if (input.parentNode) input.parentNode.removeChild(input);
-    var file = input.files[0];
-    if (!file) return;
-    var text = await file.text();
-    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
-    if (lines.length === 0) { alert('Empty file.'); return; }
-    var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
-    var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
-    if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
-    var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
-    if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
-    try {
-      var resp = await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/bulk-upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers: identifiers })
-      });
-      var data = await resp.json();
-      var msg = 'Added: ' + data.added + ' voters';
-      if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
-      if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
-      alert(msg);
-      refreshDashboard();
-      loadListVoters(listId);
-    } catch (e) { alert('Upload error: ' + (e.message || e)); }
-  };
-  input.addEventListener('click', function() {
-    window.addEventListener('focus', function onFocus() {
-      window.removeEventListener('focus', onFocus);
-      setTimeout(function() { if (input.parentNode && !input.files.length) input.parentNode.removeChild(input); }, 300);
+async function handleCandidateUpload(input, listId) {
+  var file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  var text = await file.text();
+  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+  if (lines.length === 0) { alert('Empty file.'); return; }
+  var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
+  var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
+  if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
+  var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
+  if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
+  try {
+    var resp = await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/bulk-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifiers: identifiers })
     });
-  });
-  input.click();
+    var data = await resp.json();
+    var msg = 'Added: ' + data.added + ' voters';
+    if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
+    if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
+    alert(msg);
+    refreshDashboard();
+    loadListVoters(listId);
+  } catch (e) { alert('Upload error: ' + (e.message || e)); }
 }
 
 async function loadHousehold(voterId, card) {
