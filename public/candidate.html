@@ -998,15 +998,13 @@ async function loadListVoters(listId) {
     var header = document.querySelector('.right-header');
     var existingUploadBtn = header.querySelector('.upload-csv-btn');
     if (existingUploadBtn) existingUploadBtn.remove();
-    var uploadBtn = document.createElement('label');
+    var uploadBtn = document.createElement('button');
     uploadBtn.className = 'btn btn-sm upload-csv-btn';
-    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;margin-top:8px;font-size:12px;position:relative;overflow:hidden;cursor:pointer';
+    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;margin-top:8px;font-size:12px';
     uploadBtn.textContent = '\uD83D\uDCE4 Upload CSV';
-    var fi = document.createElement('input');
-    fi.type = 'file'; fi.accept = '.csv,.txt';
-    fi.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer';
-    fi.onchange = function() { handleCandidateUpload(fi, listId); };
-    uploadBtn.appendChild(fi);
+    (function(lid) {
+      uploadBtn.onclick = function() { showUploadModal(lid); };
+    })(listId);
     header.appendChild(uploadBtn);
 
     if (voters.length === 0) {
@@ -1081,32 +1079,93 @@ async function removeVoterFromList(listId, voterId) {
   } catch (e) { console.error(e); }
 }
 
-async function handleCandidateUpload(input, listId) {
-  var file = input.files[0];
-  input.value = '';
-  if (!file) return;
-  var text = await file.text();
-  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
-  if (lines.length === 0) { alert('Empty file.'); return; }
-  var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
-  var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
-  if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
-  var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
-  if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
-  try {
-    var resp = await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/bulk-upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifiers: identifiers })
-    });
-    var data = await resp.json();
-    var msg = 'Added: ' + data.added + ' voters';
-    if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
-    if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
-    alert(msg);
-    refreshDashboard();
-    loadListVoters(listId);
-  } catch (e) { alert('Upload error: ' + (e.message || e)); }
+function showUploadModal(listId) {
+  var apiUrl = '/api/candidates/' + candidateId + '/lists/' + listId + '/bulk-upload';
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.zIndex = '20000';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.cssText = 'max-width:500px;text-align:left';
+  box.innerHTML =
+    '<h3 style="margin:0 0 16px;color:#e2e8f0">\uD83D\uDCE4 Upload Voters to List</h3>' +
+    '<div class="form-group" style="margin-bottom:12px"><label>Upload CSV File</label>' +
+    '<input type="file" id="uploadModalFile" accept=".csv,.txt" style="margin-top:4px"></div>' +
+    '<div style="text-align:center;color:#64748b;font-size:12px;margin-bottom:12px">\u2014 or paste data below \u2014</div>' +
+    '<div class="form-group" style="margin-bottom:16px"><label>Paste CSV Data</label>' +
+    '<textarea id="uploadModalPaste" rows="6" placeholder="voter_id,name,address\n1234567890,John Doe,123 Main St\n0987654321,Jane Smith,456 Oak Ave" style="font-size:12px"></textarea></div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+    '<button class="btn btn-sm btn-secondary" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+    '<button class="btn btn-sm btn-primary" id="uploadModalNext">Next \u2192</button></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  document.getElementById('uploadModalNext').onclick = async function() {
+    var text = '';
+    var fileEl = document.getElementById('uploadModalFile');
+    var pasteEl = document.getElementById('uploadModalPaste');
+    if (fileEl.files && fileEl.files[0]) {
+      text = await fileEl.files[0].text();
+    } else if (pasteEl.value.trim()) {
+      text = pasteEl.value;
+    }
+    if (!text.trim()) { alert('Please upload a file or paste data.'); return; }
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length === 0) { alert('No data found.'); return; }
+    var headers = lines[0].split(',').map(function(h) { return h.trim().replace(/^["']|["']$/g, ''); });
+    var dataRows = lines.slice(1).filter(function(l) { return l.trim(); });
+    if (headers.length === 1 && dataRows.length === 0) {
+      dataRows = lines; headers = ['Voter ID'];
+    } else if (headers.length === 1) {
+      var h0 = headers[0].replace(/\D/g, '');
+      if (h0.length > 4) { dataRows = lines; headers = ['Voter ID']; }
+    }
+    if (dataRows.length === 0) { alert('No data rows found (only header).'); return; }
+    var selOpts = headers.map(function(h, i) { return '<option value="' + i + '">' + escHtml(h) + '</option>'; }).join('');
+    var preview = dataRows.slice(0, 5).map(function(r) {
+      return r.split(',')[0].trim().replace(/^["']|["']$/g, '');
+    }).join(', ');
+    box.innerHTML =
+      '<h3 style="margin:0 0 16px;color:#e2e8f0">\uD83D\uDCE4 Select Voter ID Column</h3>' +
+      '<p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Found <strong style="color:#e2e8f0">' + headers.length + '</strong> columns, <strong style="color:#e2e8f0">' + dataRows.length + '</strong> rows</p>' +
+      '<div class="form-group" style="margin-bottom:12px"><label>Which column has the voter ID?</label>' +
+      '<select id="uploadModalCol" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">' + selOpts + '</select></div>' +
+      '<div id="uploadModalPreview" style="color:#64748b;font-size:12px;margin-bottom:16px">Preview: ' + escHtml(preview) + '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn btn-sm btn-secondary" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+      '<button class="btn btn-sm btn-success" id="uploadModalSubmit">Upload ' + dataRows.length + ' voters</button></div>';
+    document.getElementById('uploadModalCol').onchange = function() {
+      var ci = parseInt(this.value);
+      var pv = dataRows.slice(0, 5).map(function(r) {
+        var cols = r.split(',');
+        return (cols[ci] || '').trim().replace(/^["']|["']$/g, '');
+      }).join(', ');
+      document.getElementById('uploadModalPreview').textContent = 'Preview: ' + pv;
+    };
+    document.getElementById('uploadModalSubmit').onclick = async function() {
+      var ci = parseInt(document.getElementById('uploadModalCol').value);
+      var identifiers = dataRows.map(function(r) {
+        var cols = r.split(',');
+        return (cols[ci] || '').trim().replace(/^["']|["']$/g, '');
+      }).filter(Boolean);
+      if (identifiers.length === 0) { alert('No values found in selected column.'); return; }
+      this.disabled = true; this.textContent = 'Uploading...';
+      try {
+        var resp = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifiers: identifiers }) });
+        var data = await resp.json();
+        overlay.remove();
+        var msg = 'Added: ' + data.added + ' voters';
+        if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
+        if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
+        alert(msg);
+        refreshDashboard();
+        loadListVoters(listId);
+      } catch (e) { alert('Upload error: ' + (e.message || e)); this.disabled = false; this.textContent = 'Upload ' + dataRows.length + ' voters'; }
+    };
+  };
 }
 
 async function loadHousehold(voterId, card) {

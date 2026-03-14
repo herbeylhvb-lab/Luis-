@@ -981,7 +981,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
             <button class="btn btn-sm" style="background:#0284c7;border-color:#0369a1" onclick="toggleHouseholdView()">🏠 Household View</button>
-            <label class="btn btn-sm" style="background:#d97706;border-color:#b45309;position:relative;overflow:hidden;cursor:pointer">📤 Upload CSV<input type="file" accept=".csv,.txt" onchange="handleAdminListUpload(this)" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer"></label>
+            <button class="btn btn-sm" style="background:#d97706;border-color:#b45309" onclick="showUploadModal(state.currentAdminListId, '/api/admin-lists/' + state.currentAdminListId + '/bulk-upload', function(){ loadAdminListVoters(state.currentAdminListId); })">📤 Upload CSV</button>
           </div>
         </div>
         <div id="householdViewContainer" style="display:none;margin-bottom:16px"></div>
@@ -6421,15 +6421,19 @@ async function viewCandidateListVoters(candidateId, list) {
   var btnGroup2 = document.createElement('div');
   btnGroup2.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
   if (list.source !== 'captain') {
-    var uploadBtn2 = document.createElement('label');
+    var uploadBtn2 = document.createElement('button');
     uploadBtn2.className = 'btn btn-sm';
-    uploadBtn2.style.cssText = 'background:#d97706;border-color:#b45309;position:relative;overflow:hidden;cursor:pointer';
+    uploadBtn2.style.cssText = 'background:#d97706;border-color:#b45309';
     uploadBtn2.textContent = '\uD83D\uDCE4 Upload CSV';
-    var fi2 = document.createElement('input');
-    fi2.type = 'file'; fi2.accept = '.csv,.txt';
-    fi2.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer';
-    fi2.onchange = function() { handleOverlayUpload(fi2, list.id, list, candidateId); };
-    uploadBtn2.appendChild(fi2);
+    (function(lid, lst, cid) {
+      uploadBtn2.onclick = function() {
+        showUploadModal(lid, '/api/admin-lists/' + lid + '/bulk-upload', function() {
+          var ov = document.getElementById('candidateListViewerOverlay');
+          if (ov) ov.remove();
+          viewCandidateListVoters(cid, lst);
+        });
+      };
+    })(list.id, list, candidateId);
     btnGroup2.appendChild(uploadBtn2);
   }
   var dlBtn2 = document.createElement('button');
@@ -6787,53 +6791,94 @@ async function loadAdminListVoters(listId) {
 }
 
 // ===================== LIST MANAGEMENT TOOLS =====================
-async function handleAdminListUpload(input) {
-  var listId = state.currentAdminListId;
-  if (!listId) { input.value = ''; return; }
-  var file = input.files[0];
-  input.value = ''; // reset so same file can be re-selected
-  if (!file) return;
-  var text = await file.text();
-  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
-  if (lines.length === 0) { alert('Empty file.'); return; }
-  var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
-  var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
-  if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
-  var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
-  if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
-  try {
-    var data = await apiPost('/api/admin-lists/' + listId + '/bulk-upload', { identifiers: identifiers });
-    var msg = 'Added: ' + data.added + ' voters';
-    if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
-    if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
-    alert(msg);
-    loadAdminListVoters(listId);
-  } catch (e) { alert('Upload error: ' + (e.message || e)); }
-}
+function showUploadModal(listId, apiUrl, refreshFn) {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.zIndex = '20000';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.cssText = 'max-width:500px;text-align:left';
+  box.innerHTML =
+    '<h3 style="margin:0 0 16px;color:#e2e8f0">\uD83D\uDCE4 Upload Voters to List</h3>' +
+    '<div class="form-group" style="margin-bottom:12px"><label>Upload CSV File</label>' +
+    '<input type="file" id="uploadModalFile" accept=".csv,.txt" style="margin-top:4px"></div>' +
+    '<div style="text-align:center;color:#64748b;font-size:12px;margin-bottom:12px">\u2014 or paste data below \u2014</div>' +
+    '<div class="form-group" style="margin-bottom:16px"><label>Paste CSV Data</label>' +
+    '<textarea id="uploadModalPaste" rows="6" placeholder="voter_id,name,address\n1234567890,John Doe,123 Main St\n0987654321,Jane Smith,456 Oak Ave" style="font-size:12px"></textarea></div>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+    '<button class="btn btn-sm btn-secondary" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+    '<button class="btn btn-sm btn-primary" id="uploadModalNext">Next \u2192</button></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
 
-async function handleOverlayUpload(input, listId, list, candidateId) {
-  var file = input.files[0];
-  input.value = '';
-  if (!file) return;
-  var text = await file.text();
-  var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
-  if (lines.length === 0) { alert('Empty file.'); return; }
-  var firstVal = lines[0].split(',')[0].trim().replace(/^["']|["']$/g, '');
-  var headerNames = ['id','voter','vuid','registration','vanid','county','voter_id','registration_number','county_file_id'];
-  if (isNaN(firstVal) || headerNames.indexOf(firstVal.toLowerCase()) !== -1) lines.shift();
-  var identifiers = lines.map(function(l) { return l.split(',')[0].trim().replace(/^["']|["']$/g, ''); }).filter(Boolean);
-  if (identifiers.length === 0) { alert('No voter IDs found in file.'); return; }
-  try {
-    var data = await apiPost('/api/admin-lists/' + listId + '/bulk-upload', { identifiers: identifiers });
-    var msg = 'Added: ' + data.added + ' voters';
-    if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
-    if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
-    alert(msg);
-    var overlay = document.getElementById('candidateListViewerOverlay');
-    if (overlay) overlay.remove();
-    viewCandidateListVoters(candidateId, list);
-    if (_candidateDetailId) showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''), _candidateDetailCode);
-  } catch (e) { alert('Upload error: ' + (e.message || e)); }
+  document.getElementById('uploadModalNext').onclick = async function() {
+    var text = '';
+    var fileEl = document.getElementById('uploadModalFile');
+    var pasteEl = document.getElementById('uploadModalPaste');
+    if (fileEl.files && fileEl.files[0]) {
+      text = await fileEl.files[0].text();
+    } else if (pasteEl.value.trim()) {
+      text = pasteEl.value;
+    }
+    if (!text.trim()) { alert('Please upload a file or paste data.'); return; }
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length === 0) { alert('No data found.'); return; }
+    // Parse header + rows
+    var headers = lines[0].split(',').map(function(h) { return h.trim().replace(/^["']|["']$/g, ''); });
+    var dataRows = lines.slice(1).filter(function(l) { return l.trim(); });
+    // If only 1 column and no clear header, treat all lines as data
+    if (headers.length === 1 && dataRows.length === 0) {
+      dataRows = lines; headers = ['Voter ID'];
+    } else if (headers.length === 1) {
+      // Check if header looks like data (numeric)
+      var h0 = headers[0].replace(/\D/g, '');
+      if (h0.length > 4) { dataRows = lines; headers = ['Voter ID']; }
+    }
+    if (dataRows.length === 0) { alert('No data rows found (only header).'); return; }
+    // Show step 2: column picker
+    var selOpts = headers.map(function(h, i) { return '<option value="' + i + '">' + escHtml(h) + '</option>'; }).join('');
+    var preview = dataRows.slice(0, 5).map(function(r) {
+      return r.split(',')[0].trim().replace(/^["']|["']$/g, '');
+    }).join(', ');
+    box.innerHTML =
+      '<h3 style="margin:0 0 16px;color:#e2e8f0">\uD83D\uDCE4 Select Voter ID Column</h3>' +
+      '<p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Found <strong style="color:#e2e8f0">' + headers.length + '</strong> columns, <strong style="color:#e2e8f0">' + dataRows.length + '</strong> rows</p>' +
+      '<div class="form-group" style="margin-bottom:12px"><label>Which column has the voter ID?</label>' +
+      '<select id="uploadModalCol" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">' + selOpts + '</select></div>' +
+      '<div id="uploadModalPreview" style="color:#64748b;font-size:12px;margin-bottom:16px">Preview: ' + escHtml(preview) + '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn btn-sm btn-secondary" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+      '<button class="btn btn-sm btn-success" id="uploadModalSubmit">Upload ' + dataRows.length + ' voters</button></div>';
+    // Update preview when column changes
+    document.getElementById('uploadModalCol').onchange = function() {
+      var ci = parseInt(this.value);
+      var pv = dataRows.slice(0, 5).map(function(r) {
+        var cols = r.split(',');
+        return (cols[ci] || '').trim().replace(/^["']|["']$/g, '');
+      }).join(', ');
+      document.getElementById('uploadModalPreview').textContent = 'Preview: ' + pv;
+      document.getElementById('uploadModalSubmit').textContent = 'Upload ' + dataRows.length + ' voters';
+    };
+    document.getElementById('uploadModalSubmit').onclick = async function() {
+      var ci = parseInt(document.getElementById('uploadModalCol').value);
+      var identifiers = dataRows.map(function(r) {
+        var cols = r.split(',');
+        return (cols[ci] || '').trim().replace(/^["']|["']$/g, '');
+      }).filter(Boolean);
+      if (identifiers.length === 0) { alert('No values found in selected column.'); return; }
+      this.disabled = true; this.textContent = 'Uploading...';
+      try {
+        var data = await apiPost(apiUrl, { identifiers: identifiers });
+        overlay.remove();
+        var msg = 'Added: ' + data.added + ' voters';
+        if (data.duplicates) msg += '\nAlready in list: ' + data.duplicates;
+        if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
+        alert(msg);
+        if (refreshFn) refreshFn();
+      } catch (e) { alert('Upload error: ' + (e.message || e)); this.disabled = false; this.textContent = 'Upload ' + dataRows.length + ' voters'; }
+    };
+  };
 }
 
 window.exportMailerCSV = async function() {
