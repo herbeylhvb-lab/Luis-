@@ -227,7 +227,7 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
       SELECT COUNT(DISTINCT clv.voter_id) as n FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN voters v ON clv.voter_id = v.id
-      WHERE cl.captain_id = ? AND (v.early_voted = 1 OR v.id IN (SELECT voter_id FROM election_votes WHERE voted = 1))
+      WHERE cl.captain_id = ? AND v.early_voted = 1
     `).get(c.id) || { n: 0 }).n;
   }
 
@@ -260,7 +260,7 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
     ) sub
     JOIN voters v ON sub.voter_id = v.id
-    WHERE v.early_voted = 1 OR v.id IN (SELECT voter_id FROM election_votes WHERE voted = 1)
+    WHERE v.early_voted = 1
   `).get(candidate.id, candidate.id) || { n: 0 }).n;
   const stats = {
     total_captains: captains.length,
@@ -300,7 +300,7 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
       SELECT COUNT(DISTINCT clv.voter_id) as n FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN voters v ON clv.voter_id = v.id
-      WHERE cl.captain_id = ? AND (v.early_voted = 1 OR v.id IN (SELECT voter_id FROM election_votes WHERE voted = 1))
+      WHERE cl.captain_id = ? AND v.early_voted = 1
     `).get(c.id) || { n: 0 }).n;
   }
 
@@ -333,7 +333,7 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
     ) sub
     JOIN voters v ON sub.voter_id = v.id
-    WHERE v.early_voted = 1 OR v.id IN (SELECT voter_id FROM election_votes WHERE voted = 1)
+    WHERE v.early_voted = 1
   `).get(candidate.id, candidate.id) || { n: 0 }).n;
 
   const stats = {

@@ -1609,14 +1609,10 @@ function voterIdDisplay(v) {
   return '';
 }
 
-// Create voted/not-voted badge element
+// Create voted/not-voted badge element (only checks early_voted, not historical election participation)
 function createVotedBadge(v) {
   var badge = document.createElement('span');
   var hasVoted = v.early_voted === 1;
-  // Also check election_votes if available
-  if (!hasVoted && v.election_votes && v.election_votes.length > 0) {
-    hasVoted = v.election_votes.some(function(ev) { return ev.voted === 1; });
-  }
   badge.className = 'badge ' + (hasVoted ? 'badge-voted' : 'badge-not-voted');
   badge.textContent = hasVoted ? 'Voted' : 'Not Voted';
   if (hasVoted && v.early_voted_date) badge.title = 'Voted on ' + v.early_voted_date;
@@ -1655,11 +1651,7 @@ function triggerDownload(filename, csvContent) {
 }
 
 function isVoted(v) {
-  if (v.early_voted === 1) return true;
-  if (v.election_votes && v.election_votes.length > 0) {
-    return v.election_votes.some(function(ev) { return ev.voted === 1; });
-  }
-  return false;
+  return v.early_voted === 1;
 }
 
 function buildPrintPage(title, subtitle, tableHeaders, rows) {
