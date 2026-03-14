@@ -6401,13 +6401,13 @@ async function viewCandidateListVoters(candidateId, list) {
 
   var overlay = document.createElement('div');
   overlay.id = 'candidateListViewerOverlay';
-  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:200';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000;overflow:auto';
 
   var box = document.createElement('div');
-  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;max-width:700px;width:95%;max-height:80vh;display:flex;flex-direction:column';
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:20px;max-width:700px;width:92%;max-height:85vh;display:flex;flex-direction:column;margin:auto';
 
   var headerDiv = document.createElement('div');
-  headerDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px';
+  headerDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:8px';
   var titleDiv = document.createElement('div');
   var h3 = document.createElement('h3');
   h3.style.cssText = 'font-size:16px;margin-bottom:4px';
@@ -6419,7 +6419,7 @@ async function viewCandidateListVoters(candidateId, list) {
   titleDiv.appendChild(sub);
   headerDiv.appendChild(titleDiv);
   var btnGroup2 = document.createElement('div');
-  btnGroup2.style.cssText = 'display:flex;gap:6px';
+  btnGroup2.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
   if (list.source !== 'captain') {
     var uploadBtn2 = document.createElement('button');
     uploadBtn2.className = 'btn btn-sm';
