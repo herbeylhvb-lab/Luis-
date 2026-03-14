@@ -1090,7 +1090,7 @@ router.post('/early-voting/import', (req, res) => {
       let matchMethod = '';
 
       // 1. Registration number / VUID match
-      const reg = (row.registration_number || row.voter_id || row.vuid || row.reg_num || '').trim().toUpperCase();
+      const reg = (row.registration_number || row.voter_id || row.vuid || row.reg_num || row.voter_unique_id || row.id || row.vanid || '').trim().toUpperCase();
       if (reg && regMap[reg]) {
         voterId = regMap[reg];
         matchMethod = 'registration';

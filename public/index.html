@@ -3716,9 +3716,22 @@ window.importEarlyVoting = async function() {
   var statusEl = document.getElementById('evImportStatus');
   statusEl.textContent = 'Importing...';
   var lines = raw.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
-  var header = parseCsvLine(lines[0]).map(function(h) { return h.toLowerCase(); });
+  // Normalize headers: lowercase, replace spaces/special chars with underscores
+  var rawHeader = parseCsvLine(lines[0]);
+  var knownCols = ['registration_number','voter_id','vuid','reg_num','voter_unique_id','county_file_id','countyfileid','state_file_id','statefileid','state_id','first_name','last_name','phone','address','vote_date','vote_method','id','vanid'];
+  var normalizedHeader = rawHeader.map(function(h) { return h.toLowerCase().trim().replace(/[\s\-\/]+/g, '_').replace(/[^a-z0-9_]/g, ''); });
+  var hasKnownCol = normalizedHeader.some(function(h) { return knownCols.indexOf(h) >= 0; });
+  var header, dataStart;
+  if (hasKnownCol) {
+    header = normalizedHeader;
+    dataStart = 1;
+  } else {
+    // No recognized header — treat all lines as single-column voter IDs
+    header = ['vuid'];
+    dataStart = 0;
+  }
   var rows = [];
-  for (var i = 1; i < lines.length; i++) {
+  for (var i = dataStart; i < lines.length; i++) {
     var cols = parseCsvLine(lines[i]);
     var row = {};
     header.forEach(function(h, idx) { row[h] = cols[idx] || ''; });
