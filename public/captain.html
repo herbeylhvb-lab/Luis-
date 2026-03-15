@@ -78,7 +78,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .voter-card .voter-name{font-weight:700;font-size:16px}
 .voter-card .voter-addr{color:#94a3b8;font-size:13px;margin-top:4px}
 .voter-card .voter-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-.voter-card .voter-history{color:#64748b;font-size:12px;margin-top:6px}
 .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
 .badge-green{background:#052e16;color:#4ade80}
 .badge-red{background:#450a0a;color:#fca5a5}
@@ -335,6 +334,11 @@ function esc(t) {
 
 async function api(path, opts) {
   var res = await fetch(path, opts);
+  if (!res.ok) {
+    var errText = '';
+    try { var errData = await res.json(); errText = errData.error || errData.message || ''; } catch(e) {}
+    throw new Error(errText || 'Request failed (' + res.status + ')');
+  }
   return res.json();
 }
 
@@ -951,24 +955,6 @@ function renderListVoters() {
       info.appendChild(contact);
     }
 
-    // Turnout tags in list panel
-    if (v.election_votes && v.election_votes.length > 0) {
-      var tags = document.createElement('div');
-      tags.style.cssText = 'display:flex;gap:3px;flex-wrap:wrap;margin-top:3px';
-      v.election_votes.forEach(function(ev) {
-        var tag = document.createElement('span');
-        var isRep = ev.party_voted === 'R';
-        tag.style.cssText = 'font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;' +
-          (isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444' : 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6');
-        var label = ev.election_name;
-        if (ev.party_voted === 'R') label += ' (R)';
-        else if (ev.party_voted === 'D') label += ' (D)';
-        tag.textContent = label;
-        tags.appendChild(tag);
-      });
-      info.appendChild(tags);
-    }
-
     row.appendChild(info);
 
     if (captainState.selectedListType !== 'all-team') {
@@ -1053,7 +1039,7 @@ async function loadCapCityFilter() {
       opt.value = c; opt.textContent = c;
       sel.appendChild(opt);
     });
-  } catch (err) {}
+  } catch (err) { console.warn('City filter load failed:', err.message); }
 }
 
 // ===================== FILTERS =====================
@@ -1201,20 +1187,32 @@ async function searchVoters() {
     }
     card.appendChild(meta);
 
-    // Election count badge (detail shown when voter is clicked/expanded)
-    if (v.election_votes && v.election_votes.length > 0) {
-      var elecBadge = document.createElement('span');
-      elecBadge.className = 'badge badge-gray';
-      elecBadge.style.cssText = 'margin-top:6px;display:inline-block';
-      elecBadge.textContent = v.election_votes.length + ' election' + (v.election_votes.length > 1 ? 's' : '');
-      card.appendChild(elecBadge);
-    }
-
-    // Household section
+    // Household: show toggle instead of auto-loading (prevents N API calls per search)
+    var hhToggle = document.createElement('button');
+    hhToggle.style.cssText = 'display:block;width:100%;margin-top:8px;padding:6px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#64748b;font-size:12px;cursor:pointer;text-align:center';
+    hhToggle.textContent = '\uD83C\uDFE0 Show household';
     var hhContainer = document.createElement('div');
     hhContainer.id = 'hh-' + v.id;
+    hhToggle.addEventListener('click', (function(vid, container, btn) {
+      return function() {
+        if (container.childNodes.length > 0) {
+          container.style.display = container.style.display === 'none' ? '' : 'none';
+          btn.textContent = container.style.display === 'none' ? '\uD83C\uDFE0 Show household' : '\uD83C\uDFE0 Hide household';
+        } else {
+          btn.textContent = 'Loading...';
+          loadHousehold(vid, container).then(function() {
+            btn.textContent = '\uD83C\uDFE0 Hide household';
+            if (container.childNodes.length === 0) {
+              btn.textContent = 'No household members found';
+              btn.disabled = true;
+              btn.style.color = '#475569';
+            }
+          });
+        }
+      };
+    })(v.id, hhContainer, hhToggle));
+    card.appendChild(hhToggle);
     card.appendChild(hhContainer);
-    loadHousehold(v.id, hhContainer);
 
     el.appendChild(card);
   });
@@ -1230,44 +1228,68 @@ async function loadHousehold(voterId, containerEl) {
   var section = document.createElement('div');
   section.className = 'household-section';
   var h4 = document.createElement('h4');
-  h4.textContent = '\uD83C\uDFE0 Other people at this address (' + household.length + ')';
+  h4.textContent = '\uD83C\uDFE0 Same address (' + household.length + ')';
   section.appendChild(h4);
 
-  household.forEach(function(h) {
+  var INITIAL_SHOW = 5;
+  var hiddenMembers = [];
+
+  function createMemberRow(h) {
     var member = document.createElement('div');
     member.className = 'household-member';
-
     var info = document.createElement('div');
-    info.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+    info.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1;min-width:0';
     var memberNameSpan = document.createElement('span');
+    memberNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     var memberText = (h.first_name || '') + ' ' + (h.last_name || '');
     if (h.party) memberText += ' \u2022 ' + h.party;
     memberNameSpan.textContent = memberText;
     info.appendChild(memberNameSpan);
-    // Household member voted badge with party color
     var hhEvBadge = document.createElement('span');
     if (h.early_voted) {
       var hc = votedBadgeColor(h);
-      hhEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:' + hc.bg + ';color:' + hc.color + ';border:1px solid ' + hc.border;
+      hhEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;flex-shrink:0;background:' + hc.bg + ';color:' + hc.color + ';border:1px solid ' + hc.border;
       hhEvBadge.textContent = votedLabel(h);
     } else {
-      hhEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b';
+      hhEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;flex-shrink:0;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b';
       hhEvBadge.textContent = 'Not Voted';
     }
     info.appendChild(hhEvBadge);
-
     member.appendChild(info);
-
     var addBtn = document.createElement('button');
     addBtn.className = 'btn btn-xs btn-captain';
+    addBtn.style.flexShrink = '0';
     addBtn.textContent = '+ Add';
     addBtn.addEventListener('click', (function(hh) { return function() {
       if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
       showAddVoterModal(hh);
     }; })(h));
     member.appendChild(addBtn);
-    section.appendChild(member);
+    return member;
+  }
+
+  household.forEach(function(h, i) {
+    var row = createMemberRow(h);
+    if (i >= INITIAL_SHOW) {
+      row.style.display = 'none';
+      hiddenMembers.push(row);
+    }
+    section.appendChild(row);
   });
+
+  // "Show X more" button if overflow
+  if (household.length > INITIAL_SHOW) {
+    var moreBtn = document.createElement('button');
+    moreBtn.style.cssText = 'display:block;width:100%;padding:6px;background:none;border:1px dashed #475569;border-radius:6px;color:#818cf8;font-size:12px;cursor:pointer;margin-top:4px;text-align:center';
+    moreBtn.textContent = 'Show ' + (household.length - INITIAL_SHOW) + ' more';
+    var expanded = false;
+    moreBtn.addEventListener('click', function() {
+      expanded = !expanded;
+      hiddenMembers.forEach(function(el) { el.style.display = expanded ? '' : 'none'; });
+      moreBtn.textContent = expanded ? 'Show fewer' : 'Show ' + (household.length - INITIAL_SHOW) + ' more';
+    });
+    section.appendChild(moreBtn);
+  }
 
   containerEl.appendChild(section);
 }
@@ -1541,6 +1563,7 @@ function showAddVoterModal(voter) {
 
   box.appendChild(btnRow);
   overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal('addVoterModal'); });
   document.body.appendChild(overlay);
 }
 
@@ -1560,17 +1583,18 @@ async function loadHouseholdForModal(voterId, containerEl) {
   hint.textContent = 'Check the box to also add household members to your list:';
   containerEl.appendChild(hint);
 
-  household.forEach(function(h) {
+  var MODAL_INITIAL_SHOW = 5;
+  var hiddenRows = [];
+
+  function createHhRow(h) {
     var row = document.createElement('label');
     row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px';
-
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.className = 'hh-checkbox';
     cb.dataset.voterId = h.id;
     cb.dataset.voterName = (h.first_name || '') + ' ' + (h.last_name || '');
     row.appendChild(cb);
-
     var info = document.createElement('div');
     info.style.flex = '1';
     var nameSpan = document.createElement('div');
@@ -1585,9 +1609,31 @@ async function loadHouseholdForModal(voterId, containerEl) {
     detailSpan.textContent = details.join(' \u2022 ');
     info.appendChild(detailSpan);
     row.appendChild(info);
+    return row;
+  }
 
+  household.forEach(function(h, i) {
+    var row = createHhRow(h);
+    if (i >= MODAL_INITIAL_SHOW) {
+      row.style.display = 'none';
+      hiddenRows.push(row);
+    }
     containerEl.appendChild(row);
   });
+
+  // "Show X more" toggle for large households
+  if (household.length > MODAL_INITIAL_SHOW) {
+    var moreBtn = document.createElement('button');
+    moreBtn.style.cssText = 'display:block;width:100%;padding:5px;background:none;border:1px dashed #475569;border-radius:6px;color:#818cf8;font-size:12px;cursor:pointer;margin-bottom:6px;text-align:center';
+    moreBtn.textContent = 'Show ' + (household.length - MODAL_INITIAL_SHOW) + ' more household members';
+    var expanded = false;
+    moreBtn.addEventListener('click', function() {
+      expanded = !expanded;
+      hiddenRows.forEach(function(el) { el.style.display = expanded ? '' : 'none'; });
+      moreBtn.textContent = expanded ? 'Show fewer' : 'Show ' + (household.length - MODAL_INITIAL_SHOW) + ' more household members';
+    });
+    containerEl.appendChild(moreBtn);
+  }
 
   // Select all button
   var selectAll = document.createElement('button');

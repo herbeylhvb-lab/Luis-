@@ -467,11 +467,22 @@ function switchTab(tab) {
 
 // ===================== HELPERS =====================
 
+async function api(path, opts) {
+  var resp = await fetch(path, opts);
+  if (!resp.ok) {
+    var errText = '';
+    try { var errData = await resp.json(); errText = errData.error || errData.message || ''; } catch(e) {}
+    throw new Error(errText || 'Request failed (' + resp.status + ')');
+  }
+  return resp.json();
+}
+
 async function apiPut(path, body) {
-  var resp = await fetch(path, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  var data = await resp.json();
-  if (!resp.ok) throw new Error(data.error || 'Request failed');
-  return data;
+  return api(path, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
+
+async function apiPost(path, body) {
+  return api(path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
 }
 
 function inlineEditName(displayEl, currentName, onSaveFn) {
@@ -988,8 +999,7 @@ async function searchVoters() {
     if (zip) params.set('zip', zip.trim());
     if (precinct) params.set('precinct', precinct.trim());
     if (address) params.set('address', address.trim());
-    var resp = await fetch('/api/candidates/' + candidateId + '/search?' + params.toString());
-    var data = await resp.json();
+    var data = await api('/api/candidates/' + candidateId + '/search?' + params.toString());
     var voters = data.voters || [];
 
     results.textContent = '';
@@ -1077,14 +1087,10 @@ async function searchVoters() {
 async function addVoterToList(voterId) {
   if (!selectedListId) return;
   try {
-    await fetch('/api/candidates/' + candidateId + '/lists/' + selectedListId + '/voters', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voterIds: [voterId] })
-    });
+    await apiPost('/api/candidates/' + candidateId + '/lists/' + selectedListId + '/voters', { voterIds: [voterId] });
     refreshDashboard();
     if (selectedListId) loadListVoters(selectedListId);
-  } catch (e) { console.error(e); }
+  } catch (e) { console.error('Add voter failed:', e.message); alert('Failed to add voter: ' + e.message); }
 }
 
 async function loadListVoters(listId) {
@@ -1094,8 +1100,7 @@ async function loadListVoters(listId) {
   content.textContent = '';
 
   try {
-    var resp = await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/voters');
-    var data = await resp.json();
+    var data = await api('/api/candidates/' + candidateId + '/lists/' + listId + '/voters');
     var voters = data.voters || [];
     var listName = data.list ? data.list.name : 'List';
 
@@ -1186,10 +1191,10 @@ function renderListVoterRows(voters, content, listId) {
 
 async function removeVoterFromList(listId, voterId) {
   try {
-    await fetch('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + voterId, { method: 'DELETE' });
+    await api('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + voterId, { method: 'DELETE' });
     refreshDashboard();
     loadListVoters(listId);
-  } catch (e) { console.error(e); }
+  } catch (e) { console.error('Remove voter failed:', e.message); }
 }
 
 function showUploadModal(listId) {
@@ -1285,8 +1290,7 @@ async function loadHousehold(voterId, card) {
   var existing = card.querySelector('.household-section');
   if (existing) { existing.remove(); return; }
   try {
-    var resp = await fetch('/api/candidates/' + candidateId + '/household?voter_id=' + voterId);
-    var data = await resp.json();
+    var data = await api('/api/candidates/' + candidateId + '/household?voter_id=' + voterId);
     var hh = data.household || [];
     if (hh.length === 0) return;
 
@@ -1503,8 +1507,7 @@ async function viewCaptainList(listId, listName, captainName) {
   document.body.appendChild(overlay);
 
   try {
-    var resp = await fetch('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
-    var data = await resp.json();
+    var data = await api('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
     var voters = data.voters || [];
     captainListVoters = voters;
     var allCapVoters = voters.slice();
@@ -1578,8 +1581,7 @@ async function loadMasterList() {
   statsEl.textContent = '';
 
   try {
-    var resp = await fetch('/api/candidates/' + candidateId + '/master-list');
-    var data = await resp.json();
+    var data = await api('/api/candidates/' + candidateId + '/master-list');
     masterListData = data.voters || [];
 
     var stats = [

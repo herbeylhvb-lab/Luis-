@@ -46,30 +46,46 @@ function requireCandidateAuth(req, res, next) {
 
 // ===================== ADMIN ENDPOINTS =====================
 
-// List all candidates with stats
+// List all candidates with stats (batched queries instead of N+1)
 router.get('/candidates', (req, res) => {
   const candidates = db.prepare('SELECT * FROM candidates ORDER BY created_at DESC').all();
-  for (const c of candidates) {
-    c.captain_count = (db.prepare('SELECT COUNT(*) as n FROM captains WHERE candidate_id = ?').get(c.id) || { n: 0 }).n;
-    c.list_count = (db.prepare('SELECT COUNT(*) as n FROM admin_lists WHERE candidate_id = ?').get(c.id) || { n: 0 }).n;
-    // Captain lists under this candidate's captains
-    c.captain_list_count = (db.prepare(`
-      SELECT COUNT(*) as n FROM captain_lists cl
+
+  // Batch: captain counts per candidate
+  const captainCounts = {};
+  db.prepare('SELECT candidate_id, COUNT(*) as n FROM captains GROUP BY candidate_id').all()
+    .forEach(r => { captainCounts[r.candidate_id] = r.n; });
+
+  // Batch: admin list counts per candidate
+  const listCounts = {};
+  db.prepare('SELECT candidate_id, COUNT(*) as n FROM admin_lists GROUP BY candidate_id').all()
+    .forEach(r => { listCounts[r.candidate_id] = r.n; });
+
+  // Batch: captain list counts per candidate
+  const captainListCounts = {};
+  db.prepare(`
+    SELECT cap.candidate_id, COUNT(*) as n FROM captain_lists cl
+    JOIN captains cap ON cl.captain_id = cap.id
+    GROUP BY cap.candidate_id
+  `).all().forEach(r => { captainListCounts[r.candidate_id] = r.n; });
+
+  // Batch: total unique voters per candidate (captain + admin lists combined)
+  const voterCounts = {};
+  db.prepare(`
+    SELECT candidate_id, COUNT(DISTINCT voter_id) as n FROM (
+      SELECT cap.candidate_id, clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains cap ON cl.captain_id = cap.id
-      WHERE cap.candidate_id = ?
-    `).get(c.id) || { n: 0 }).n;
-    c.total_voters = (db.prepare(`
-      SELECT COUNT(DISTINCT voter_id) as n FROM (
-        SELECT clv.voter_id FROM captain_list_voters clv
-        JOIN captain_lists cl ON clv.list_id = cl.id
-        JOIN captains cap ON cl.captain_id = cap.id
-        WHERE cap.candidate_id = ?
-        UNION
-        SELECT alv.voter_id FROM admin_list_voters alv
-        JOIN admin_lists al ON alv.list_id = al.id
-        WHERE al.candidate_id = ?
-      )
-    `).get(c.id, c.id) || { n: 0 }).n;
+      UNION
+      SELECT al.candidate_id, alv.voter_id FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id
+    ) GROUP BY candidate_id
+  `).all().forEach(r => { voterCounts[r.candidate_id] = r.n; });
+
+  for (const c of candidates) {
+    c.captain_count = captainCounts[c.id] || 0;
+    c.list_count = listCounts[c.id] || 0;
+    c.captain_list_count = captainListCounts[c.id] || 0;
+    c.total_voters = voterCounts[c.id] || 0;
   }
   res.json({ candidates });
 });
