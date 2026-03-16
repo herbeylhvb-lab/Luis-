@@ -1558,7 +1558,7 @@ tr:hover td{background:#1e293b80}
           </select>
         </div>
         <table class="data-table" id="candidateListsTable">
-          <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th></tr></thead>
+          <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -6341,12 +6341,32 @@ async function showCandidateDetail(id, name, code) {
         tdSrc.appendChild(srcBadge); tr.appendChild(tdSrc);
         var tdV = document.createElement('td'); tdV.textContent = l.voter_count || 0; tr.appendChild(tdV);
         var tdD = document.createElement('td'); tdD.textContent = (l.created_at || '').split('T')[0]; tr.appendChild(tdD);
+        var tdA = document.createElement('td');
+        tdA.style.textAlign = 'right';
+        var delListBtn = document.createElement('button');
+        delListBtn.className = 'btn btn-xs btn-danger';
+        delListBtn.textContent = 'Delete';
+        delListBtn.onclick = (function(list) { return function(e) {
+          e.stopPropagation();
+          if (!confirm('Delete list "' + list.name + '" and all its voters? This cannot be undone.')) return;
+          var deletePromise;
+          if (list.source === 'captain') {
+            deletePromise = apiDelete('/api/captains/' + list.captain_id + '/admin-lists/' + list.id);
+          } else {
+            deletePromise = apiDelete('/api/admin-lists/' + list.id);
+          }
+          deletePromise.then(function() {
+            showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+          }).catch(function(err) { alert('Error deleting list: ' + (err.message || err)); });
+        }; })(l);
+        tdA.appendChild(delListBtn);
+        tr.appendChild(tdA);
         listTbody.appendChild(tr);
       });
       if (lists.length === 0) {
         var emptyTr2 = document.createElement('tr');
         var emptyTd2 = document.createElement('td');
-        emptyTd2.colSpan = 4; emptyTd2.style.cssText = 'color:#64748b;text-align:center';
+        emptyTd2.colSpan = 5; emptyTd2.style.cssText = 'color:#64748b;text-align:center';
         emptyTd2.textContent = listSourceFilter.value === 'all' ? 'No lists yet' : 'No lists match this filter';
         emptyTr2.appendChild(emptyTd2); listTbody.appendChild(emptyTr2);
       }
