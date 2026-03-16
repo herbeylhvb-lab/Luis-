@@ -386,6 +386,11 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'This assignment belongs to another volunteer.' });
   }
 
+  // Idempotency: prevent double-sends if already sent
+  if (assignment.status === 'sent' || assignment.status === 'in_conversation' || assignment.status === 'completed') {
+    return res.json({ success: true, skipped: true, reason: 'Message already sent for this assignment.' });
+  }
+
   // Check opt-out list before sending (TCPA compliance)
   const optedOut = db.prepare('SELECT id FROM opt_outs WHERE phone = ?').get(assignment.phone);
   if (optedOut) {
@@ -397,7 +402,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     await provider.sendMessage(assignment.phone, message);
     db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
       .run(assignment.phone, message, vol.session_id, vol.name);
-    db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ?").run(assignmentId);
+    db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
 
     res.json({ success: true, smsSent: true });
   } catch (err) {

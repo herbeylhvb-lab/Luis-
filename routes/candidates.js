@@ -133,6 +133,8 @@ router.delete('/candidates/:id', (req, res) => {
   db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
   // Clean up any shared captain relationships for this candidate
   db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
+  // Nullify admin_lists candidate_id so they don't reference deactivated candidate
+  db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
   res.json({ success: true });
 });
@@ -457,6 +459,15 @@ router.put('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (
 router.delete('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (req, res) => {
   const captain = db.prepare('SELECT id, name FROM captains WHERE id = ? AND candidate_id = ?').get(req.params.captainId, req.params.id);
   if (!captain) return res.status(404).json({ error: 'Captain not found under this candidate.' });
+  // Check if captain is shared with other candidates — if so, just unlink from this candidate instead of hard deleting
+  const shares = db.prepare('SELECT COUNT(*) as n FROM captain_candidates WHERE captain_id = ?').get(req.params.captainId);
+  if (shares && shares.n > 0) {
+    // Unlink from this candidate only, don't delete the captain
+    db.prepare('UPDATE captains SET candidate_id = NULL WHERE id = ?').run(req.params.captainId);
+    return res.json({ success: true, message: 'Captain "' + captain.name + '" removed from your campaign.' });
+  }
+  // Re-parent sub-captains before deleting
+  db.prepare('UPDATE captains SET parent_captain_id = ? WHERE parent_captain_id = ?').run(captain.parent_captain_id || null, captain.id);
   db.prepare('DELETE FROM captains WHERE id = ?').run(req.params.captainId);
   res.json({ success: true, message: 'Captain "' + captain.name + '" deleted.' });
 });

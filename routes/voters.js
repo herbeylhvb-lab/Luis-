@@ -448,7 +448,12 @@ router.post('/voters/import-canvass', (req, res) => {
     }
   });
 
-  importCanvass(rows);
+  try {
+    importCanvass(rows);
+  } catch (err) {
+    console.error('Canvass import error:', err);
+    return res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+  }
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Canvass data imported: ' + results.matched + ' matched, ' + results.new_created + ' new, ' + results.skipped + ' skipped'
@@ -1150,7 +1155,12 @@ router.post('/early-voting/import', (req, res) => {
     }
   });
 
-  importTx(rows);
+  try {
+    importTx(rows);
+  } catch (err) {
+    console.error('Early voting import error:', err);
+    return res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+  }
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Early voting import (' + (ballotLabel || 'General') + ' list): ' + results.matched + ' marked, ' + results.already_voted + ' already voted, ' + results.not_found + ' not found'
@@ -1373,7 +1383,12 @@ router.post('/election-votes/import', (req, res) => {
     }
   });
 
-  importTx();
+  try {
+    importTx();
+  } catch (err) {
+    console.error('Election history import error:', err);
+    return res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+  }
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Election history imported: ' + results.matched + ' voters matched, ' + results.votes_recorded + ' vote records added'
@@ -1452,7 +1467,12 @@ router.post('/election-votes/import-turnout', (req, res) => {
     }
   });
 
-  importTx();
+  try {
+    importTx();
+  } catch (err) {
+    console.error('Turnout import error:', err);
+    return res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+  }
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Turnout list imported for ' + election_name + ': ' + results.matched + ' matched, ' + results.votes_recorded + ' recorded, ' + results.not_found + ' not found'
