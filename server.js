@@ -443,6 +443,13 @@ app.post('/incoming', webhookLimiter, (req, res) => {
       const nextQ = db.prepare('SELECT * FROM survey_questions WHERE survey_id = ? AND sort_order > ? ORDER BY sort_order, id LIMIT 1')
         .get(activeSend.survey_id, question.sort_order);
 
+      // Prevent duplicate responses to same question from same send
+      const existingResponse = db.prepare('SELECT id FROM survey_responses WHERE send_id = ? AND question_id = ?').get(activeSend.id, question.id);
+      if (existingResponse) {
+        // Already answered this question — skip
+        return res.type(replyType).send(provider.buildEmptyReply());
+      }
+
       // Wrap response recording + state update in a transaction for atomicity
       const surveyResponseTx = db.transaction(() => {
         db.prepare('INSERT INTO survey_responses (survey_id, send_id, question_id, phone, response_text, option_id) VALUES (?, ?, ?, ?, ?, ?)')
@@ -479,8 +486,10 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   `).get(fromNormalized);
 
   if (p2pAssignment) {
-    db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
-    db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
+    db.transaction(() => {
+      db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
+      db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
+    })();
     return res.type(replyType).send(provider.buildEmptyReply());
   }
 
@@ -619,7 +628,7 @@ app.post('/api/events/:id/invite', (req, res) => {
   let queued = 0;
   const inviteTx = db.transaction(() => {
     for (const c of contacts) {
-      if (optedOutSet.has(c.phone)) continue;
+      if (optedOutSet.has(phoneDigits(c.phone))) continue;
       // Ensure contact exists in contacts table for P2P assignment
       let contactId = c.id;
       if (list_id) {

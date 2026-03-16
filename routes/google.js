@@ -71,6 +71,10 @@ router.get('/auth/google/callback', asyncHandler(async (req, res) => {
     // Get user info from Google
     const resp = await client.request({ url: 'https://www.googleapis.com/oauth2/v2/userinfo' });
     const profile = resp.data;
+    if (!profile || !profile.id || !profile.email) {
+      console.error('Google OAuth: incomplete profile data');
+      return res.redirect('/login?error=google_profile');
+    }
     const googleId = profile.id;
     const email = profile.email;
     const name = profile.name || email;
@@ -159,12 +163,7 @@ router.post('/google/sheets/setup', asyncHandler(async (req, res) => {
     const spreadsheetId = await createSpreadsheet(auth);
 
     // Store sheet ID in settings
-    const existing = db.prepare("SELECT value FROM settings WHERE key = 'google_sheet_id'").get();
-    if (existing) {
-      db.prepare("UPDATE settings SET value = ? WHERE key = 'google_sheet_id'").run(spreadsheetId);
-    } else {
-      db.prepare("INSERT INTO settings (key, value) VALUES ('google_sheet_id', ?)").run(spreadsheetId);
-    }
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('google_sheet_id', ?)").run(spreadsheetId);
 
     res.json({ success: true, spreadsheetId, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}` });
   } catch (err) {
@@ -214,12 +213,7 @@ router.post('/google/sheets/sync', asyncHandler(async (req, res) => {
 
     // Update last sync time
     const now = new Date().toISOString();
-    const existing = db.prepare("SELECT value FROM settings WHERE key = 'google_last_sync'").get();
-    if (existing) {
-      db.prepare("UPDATE settings SET value = ? WHERE key = 'google_last_sync'").run(now);
-    } else {
-      db.prepare("INSERT INTO settings (key, value) VALUES ('google_last_sync', ?)").run(now);
-    }
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('google_last_sync', ?)").run(now);
 
     res.json({ success: true, syncedAt: now });
   } catch (err) {
@@ -236,12 +230,7 @@ router.post('/google/sheets/toggle', (req, res) => {
 
   const { enabled } = req.body;
   const val = enabled ? 'true' : 'false';
-  const existing = db.prepare("SELECT value FROM settings WHERE key = 'google_auto_sync'").get();
-  if (existing) {
-    db.prepare("UPDATE settings SET value = ? WHERE key = 'google_auto_sync'").run(val);
-  } else {
-    db.prepare("INSERT INTO settings (key, value) VALUES ('google_auto_sync', ?)").run(val);
-  }
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('google_auto_sync', ?)").run(val);
   res.json({ success: true, autoSyncEnabled: enabled });
 });
 

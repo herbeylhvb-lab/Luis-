@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { generateJoinCode } = require('../utils');
+const { generateJoinCode, phoneDigits } = require('../utils');
 
 // ========== SURVEYS CRUD ==========
 
@@ -180,8 +180,9 @@ router.post('/surveys/:id/send', (req, res) => {
   let queued = 0;
   const sendTx = db.transaction(() => {
     for (const c of contacts) {
-      if (optedOutSet.has(c.phone)) continue;
-      insertSend.run(survey.id, c.phone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim(), firstQ.id);
+      const normalizedPhone = phoneDigits(c.phone);
+      if (!normalizedPhone || optedOutSet.has(normalizedPhone)) continue;
+      insertSend.run(survey.id, normalizedPhone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim(), firstQ.id);
       // Ensure contact exists for P2P assignment
       let contactId = c.id;
       if (list_id) {
@@ -276,9 +277,10 @@ router.get('/surveys/:id/results', (req, res) => {
     }
 
     for (const r of responses) {
+      if (!r.response_text) continue;  // Skip null/empty responses
       if (q.question_type === 'write_in') {
         writeIns.push({ phone: r.phone, text: r.response_text, date: r.responded_at });
-      } else if (q.question_type === 'ranked_choice' && r.response_text && r.response_text.includes(',')) {
+      } else if (q.question_type === 'ranked_choice' && r.response_text.includes(',')) {
         // Ranked choice: "1,3,2" — each position gets weighted points
         const picks = r.response_text.split(',');
         const totalOpts = options.length;
@@ -334,6 +336,7 @@ function buildSurveyMessage(surveyName, question, options) {
   } else if (question.question_type === 'write_in') {
     msg += '\n\nReply with your answer.';
   }
+  msg += '\n\nReply STOP to opt out.';
   return msg;
 }
 

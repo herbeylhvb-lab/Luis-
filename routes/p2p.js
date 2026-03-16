@@ -25,12 +25,9 @@ function getLeastLoadedVolunteer(sessionId, excludeId) {
   return best;
 }
 
-function redistributeContacts(sessionId, fromVolunteerId) {
+const _redistributeContacts = db.transaction((sessionId, fromVolunteerId, onlineVols) => {
   const pending = db.prepare("SELECT * FROM p2p_assignments WHERE volunteer_id = ? AND session_id = ? AND status = 'pending'").all(fromVolunteerId, sessionId);
   const conversations = db.prepare("SELECT * FROM p2p_assignments WHERE volunteer_id = ? AND session_id = ? AND status IN ('sent', 'in_conversation')").all(fromVolunteerId, sessionId);
-
-  const onlineVols = getOnlineVolunteers(sessionId).filter(v => v.id !== fromVolunteerId);
-  if (onlineVols.length === 0) return;
 
   // Redistribute pending contacts round-robin
   for (let i = 0; i < pending.length; i++) {
@@ -47,13 +44,23 @@ function redistributeContacts(sessionId, fromVolunteerId) {
         .run(target.id, fromVolunteerId, conv.id);
     }
   }
+});
+
+function redistributeContacts(sessionId, fromVolunteerId) {
+  const onlineVols = getOnlineVolunteers(sessionId).filter(v => v.id !== fromVolunteerId);
+  if (onlineVols.length === 0) return;
+  _redistributeContacts(sessionId, fromVolunteerId, onlineVols);
 }
 
-function snapBackConversations(sessionId, volunteerId) {
+const _snapBackConversations = db.transaction((sessionId, volunteerId) => {
   db.prepare("UPDATE p2p_assignments SET volunteer_id = ? WHERE original_volunteer_id = ? AND session_id = ? AND status IN ('sent', 'in_conversation')")
     .run(volunteerId, volunteerId, sessionId);
   db.prepare("UPDATE p2p_assignments SET original_volunteer_id = NULL WHERE volunteer_id = ? AND session_id = ?")
     .run(volunteerId, sessionId);
+});
+
+function snapBackConversations(sessionId, volunteerId) {
+  _snapBackConversations(sessionId, volunteerId);
 }
 
 const _assignFreshBatch = db.transaction((sessionId, volunteerId) => {
@@ -399,9 +406,12 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
 
   try {
     await provider.sendMessage(assignment.phone, message);
-    db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
-      .run(assignment.phone, message, vol.session_id, vol.name);
-    db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
+    // Atomic: log message + update assignment status together
+    db.transaction(() => {
+      db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
+        .run(phoneDigits(assignment.phone) || assignment.phone, message, vol.session_id, vol.name);
+      db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
+    })();
 
     res.json({ success: true, smsSent: true });
   } catch (err) {

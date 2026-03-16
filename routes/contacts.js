@@ -92,8 +92,10 @@ router.delete('/contacts', (req, res) => {
     return res.status(400).json({ error: 'Destructive action: pass { "confirm": true } to confirm deletion of all contacts.' });
   }
   // Remove P2P assignments that reference contacts (FK constraint)
+  const countBefore = (db.prepare('SELECT COUNT(*) as c FROM contacts').get() || { c: 0 }).c;
   db.prepare('DELETE FROM p2p_assignments WHERE contact_id IN (SELECT id FROM contacts)').run();
   db.prepare('DELETE FROM contacts').run();
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Cleared all contacts (' + countBefore + ' removed)');
   res.json({ success: true });
 });
 
