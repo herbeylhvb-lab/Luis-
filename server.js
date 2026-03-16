@@ -351,7 +351,13 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   }
   // Use the provider's declared content type for all webhook responses
   const replyType = provider.responseContentType || 'application/json';
-  const webhook = provider.getWebhookData(req);
+  let webhook;
+  try {
+    webhook = provider.getWebhookData(req);
+  } catch (err) {
+    console.error('Webhook parse error:', err.message);
+    return res.type('application/json').send('{"ok":true}');
+  }
   const From = webhook.from;
   const Body = webhook.body;
   const channel = webhook.channel || 'sms';
