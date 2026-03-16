@@ -6,8 +6,11 @@ const { phoneDigits, asyncHandler, personalizeTemplate } = require('../utils');
 
 // ── Broadcast (Mass) Texting ──
 
+const rateLimit = require('express-rate-limit');
+const broadcastLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: { error: 'Too many broadcast sends. Please wait.' } });
+
 // Create a broadcast campaign — sends to all contacts in a list or all contacts with phone
-router.post('/broadcast/send', asyncHandler(async (req, res) => {
+router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) => {
   const { message, list_id, footer, name, precinct_filter } = req.body;
   if (!message) return res.status(400).json({ error: 'Message is required.' });
 
@@ -33,10 +36,10 @@ router.post('/broadcast/send', asyncHandler(async (req, res) => {
     // All contacts with phone numbers
     const voters = db.prepare("SELECT id as voter_id, phone, first_name, last_name, city FROM voters WHERE phone != '' AND phone IS NOT NULL LIMIT 10000").all();
     const contacts = db.prepare("SELECT id, phone, first_name, last_name, city FROM contacts WHERE phone != '' AND phone IS NOT NULL").all();
-    // Deduplicate by phone
+    // Deduplicate by normalized phone digits
     const seen = new Set();
-    for (const v of voters) { if (!seen.has(v.phone)) { seen.add(v.phone); recipients.push(v); } }
-    for (const c of contacts) { if (!seen.has(c.phone)) { seen.add(c.phone); recipients.push(c); } }
+    for (const v of voters) { const d = phoneDigits(v.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(v); } }
+    for (const c of contacts) { const d = phoneDigits(c.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(c); } }
   }
 
   if (recipients.length === 0) return res.status(400).json({ error: 'No recipients with phone numbers found.' });

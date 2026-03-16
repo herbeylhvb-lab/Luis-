@@ -446,7 +446,10 @@ app.post('/incoming', webhookLimiter, (req, res) => {
           db.prepare("UPDATE survey_sends SET status = 'completed', completed_at = datetime('now'), current_question_id = NULL WHERE id = ?").run(activeSend.id);
         }
       });
-      surveyResponseTx();
+      try { surveyResponseTx(); } catch (e) {
+        console.error('Survey response transaction error:', e.message);
+        return res.status(500).json({ error: 'Failed to record survey response.' });
+      }
 
       if (nextQ) {
         const nextOpts = db.prepare('SELECT * FROM survey_options WHERE question_id = ? ORDER BY sort_order, id').all(nextQ.id);

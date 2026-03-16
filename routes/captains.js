@@ -284,11 +284,15 @@ router.delete('/captains/:captainId/admin-lists/:listId', (req, res) => {
   res.json({ success: true });
 });
 
-// Delete captain (cascades lists via FK)
+// Delete captain (cascades lists via FK, re-parents orphaned sub-captains)
 router.delete('/captains/:id', (req, res) => {
-  const captain = db.prepare('SELECT name FROM captains WHERE id = ?').get(req.params.id);
+  const captain = db.prepare('SELECT id, name, parent_captain_id FROM captains WHERE id = ?').get(req.params.id);
   if (!captain) return res.status(404).json({ error: 'Captain not found.' });
-  db.prepare('DELETE FROM captains WHERE id = ?').run(req.params.id);
+  // Re-parent sub-captains to this captain's parent (or NULL if top-level), preventing orphans
+  db.prepare('UPDATE captains SET parent_captain_id = ? WHERE parent_captain_id = ?').run(captain.parent_captain_id || null, captain.id);
+  // Clean up admin lists assigned to this captain
+  db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE assigned_captain_id = ?').run(captain.id);
+  db.prepare('DELETE FROM captains WHERE id = ?').run(captain.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Block Captain removed: ' + captain.name);
   res.json({ success: true });
 });
@@ -805,7 +809,12 @@ router.post('/captains/:id/lists/:listId/import-csv', requireCaptainAuth, (req, 
     }
   });
 
-  importTx(rows);
+  try {
+    importTx(rows);
+  } catch (err) {
+    console.error('Captain CSV import error:', err);
+    return res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+  }
   // Cross-list info hidden from captains — only admin sees overlap
   res.json({ success: true, ...results });
 });
@@ -976,14 +985,25 @@ router.delete('/captains/:id/team/:memberId', requireCaptainAuth, (req, res) => 
   const member = db.prepare('SELECT * FROM captain_team_members WHERE id = ? AND captain_id = ?').get(req.params.memberId, req.params.id);
   if (!member) return res.status(404).json({ error: 'Team member not found.' });
 
-  // Delete the team member record
-  db.prepare('DELETE FROM captain_team_members WHERE id = ?').run(req.params.memberId);
+  const doRemove = db.transaction(() => {
+    // Delete the team member record
+    db.prepare('DELETE FROM captain_team_members WHERE id = ?').run(req.params.memberId);
 
-  // Also deactivate the corresponding sub-captain (created with parent_captain_id)
-  // so the removed member can no longer log in with their code
-  const subCaptain = db.prepare('SELECT id FROM captains WHERE name = ? AND parent_captain_id = ?').get(member.name, req.params.id);
-  if (subCaptain) {
-    db.prepare('DELETE FROM captains WHERE id = ?').run(subCaptain.id);
+    // Find matching sub-captain by name AND parent — use LIMIT 1 for safety
+    const subCaptain = db.prepare('SELECT id FROM captains WHERE name = ? AND parent_captain_id = ? LIMIT 1').get(member.name, req.params.id);
+    if (subCaptain) {
+      // Re-parent any sub-sub-captains to the grandparent before deleting
+      db.prepare('UPDATE captains SET parent_captain_id = ? WHERE parent_captain_id = ?').run(parseInt(req.params.id), subCaptain.id);
+      db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE assigned_captain_id = ?').run(subCaptain.id);
+      db.prepare('DELETE FROM captains WHERE id = ?').run(subCaptain.id);
+    }
+  });
+
+  try {
+    doRemove();
+  } catch (e) {
+    console.error('Team member removal error:', e.message);
+    return res.status(500).json({ error: 'Failed to remove team member.' });
   }
 
   res.json({ success: true });
