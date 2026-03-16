@@ -514,6 +514,16 @@ tr:hover td{background:#1e293b80}
 
     <!-- ==================== BLOCK WALK ==================== -->
     <div class="page" id="page-walks">
+      <!-- Walk sub-tabs -->
+      <div class="sub-tabs" id="walkSubTabs" style="margin-bottom:16px">
+        <div class="sub-tab active" data-walktab="walks-main">Walks</div>
+        <div class="sub-tab" data-walktab="walks-scripts">Scripts</div>
+        <div class="sub-tab" data-walktab="walks-universes">Distributed</div>
+        <div class="sub-tab" data-walktab="walks-leaderboard">Leaderboard</div>
+      </div>
+
+      <!-- WALK MAIN TAB -->
+      <div class="walk-subtab active" id="walks-main">
       <!-- WALK LIST VIEW -->
       <div id="walks-list-view">
         <div class="card">
@@ -576,7 +586,10 @@ tr:hover td{background:#1e293b80}
           <div style="font-size:12px;color:#64748b;margin-bottom:16px" id="walkProgressLabel">0 / 0 doors knocked</div>
           <button class="btn btn-sm" id="btnShowWalkMap" style="background:#7c3aed;color:#fff" onclick="toggleWalkMap()">Show Live Map</button>
           <button class="btn btn-sm" id="btnGeocodeWalk" style="background:#2563eb;color:#fff;margin-left:8px" onclick="geocodeCurrentWalk()">Map Houses</button>
+          <button class="btn btn-sm" id="btnPrintWalk" style="background:#059669;color:#fff;margin-left:8px" onclick="printCurrentWalk()">&#x1F5A8; Print Walk List</button>
+          <button class="btn btn-sm" id="btnRefreshTurf" style="background:#b45309;color:#fff;margin-left:8px;display:none" onclick="refreshCurrentTurf()">&#x1F504; Refresh Turf</button>
           <span id="geocodeStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
+          <span id="refreshStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
         </div>
         <div class="card" id="walkMapCard" style="display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -604,6 +617,77 @@ tr:hover td{background:#1e293b80}
           <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:200px">Address</th><th style="width:60px">Unit</th><th style="width:140px">Voter</th><th style="width:110px">Result</th><th style="width:140px">Notes</th><th style="width:130px">Knocked</th><th style="width:40px"></th></tr></thead><tbody id="walkAddressBody"></tbody></table></div>
         </div>
       </div>
+      </div><!-- end walks-main -->
+
+      <!-- SCRIPTS TAB -->
+      <div class="walk-subtab" id="walks-scripts" style="display:none">
+        <div class="card">
+          <h3>Canvassing Scripts</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Build scripts with talking points, survey questions, and activist codes that guide volunteers at the door — just like VAN.</p>
+          <div class="form-group"><label>Script Name</label><input type="text" id="newScriptName" placeholder="e.g. Voter ID Script"></div>
+          <div class="form-group"><label>Description</label><input type="text" id="newScriptDesc" placeholder="Primary voter identification canvass"></div>
+          <div id="scriptBuilder" style="margin-bottom:16px">
+            <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Script Elements</div>
+            <div id="scriptElements"></div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn btn-sm btn-secondary" onclick="addScriptElement('text')">+ Talking Point</button>
+              <button class="btn btn-sm btn-secondary" onclick="addScriptElement('survey')">+ Survey Question</button>
+              <button class="btn btn-sm btn-secondary" onclick="addScriptElement('activist_code')">+ Activist Code</button>
+            </div>
+          </div>
+          <div style="margin-bottom:12px"><label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="newScriptDefault"> Set as default script for all walks</label></div>
+          <button class="btn btn-primary btn-sm" onclick="saveScript()">Save Script</button>
+          <span id="scriptSaveStatus" style="font-size:13px;color:#94a3b8;margin-left:8px"></span>
+        </div>
+        <div class="card">
+          <h3>Saved Scripts</h3>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Description</th><th>Default</th><th>Elements</th><th>Actions</th></tr></thead><tbody id="scriptsBody"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- DISTRIBUTED CANVASSING TAB -->
+      <div class="walk-subtab" id="walks-universes" style="display:none">
+        <div class="card">
+          <h3>Distributed Canvassing</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Create canvassing universes that volunteers can self-assign from using a share code. The system auto-assigns the nearest available doors — no manual turf cutting needed.</p>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Universe Name</label><input type="text" id="newUnivName" placeholder="e.g. Precinct 42 Voter ID"></div>
+            <div class="form-group"><label>Doors Per Volunteer</label><input type="number" id="newUnivDoors" value="30" min="10" max="100"></div>
+          </div>
+          <div class="form-group">
+            <label>Select Precincts</label>
+            <div id="univPrecinctList" style="max-height:150px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:4px"><span style="color:#64748b;font-size:13px">Loading precincts...</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div class="form-group"><label>Party Filter</label><select id="newUnivParty"><option value="">All</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option></select></div>
+            <div class="form-group"><label>Attach Script</label><select id="newUnivScript"><option value="">No Script</option></select></div>
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="newUnivExcludeContacted"> Exclude already contacted</label>
+            <label style="font-size:13px;color:#94a3b8;margin-left:16px"><input type="checkbox" id="newUnivExcludeVoted"> Exclude early voted</label>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="createUniverse()">Create Universe</button>
+          <span id="univCreateStatus" style="font-size:13px;color:#94a3b8;margin-left:8px"></span>
+        </div>
+        <div class="card">
+          <h3>Active Universes</h3>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Share Code</th><th>Doors/Vol</th><th>Assigned</th><th>Knocked</th><th>Status</th><th>Actions</th></tr></thead><tbody id="universesBody"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- LEADERBOARD TAB -->
+      <div class="walk-subtab" id="walks-leaderboard" style="display:none">
+        <div class="card">
+          <h3>Canvasser Leaderboard</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Track canvasser performance across all walks — doors knocked, contact rates, and doors per hour.</p>
+          <div class="stats-grid" id="overallCanvassStats"></div>
+        </div>
+        <div class="card">
+          <h3>Top Canvassers</h3>
+          <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Total Doors</th><th>Contacts</th><th>Supporters Found</th><th>Contact Rate</th><th>Doors/Hr</th><th>Walks</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ==================== VOTER FILE ==================== -->
@@ -2749,6 +2833,8 @@ async function loadWalkDetail(id) {
   document.getElementById('walkDetailName').textContent = w.name;
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
   document.getElementById('walkDetailStatus').value = w.status;
+  // Show refresh button if walk was created from precincts
+  document.getElementById('btnRefreshTurf').style.display = w.source_precincts ? '' : 'none';
   // Join code
   const joinCodeWrap = document.getElementById('walkJoinCodeWrap');
   if (w.join_code) {
@@ -3043,6 +3129,252 @@ function updateWalkerMarkers(locations) {
     }
   });
 }
+
+// ===================== WALK SUB-TABS =====================
+document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    document.querySelectorAll('.walk-subtab').forEach(function(p) { p.style.display = 'none'; });
+    var target = tab.getAttribute('data-walktab');
+    document.getElementById(target).style.display = '';
+    if (target === 'walks-scripts') loadScripts();
+    if (target === 'walks-universes') loadUniverses();
+    if (target === 'walks-leaderboard') loadLeaderboard();
+  });
+});
+
+// ===================== CANVASSING SCRIPTS =====================
+var scriptElementCounter = 0;
+window.addScriptElement = function(type) {
+  var container = document.getElementById('scriptElements');
+  var el = document.createElement('div');
+  el.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;margin-bottom:8px;position:relative';
+  el.setAttribute('data-type', type);
+  var idx = scriptElementCounter++;
+
+  if (type === 'text') {
+    el.innerHTML = '<div style="font-size:11px;color:#64748b;margin-bottom:4px">TALKING POINT</div>' +
+      '<textarea class="script-el-content" rows="2" style="width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px;resize:vertical" placeholder="Hi! I\'m [name] and I\'m canvassing for [candidate]..."></textarea>' +
+      '<button style="position:absolute;top:6px;right:6px;background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px" onclick="this.parentElement.remove()">&times;</button>';
+  } else if (type === 'survey') {
+    el.innerHTML = '<div style="font-size:11px;color:#64748b;margin-bottom:4px">SURVEY QUESTION</div>' +
+      '<input type="text" class="script-el-label" style="width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px;margin-bottom:6px" placeholder="If the election were today, who would you vote for?">' +
+      '<input type="text" class="script-el-options" style="width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:12px" placeholder="Options (comma separated): Candidate A, Candidate B, Undecided">' +
+      '<button style="position:absolute;top:6px;right:6px;background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px" onclick="this.parentElement.remove()">&times;</button>';
+  } else if (type === 'activist_code') {
+    el.innerHTML = '<div style="font-size:11px;color:#64748b;margin-bottom:4px">ACTIVIST CODE</div>' +
+      '<input type="text" class="script-el-label" style="width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px" placeholder="Wants a yard sign">' +
+      '<button style="position:absolute;top:6px;right:6px;background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px" onclick="this.parentElement.remove()">&times;</button>';
+  }
+  container.appendChild(el);
+};
+
+window.saveScript = async function() {
+  var name = document.getElementById('newScriptName').value.trim();
+  if (!name) { alert('Script name is required.'); return; }
+
+  var elements = [];
+  document.querySelectorAll('#scriptElements > div').forEach(function(el) {
+    var type = el.getAttribute('data-type');
+    var obj = { element_type: type };
+    if (type === 'text') {
+      obj.content = (el.querySelector('.script-el-content') || {}).value || '';
+    } else if (type === 'survey') {
+      obj.label = (el.querySelector('.script-el-label') || {}).value || '';
+      var optStr = (el.querySelector('.script-el-options') || {}).value || '';
+      obj.options = optStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean).map(function(s) { return { label: s }; });
+    } else if (type === 'activist_code') {
+      obj.label = (el.querySelector('.script-el-label') || {}).value || '';
+    }
+    elements.push(obj);
+  });
+
+  var statusEl = document.getElementById('scriptSaveStatus');
+  statusEl.textContent = 'Saving...';
+  try {
+    await apiPost('/api/walk-scripts', {
+      name: name,
+      description: document.getElementById('newScriptDesc').value.trim(),
+      elements: elements,
+      is_default: document.getElementById('newScriptDefault').checked
+    });
+    statusEl.style.color = '#22c55e';
+    statusEl.textContent = 'Script saved!';
+    document.getElementById('newScriptName').value = '';
+    document.getElementById('newScriptDesc').value = '';
+    document.getElementById('scriptElements').innerHTML = '';
+    scriptElementCounter = 0;
+    loadScripts();
+  } catch (e) {
+    statusEl.style.color = '#ef4444';
+    statusEl.textContent = e.message || 'Failed to save';
+  }
+};
+
+async function loadScripts() {
+  try {
+    var data = await api('/api/walk-scripts');
+    var tbody = document.getElementById('scriptsBody');
+    if (!data.scripts || data.scripts.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No scripts yet. Create one above.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.scripts.map(function(s) {
+      return '<tr><td>' + escHtml(s.name) + '</td><td>' + escHtml(s.description) + '</td>' +
+        '<td>' + (s.is_default ? '<span style="color:#22c55e;font-weight:700">Default</span>' : '-') + '</td>' +
+        '<td>-</td>' +
+        '<td><button class="btn btn-danger btn-xs" onclick="deleteScript(' + s.id + ')">Delete</button></td></tr>';
+    }).join('');
+    // Also populate script dropdown in universes tab
+    var sel = document.getElementById('newUnivScript');
+    sel.innerHTML = '<option value="">No Script</option>' + data.scripts.map(function(s) {
+      return '<option value="' + s.id + '">' + escHtml(s.name) + '</option>';
+    }).join('');
+  } catch (e) { /* silent */ }
+}
+
+window.deleteScript = async function(id) {
+  if (!confirm('Delete this script?')) return;
+  await apiDelete('/api/walk-scripts/' + id);
+  loadScripts();
+};
+
+// ===================== DISTRIBUTED CANVASSING =====================
+window.createUniverse = async function() {
+  var name = document.getElementById('newUnivName').value.trim();
+  if (!name) { alert('Universe name is required.'); return; }
+
+  var precincts = Array.from(document.querySelectorAll('.univ-precinct-cb:checked')).map(function(cb) { return cb.value; });
+  if (precincts.length === 0) { alert('Select at least one precinct.'); return; }
+
+  var statusEl = document.getElementById('univCreateStatus');
+  statusEl.textContent = 'Creating...';
+  try {
+    var filters = { precincts: precincts };
+    var party = document.getElementById('newUnivParty').value;
+    if (party) filters.party = party;
+    if (document.getElementById('newUnivExcludeContacted').checked) filters.exclude_contacted = true;
+    if (document.getElementById('newUnivExcludeVoted').checked) filters.exclude_early_voted = true;
+
+    var data = await apiPost('/api/walk-universes', {
+      name: name,
+      precincts: precincts,
+      doors_per_turf: parseInt(document.getElementById('newUnivDoors').value) || 30,
+      script_id: document.getElementById('newUnivScript').value || undefined,
+      filters: filters
+    });
+    statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Universe created! Share code: <strong style="font-size:18px;letter-spacing:2px">' + data.shareCode + '</strong></span>';
+    document.getElementById('newUnivName').value = '';
+    loadUniverses();
+  } catch (e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">' + (e.message || 'Failed') + '</span>';
+  }
+};
+
+async function loadUniverses() {
+  try {
+    var data = await api('/api/walk-universes');
+    var tbody = document.getElementById('universesBody');
+    if (!data.universes || data.universes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center">No universes yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.universes.map(function(u) {
+      return '<tr><td>' + escHtml(u.name) + '</td>' +
+        '<td><code style="font-size:16px;letter-spacing:2px;color:#f59e0b;font-weight:700">' + escHtml(u.share_code) + '</code></td>' +
+        '<td>' + u.doors_per_turf + '</td>' +
+        '<td>' + (u.assigned_doors || 0) + '</td>' +
+        '<td>' + (u.knocked_doors || 0) + '</td>' +
+        '<td>' + statusBadge(u.status) + '</td>' +
+        '<td>' + (u.status === 'active' ? '<button class="btn btn-xs btn-secondary" onclick="closeUniverse(' + u.id + ')">Close</button>' : '') +
+        ' <button class="btn btn-danger btn-xs" onclick="deleteUniverse(' + u.id + ')">Delete</button></td></tr>';
+    }).join('');
+    // Load precincts for universe creation
+    loadUniversePrecincts();
+  } catch (e) { /* silent */ }
+}
+
+async function loadUniversePrecincts() {
+  try {
+    var data = await api('/api/voters-precincts');
+    var el = document.getElementById('univPrecinctList');
+    if (data.precincts && data.precincts.length > 0) {
+      el.innerHTML = data.precincts.map(function(p) {
+        return '<div class="check-item"><input type="checkbox" class="univ-precinct-cb" value="' + escHtml(p) + '"> ' + escHtml(p) + '</div>';
+      }).join('');
+    } else {
+      el.innerHTML = '<span style="color:#f59e0b;font-size:13px">No precincts. Import voter file first.</span>';
+    }
+  } catch (e) {}
+}
+
+window.closeUniverse = async function(id) {
+  await apiPut('/api/walk-universes/' + id, { status: 'closed' });
+  loadUniverses();
+};
+window.deleteUniverse = async function(id) {
+  if (!confirm('Delete this universe?')) return;
+  await apiDelete('/api/walk-universes/' + id);
+  loadUniverses();
+};
+
+// ===================== LEADERBOARD =====================
+async function loadLeaderboard() {
+  try {
+    var data = await api('/api/walks/leaderboard');
+    // Overall stats
+    var ov = data.overall || {};
+    document.getElementById('overallCanvassStats').innerHTML =
+      '<div class="stat-card"><div class="label">Total Attempts</div><div class="value">' + (ov.total_attempts || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Unique Doors</div><div class="value">' + (ov.unique_doors || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Contacts Made</div><div class="value">' + (ov.total_contacts || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Supporters Found</div><div class="value">' + (ov.total_supporters || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Contact Rate</div><div class="value">' + (ov.contact_rate || 0) + '%</div></div>' +
+      '<div class="stat-card"><div class="label">Total Walkers</div><div class="value">' + (ov.total_walkers || 0) + '</div></div>';
+
+    // Leaderboard table
+    var tbody = document.getElementById('leaderboardBody');
+    if (!data.leaderboard || data.leaderboard.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#64748b;text-align:center">No canvassing data yet. Send walkers out!</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.leaderboard.map(function(w, i) {
+      var medal = i === 0 ? '\uD83E\uDD47 ' : i === 1 ? '\uD83E\uDD48 ' : i === 2 ? '\uD83E\uDD49 ' : '';
+      return '<tr><td style="text-align:center;font-weight:700">' + medal + (i + 1) + '</td>' +
+        '<td style="font-weight:600">' + escHtml(w.name) + '</td>' +
+        '<td>' + w.total_doors + '</td>' +
+        '<td>' + w.contacts + '</td>' +
+        '<td style="color:#22c55e;font-weight:600">' + w.supporters_found + '</td>' +
+        '<td>' + w.contact_rate + '%</td>' +
+        '<td>' + w.doors_per_hour + '</td>' +
+        '<td>' + w.walks_participated + '</td></tr>';
+    }).join('');
+  } catch (e) { /* silent */ }
+}
+
+// ===================== PRINT & TURF REFRESH =====================
+window.printCurrentWalk = function() {
+  if (!state.currentWalkId) return;
+  var w = window.open('/api/walks/' + state.currentWalkId + '/print', '_blank');
+  if (!w) alert('Pop-up blocked. Please allow pop-ups.');
+};
+
+window.refreshCurrentTurf = async function() {
+  if (!state.currentWalkId) return;
+  var statusEl = document.getElementById('refreshStatus');
+  statusEl.textContent = 'Refreshing...';
+  statusEl.style.color = '#94a3b8';
+  try {
+    var data = await apiPost('/api/walks/' + state.currentWalkId + '/refresh');
+    statusEl.style.color = '#22c55e';
+    statusEl.textContent = data.message || 'Refreshed!';
+    loadWalkDetail(state.currentWalkId);
+  } catch (e) {
+    statusEl.style.color = '#ef4444';
+    statusEl.textContent = e.message || 'Refresh failed';
+  }
+};
 
 // ===================== VOTER FILE =====================
 function showVoterList() { document.getElementById('voters-list-view').style.display = 'block'; document.getElementById('voters-detail-view').style.display = 'none'; }

@@ -767,5 +767,82 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cc_candidate ON captain_candidates(candidate_id);
 `);
 
+// --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walk_scripts (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS walk_script_elements (
+    id INTEGER PRIMARY KEY,
+    script_id INTEGER NOT NULL REFERENCES walk_scripts(id) ON DELETE CASCADE,
+    element_type TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    label TEXT DEFAULT '',
+    content TEXT DEFAULT '',
+    options_json TEXT DEFAULT '[]',
+    parent_element_id INTEGER DEFAULT NULL,
+    parent_option_key TEXT DEFAULT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_wse_script ON walk_script_elements(script_id);
+`);
+
+// Link walks to scripts
+addColumn("ALTER TABLE block_walks ADD COLUMN script_id INTEGER DEFAULT NULL");
+
+// --- Walk Attempt Tracking (multiple attempts per address) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walk_attempts (
+    id INTEGER PRIMARY KEY,
+    address_id INTEGER NOT NULL REFERENCES walk_addresses(id) ON DELETE CASCADE,
+    walk_id INTEGER NOT NULL REFERENCES block_walks(id) ON DELETE CASCADE,
+    result TEXT NOT NULL,
+    notes TEXT DEFAULT '',
+    walker_name TEXT DEFAULT '',
+    gps_lat REAL DEFAULT NULL,
+    gps_lng REAL DEFAULT NULL,
+    gps_accuracy REAL DEFAULT NULL,
+    gps_verified INTEGER DEFAULT 0,
+    survey_responses_json TEXT DEFAULT NULL,
+    attempted_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_wa_address ON walk_attempts(address_id);
+  CREATE INDEX IF NOT EXISTS idx_wa_walk ON walk_attempts(walk_id);
+  CREATE INDEX IF NOT EXISTS idx_wa_walker ON walk_attempts(walk_id, walker_name);
+  CREATE INDEX IF NOT EXISTS idx_wa_time ON walk_attempts(attempted_at);
+`);
+
+// --- Distributed Canvassing Universes ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walk_universes (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    share_code TEXT NOT NULL UNIQUE,
+    script_id INTEGER DEFAULT NULL,
+    doors_per_turf INTEGER DEFAULT 30,
+    filters_json TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'active',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_wu_code ON walk_universes(share_code);
+`);
+
+// Track which voters are already assigned in a universe to avoid duplication
+addColumn("ALTER TABLE walk_addresses ADD COLUMN universe_id INTEGER DEFAULT NULL");
+
+// --- Walk performance metrics ---
+addColumn("ALTER TABLE walk_group_members ADD COLUMN doors_knocked INTEGER DEFAULT 0");
+addColumn("ALTER TABLE walk_group_members ADD COLUMN contacts_made INTEGER DEFAULT 0");
+addColumn("ALTER TABLE walk_group_members ADD COLUMN first_knock_at TEXT DEFAULT NULL");
+addColumn("ALTER TABLE walk_group_members ADD COLUMN last_knock_at TEXT DEFAULT NULL");
+
+// Precinct-level saved search for turf refresh
+addColumn("ALTER TABLE block_walks ADD COLUMN source_precincts TEXT DEFAULT NULL");
+addColumn("ALTER TABLE block_walks ADD COLUMN source_filters_json TEXT DEFAULT NULL");
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;
