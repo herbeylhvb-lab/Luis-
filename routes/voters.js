@@ -1768,10 +1768,10 @@ function buildStep1Filter(filters) {
     params.push(min_elections);
   }
 
-  // Party filter requires a join to election_votes (voted DEM or REP in any primary)
+  // Party filter: voter must have voted with one of these parties in any primary
   let partyJoin = '';
   if (parties && parties.length > 0) {
-    partyJoin = ' INNER JOIN election_votes ev_party ON voters.id = ev_party.voter_id AND ev_party.party_voted IN (' + parties.map(() => '?').join(',') + ')';
+    clauses.push('voters.id IN (SELECT ev_party.voter_id FROM election_votes ev_party WHERE ev_party.party_voted IN (' + parties.map(() => '?').join(',') + '))');
     params.push(...parties);
   }
 
@@ -1790,7 +1790,7 @@ router.post('/universe/build', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses });
 
-  const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
+  const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
 
   // Selected individual elections — voter must have voted in ALL (AND logic)
   const elecNames = (selected_elections || []).filter(n => n && n.trim());
@@ -1909,7 +1909,7 @@ router.post('/universe/preview', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses });
 
-  const hasElectionData = (db.prepare('SELECT COUNT(*) as c FROM election_votes').get() || { c: 0 }).c > 0;
+  const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
   const elecNames = (selected_elections || []).filter(n => n && n.trim());
 
   const previewTx = db.transaction(() => {

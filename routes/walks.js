@@ -100,6 +100,49 @@ function buildVotingHistorySQL(filters, params) {
   return sql;
 }
 
+// ===================== LEADERBOARD (must be before /walks/:id) =====================
+router.get('/walks/leaderboard', (req, res) => {
+  const leaderboard = db.prepare(`
+    SELECT
+      walker_name as name,
+      COUNT(*) as total_doors,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters_found,
+      MIN(attempted_at) as first_door,
+      MAX(attempted_at) as last_door,
+      COUNT(DISTINCT walk_id) as walks_participated
+    FROM walk_attempts
+    WHERE walker_name != ''
+    GROUP BY walker_name
+    ORDER BY total_doors DESC
+    LIMIT 50
+  `).all();
+
+  for (const w of leaderboard) {
+    w.contact_rate = w.total_doors > 0 ? Math.round(w.contacts / w.total_doors * 100) : 0;
+    if (w.first_door && w.last_door && w.first_door !== w.last_door) {
+      const hours = (new Date(w.last_door) - new Date(w.first_door)) / 3600000;
+      w.doors_per_hour = hours > 0 ? Math.round(w.total_doors / hours * 10) / 10 : 0;
+    } else {
+      w.doors_per_hour = 0;
+    }
+  }
+
+  const overall = db.prepare(`
+    SELECT
+      COUNT(*) as total_attempts,
+      COUNT(DISTINCT address_id) as unique_doors,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
+      COUNT(DISTINCT walker_name) as total_walkers,
+      COUNT(DISTINCT walk_id) as total_walks
+    FROM walk_attempts WHERE walker_name != ''
+  `).get();
+  overall.contact_rate = overall.total_attempts > 0 ? Math.round(overall.total_contacts / overall.total_attempts * 100) : 0;
+
+  res.json({ leaderboard, overall });
+});
+
 // List all block walks with stats (single query instead of N+1)
 router.get('/walks', (req, res) => {
   const walks = db.prepare(`
@@ -1081,7 +1124,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   if (precincts.length === 0) return res.status(400).json({ error: 'Universe has no precincts configured.' });
 
   // Find voters in the universe precincts who aren't already assigned
-  let sql = "SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip, v.lat, v.lng FROM voters v WHERE v.precinct IN (" + precincts.map(() => '?').join(',') + ") AND v.address != ''";
+  let sql = "SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip FROM voters v WHERE v.precinct IN (" + precincts.map(() => '?').join(',') + ") AND v.address != ''";
   const params = [...precincts];
 
   // Exclude already assigned voters in this universe
@@ -1170,50 +1213,6 @@ router.delete('/walk-universes/:id', (req, res) => {
 });
 
 // ===================== CANVASSER LEADERBOARD =====================
-
-router.get('/walks/leaderboard', (req, res) => {
-  // Aggregate stats across all walks
-  const leaderboard = db.prepare(`
-    SELECT
-      walker_name as name,
-      COUNT(*) as total_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
-      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters_found,
-      MIN(attempted_at) as first_door,
-      MAX(attempted_at) as last_door,
-      COUNT(DISTINCT walk_id) as walks_participated
-    FROM walk_attempts
-    WHERE walker_name != ''
-    GROUP BY walker_name
-    ORDER BY total_doors DESC
-    LIMIT 50
-  `).all();
-
-  for (const w of leaderboard) {
-    w.contact_rate = w.total_doors > 0 ? Math.round(w.contacts / w.total_doors * 100) : 0;
-    if (w.first_door && w.last_door && w.first_door !== w.last_door) {
-      const hours = (new Date(w.last_door) - new Date(w.first_door)) / 3600000;
-      w.doors_per_hour = hours > 0 ? Math.round(w.total_doors / hours * 10) / 10 : 0;
-    } else {
-      w.doors_per_hour = 0;
-    }
-  }
-
-  // Overall campaign stats
-  const overall = db.prepare(`
-    SELECT
-      COUNT(*) as total_attempts,
-      COUNT(DISTINCT address_id) as unique_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as total_contacts,
-      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
-      COUNT(DISTINCT walker_name) as total_walkers,
-      COUNT(DISTINCT walk_id) as total_walks
-    FROM walk_attempts WHERE walker_name != ''
-  `).get();
-  overall.contact_rate = overall.total_attempts > 0 ? Math.round(overall.total_contacts / overall.total_attempts * 100) : 0;
-
-  res.json({ leaderboard, overall });
-});
 
 // ===================== TURF REFRESH =====================
 

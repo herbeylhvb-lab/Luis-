@@ -6176,7 +6176,10 @@ function buildUniversePayload() {
   if (filters.state_reps.length) payload.state_reps = filters.state_reps;
   if (filters.parties.length) payload.parties = filters.parties;
   if (filters.min_elections) payload.min_elections = filters.min_elections;
-  return { payload, precincts, yearsBack, elecGroups };
+  if (filters.voter_statuses.length) payload.voter_statuses = filters.voter_statuses;
+  if (filters.us_congress && filters.us_congress.length) payload.us_congress = filters.us_congress;
+  var selectedElecNames = selectedElections;
+  return { payload, precincts, yearsBack, selectedElecNames };
 }
 
 window.previewUniverse = async function() {
@@ -6197,8 +6200,8 @@ window.previewUniverse = async function() {
         '<div class="stat-card"><div class="label">Matching Voters</div><div class="value" style="color:#22c55e">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">All registered voters matching your filters</div></div>' +
         '</div>';
     } else {
-      var groupDesc = b.elecGroups.length > 0
-        ? b.elecGroups.map(function(g) { return g.types[0] + ' >= ' + g.min_count; }).join(', ')
+      var groupDesc = b.selectedElecNames.length > 0
+        ? 'Voted in ' + b.selectedElecNames.length + ' selected election' + (b.selectedElecNames.length > 1 ? 's' : '')
         : 'No election filters';
       el.innerHTML = '<div class="stats-grid">' +
         '<div class="stat-card"><div class="label">' + (b.precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">Total registered</div></div>' +
@@ -6229,8 +6232,8 @@ window.buildUniverse = async function() {
     setTimeout(hideProgress, 800);
     var el = document.getElementById('universeBuildResult');
     el.style.display = '';
-    var groupDesc = b.elecGroups.length > 0
-      ? b.elecGroups.map(function(g) { return g.types[0] + ' >= ' + g.min_count; }).join(', ')
+    var groupDesc = b.selectedElecNames.length > 0
+      ? 'Voted in ' + b.selectedElecNames.length + ' selected election' + (b.selectedElecNames.length > 1 ? 's' : '')
       : 'No election filters';
     var html = '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:16px;color:#22c55e;font-weight:600;margin-bottom:12px">List built successfully!</div>' +
       '<div class="stats-grid">' +

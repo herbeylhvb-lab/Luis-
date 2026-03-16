@@ -590,6 +590,11 @@ db.exec(`
 // Party voted column on election_votes (R = Republican, D = Democrat, blank = no party / nonpartisan)
 addColumn("ALTER TABLE election_votes ADD COLUMN party_voted TEXT DEFAULT ''");
 
+// Composite indexes for universe builder performance
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_party ON election_votes(voter_id, party_voted)"); } catch (e) { /* exists */ }
+
 // --- Performance indexes (added for query optimization) ---
 try {
   db.exec(`
