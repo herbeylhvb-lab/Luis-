@@ -64,8 +64,18 @@ router.post('/email/send', emailSendLimiter, asyncHandler(async (req, res) => {
     const senderName = (fromName || 'Campaign HQ').replace(/["\\<>\r\n]/g, '');
     const results = { sent: 0, failed: 0, errors: [] };
 
-    for (const r of recipients) {
+    // Filter out recipients without email
+    const filteredRecipients = recipients.filter(r => r.email);
+
+    for (const r of filteredRecipients) {
       try {
+        // Basic email format validation
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)) {
+          results.failed++;
+          if (results.errors.length < 20) results.errors.push({ email: r.email, reason: 'Invalid email format' });
+          continue;
+        }
+
         // Personalize subject and body with merge tags
         const personalSubject = personalizeTemplate(subject, r);
         const personalBody = personalizeTemplate(bodyHtml, r);
@@ -80,7 +90,7 @@ router.post('/email/send', emailSendLimiter, asyncHandler(async (req, res) => {
         await new Promise(resolve => setTimeout(resolve, 50));
       } catch (err) {
         results.failed++;
-        results.errors.push({ email: r.email, reason: 'Send failed' });
+        if (results.errors.length < 20) results.errors.push({ email: r.email, reason: err.message || 'Send failed' });
       }
     }
 
