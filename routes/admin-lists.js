@@ -207,57 +207,92 @@ router.get('/admin-lists/:id/households', (req, res) => {
 router.post('/admin-lists/:id/create-walk', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  const { name, split_by_precinct } = req.body || {};
 
   const voters = db.prepare(`
-    SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip, v.phone
+    SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip, v.phone, v.precinct
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ?
+    WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
+    ORDER BY v.precinct, v.address, v.last_name
   `).all(req.params.id);
 
-  if (voters.length === 0) return res.status(400).json({ error: 'List has no voters.' });
+  if (voters.length === 0) return res.status(400).json({ error: 'List has no voters with addresses.' });
 
-  // Generate a join code
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let joinCode = '';
-  for (let i = 0; i < 6; i++) joinCode += chars[Math.floor(Math.random() * chars.length)];
+  function genCode(len) { let c = ''; for (let i = 0; i < (len||6); i++) c += chars[Math.floor(Math.random() * chars.length)]; return c; }
 
-  const walkName = req.body.name || ('Walk from: ' + list.name);
-
-  // Create the walk
-  const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, join_code, status) VALUES (?, ?, ?)'
-  ).run(walkName, joinCode, 'active');
-  const walkId = walkResult.lastInsertRowid;
-
-  // Add addresses from voters (group by household)
   const insertAddr = db.prepare(
-    'INSERT INTO walk_addresses (walk_id, address, city, zip, voter_name, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO walk_addresses (walk_id, address, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
-  const addrMap = {};
-  for (const v of voters) {
-    const key = (v.address || '').toLowerCase().trim() + '|' + (v.city || '').toLowerCase().trim() + '|' + (v.zip || '').trim();
-    if (!addrMap[key]) {
-      addrMap[key] = { address: v.address, city: v.city, zip: v.zip, names: [] };
-    }
-    addrMap[key].names.push((v.first_name + ' ' + v.last_name).trim());
-  }
-  let addedAddresses = 0;
-  const addrs = Object.values(addrMap);
-  for (let i = 0; i < addrs.length; i++) {
-    const a = addrs[i];
-    insertAddr.run(walkId, a.address || '', a.city || '', a.zip || '', a.names.join(', '), i);
-    addedAddresses++;
-  }
 
-  res.json({
-    success: true,
-    walk_id: walkId,
-    join_code: joinCode,
-    walk_name: walkName,
-    added_addresses: addedAddresses,
-    total_voters: voters.length
-  });
+  if (split_by_precinct) {
+    // Group voters by precinct, create one walk per precinct
+    const byPrecinct = {};
+    for (const v of voters) {
+      const p = v.precinct || 'Unknown';
+      if (!byPrecinct[p]) byPrecinct[p] = [];
+      byPrecinct[p].push(v);
+    }
+
+    const walks = [];
+    const createAll = db.transaction(() => {
+      for (const [precinct, pVoters] of Object.entries(byPrecinct)) {
+        const joinCode = genCode(4);
+        const walkName = (name || list.name) + ' — ' + precinct;
+        const walkResult = db.prepare(
+          'INSERT INTO block_walks (name, join_code, status, source_precincts) VALUES (?, ?, ?, ?)'
+        ).run(walkName, joinCode, 'pending', precinct);
+        const walkId = walkResult.lastInsertRowid;
+
+        let i = 0;
+        for (const v of pVoters) {
+          const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
+          insertAddr.run(walkId, v.address, v.city || '', v.zip || '', voterName, v.id, i++);
+        }
+        walks.push({ walk_id: walkId, join_code: joinCode, walk_name: walkName, precinct, addresses: i });
+      }
+    });
+    createAll();
+
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+      'Created ' + walks.length + ' walks from list "' + list.name + '" split by precinct'
+    );
+
+    res.json({ success: true, walks, total_walks: walks.length, total_voters: voters.length });
+  } else {
+    // Single walk with all voters
+    const joinCode = genCode(4);
+    const walkName = name || ('Walk from: ' + list.name);
+    const walkResult = db.prepare(
+      'INSERT INTO block_walks (name, join_code, status) VALUES (?, ?, ?)'
+    ).run(walkName, joinCode, 'pending');
+    const walkId = walkResult.lastInsertRowid;
+
+    let addedAddresses = 0;
+    const addAll = db.transaction(() => {
+      let i = 0;
+      for (const v of voters) {
+        const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
+        insertAddr.run(walkId, v.address, v.city || '', v.zip || '', voterName, v.id, i++);
+        addedAddresses++;
+      }
+    });
+    addAll();
+
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+      'Walk created from list "' + list.name + '": ' + addedAddresses + ' addresses'
+    );
+
+    res.json({
+      success: true,
+      walk_id: walkId,
+      join_code: joinCode,
+      walk_name: walkName,
+      added_addresses: addedAddresses,
+      total_voters: voters.length
+    });
+  }
 });
 
 module.exports = router;
