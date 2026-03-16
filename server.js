@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const cors    = require('cors');
 const path    = require('path');
 const session = require('express-session');
@@ -15,6 +16,9 @@ app.use(helmet({
   contentSecurityPolicy: false, // disabled for inline scripts in SPA
   crossOriginEmbedderPolicy: false
 }));
+
+// Gzip/brotli compression — cuts ~497KB index.html to ~60KB over the wire
+app.use(compression());
 
 // CORS — restrict to own origin (set APP_URL env var in production)
 const ALLOWED_ORIGINS = [
@@ -101,12 +105,12 @@ function requireAuth(req, res, next) {
 
 // Public routes (no auth needed)
 // Campaign website at root (public, no auth)
-app.use('/site', express.static(path.join(__dirname, 'public', 'site')));
+app.use('/site', express.static(path.join(__dirname, 'public', 'site'), { maxAge: '1h' }));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'site', 'index.html'));
 });
-// Serve static files ONLY for public assets (CSS, JS, images)
-app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+// Serve static files ONLY for public assets (CSS, JS, images) — cache 7 days
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), { maxAge: '7d' }));
 // Public pages that don't need auth
 app.get('/volunteer', (req, res) => res.sendFile(path.join(__dirname, 'public', 'volunteer.html')));
 app.get('/walk', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walk.html')));
@@ -183,8 +187,8 @@ app.use((req, res, next) => {
   requireAuth(req, res, next);
 });
 
-// Serve static files for authenticated users
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files for authenticated users (ETag enabled by default for cache validation)
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '10m' }));
 
 const { generateJoinCode, asyncHandler, phoneDigits, personalizeTemplate } = require('./utils');
 
