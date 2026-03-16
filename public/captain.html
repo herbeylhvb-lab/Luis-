@@ -1232,7 +1232,10 @@ async function loadHousehold(voterId, containerEl) {
   section.appendChild(h4);
 
   var INITIAL_SHOW = 5;
-  var hiddenMembers = [];
+
+  // Scrollable container for household members - max 5 visible at a time
+  var scrollWrap = document.createElement('div');
+  scrollWrap.style.cssText = 'max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch';
 
   function createMemberRow(h) {
     var member = document.createElement('div');
@@ -1268,27 +1271,17 @@ async function loadHousehold(voterId, containerEl) {
     return member;
   }
 
-  household.forEach(function(h, i) {
-    var row = createMemberRow(h);
-    if (i >= INITIAL_SHOW) {
-      row.style.display = 'none';
-      hiddenMembers.push(row);
-    }
-    section.appendChild(row);
+  household.forEach(function(h) {
+    scrollWrap.appendChild(createMemberRow(h));
   });
+  section.appendChild(scrollWrap);
 
-  // "Show X more" button if overflow
+  // Show count hint if there are more than 5
   if (household.length > INITIAL_SHOW) {
-    var moreBtn = document.createElement('button');
-    moreBtn.style.cssText = 'display:block;width:100%;padding:6px;background:none;border:1px dashed #475569;border-radius:6px;color:#818cf8;font-size:12px;cursor:pointer;margin-top:4px;text-align:center';
-    moreBtn.textContent = 'Show ' + (household.length - INITIAL_SHOW) + ' more';
-    var expanded = false;
-    moreBtn.addEventListener('click', function() {
-      expanded = !expanded;
-      hiddenMembers.forEach(function(el) { el.style.display = expanded ? '' : 'none'; });
-      moreBtn.textContent = expanded ? 'Show fewer' : 'Show ' + (household.length - INITIAL_SHOW) + ' more';
-    });
-    section.appendChild(moreBtn);
+    var hint = document.createElement('div');
+    hint.style.cssText = 'text-align:center;font-size:11px;color:#64748b;padding:4px 0';
+    hint.textContent = '\u2191 Scroll to see all ' + household.length + ' residents';
+    section.appendChild(hint);
   }
 
   containerEl.appendChild(section);
@@ -1403,6 +1396,9 @@ async function showVoterDetail(voter) {
       hhContainer.textContent = 'No other people found at this address.';
       return;
     }
+    // Scrollable list - max 5 visible rows (~220px) to prevent freezing on mobile
+    var hhScroll = document.createElement('div');
+    hhScroll.style.cssText = 'max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch';
     household.forEach(function(h) {
       var row = document.createElement('div');
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
@@ -1434,8 +1430,15 @@ async function showVoterDetail(voter) {
         showAddVoterModal(hh);
       }; })(h));
       row.appendChild(addBtn);
-      hhContainer.appendChild(row);
+      hhScroll.appendChild(row);
     });
+    hhContainer.appendChild(hhScroll);
+    if (household.length > 5) {
+      var hint = document.createElement('div');
+      hint.style.cssText = 'text-align:center;font-size:11px;color:#64748b;padding:4px 0';
+      hint.textContent = '\u2191 Scroll to see all ' + household.length + ' residents';
+      hhContainer.appendChild(hint);
+    }
   });
 
   // Buttons
