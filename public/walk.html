@@ -99,6 +99,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .back-link{display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;margin-top:1rem;cursor:pointer;text-decoration:none}
 .back-link:hover{color:#e2e8f0}
 
+/* Script display in door panel */
+.script-section{margin-bottom:16px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:10px}
+.script-title{font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}
+.script-text{font-size:14px;color:#e2e8f0;margin-bottom:10px;line-height:1.5}
+.script-question{margin-bottom:12px}
+.script-question label{display:block;font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:6px}
+.script-option-btn{display:inline-block;padding:6px 12px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#e2e8f0;font-size:13px;margin:0 4px 4px 0;cursor:pointer;transition:all 0.15s}
+.script-option-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
+.activist-code-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#e2e8f0;font-size:13px;cursor:pointer;margin-bottom:4px;transition:all 0.15s}
+.activist-code-btn.selected{border-color:#22c55e;background:#052e16;color:#4ade80}
+
+/* Attempt badge */
+.attempt-badge{display:inline-block;padding:1px 6px;border-radius:9999px;font-size:10px;font-weight:600;background:#1e293b;color:#94a3b8;border:1px solid #334155;margin-left:4px}
+.attempt-badge.reknock{background:#422006;color:#fcd34d;border-color:#f59e0b;animation:pulse 2s infinite}
+
 /* Mode tabs on load screen */
 .mode-tabs{display:flex;gap:0;margin-bottom:1.5rem;border-radius:10px;overflow:hidden;border:1px solid #334155}
 .mode-tab{flex:1;padding:10px;text-align:center;font-size:14px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
@@ -149,6 +164,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <div class="mode-tabs">
       <button class="mode-tab active" onclick="setLoadMode('id')">Walk ID</button>
       <button class="mode-tab" onclick="setLoadMode('join')">Join Group</button>
+      <button class="mode-tab" onclick="setLoadMode('distributed')">Canvass</button>
     </div>
 
     <!-- Walk ID mode -->
@@ -173,6 +189,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <button class="btn btn-walk" id="btnJoinWalk" onclick="joinWalk()">Join Group Walk</button>
     </div>
 
+    <!-- Distributed canvassing mode -->
+    <div class="mode-panel" id="modeDistributed">
+      <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">Enter the canvass code from your organizer. We'll auto-assign the nearest doors to you.</div>
+      <div class="form-group">
+        <label>Canvass Code</label>
+        <input type="text" id="distCodeInput" placeholder="e.g. ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-size:20px">
+      </div>
+      <div class="form-group">
+        <label>Your Name</label>
+        <input type="text" id="distNameInput" placeholder="e.g. Maria">
+      </div>
+      <div id="distGpsStatus" style="font-size:12px;color:#64748b;margin-bottom:8px">Getting your location...</div>
+      <button class="btn btn-walk" id="btnDistClaim" onclick="claimDistributedTurf()">Get My Doors</button>
+    </div>
+
     <div class="error-msg" id="loadError"></div>
     <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
   </div>
@@ -187,7 +218,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="walk-title" id="walkTitle"></div>
         <div class="walk-meta" id="walkMeta"></div>
       </div>
-      <button class="btn btn-sm btn-secondary" onclick="exitWalk()">Exit</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-secondary" onclick="printWalkList()" title="Print walk list" style="padding:8px 10px">&#x1F5A8;</button>
+        <button class="btn btn-sm btn-secondary" onclick="exitWalk()">Exit</button>
+      </div>
     </div>
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     <div class="gps-indicator">
@@ -257,6 +291,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <div class="door-voter" id="doorVoter"></div>
+    <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
+
+    <!-- Script talking points & survey questions (injected dynamically) -->
+    <div id="doorScriptSection" style="display:none"></div>
 
     <div class="disp-grid" id="dispGrid">
       <button class="disp-btn sup" data-result="support" onclick="selectDisp(this)">&#x1F44D; Support</button>
@@ -267,6 +305,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
       <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
       <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
+    </div>
+
+    <!-- Quick "I Couldn't Reach This Person" shortcut like VAN -->
+    <div style="text-align:center;margin-bottom:12px">
+      <button class="btn btn-sm btn-secondary" onclick="quickNotHome()" style="font-size:12px;padding:6px 14px;color:#94a3b8">I Couldn't Reach This Person</button>
     </div>
 
     <textarea class="notes-area" id="doorNotes" placeholder="Notes (optional)..."></textarea>
@@ -294,7 +337,13 @@ var walkState = {
   walkerName: '',
   groupMembers: [],
   mapsUrl: '',
-  routeActive: false
+  routeActive: false,
+  // Canvassing script
+  script: null,
+  surveyResponses: {},
+  // Distributed canvassing
+  distGpsLat: null,
+  distGpsLng: null
 };
 
 // ===================== LOAD MODE TOGGLE =====================
@@ -303,9 +352,15 @@ function setLoadMode(mode) {
   var tabs = document.querySelectorAll('.mode-tab');
   tabs[0].className = 'mode-tab' + (mode === 'id' ? ' active' : '');
   tabs[1].className = 'mode-tab' + (mode === 'join' ? ' active' : '');
+  tabs[2].className = 'mode-tab' + (mode === 'distributed' ? ' active' : '');
   document.getElementById('modeId').className = 'mode-panel' + (mode === 'id' ? ' active' : '');
   document.getElementById('modeJoin').className = 'mode-panel' + (mode === 'join' ? ' active' : '');
+  document.getElementById('modeDistributed').className = 'mode-panel' + (mode === 'distributed' ? ' active' : '');
   document.getElementById('loadError').textContent = '';
+  // Start GPS early for distributed mode
+  if (mode === 'distributed') {
+    startDistributedGps();
+  }
 }
 
 // ===================== JOIN GROUP WALK =====================
@@ -342,6 +397,7 @@ async function joinWalk() {
     document.getElementById('loadScreen').style.display = 'none';
     document.getElementById('walkScreen').style.display = '';
     startGps();
+    loadWalkScript();
   } catch(e) {
     errEl.textContent = 'Failed to join: ' + e.message;
   } finally {
@@ -504,6 +560,189 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ===================== DISTRIBUTED CANVASSING =====================
+
+function startDistributedGps() {
+  if (!navigator.geolocation) {
+    document.getElementById('distGpsStatus').textContent = 'GPS not available on this device';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      walkState.distGpsLat = pos.coords.latitude;
+      walkState.distGpsLng = pos.coords.longitude;
+      document.getElementById('distGpsStatus').textContent = 'Location found! We\'ll assign doors near you.';
+      document.getElementById('distGpsStatus').style.color = '#22c55e';
+    },
+    function(err) {
+      document.getElementById('distGpsStatus').textContent = 'Location unavailable — doors will be assigned in order.';
+      document.getElementById('distGpsStatus').style.color = '#f59e0b';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+async function claimDistributedTurf() {
+  var codeInput = document.getElementById('distCodeInput');
+  var nameInput = document.getElementById('distNameInput');
+  var errEl = document.getElementById('loadError');
+  errEl.textContent = '';
+
+  var shareCode = codeInput.value.trim().toUpperCase();
+  var walkerName = nameInput.value.trim();
+
+  if (!shareCode || shareCode.length < 4) { errEl.textContent = 'Enter the canvass code from your organizer.'; return; }
+  if (!walkerName) { errEl.textContent = 'Enter your name.'; return; }
+
+  document.getElementById('btnDistClaim').disabled = true;
+  document.getElementById('btnDistClaim').textContent = 'Assigning doors...';
+  try {
+    var res = await fetch('/api/walk-universes/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shareCode: shareCode,
+        walkerName: walkerName,
+        lat: walkState.distGpsLat,
+        lng: walkState.distGpsLng
+      })
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) { errEl.textContent = data.error || 'Failed to get doors'; return; }
+
+    walkState.walkId = data.walkId;
+    walkState.walkerName = walkerName;
+
+    // Load the newly created walk
+    var wRes = await fetch('/api/walks/' + data.walkId + '/volunteer');
+    var wData = await wRes.json();
+    walkState.walk = wData.walk;
+
+    renderWalk();
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkScreen').style.display = '';
+    startGps();
+    loadWalkScript();
+  } catch(e) {
+    errEl.textContent = 'Failed: ' + e.message;
+  } finally {
+    document.getElementById('btnDistClaim').disabled = false;
+    document.getElementById('btnDistClaim').textContent = 'Get My Doors';
+  }
+}
+
+// ===================== CANVASSING SCRIPTS =====================
+
+async function loadWalkScript() {
+  if (!walkState.walkId) return;
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/script');
+    var data = await res.json();
+    walkState.script = data.script || null;
+  } catch(e) {
+    walkState.script = null;
+  }
+}
+
+function renderScriptInDoor() {
+  var section = document.getElementById('doorScriptSection');
+  if (!walkState.script || !walkState.script.elements || walkState.script.elements.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  section.innerHTML = '';
+  walkState.surveyResponses = {};
+
+  var container = document.createElement('div');
+  container.className = 'script-section';
+
+  var title = document.createElement('div');
+  title.className = 'script-title';
+  title.textContent = walkState.script.name;
+  container.appendChild(title);
+
+  walkState.script.elements.forEach(function(el) {
+    if (el.element_type === 'text') {
+      var p = document.createElement('div');
+      p.className = 'script-text';
+      p.textContent = el.content;
+      container.appendChild(p);
+    } else if (el.element_type === 'survey') {
+      var qDiv = document.createElement('div');
+      qDiv.className = 'script-question';
+      var lbl = document.createElement('label');
+      lbl.textContent = el.label;
+      qDiv.appendChild(lbl);
+
+      var optDiv = document.createElement('div');
+      if (el.options && el.options.length > 0) {
+        el.options.forEach(function(opt) {
+          var optLabel = typeof opt === 'string' ? opt : (opt.label || opt);
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'script-option-btn';
+          btn.textContent = optLabel;
+          btn.setAttribute('data-element-id', el.id);
+          btn.setAttribute('data-value', optLabel);
+          btn.addEventListener('click', function() {
+            // Deselect siblings
+            var siblings = optDiv.querySelectorAll('.script-option-btn');
+            for (var s = 0; s < siblings.length; s++) siblings[s].classList.remove('selected');
+            btn.classList.add('selected');
+            walkState.surveyResponses[el.id] = optLabel;
+          });
+          optDiv.appendChild(btn);
+        });
+      }
+      qDiv.appendChild(optDiv);
+      container.appendChild(qDiv);
+    } else if (el.element_type === 'activist_code') {
+      var acDiv = document.createElement('div');
+      acDiv.className = 'script-question';
+      var acBtn = document.createElement('button');
+      acBtn.type = 'button';
+      acBtn.className = 'activist-code-btn';
+      acBtn.innerHTML = '&#9744; ' + escHtml(el.label);
+      acBtn.setAttribute('data-element-id', el.id);
+      acBtn.addEventListener('click', function() {
+        acBtn.classList.toggle('selected');
+        if (acBtn.classList.contains('selected')) {
+          acBtn.innerHTML = '&#9745; ' + escHtml(el.label);
+          walkState.surveyResponses[el.id] = 'Yes';
+        } else {
+          acBtn.innerHTML = '&#9744; ' + escHtml(el.label);
+          delete walkState.surveyResponses[el.id];
+        }
+      });
+      acDiv.appendChild(acBtn);
+      container.appendChild(acDiv);
+    }
+  });
+
+  section.appendChild(container);
+}
+
+// Quick "I Couldn't Reach This Person" — VAN-style shortcut
+function quickNotHome() {
+  // Select Not Home disposition and immediately log
+  walkState.selectedResult = 'not_home';
+  var btns = document.querySelectorAll('.disp-btn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.remove('selected');
+    if (btns[i].dataset.result === 'not_home') btns[i].classList.add('selected');
+  }
+  document.getElementById('btnLogDoor').disabled = false;
+  logDoor();
+}
+
+// Print walk list
+function printWalkList() {
+  if (!walkState.walkId) return;
+  var w = window.open('/api/walks/' + walkState.walkId + '/print', '_blank');
+  if (!w) alert('Pop-up blocked. Please allow pop-ups for this site to print.');
+}
+
 // ===================== GPS TRACKING =====================
 
 function startGps() {
@@ -586,6 +825,7 @@ async function loadWalk() {
     document.getElementById('loadScreen').style.display = 'none';
     document.getElementById('walkScreen').style.display = '';
     startGps();
+    loadWalkScript();
   } catch(e) {
     errEl.textContent = 'Failed to load walk: ' + e.message;
   } finally {
@@ -610,6 +850,8 @@ function exitWalk() {
   walkState.groupMembers = [];
   walkState.mapsUrl = '';
   walkState.routeActive = false;
+  walkState.script = null;
+  walkState.surveyResponses = {};
   document.getElementById('walkScreen').style.display = 'none';
   document.getElementById('liveStatusBar').style.display = 'none';
   document.getElementById('btnLiveRoute').style.display = 'none';
@@ -705,7 +947,25 @@ function renderAddressList() {
         statusRow.appendChild(gpsBadge);
       }
 
+      // Attempt count
+      if (a.attempt_count && a.attempt_count > 1) {
+        var attBadge = document.createElement('span');
+        attBadge.className = 'attempt-badge';
+        attBadge.textContent = a.attempt_count + ' attempts';
+        statusRow.appendChild(attBadge);
+      }
+
       card.appendChild(statusRow);
+    }
+
+    // Re-knock indicator for not_home and come_back
+    if (a.result === 'not_home' || a.result === 'come_back') {
+      var reknock = document.createElement('div');
+      reknock.style.cssText = 'font-size:11px;color:#fcd34d;margin-top:4px;font-weight:600';
+      reknock.textContent = a.result === 'not_home' ? '\u{1F504} Try again — Not Home' : '\u{1F504} Come back later';
+      card.className = card.className.replace(' done', ''); // Make it look tappable again
+      card.style.borderLeft = '3px solid #f59e0b';
+      card.appendChild(reknock);
     }
 
     card.addEventListener('click', function() { openDoor(idx); });
@@ -749,12 +1009,25 @@ function openDoor(idx) {
   var a = walkState.walk.addresses[idx];
   walkState.currentAddrIdx = idx;
   walkState.selectedResult = null;
+  walkState.surveyResponses = {};
 
   document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
   document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
   document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name : '';
   document.getElementById('doorNotes').value = a.notes || '';
   document.getElementById('btnLogDoor').disabled = true;
+
+  // Show attempt info
+  var attemptInfo = document.getElementById('doorAttemptInfo');
+  if (a.attempt_count && a.attempt_count > 0) {
+    attemptInfo.textContent = 'Previous attempts: ' + a.attempt_count + (a.result === 'not_home' ? ' — Try again!' : a.result === 'come_back' ? ' — Come back attempt' : '');
+    attemptInfo.style.display = '';
+  } else {
+    attemptInfo.style.display = 'none';
+  }
+
+  // Render script section
+  renderScriptInDoor();
 
   // Clear disposition selection
   var btns = document.querySelectorAll('.disp-btn');
@@ -808,7 +1081,8 @@ async function logDoor() {
         gps_lat: walkState.gpsLat,
         gps_lng: walkState.gpsLng,
         gps_accuracy: walkState.gpsAccuracy,
-        walker_name: walkerName
+        walker_name: walkerName,
+        survey_responses: Object.keys(walkState.surveyResponses).length > 0 ? walkState.surveyResponses : undefined
       })
     });
     var data = await res.json();

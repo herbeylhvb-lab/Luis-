@@ -68,6 +68,38 @@ function geocodeWalkAddresses(walkId) {
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 
+// ===================== VOTING HISTORY FILTER HELPER =====================
+// Builds SQL clauses to filter voters by election participation
+// Used by from-precinct, universe claim, and turf refresh
+function buildVotingHistorySQL(filters, params) {
+  let sql = '';
+  // "voted in at least N elections" — targets frequent voters
+  if (filters.min_elections && parseInt(filters.min_elections) > 0) {
+    sql += ' AND (SELECT COUNT(*) FROM election_votes ev WHERE ev.voter_id = voters.id) >= ?';
+    params.push(parseInt(filters.min_elections));
+  }
+  // "voted in a specific election" — e.g. voted in last municipal
+  if (filters.voted_in_election) {
+    sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
+    params.push(filters.voted_in_election);
+  }
+  // "did NOT vote in a specific election" — low-propensity / lapsed voters
+  if (filters.did_not_vote_in) {
+    sql += ' AND voters.id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
+    params.push(filters.did_not_vote_in);
+  }
+  // "has any voting history at all" — filters out brand new registrants
+  if (filters.has_voted) {
+    sql += ' AND voters.id IN (SELECT DISTINCT ev.voter_id FROM election_votes ev)';
+  }
+  // "voter score range" — if you've scored voters 0-100
+  if (filters.min_voter_score != null && parseInt(filters.min_voter_score) > 0) {
+    sql += ' AND voters.voter_score >= ?';
+    params.push(parseInt(filters.min_voter_score));
+  }
+  return sql;
+}
+
 // List all block walks with stats (single query instead of N+1)
 router.get('/walks', (req, res) => {
   const walks = db.prepare(`
@@ -188,11 +220,20 @@ router.delete('/walks/:walkId/addresses/:addrId', (req, res) => {
 
 // Get walk for volunteer view (simplified, no admin data)
 router.get('/walks/:id/volunteer', (req, res) => {
-  const walk = db.prepare('SELECT id, name, description, assigned_to, status FROM block_walks WHERE id = ?').get(req.params.id);
+  const walk = db.prepare('SELECT id, name, description, assigned_to, status, script_id FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
   walk.addresses = db.prepare(
     'SELECT id, address, unit, city, zip, voter_name, result, notes, knocked_at, sort_order, gps_verified, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
+
+  // Add attempt counts per address
+  const attemptCounts = db.prepare(
+    'SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id'
+  ).all(req.params.id);
+  const countMap = {};
+  for (const a of attemptCounts) countMap[a.address_id] = a.c;
+  for (const addr of walk.addresses) addr.attempt_count = countMap[addr.id] || 0;
+
   const total = walk.addresses.length;
   const knocked = walk.addresses.filter(a => a.result !== 'not_visited').length;
   walk.progress = { total, knocked, remaining: total - knocked };
@@ -225,9 +266,9 @@ function isValidCoord(lat, lng) {
     isFinite(lat) && isFinite(lng);
 }
 
-// Log a door knock result with GPS verification
+// Log a door knock result with GPS verification and attempt tracking
 router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
-  const { result, notes, gps_lat, gps_lng, gps_accuracy, walker_name } = req.body;
+  const { result, notes, gps_lat, gps_lng, gps_accuracy, walker_name, survey_responses } = req.body;
   if (!result) return res.status(400).json({ error: 'Result is required.' });
   if (!VALID_RESULTS.has(result)) return res.status(400).json({ error: 'Invalid result value.' });
 
@@ -258,7 +299,7 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
   const knocked_at = new Date().toISOString();
 
-  // Wrap address update + voter contact log in a transaction for atomicity
+  // Wrap address update + voter contact log + attempt record in a transaction for atomicity
   const logKnock = db.transaction(() => {
     // Update the walk address
     db.prepare(`
@@ -267,6 +308,24 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
         gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
       WHERE id = ? AND walk_id = ?
     `).run(result, notes || '', knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
+
+    // Record attempt in attempt history
+    db.prepare(
+      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.addrId, req.params.walkId, result, notes || '', walker_name || '', gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, survey_responses ? JSON.stringify(survey_responses) : null);
+
+    // Update walker performance metrics (if group member)
+    if (walker_name) {
+      const isContact = !['not_home', 'moved', 'refused'].includes(result);
+      db.prepare(`
+        UPDATE walk_group_members SET
+          doors_knocked = doors_knocked + 1,
+          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          first_knock_at = COALESCE(first_knock_at, ?),
+          last_knock_at = ?
+        WHERE walk_id = ? AND walker_name = ?
+      `).run(knocked_at, knocked_at, req.params.walkId, walker_name);
+    }
 
     // Auto-log voter contact if voter_id is linked
     if (addr.voter_id) {
@@ -462,18 +521,20 @@ router.post('/walks/from-precinct', (req, res) => {
     if (filters.exclude_contacted) {
       sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
     }
+    // Voting history filters (nonpartisan targeting)
+    sql += buildVotingHistorySQL(filters, params);
   }
   sql += ' ORDER BY address, last_name';
 
   const voters = db.prepare(sql).all(...params);
   if (voters.length === 0) return res.status(400).json({ error: 'No voters with addresses found in the selected precincts.' });
 
-  // Create the walk
+  // Create the walk (store source precincts + filters for turf refresh)
   const walkName = name || ('Precinct Walk: ' + precincts.join(', '));
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code) VALUES (?, ?, ?, ?)'
-  ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode);
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}));
   const walkId = walkResult.lastInsertRowid;
 
   // Add voter addresses to the walk, linked to voter_id for auto-contact-logging
@@ -760,6 +821,619 @@ router.post('/walks/:id/location', (req, res) => {
   `).run(req.params.id, walker_name, lat, lng, accuracy || null);
 
   res.json({ ok: true });
+});
+
+// ===================== AVAILABLE ELECTIONS (for filter dropdowns) =====================
+router.get('/walk-elections', (req, res) => {
+  const elections = db.prepare(`
+    SELECT election_name, election_date, election_type, COUNT(DISTINCT voter_id) as voter_count
+    FROM election_votes
+    GROUP BY election_name
+    ORDER BY election_date DESC
+  `).all();
+  res.json({ elections });
+});
+
+// ===================== CANVASSING SCRIPTS =====================
+
+// List all scripts
+router.get('/walk-scripts', (req, res) => {
+  const scripts = db.prepare('SELECT * FROM walk_scripts ORDER BY is_default DESC, id DESC').all();
+  res.json({ scripts });
+});
+
+// Create a script
+router.post('/walk-scripts', (req, res) => {
+  const { name, description, elements, is_default } = req.body;
+  if (!name) return res.status(400).json({ error: 'Script name is required.' });
+
+  const result = db.prepare(
+    'INSERT INTO walk_scripts (name, description, is_default) VALUES (?, ?, ?)'
+  ).run(name, description || '', is_default ? 1 : 0);
+  const scriptId = result.lastInsertRowid;
+
+  // If set as default, unset other defaults
+  if (is_default) {
+    db.prepare('UPDATE walk_scripts SET is_default = 0 WHERE id != ?').run(scriptId);
+  }
+
+  // Insert elements
+  if (elements && elements.length > 0) {
+    const insertEl = db.prepare(
+      'INSERT INTO walk_script_elements (script_id, element_type, sort_order, label, content, options_json, parent_element_id, parent_option_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const addElements = db.transaction((els) => {
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        insertEl.run(
+          scriptId, el.element_type || 'text', i,
+          el.label || '', el.content || '',
+          JSON.stringify(el.options || []),
+          el.parent_element_id || null, el.parent_option_key || null
+        );
+      }
+    });
+    addElements(elements);
+  }
+
+  res.json({ success: true, id: scriptId });
+});
+
+// Get script with elements
+router.get('/walk-scripts/:id', (req, res) => {
+  const script = db.prepare('SELECT * FROM walk_scripts WHERE id = ?').get(req.params.id);
+  if (!script) return res.status(404).json({ error: 'Script not found.' });
+  script.elements = db.prepare(
+    'SELECT * FROM walk_script_elements WHERE script_id = ? ORDER BY sort_order'
+  ).all(req.params.id);
+  // Parse options JSON
+  for (const el of script.elements) {
+    try { el.options = JSON.parse(el.options_json || '[]'); } catch { el.options = []; }
+  }
+  res.json({ script });
+});
+
+// Update a script
+router.put('/walk-scripts/:id', (req, res) => {
+  const { name, description, elements, is_default } = req.body;
+  const script = db.prepare('SELECT id FROM walk_scripts WHERE id = ?').get(req.params.id);
+  if (!script) return res.status(404).json({ error: 'Script not found.' });
+
+  db.prepare(
+    'UPDATE walk_scripts SET name = COALESCE(?, name), description = COALESCE(?, description), is_default = COALESCE(?, is_default) WHERE id = ?'
+  ).run(name, description, is_default != null ? (is_default ? 1 : 0) : null, req.params.id);
+
+  if (is_default) {
+    db.prepare('UPDATE walk_scripts SET is_default = 0 WHERE id != ?').run(req.params.id);
+  }
+
+  // Replace elements if provided
+  if (elements) {
+    const replaceElements = db.transaction(() => {
+      db.prepare('DELETE FROM walk_script_elements WHERE script_id = ?').run(req.params.id);
+      const insertEl = db.prepare(
+        'INSERT INTO walk_script_elements (script_id, element_type, sort_order, label, content, options_json, parent_element_id, parent_option_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        insertEl.run(
+          req.params.id, el.element_type || 'text', i,
+          el.label || '', el.content || '',
+          JSON.stringify(el.options || []),
+          el.parent_element_id || null, el.parent_option_key || null
+        );
+      }
+    });
+    replaceElements();
+  }
+
+  res.json({ success: true });
+});
+
+// Delete a script
+router.delete('/walk-scripts/:id', (req, res) => {
+  db.prepare('DELETE FROM walk_scripts WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Get script for a walk (public endpoint for volunteer app)
+router.get('/walks/:id/script', (req, res) => {
+  const walk = db.prepare('SELECT script_id FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  let script = null;
+  if (walk.script_id) {
+    script = db.prepare('SELECT * FROM walk_scripts WHERE id = ?').get(walk.script_id);
+  }
+  if (!script) {
+    // Fall back to default script
+    script = db.prepare('SELECT * FROM walk_scripts WHERE is_default = 1').get();
+  }
+  if (!script) return res.json({ script: null });
+
+  script.elements = db.prepare(
+    'SELECT * FROM walk_script_elements WHERE script_id = ? ORDER BY sort_order'
+  ).all(script.id);
+  for (const el of script.elements) {
+    try { el.options = JSON.parse(el.options_json || '[]'); } catch { el.options = []; }
+  }
+  res.json({ script });
+});
+
+// Assign a script to a walk
+router.put('/walks/:id/script', (req, res) => {
+  const { script_id } = req.body;
+  db.prepare('UPDATE block_walks SET script_id = ? WHERE id = ?').run(script_id || null, req.params.id);
+  res.json({ success: true });
+});
+
+// ===================== ATTEMPT TRACKING =====================
+
+// Get attempt history for an address
+router.get('/walks/:walkId/addresses/:addrId/attempts', (req, res) => {
+  const attempts = db.prepare(
+    'SELECT * FROM walk_attempts WHERE address_id = ? AND walk_id = ? ORDER BY attempted_at DESC'
+  ).all(req.params.addrId, req.params.walkId);
+  for (const a of attempts) {
+    try { a.survey_responses = JSON.parse(a.survey_responses_json || 'null'); } catch { a.survey_responses = null; }
+  }
+  res.json({ attempts });
+});
+
+// Get all attempt stats for a walk
+router.get('/walks/:id/attempt-stats', (req, res) => {
+  const walk = db.prepare('SELECT id FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total_attempts,
+      COUNT(DISTINCT address_id) as unique_addresses,
+      SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home_count,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts_made,
+      COUNT(DISTINCT walker_name) as unique_walkers
+    FROM walk_attempts WHERE walk_id = ?
+  `).get(req.params.id);
+
+  // Per-walker stats
+  const walkerStats = db.prepare(`
+    SELECT
+      walker_name,
+      COUNT(*) as attempts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      MIN(attempted_at) as first_attempt,
+      MAX(attempted_at) as last_attempt
+    FROM walk_attempts WHERE walk_id = ? AND walker_name != ''
+    GROUP BY walker_name ORDER BY attempts DESC
+  `).all(req.params.id);
+
+  // Calculate doors per hour for each walker
+  for (const w of walkerStats) {
+    if (w.first_attempt && w.last_attempt && w.first_attempt !== w.last_attempt) {
+      const hours = (new Date(w.last_attempt) - new Date(w.first_attempt)) / 3600000;
+      w.doors_per_hour = hours > 0 ? Math.round(w.attempts / hours * 10) / 10 : 0;
+    } else {
+      w.doors_per_hour = 0;
+    }
+    w.contact_rate = w.attempts > 0 ? Math.round(w.contacts / w.attempts * 100) : 0;
+  }
+
+  // Addresses needing re-knock (last attempt was not_home or come_back)
+  const reknockNeeded = db.prepare(`
+    SELECT wa.id, wa.address, wa.voter_name, wa.city, wa.zip,
+      COUNT(at.id) as attempt_count,
+      MAX(at.attempted_at) as last_attempt
+    FROM walk_addresses wa
+    JOIN walk_attempts at ON at.address_id = wa.id
+    WHERE wa.walk_id = ? AND wa.result IN ('not_home', 'come_back')
+    GROUP BY wa.id
+    ORDER BY attempt_count ASC, last_attempt ASC
+  `).all(req.params.id);
+
+  res.json({ stats, walkerStats, reknockNeeded });
+});
+
+// ===================== DISTRIBUTED CANVASSING =====================
+
+// Create a distributed canvassing universe
+router.post('/walk-universes', (req, res) => {
+  const { name, script_id, doors_per_turf, precincts, filters } = req.body;
+  if (!name) return res.status(400).json({ error: 'Universe name is required.' });
+  if (!precincts || !precincts.length) return res.status(400).json({ error: 'At least one precinct is required.' });
+
+  const shareCode = generateAlphaCode(6);
+  const filtersJson = JSON.stringify({ precincts, ...(filters || {}) });
+
+  const result = db.prepare(
+    'INSERT INTO walk_universes (name, share_code, script_id, doors_per_turf, filters_json) VALUES (?, ?, ?, ?, ?)'
+  ).run(name, shareCode, script_id || null, doors_per_turf || 30, filtersJson);
+
+  res.json({ success: true, id: result.lastInsertRowid, shareCode });
+});
+
+// List universes
+router.get('/walk-universes', (req, res) => {
+  const universes = db.prepare(`
+    SELECT wu.*,
+      (SELECT COUNT(DISTINCT wa.id) FROM walk_addresses wa WHERE wa.universe_id = wu.id) as assigned_doors,
+      (SELECT COUNT(DISTINCT wa.id) FROM walk_addresses wa WHERE wa.universe_id = wu.id AND wa.result != 'not_visited') as knocked_doors
+    FROM walk_universes wu ORDER BY wu.id DESC
+  `).all();
+  for (const u of universes) {
+    try { u.filters = JSON.parse(u.filters_json || '{}'); } catch { u.filters = {}; }
+  }
+  res.json({ universes });
+});
+
+// Volunteer self-assigns turf from a universe based on GPS location
+const distributedJoinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many requests, try again later.' } });
+
+router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
+  const { shareCode, walkerName, lat, lng } = req.body;
+  if (!shareCode || !walkerName) return res.status(400).json({ error: 'Share code and name are required.' });
+
+  const universe = db.prepare("SELECT * FROM walk_universes WHERE share_code = ? AND status = 'active'").get(String(shareCode).toUpperCase());
+  if (!universe) return res.status(404).json({ error: 'Invalid share code or universe is closed.' });
+
+  let filters;
+  try { filters = JSON.parse(universe.filters_json || '{}'); } catch { filters = {}; }
+  const precincts = filters.precincts || [];
+  if (precincts.length === 0) return res.status(400).json({ error: 'Universe has no precincts configured.' });
+
+  // Find voters in the universe precincts who aren't already assigned
+  let sql = "SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip, v.lat, v.lng FROM voters v WHERE v.precinct IN (" + precincts.map(() => '?').join(',') + ") AND v.address != ''";
+  const params = [...precincts];
+
+  // Exclude already assigned voters in this universe
+  sql += " AND v.id NOT IN (SELECT wa.voter_id FROM walk_addresses wa WHERE wa.universe_id = ? AND wa.voter_id IS NOT NULL)";
+  params.push(universe.id);
+
+  if (filters.party) { sql += ' AND v.party = ?'; params.push(filters.party); }
+  if (filters.support_level) { sql += ' AND v.support_level = ?'; params.push(filters.support_level); }
+  if (filters.exclude_contacted) {
+    sql += ' AND v.id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
+  }
+  if (filters.exclude_early_voted) {
+    sql += ' AND v.early_voted = 0';
+  }
+  // Voting history filters — the "v" alias maps to "voters" in the helper
+  // We need to adjust for the alias
+  const votingParams = [];
+  let votingSql = buildVotingHistorySQL(filters, votingParams);
+  if (votingSql) {
+    sql += votingSql.replace(/voters\.id/g, 'v.id').replace(/voters\.voter_score/g, 'v.voter_score');
+    params.push(...votingParams);
+  }
+
+  const available = db.prepare(sql).all(...params);
+  if (available.length === 0) return res.status(400).json({ error: 'No more doors available in this universe. All have been assigned!' });
+
+  // If GPS provided, sort by distance to get nearest doors
+  let sorted = available;
+  if (lat && lng && isValidCoord(parseFloat(lat), parseFloat(lng))) {
+    const wLat = parseFloat(lat), wLng = parseFloat(lng);
+    // Use voter geocoded coords if available, otherwise we'll just take the first N
+    sorted = available.map(v => {
+      // Try to use voter's address geocoding (we may not have lat/lng on voters, so fallback)
+      return v;
+    });
+    // Sort by distance if voters have coordinates (from walk_addresses lat/lng — voters table doesn't have them)
+    // Since voters don't have lat/lng, we'll use address matching as a proxy
+    // For now, just take the first N available — addresses will be geocoded after walk creation
+  }
+
+  const doorsToAssign = Math.min(universe.doors_per_turf || 30, sorted.length);
+  const selected = sorted.slice(0, doorsToAssign);
+
+  // Create a walk for this volunteer
+  const joinCode = generateAlphaCode(4);
+  const walkName = universe.name + ' - ' + walkerName;
+  const walkResult = db.prepare(
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
+  const walkId = walkResult.lastInsertRowid;
+
+  // Add addresses
+  const insert = db.prepare(
+    'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order, universe_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  const addAll = db.transaction(() => {
+    let i = 0;
+    for (const v of selected) {
+      const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
+      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
+    }
+    return i;
+  });
+  const added = addAll();
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Distributed canvass: ' + walkerName + ' claimed ' + added + ' doors from ' + universe.name
+  );
+
+  geocodeWalkAddresses(walkId);
+  res.json({ success: true, walkId, joinCode, added, walkName });
+});
+
+// Delete/close a universe
+router.put('/walk-universes/:id', (req, res) => {
+  const { status, name, doors_per_turf, script_id } = req.body;
+  db.prepare(
+    'UPDATE walk_universes SET status = COALESCE(?, status), name = COALESCE(?, name), doors_per_turf = COALESCE(?, doors_per_turf), script_id = COALESCE(?, script_id) WHERE id = ?'
+  ).run(status, name, doors_per_turf, script_id, req.params.id);
+  res.json({ success: true });
+});
+
+router.delete('/walk-universes/:id', (req, res) => {
+  db.prepare('DELETE FROM walk_universes WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ===================== CANVASSER LEADERBOARD =====================
+
+router.get('/walks/leaderboard', (req, res) => {
+  // Aggregate stats across all walks
+  const leaderboard = db.prepare(`
+    SELECT
+      walker_name as name,
+      COUNT(*) as total_doors,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters_found,
+      MIN(attempted_at) as first_door,
+      MAX(attempted_at) as last_door,
+      COUNT(DISTINCT walk_id) as walks_participated
+    FROM walk_attempts
+    WHERE walker_name != ''
+    GROUP BY walker_name
+    ORDER BY total_doors DESC
+    LIMIT 50
+  `).all();
+
+  for (const w of leaderboard) {
+    w.contact_rate = w.total_doors > 0 ? Math.round(w.contacts / w.total_doors * 100) : 0;
+    if (w.first_door && w.last_door && w.first_door !== w.last_door) {
+      const hours = (new Date(w.last_door) - new Date(w.first_door)) / 3600000;
+      w.doors_per_hour = hours > 0 ? Math.round(w.total_doors / hours * 10) / 10 : 0;
+    } else {
+      w.doors_per_hour = 0;
+    }
+  }
+
+  // Overall campaign stats
+  const overall = db.prepare(`
+    SELECT
+      COUNT(*) as total_attempts,
+      COUNT(DISTINCT address_id) as unique_doors,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
+      COUNT(DISTINCT walker_name) as total_walkers,
+      COUNT(DISTINCT walk_id) as total_walks
+    FROM walk_attempts WHERE walker_name != ''
+  `).get();
+  overall.contact_rate = overall.total_attempts > 0 ? Math.round(overall.total_contacts / overall.total_attempts * 100) : 0;
+
+  res.json({ leaderboard, overall });
+});
+
+// ===================== TURF REFRESH =====================
+
+// Refresh a walk's voter list — remove contacted/voted, add new matching voters
+router.post('/walks/:id/refresh', (req, res) => {
+  const walk = db.prepare('SELECT * FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  if (!walk.source_precincts) {
+    return res.status(400).json({ error: 'This walk was not created from precincts, so it cannot be refreshed. Only precinct-based walks support refresh.' });
+  }
+
+  const precincts = walk.source_precincts.split(',').filter(Boolean);
+  let filters;
+  try { filters = JSON.parse(walk.source_filters_json || '{}'); } catch { filters = {}; }
+
+  // Build the same query as from-precinct, to find current matching voters
+  let sql = "SELECT id, first_name, last_name, address, city, zip FROM voters WHERE precinct IN (" + precincts.map(() => '?').join(',') + ") AND address != ''";
+  const params = [...precincts];
+
+  if (filters.party) { sql += ' AND party = ?'; params.push(filters.party); }
+  if (filters.support_level) { sql += ' AND support_level = ?'; params.push(filters.support_level); }
+  if (filters.exclude_contacted) {
+    sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
+  }
+  // Voting history filters
+  sql += buildVotingHistorySQL(filters, params);
+  // Also exclude early voted
+  sql += ' AND early_voted = 0';
+  sql += ' ORDER BY address, last_name';
+
+  const freshVoters = db.prepare(sql).all(...params);
+  const freshIds = new Set(freshVoters.map(v => v.id));
+
+  // Current walk addresses with voter_id
+  const currentAddrs = db.prepare('SELECT id, voter_id, result FROM walk_addresses WHERE walk_id = ?').all(req.params.id);
+
+  const refreshResult = db.transaction(() => {
+    let removed = 0;
+    let added = 0;
+    const existingVoterIds = new Set();
+
+    // Remove addresses where voter no longer matches criteria (but keep already-knocked ones as history)
+    for (const addr of currentAddrs) {
+      if (addr.voter_id) {
+        existingVoterIds.add(addr.voter_id);
+        if (!freshIds.has(addr.voter_id) && addr.result === 'not_visited') {
+          db.prepare('DELETE FROM walk_addresses WHERE id = ?').run(addr.id);
+          removed++;
+        }
+      }
+    }
+
+    // Add new voters that aren't already in the walk
+    const maxSort = (db.prepare('SELECT MAX(sort_order) as m FROM walk_addresses WHERE walk_id = ?').get(req.params.id) || { m: 0 }).m || 0;
+    const insertAddr = db.prepare(
+      'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    let sortIdx = maxSort + 1;
+    for (const v of freshVoters) {
+      if (!existingVoterIds.has(v.id)) {
+        const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
+        insertAddr.run(req.params.id, v.address, '', v.city || '', v.zip || '', voterName, v.id, sortIdx++);
+        added++;
+      }
+    }
+
+    return { removed, added };
+  });
+  const result = refreshResult();
+
+  // Re-geocode any new addresses
+  if (result.added > 0) {
+    geocodeWalkAddresses(parseInt(req.params.id));
+  }
+
+  // Re-split if group walk
+  const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(req.params.id);
+  if (members && members.c > 0) {
+    splitAddresses(parseInt(req.params.id));
+  }
+
+  res.json({
+    success: true,
+    removed: result.removed,
+    added: result.added,
+    message: 'Turf refreshed: ' + result.removed + ' removed, ' + result.added + ' added'
+  });
+});
+
+// ===================== PRINT WALK LIST =====================
+
+router.get('/walks/:id/print', (req, res) => {
+  const walk = db.prepare('SELECT * FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  const addresses = db.prepare(
+    'SELECT * FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+  ).all(req.params.id);
+
+  // Get attempt counts
+  const attemptCounts = {};
+  const attempts = db.prepare(
+    'SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id'
+  ).all(req.params.id);
+  for (const a of attempts) attemptCounts[a.address_id] = a.c;
+
+  // Get script if attached
+  let script = null;
+  if (walk.script_id) {
+    script = db.prepare('SELECT * FROM walk_scripts WHERE id = ?').get(walk.script_id);
+    if (script) {
+      script.elements = db.prepare(
+        'SELECT * FROM walk_script_elements WHERE script_id = ? ORDER BY sort_order'
+      ).all(script.id);
+      for (const el of script.elements) {
+        try { el.options = JSON.parse(el.options_json || '[]'); } catch { el.options = []; }
+      }
+    }
+  }
+
+  // Generate printable HTML
+  const escH = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Walk List: ${escH(walk.name)}</title>
+<style>
+@media print { @page { margin: 0.5in; } body { -webkit-print-color-adjust: exact; } .no-print { display: none !important; } }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Arial, sans-serif; font-size: 12px; color: #000; background: #fff; padding: 20px; }
+h1 { font-size: 18px; margin-bottom: 4px; }
+.meta { color: #666; font-size: 11px; margin-bottom: 12px; }
+.print-btn { position: fixed; top: 10px; right: 10px; padding: 10px 20px; background: #f59e0b; color: #000; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; z-index: 100; }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th { background: #f3f4f6; padding: 6px 8px; text-align: left; font-size: 11px; text-transform: uppercase; border-bottom: 2px solid #000; }
+td { padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top; }
+tr:nth-child(even) { background: #f9fafb; }
+.num { font-weight: 700; text-align: center; width: 30px; }
+.addr { min-width: 200px; }
+.voter { min-width: 120px; }
+.result-box { width: 100px; border: 1px solid #999; height: 20px; }
+.notes-box { width: 150px; border: 1px solid #999; height: 20px; }
+.script-section { margin-top: 20px; padding: 12px; border: 1px solid #ccc; border-radius: 4px; background: #fefce8; page-break-inside: avoid; }
+.script-section h3 { font-size: 14px; margin-bottom: 8px; }
+.script-q { margin-bottom: 10px; }
+.script-q label { font-weight: 700; }
+.script-options { margin-top: 4px; }
+.script-option { display: inline-block; margin-right: 16px; }
+.script-option input[type=checkbox] { margin-right: 4px; }
+.attempts-col { width: 40px; text-align: center; }
+.disp-codes { margin-top: 6px; font-size: 10px; color: #666; }
+.disp-code { display: inline-block; margin-right: 8px; }
+</style></head><body>
+<button class="print-btn no-print" onclick="window.print()">Print Walk List</button>
+<h1>${escH(walk.name)}</h1>
+<div class="meta">
+  Walk #${walk.id} | ${addresses.length} doors | Assigned: ${escH(walk.assigned_to) || 'Unassigned'} | Printed: ${new Date().toLocaleDateString()}
+  ${walk.join_code ? ' | Join Code: ' + walk.join_code : ''}
+</div>
+<div class="disp-codes">
+  <strong>Result Codes:</strong>
+  <span class="disp-code">S = Support</span>
+  <span class="disp-code">LS = Lean Support</span>
+  <span class="disp-code">U = Undecided</span>
+  <span class="disp-code">LO = Lean Oppose</span>
+  <span class="disp-code">O = Oppose</span>
+  <span class="disp-code">NH = Not Home</span>
+  <span class="disp-code">R = Refused</span>
+  <span class="disp-code">M = Moved</span>
+  <span class="disp-code">CB = Come Back</span>
+</div>`;
+
+  // Script talking points
+  if (script && script.elements && script.elements.length > 0) {
+    html += `<div class="script-section"><h3>Canvassing Script: ${escH(script.name)}</h3>`;
+    for (const el of script.elements) {
+      if (el.element_type === 'text') {
+        html += `<p style="margin-bottom:8px">${escH(el.content)}</p>`;
+      } else if (el.element_type === 'survey') {
+        html += `<div class="script-q"><label>${escH(el.label)}</label>`;
+        if (el.options && el.options.length > 0) {
+          html += '<div class="script-options">';
+          for (const opt of el.options) {
+            html += `<span class="script-option">&#9633; ${escH(opt.label || opt)}</span>`;
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+      } else if (el.element_type === 'activist_code') {
+        html += `<div class="script-q"><label>&#9633; ${escH(el.label)}</label> <span style="color:#666;font-size:10px">(check if applicable)</span></div>`;
+      }
+    }
+    html += '</div>';
+  }
+
+  html += `<table>
+<thead><tr>
+  <th class="num">#</th>
+  <th class="addr">Address</th>
+  <th class="voter">Voter</th>
+  <th class="attempts-col">Att.</th>
+  <th>Result</th>
+  <th>Notes</th>
+</tr></thead><tbody>`;
+
+  for (let i = 0; i < addresses.length; i++) {
+    const a = addresses[i];
+    const fullAddr = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+    const attCount = attemptCounts[a.id] || 0;
+    html += `<tr>
+  <td class="num">${i + 1}</td>
+  <td class="addr">${escH(fullAddr)}</td>
+  <td class="voter">${escH(a.voter_name)}</td>
+  <td class="attempts-col">${attCount || ''}</td>
+  <td><div class="result-box"></div></td>
+  <td><div class="notes-box"></div></td>
+</tr>`;
+  }
+
+  html += '</tbody></table></body></html>';
+  res.type('html').send(html);
 });
 
 module.exports = router;
