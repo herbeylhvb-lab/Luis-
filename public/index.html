@@ -193,6 +193,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
     <div class="sidebar-section">Campaign</div>
     <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
+    <div class="nav-item" data-page="groups"><span class="icon">&#128101;</span><span>Groups</span></div>
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
   </div>
@@ -1749,6 +1750,39 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- Groups Page -->
+    <div class="page" id="page-groups">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0">Groups <span style="font-size:13px;color:#64748b">(max 10)</span></h3>
+          <button class="btn btn-sm btn-primary" onclick="showAddGroupForm()">+ Add Group</button>
+        </div>
+
+        <div id="addGroupForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div style="display:flex;gap:12px;align-items:flex-end">
+            <div class="form-group" style="flex:1;margin-bottom:0"><label>Group Name *</label><input type="text" id="newGroupName" placeholder="e.g. Team Alpha"></div>
+            <button class="btn btn-sm btn-success" onclick="createGroup()">Create</button>
+            <button class="btn btn-sm btn-secondary" onclick="hideAddGroupForm()">Cancel</button>
+          </div>
+        </div>
+
+        <table class="table" id="groupsTable">
+          <thead><tr><th>Name</th><th>Code</th><th>Portal Link</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+          <tbody id="groupsTableBody"><tr><td colspan="6" style="text-align:center;color:#64748b">Loading...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>How Groups Work</h3>
+        <div style="color:#94a3b8;font-size:14px;line-height:1.6">
+          <p>1. Create a group (up to 10)</p>
+          <p>2. Share the group code or portal link with your team</p>
+          <p>3. Members log in at the group portal and join active block walks</p>
+          <p>4. Members can only access block walks &mdash; no admin features</p>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -1928,6 +1962,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'candidates') { loadCandidates(); }
     if (page === 'surveys') { showSurveyList(); loadSurveys(); }
     if (page === 'users') loadUsers();
+    if (page === 'groups') loadGroups();
     if (page === 'broadcast') { loadBroadcastPage(); }
     if (page === 'gotv') { loadGotvPage(); }
     if (page === 'analytics') { loadAnalyticsPage(); }
@@ -8394,6 +8429,90 @@ async function deleteUser(id, username) {
     const data = await res.json();
     if (!res.ok) return alert(data.error || 'Failed to delete user');
     loadUsers();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ===================== GROUPS =====================
+function showAddGroupForm() { document.getElementById('addGroupForm').style.display = 'block'; }
+function hideAddGroupForm() { document.getElementById('addGroupForm').style.display = 'none'; }
+
+async function loadGroups() {
+  try {
+    const res = await fetch('/api/groups');
+    if (!res.ok) throw new Error('Failed to load groups');
+    const data = await res.json();
+    const tbody = document.getElementById('groupsTableBody');
+    const groups = data.groups || [];
+    if (groups.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#64748b">No groups yet. Click "+ Add Group" to create one.</td></tr>';
+      return;
+    }
+    const baseUrl = location.origin;
+    tbody.innerHTML = groups.map(g => `
+      <tr>
+        <td><strong>${esc(g.name)}</strong></td>
+        <td><code style="background:#0f172a;padding:4px 8px;border-radius:4px;font-size:14px;letter-spacing:2px;color:#818cf8">${esc(g.code)}</code></td>
+        <td><a href="/group" target="_blank" style="color:#818cf8;font-size:12px">${esc(baseUrl)}/group</a></td>
+        <td>${g.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Inactive</span>'}</td>
+        <td style="font-size:12px;color:#64748b">${g.created_at ? new Date(g.created_at).toLocaleDateString() : ''}</td>
+        <td>
+          <button class="btn btn-sm btn-secondary" data-gid="${g.id}" onclick="regenerateGroupCode(${g.id})">New Code</button>
+          <button class="btn btn-sm btn-${g.is_active ? 'warning' : 'success'}" onclick="toggleGroup(${g.id}, ${g.is_active ? 0 : 1})">${g.is_active ? 'Deactivate' : 'Activate'}</button>
+          <button class="btn btn-sm btn-danger" data-gname="${esc(g.name)}" onclick="deleteGroup(${g.id}, '${esc(g.name)}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) { console.error('loadGroups:', e); }
+}
+
+async function createGroup() {
+  const name = document.getElementById('newGroupName').value.trim();
+  if (!name) return alert('Group name is required.');
+  try {
+    const res = await fetch('/api/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || 'Failed to create group');
+    alert('Group created! Code: ' + data.code + '\n\nShare this code with your group members.');
+    hideAddGroupForm();
+    document.getElementById('newGroupName').value = '';
+    loadGroups();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function regenerateGroupCode(id) {
+  if (!confirm('Generate a new code? The old code will stop working.')) return;
+  try {
+    const res = await fetch('/api/groups/' + id + '/regenerate-code', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || 'Failed to regenerate code');
+    alert('New code: ' + data.code);
+    loadGroups();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function toggleGroup(id, newState) {
+  try {
+    const res = await fetch('/api/groups/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: newState })
+    });
+    if (!res.ok) { const d = await res.json(); return alert(d.error || 'Failed'); }
+    loadGroups();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteGroup(id, name) {
+  if (!confirm('Delete group "' + name + '"? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/groups/' + id, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || 'Failed to delete group');
+    loadGroups();
   } catch(e) { alert('Error: ' + e.message); }
 }
 

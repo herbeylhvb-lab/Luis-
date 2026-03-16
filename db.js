@@ -850,5 +850,17 @@ addColumn("ALTER TABLE walk_group_members ADD COLUMN last_knock_at TEXT DEFAULT 
 addColumn("ALTER TABLE block_walks ADD COLUMN source_precincts TEXT DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN source_filters_json TEXT DEFAULT NULL");
 
+// --- Groups table (code-based login, block walk only, max 10) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_groups_code ON groups(code);
+`);
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

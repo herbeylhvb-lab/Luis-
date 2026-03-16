@@ -119,6 +119,7 @@ app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public'
 app.get('/v/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voter-checkin.html')));
 app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'captain.html')));
 app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'candidate.html')));
+app.get('/group', (req, res) => res.sendFile(path.join(__dirname, 'public', 'group.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -171,6 +172,11 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/candidates\/\d+\/master-list/)) {
     return next();
   }
+  // Allow group portal endpoints (used by group.html without admin auth)
+  if (req.path.match(/^\/api\/groups\/login/) ||
+      req.path.match(/^\/api\/groups\/\d+\/walks/)) {
+    return next();
+  }
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check
@@ -210,6 +216,7 @@ app.use('/api', require('./routes/captains'));
 app.use('/api', require('./routes/candidates'));
 app.use('/api', require('./routes/email'));
 app.use('/api', require('./routes/admin-lists'));
+app.use('/api', require('./routes/groups'));
 app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
 
