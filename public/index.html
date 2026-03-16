@@ -6704,6 +6704,16 @@ async function showCandidateDetail(id, name, code) {
       statusBadge.textContent = c.is_active ? 'Active' : 'Off';
       right.appendChild(statusBadge);
 
+      var uploadBtn = document.createElement('button');
+      uploadBtn.className = 'btn btn-xs';
+      uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309';
+      uploadBtn.textContent = '\uD83D\uDCE4 Upload';
+      uploadBtn.onclick = (function(cap) { return function(e) {
+        e.stopPropagation();
+        showCaptainUploadModal(cap);
+      }; })(c);
+      right.appendChild(uploadBtn);
+
       var moveBtn = document.createElement('button');
       moveBtn.className = 'btn btn-xs btn-secondary';
       moveBtn.textContent = 'Move';
@@ -7884,6 +7894,108 @@ function showUploadModal(listId, apiUrl, refreshFn) {
         if (data.notFound && data.notFound.length) msg += '\nNot found: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
         alert(msg);
         if (refreshFn) refreshFn();
+      } catch (e) { alert('Upload error: ' + (e.message || e)); this.disabled = false; this.textContent = 'Upload ' + dataRows.length + ' voters'; }
+    };
+  };
+}
+
+function showCaptainUploadModal(captain) {
+  var lists = captain.lists || [];
+  if (lists.length === 0) { alert('This captain has no lists. Create a list first.'); return; }
+
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.zIndex = '20000';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.cssText = 'max-width:500px;text-align:left';
+
+  // Build list selector
+  var listOpts = lists.map(function(l) {
+    return '<option value="' + l.id + '">' + escHtml(l.name) + ' (' + (l.voter_count || 0) + ' voters)</option>';
+  }).join('');
+
+  box.innerHTML =
+    '<h3 style="margin:0 0 16px;color:#e2e8f0">\uD83D\uDCE4 Upload Voters to ' + escHtml(captain.name) + '</h3>' +
+    '<div class="form-group" style="margin-bottom:12px"><label>Select List</label>' +
+    '<select id="captainUploadListId" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">' + listOpts + '</select></div>' +
+    '<div class="form-group" style="margin-bottom:12px"><label>Upload CSV File</label>' +
+    '<input type="file" id="captainUploadFile" accept=".csv,.txt" style="margin-top:4px"></div>' +
+    '<div style="text-align:center;color:#64748b;font-size:12px;margin-bottom:12px">\u2014 or paste data below \u2014</div>' +
+    '<div class="form-group" style="margin-bottom:12px"><label>Paste CSV Data</label>' +
+    '<textarea id="captainUploadPaste" rows="6" placeholder="voter_id\n1234567890\n0987654321" style="font-size:12px"></textarea></div>' +
+    '<p style="color:#64748b;font-size:11px;margin-bottom:16px">Voters already on any of this captain\'s lists will be skipped.</p>' +
+    '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+    '<button class="btn btn-sm btn-secondary" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+    '<button class="btn btn-sm btn-primary" id="captainUploadNext">Next \u2192</button></div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  document.getElementById('captainUploadNext').onclick = async function() {
+    var text = '';
+    var fileEl = document.getElementById('captainUploadFile');
+    var pasteEl = document.getElementById('captainUploadPaste');
+    if (fileEl.files && fileEl.files[0]) {
+      text = await fileEl.files[0].text();
+    } else if (pasteEl.value.trim()) {
+      text = pasteEl.value;
+    }
+    if (!text.trim()) { alert('Please upload a file or paste data.'); return; }
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length === 0) { alert('No data found.'); return; }
+    var headers = lines[0].split(',').map(function(h) { return h.trim().replace(/^["']|["']$/g, ''); });
+    var dataRows = lines.slice(1).filter(function(l) { return l.trim(); });
+    if (headers.length === 1 && dataRows.length === 0) {
+      dataRows = lines; headers = ['Voter ID'];
+    } else if (headers.length === 1) {
+      var h0 = headers[0].replace(/\D/g, '');
+      if (h0.length > 4) { dataRows = lines; headers = ['Voter ID']; }
+    }
+    if (dataRows.length === 0) { alert('No data rows found (only header).'); return; }
+
+    var selOpts = headers.map(function(h, i) { return '<option value="' + i + '">' + escHtml(h) + '</option>'; }).join('');
+    var preview = dataRows.slice(0, 5).map(function(r) {
+      return r.split(',')[0].trim().replace(/^["']|["']$/g, '');
+    }).join(', ');
+    var selectedListId = document.getElementById('captainUploadListId').value;
+
+    box.innerHTML =
+      '<h3 style="margin:0 0 16px;color:#e2e8f0">\uD83D\uDCE4 Select Voter ID Column</h3>' +
+      '<p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Found <strong style="color:#e2e8f0">' + headers.length + '</strong> columns, <strong style="color:#e2e8f0">' + dataRows.length + '</strong> rows</p>' +
+      '<div class="form-group" style="margin-bottom:12px"><label>Which column has the voter ID?</label>' +
+      '<select id="captainUploadCol" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">' + selOpts + '</select></div>' +
+      '<div id="captainUploadPreview" style="color:#64748b;font-size:12px;margin-bottom:16px">Preview: ' + escHtml(preview) + '</div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn btn-sm btn-secondary" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+      '<button class="btn btn-sm btn-success" id="captainUploadSubmit">Upload ' + dataRows.length + ' voters</button></div>';
+
+    document.getElementById('captainUploadCol').onchange = function() {
+      var ci = parseInt(this.value);
+      var pv = dataRows.slice(0, 5).map(function(r) {
+        var cols = r.split(',');
+        return (cols[ci] || '').trim().replace(/^["']|["']$/g, '');
+      }).join(', ');
+      document.getElementById('captainUploadPreview').textContent = 'Preview: ' + pv;
+    };
+
+    document.getElementById('captainUploadSubmit').onclick = async function() {
+      var ci = parseInt(document.getElementById('captainUploadCol').value);
+      var identifiers = dataRows.map(function(r) {
+        var cols = r.split(',');
+        return (cols[ci] || '').trim().replace(/^["']|["']$/g, '');
+      }).filter(Boolean);
+      if (identifiers.length === 0) { alert('No values found in selected column.'); return; }
+      this.disabled = true; this.textContent = 'Uploading...';
+      try {
+        var data = await apiPost('/api/captains/' + captain.id + '/lists/' + selectedListId + '/bulk-upload', { identifiers: identifiers });
+        overlay.remove();
+        var msg = 'Added: ' + data.added + ' voters';
+        if (data.alreadyOnList) msg += '\nAlready on captain\'s lists: ' + data.alreadyOnList;
+        if (data.duplicates) msg += '\nDuplicates in this list: ' + data.duplicates;
+        if (data.notFound && data.notFound.length) msg += '\nNot found in voter file: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
+        alert(msg);
+        showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''), _candidateDetailCode);
       } catch (e) { alert('Upload error: ' + (e.message || e)); this.disabled = false; this.textContent = 'Upload ' + dataRows.length + ' voters'; }
     };
   };

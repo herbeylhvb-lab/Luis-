@@ -432,6 +432,47 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   res.json({ success: true, captain });
 });
 
+// Admin bulk-upload voters to a captain's list by identifier
+// Checks if voters are already on ANY of this captain's lists (de-duplicates)
+router.post('/captains/:id/lists/:listId/bulk-upload', (req, res) => {
+  if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Admin login required.' });
+  const captainId = parseInt(req.params.id, 10);
+  const listId = parseInt(req.params.listId, 10);
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(listId, captainId);
+  if (!list) return res.status(404).json({ error: 'List not found for this captain.' });
+  const { identifiers } = req.body;
+  if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
+
+  // Find all voter IDs already on ANY of this captain's lists
+  const existingVoterIds = new Set(
+    db.prepare(`
+      SELECT DISTINCT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      WHERE cl.captain_id = ?
+    `).all(captainId).map(r => r.voter_id)
+  );
+
+  const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ? LIMIT 1');
+  const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
+
+  const tx = db.transaction(() => {
+    let added = 0, duplicates = 0, alreadyOnList = 0;
+    const notFound = [];
+    for (const ident of identifiers) {
+      const trimmed = String(ident).trim();
+      if (!trimmed) continue;
+      const voter = lookup.get(trimmed, trimmed, trimmed);
+      if (!voter) { notFound.push(trimmed); continue; }
+      if (existingVoterIds.has(voter.id)) { alreadyOnList++; continue; }
+      const r = insert.run(listId, voter.id);
+      if (r.changes > 0) added++; else duplicates++;
+    }
+    return { added, duplicates, alreadyOnList, notFound, total: identifiers.length };
+  });
+  const result = tx();
+  res.json(result);
+});
+
 // Middleware: verify the caller is the captain identified by :id (or an admin, or ancestor captain)
 function requireCaptainAuth(req, res, next) {
   const captainId = parseInt(req.params.id, 10);
