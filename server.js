@@ -186,7 +186,7 @@ app.use((req, res, next) => {
 // Serve static files for authenticated users
 app.use(express.static(path.join(__dirname, 'public')));
 
-const { generateJoinCode, asyncHandler, phoneDigits } = require('./utils');
+const { generateJoinCode, asyncHandler, phoneDigits, personalizeTemplate } = require('./utils');
 
 const STOP_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
 
@@ -510,6 +510,43 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     console.error('Reply send error:', err.message);
     res.status(500).json({ error: 'Failed to send reply. Check messaging provider configuration.' });
   }
+}));
+
+// --- WhatsApp bulk send (stub — provider does not yet support WhatsApp) ---
+app.post('/api/whatsapp/send', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  const { contacts, messageTemplate, optOutFooter } = req.body;
+  if (!contacts || !contacts.length) return res.status(400).json({ error: 'No contacts provided.' });
+  if (!messageTemplate) return res.status(400).json({ error: 'Message template is required.' });
+
+  const fullMsg = messageTemplate + (optOutFooter ? '\n' + optOutFooter : '');
+
+  // Filter opted-out contacts
+  const optedOut = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
+  const eligible = contacts.filter(c => {
+    const d = phoneDigits(c.phone);
+    return d && !optedOut.has(d);
+  });
+
+  if (eligible.length === 0) return res.status(400).json({ error: 'All contacts have opted out.' });
+
+  let sent = 0, failed = 0;
+  const errors = [];
+  for (const c of eligible) {
+    const personalMsg = personalizeTemplate(fullMsg, c);
+    try {
+      await provider.sendMessage(c.phone, personalMsg, 'whatsapp');
+      db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'whatsapp')").run(phoneDigits(c.phone), personalMsg);
+      sent++;
+    } catch (err) {
+      failed++;
+      if (errors.length < 5) errors.push(c.phone + ': ' + (err.message || 'Unknown error'));
+    }
+  }
+
+  res.json({ success: true, sent, failed, total: eligible.length, errors });
 }));
 
 // --- Send event invites via P2P session (TCPA compliant) ---
