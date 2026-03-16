@@ -810,7 +810,7 @@ router.get('/voters/race-precincts', (req, res) => {
       race: label + ': ' + r.district,
       district: r.district,
       type: col,
-      precincts: r.precincts.split(',')
+      precincts: (r.precincts || '').split(',').filter(Boolean)
     }));
   };
   const races = [
