@@ -219,8 +219,8 @@ router.post('/voters/import-voter-file', (req, res) => {
     const insertVoter = db.prepare(
       `INSERT INTO voters (first_name, last_name, middle_name, suffix, phone, secondary_phone, email,
         address, city, state, zip, zip4, party, support_level, tags, registration_number, precinct,
-        county_file_id, vanid, address_id, state_file_id, qr_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        county_file_id, vanid, address_id, state_file_id, gender, age, qr_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const updateVoter = db.prepare(
@@ -232,6 +232,8 @@ router.post('/voters/import-voter-file', (req, res) => {
         state_file_id=CASE WHEN ?!='' THEN ? ELSE state_file_id END,
         precinct=CASE WHEN ?!='' THEN ? ELSE precinct END,
         party=CASE WHEN ?!='' THEN ? ELSE party END,
+        gender=CASE WHEN ?!='' THEN ? ELSE gender END,
+        age=CASE WHEN ? IS NOT NULL THEN ? ELSE age END,
         updated_at=datetime('now')
        WHERE id=?`
     );
@@ -268,6 +270,8 @@ router.post('/voters/import-voter-file', (req, res) => {
 
         const phone = normalizePhone(v.phone || v.preferred_phone);
         const secondaryPhone = normalizePhone(v.secondary_phone || v.home_phone);
+        const voterAge = v.age ? parseInt(v.age) || null : null;
+        const voterGender = v.gender || v.sex || '';
 
         if (voterId) {
           // Update existing voter
@@ -279,6 +283,8 @@ router.post('/voters/import-voter-file', (req, res) => {
             v.state_file_id || '', v.state_file_id || '',
             v.precinct || '', v.precinct || '',
             v.party || '', v.party || '',
+            voterGender, voterGender,
+            voterAge, voterAge,
             voterId
           );
           if (customCols.length > 0) updateCustomFields(voterId, v, customCols);
@@ -291,7 +297,8 @@ router.post('/voters/import-voter-file', (req, res) => {
             v.address || '', v.city || '', v.state || '', v.zip || '', v.zip4 || '',
             v.party || '', v.support_level || 'unknown', v.tags || '',
             v.registration_number || '', v.precinct || '',
-            v.county_file_id || '', v.vanid || '', v.address_id || '', v.state_file_id || '', generateQrToken()
+            v.county_file_id || '', v.vanid || '', v.address_id || '', v.state_file_id || '',
+            voterGender, voterAge, generateQrToken()
           );
           voterId = r.lastInsertRowid;
           if (customCols.length > 0) updateCustomFields(voterId, v, customCols);
