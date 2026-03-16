@@ -106,7 +106,7 @@ router.get('/walks/leaderboard', (req, res) => {
     SELECT
       walker_name as name,
       COUNT(*) as total_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters_found,
       MIN(attempted_at) as first_door,
       MAX(attempted_at) as last_door,
@@ -132,7 +132,7 @@ router.get('/walks/leaderboard', (req, res) => {
     SELECT
       COUNT(*) as total_attempts,
       COUNT(DISTINCT address_id) as unique_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as total_contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
@@ -266,8 +266,26 @@ router.get('/walks/:id/volunteer', (req, res) => {
   const walk = db.prepare('SELECT id, name, description, assigned_to, status, script_id FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
   walk.addresses = db.prepare(
-    'SELECT id, address, unit, city, zip, voter_name, result, notes, knocked_at, sort_order, gps_verified, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
+            wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
+     FROM walk_addresses wa
+     LEFT JOIN voters v ON wa.voter_id = v.id
+     WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
+
+  // Build household members for each address (other voters at same address+city)
+  const householdStmt = db.prepare(
+    `SELECT first_name, last_name, age FROM voters
+     WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name`
+  );
+  for (const addr of walk.addresses) {
+    if (addr.voter_id && addr.address) {
+      addr.household = householdStmt.all(addr.address, addr.city || '', addr.voter_id);
+    } else {
+      addr.household = [];
+    }
+  }
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
@@ -298,7 +316,7 @@ function gpsDistance(lat1, lng1, lat2, lng2) {
 // Valid door-knock disposition values
 const VALID_RESULTS = new Set([
   'support', 'lean_support', 'undecided', 'lean_oppose',
-  'oppose', 'not_home', 'refused', 'moved', 'come_back'
+  'oppose', 'not_home', 'refused', 'moved', 'deceased', 'come_back'
 ]);
 
 const MAX_GPS_ACCURACY = 200; // ignore GPS worse than 200m
@@ -1033,7 +1051,7 @@ router.get('/walks/:id/attempt-stats', (req, res) => {
       COUNT(*) as total_attempts,
       COUNT(DISTINCT address_id) as unique_addresses,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home_count,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts_made,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts_made,
       COUNT(DISTINCT walker_name) as unique_walkers
     FROM walk_attempts WHERE walk_id = ?
   `).get(req.params.id);
@@ -1043,7 +1061,7 @@ router.get('/walks/:id/attempt-stats', (req, res) => {
     SELECT
       walker_name,
       COUNT(*) as attempts,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
       MIN(attempted_at) as first_attempt,
       MAX(attempted_at) as last_attempt
     FROM walk_attempts WHERE walk_id = ? AND walker_name != ''

@@ -88,6 +88,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .disp-btn.opp{border-color:#7f1d1d}.disp-btn.opp.selected{background:#450a0a;border-color:#ef4444;color:#fca5a5}
 .disp-btn.nh{border-color:#334155}.disp-btn.nh.selected{background:#1e293b;border-color:#94a3b8;color:#e2e8f0}
 .disp-btn.ref{border-color:#581c87}.disp-btn.ref.selected{background:#3b0764;border-color:#c084fc;color:#c084fc}
+.disp-btn.mov{border-color:#78350f}.disp-btn.mov.selected{background:#451a03;border-color:#f59e0b;color:#fbbf24}
+.disp-btn.dec{border-color:#1e293b}.disp-btn.dec.selected{background:#0f172a;border-color:#64748b;color:#94a3b8}
 .disp-btn.other{border-color:#334155}.disp-btn.other.selected{background:#1e293b;border-color:#64748b;color:#94a3b8}
 
 .notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:12px}
@@ -291,6 +293,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <div class="door-voter" id="doorVoter"></div>
+    <div id="doorHousehold" style="font-size:12px;color:#94a3b8;margin-bottom:4px"></div>
     <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
 
     <!-- Script talking points & survey questions (injected dynamically) -->
@@ -304,6 +307,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
       <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
       <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
+      <button class="disp-btn mov" data-result="moved" onclick="selectDisp(this)">&#x1F4E6; Moved</button>
+      <button class="disp-btn dec" data-result="deceased" onclick="selectDisp(this)">&#x1F54A; Deceased</button>
       <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
     </div>
 
@@ -914,12 +919,22 @@ function renderAddressList() {
     addrText.textContent = fullAddr;
     card.appendChild(addrText);
 
-    // Voter name
+    // Voter name + age
     if (a.voter_name) {
       var voter = document.createElement('div');
       voter.className = 'addr-voter';
-      voter.textContent = a.voter_name;
+      voter.textContent = a.voter_name + (a.voter_age ? ' (age ' + a.voter_age + ')' : '');
       card.appendChild(voter);
+    }
+
+    // Household members
+    if (a.household && a.household.length > 0) {
+      var hh = document.createElement('div');
+      hh.className = 'addr-household';
+      hh.innerHTML = '<small style="color:#64748b">' + a.household.map(function(m) {
+        return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' <span style="color:#94a3b8">('+m.age+')</span>' : '');
+      }).join(', ') + '</small>';
+      card.appendChild(hh);
     }
 
     // Assigned walker (group mode)
@@ -987,7 +1002,7 @@ function getResultBadgeClass(result) {
     'undecided': 'badge-yellow', 'lean_oppose': 'badge-red',
     'oppose': 'badge-red', 'not_home': 'badge-gray',
     'refused': 'badge-gray', 'moved': 'badge-gray',
-    'come_back': 'badge-blue'
+    'deceased': 'badge-gray', 'come_back': 'badge-blue'
   };
   return map[result] || 'badge-gray';
 }
@@ -998,7 +1013,8 @@ function formatResult(result) {
     'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
     'oppose': 'Oppose', 'not_home': 'Not Home',
     'refused': 'Refused', 'moved': 'Moved',
-    'come_back': 'Come Back', 'not_visited': 'Not Visited'
+    'deceased': 'Deceased', 'come_back': 'Come Back',
+    'not_visited': 'Not Visited'
   };
   return map[result] || result;
 }
@@ -1013,7 +1029,17 @@ function openDoor(idx) {
 
   document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
   document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
-  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name : '';
+  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name + (a.voter_age ? ' (age ' + a.voter_age + ')' : '') : '';
+  // Household members in door panel
+  var hhEl = document.getElementById('doorHousehold');
+  if (a.household && a.household.length > 0) {
+    hhEl.innerHTML = 'Also at address: ' + a.household.map(function(m) {
+      return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' (' + m.age + ')' : '');
+    }).join(', ');
+    hhEl.style.display = '';
+  } else {
+    hhEl.style.display = 'none';
+  }
   document.getElementById('doorNotes').value = a.notes || '';
   document.getElementById('btnLogDoor').disabled = true;
 
@@ -1288,7 +1314,21 @@ function renderMap(addresses, walkerLocations, progress) {
 
     var popupContent = '<div style="font-size:13px;min-width:150px">' +
       '<strong>' + escHtml(addr.address) + (addr.unit ? ' ' + escHtml(addr.unit) : '') + '</strong>';
-    if (addr.voter_name) popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name) + '</span>';
+    if (addr.voter_name) {
+      popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name);
+      if (addr.voter_age) popupContent += ' <span style="color:#999">(age ' + addr.voter_age + ')</span>';
+      popupContent += '</span>';
+    }
+    // Household members
+    if (addr.household && addr.household.length > 0) {
+      popupContent += '<br><span style="color:#888;font-size:11px">Also at address:</span>';
+      for (var h = 0; h < addr.household.length; h++) {
+        var m = addr.household[h];
+        popupContent += '<br><span style="color:#888;font-size:11px">&nbsp;&bull; ' + escHtml(m.first_name + ' ' + m.last_name);
+        if (m.age) popupContent += ' (' + m.age + ')';
+        popupContent += '</span>';
+      }
+    }
     if (isDone) {
       popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
     } else {
