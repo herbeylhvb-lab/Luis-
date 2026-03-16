@@ -354,7 +354,7 @@ router.post('/voters/import-canvass', (req, res) => {
   const phoneMap = {};
   for (const v of allVoters) {
     const d = phoneDigits(v.phone);
-    if (d.length >= 7) phoneMap[d] = v.id;
+    if (d.length >= 10) phoneMap[d] = v.id;
   }
   const regMap = {};
   for (const v of allVoters) {
@@ -385,7 +385,7 @@ router.post('/voters/import-canvass', (req, res) => {
       let matchMethod = '';
 
       // 1. Phone match
-      if (digits.length >= 7 && phoneMap[digits]) {
+      if (digits.length >= 10 && phoneMap[digits]) {
         voterId = phoneMap[digits];
         matchMethod = 'phone';
       }
@@ -1077,7 +1077,7 @@ router.post('/early-voting/import', (req, res) => {
   const phoneMap = {};
   for (const v of allVoters) {
     const d = phoneDigits(v.phone);
-    if (d.length >= 7) phoneMap[d] = v.id;
+    if (d.length >= 10) phoneMap[d] = v.id;
   }
   const findByNameAddr = db.prepare(
     "SELECT id FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 1"
@@ -1122,7 +1122,7 @@ router.post('/early-voting/import', (req, res) => {
       // 4. Phone match
       if (!voterId) {
         const digits = phoneDigits(row.phone);
-        if (digits.length >= 7 && phoneMap[digits]) {
+        if (digits.length >= 10 && phoneMap[digits]) {
           voterId = phoneMap[digits];
           matchMethod = 'phone';
         }
@@ -1330,7 +1330,7 @@ router.post('/election-votes/import', (req, res) => {
   const phoneMapLocal = {};
   for (const v of allVoters) {
     const d = phoneDigits(v.phone);
-    if (d.length >= 7) phoneMapLocal[d] = v.id;
+    if (d.length >= 10) phoneMapLocal[d] = v.id;
   }
   const findByNameAddr = db.prepare(
     "SELECT id FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 1"
@@ -1348,7 +1348,7 @@ router.post('/election-votes/import', (req, res) => {
     if (reg && regMap[reg]) return regMap[reg];
     // 2. Phone
     const digits = phoneDigits(row.phone);
-    if (digits.length >= 7 && phoneMapLocal[digits]) return phoneMapLocal[digits];
+    if (digits.length >= 10 && phoneMapLocal[digits]) return phoneMapLocal[digits];
     // 3. Name+address
     if (row.first_name && row.last_name && row.address) {
       const addrWords = row.address.trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
