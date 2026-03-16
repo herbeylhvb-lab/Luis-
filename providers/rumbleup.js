@@ -64,14 +64,25 @@ async function apiRequest(path, body, creds) {
   const secret = creds?.apiSecret || getCredentials().apiSecret;
   if (!key || !secret) throw new Error('RumbleUp API credentials not configured.');
 
-  const resp = await fetch(BASE_URL + path, {
-    method: 'POST',
-    headers: {
-      'Authorization': authHeader(key, secret),
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body || {})
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  let resp;
+  try {
+    resp = await fetch(BASE_URL + path, {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader(key, secret),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body || {}),
+      signal: controller.signal
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('RumbleUp API request timed out (15s).');
+    throw new Error('RumbleUp API network error: ' + (err.message || 'Connection failed'));
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (resp.status === 401 || resp.status === 403) {
     throw new Error('RumbleUp authentication failed. Check your API key and secret.');
