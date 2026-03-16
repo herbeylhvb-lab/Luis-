@@ -208,6 +208,44 @@ router.post('/events/:id/rsvps', (req, res) => {
   res.json({ success: true });
 });
 
+// Bulk invite from an admin list
+router.post('/events/:id/invite-from-list', (req, res) => {
+  const { list_id, rsvp_status } = req.body;
+  if (!list_id) return res.status(400).json({ error: 'list_id is required.' });
+
+  const event = db.prepare('SELECT id FROM events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  // Get voters from the list that have a phone number
+  const voters = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.phone
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.phone IS NOT NULL AND v.phone != ''
+  `).all(list_id);
+
+  if (voters.length === 0) return res.status(400).json({ error: 'No voters with phone numbers in this list.' });
+
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, ?)'
+  );
+  const addAll = db.transaction(() => {
+    let added = 0;
+    for (const v of voters) {
+      const name = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
+      if (insert.run(req.params.id, v.phone, name, rsvp_status || 'invited').changes > 0) added++;
+    }
+    return added;
+  });
+  const added = addAll();
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Bulk invited ' + added + ' voters from list #' + list_id + ' to event #' + req.params.id
+  );
+
+  res.json({ success: true, invited: added, already_invited: voters.length - added });
+});
+
 // Update RSVP status
 router.put('/events/:id/rsvps/:rsvpId', (req, res) => {
   const { rsvp_status } = req.body;

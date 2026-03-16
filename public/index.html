@@ -1087,6 +1087,8 @@ tr:hover td{background:#1e293b80}
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
+            <button class="btn btn-sm" style="background:#ef4444;border-color:#dc2626" onclick="inviteListToEvent()">📅 Invite to Event</button>
+            <button class="btn btn-sm" style="background:#3b82f6;border-color:#2563eb" onclick="emailThisList()">📧 Email This List</button>
             <button class="btn btn-sm" style="background:#0284c7;border-color:#0369a1" onclick="toggleHouseholdView()">🏠 Household View</button>
             <button class="btn btn-sm" style="background:#d97706;border-color:#b45309" onclick="showUploadModal(state.currentAdminListId, '/api/admin-lists/' + state.currentAdminListId + '/bulk-upload', function(){ loadAdminListVoters(state.currentAdminListId); })">📤 Upload CSV</button>
           </div>
@@ -6248,6 +6250,8 @@ window.buildUniverse = async function() {
       html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">' +
         '<button class="btn btn-success" onclick="createWalkFromUniverse(' + listId + ', false)">Create Single Walk</button>' +
         '<button class="btn btn-success" style="background:#7c3aed;border-color:#6d28d9" onclick="createWalkFromUniverse(' + listId + ', true)">Create Walk per Precinct</button>' +
+        '<button class="btn" style="background:#ef4444;border-color:#dc2626;color:#fff" onclick="inviteUniverseToEvent(' + listId + ')">Invite to Event</button>' +
+        '<button class="btn" style="background:#0ea5e9;border-color:#0284c7;color:#fff" onclick="broadcastToUniverse(' + listId + ')">Text This List</button>' +
         '<button class="btn btn-primary" onclick="viewUniverseList(' + listId + ')">View List</button>' +
         '</div>';
     }
@@ -6279,6 +6283,42 @@ window.createWalkFromUniverse = async function(listId, splitByPrecinct) {
   } catch(e) {
     alert('Failed to create walk: ' + (e.message || 'Unknown error'));
   }
+};
+
+window.inviteUniverseToEvent = async function(listId) {
+  try {
+    var evData = await api('/api/events');
+    var events = evData.events || [];
+    if (events.length === 0) { alert('No events found. Create an event first.'); return; }
+    var msg = 'Select an event to invite this universe to:\n\n';
+    events.forEach(function(e, i) { msg += (i+1) + '. ' + e.name + (e.date ? ' (' + e.date + ')' : '') + '\n'; });
+    var choice = prompt(msg + '\nEnter the number:');
+    if (!choice) return;
+    var idx = parseInt(choice) - 1;
+    if (idx < 0 || idx >= events.length) { alert('Invalid selection.'); return; }
+    var data = await apiPost('/api/events/' + events[idx].id + '/invite-from-list', { list_id: listId });
+    alert('Invited ' + data.invited + ' voters to "' + events[idx].name + '"' +
+      (data.already_invited > 0 ? ' (' + data.already_invited + ' already invited)' : ''));
+  } catch(e) {
+    alert('Failed: ' + (e.message || 'Unknown error'));
+  }
+};
+
+window.broadcastToUniverse = function(listId) {
+  // Switch to SMS/broadcast tab with this list pre-selected
+  document.querySelector('[data-page="page-sms"]').click();
+  setTimeout(function() {
+    var broadcastTab = document.querySelector('[data-subtab="broadcast-tab"]');
+    if (broadcastTab) broadcastTab.click();
+    // Try to select the list in the broadcast form
+    setTimeout(function() {
+      var sel = document.getElementById('broadcastList');
+      if (sel) {
+        sel.value = listId;
+        sel.dispatchEvent(new Event('change'));
+      }
+    }, 300);
+  }, 200);
 };
 
 window.viewUniverseList = function(listId) {
@@ -7895,6 +7935,52 @@ window.createWalkFromList = async function() {
     } else {
       alert('Walk created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses + '\nJoin code: ' + data.join_code);
     }
+  } catch(e) {
+    alert('Failed: ' + (e.message || 'Unknown error'));
+  }
+};
+
+window.inviteListToEvent = async function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  try {
+    var evData = await api('/api/events');
+    var events = evData.events || [];
+    if (events.length === 0) { alert('No events found. Create an event first.'); return; }
+    var msg = 'Select an event to invite this list to:\n\n';
+    events.forEach(function(e, i) { msg += (i+1) + '. ' + e.name + (e.date ? ' (' + e.date + ')' : '') + '\n'; });
+    msg += '\nEnter the number:';
+    var choice = prompt(msg);
+    if (!choice) return;
+    var idx = parseInt(choice) - 1;
+    if (idx < 0 || idx >= events.length) { alert('Invalid selection.'); return; }
+    var event = events[idx];
+    var data = await apiPost('/api/events/' + event.id + '/invite-from-list', { list_id: listId });
+    alert('Invited ' + data.invited + ' voters to "' + event.name + '"' +
+      (data.already_invited > 0 ? '\n(' + data.already_invited + ' were already invited)' : ''));
+  } catch(e) {
+    alert('Failed: ' + (e.message || 'Unknown error'));
+  }
+};
+
+window.emailThisList = async function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  try {
+    var data = await api('/api/email/recipients-from-list/' + listId);
+    if (!data.recipients || data.recipients.length === 0) {
+      alert('No voters with email addresses in this list.');
+      return;
+    }
+    // Switch to email tab with these recipients pre-loaded
+    document.querySelector('[data-page="page-sms"]').click();
+    setTimeout(function() {
+      var emailTab = document.querySelector('[data-subtab="email-tab"]');
+      if (emailTab) emailTab.click();
+      // Store recipients for the email form to use
+      window._preloadedEmailRecipients = data.recipients;
+      alert(data.total + ' email recipients loaded from this list. Compose your email and send.');
+    }, 300);
   } catch(e) {
     alert('Failed: ' + (e.message || 'Unknown error'));
   }
