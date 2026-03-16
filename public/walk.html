@@ -293,6 +293,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <div class="door-voter" id="doorVoter"></div>
+    <div id="doorHousehold" style="font-size:12px;color:#94a3b8;margin-bottom:4px"></div>
     <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
 
     <!-- Script talking points & survey questions (injected dynamically) -->
@@ -918,12 +919,22 @@ function renderAddressList() {
     addrText.textContent = fullAddr;
     card.appendChild(addrText);
 
-    // Voter name
+    // Voter name + age
     if (a.voter_name) {
       var voter = document.createElement('div');
       voter.className = 'addr-voter';
-      voter.textContent = a.voter_name;
+      voter.textContent = a.voter_name + (a.voter_age ? ' (age ' + a.voter_age + ')' : '');
       card.appendChild(voter);
+    }
+
+    // Household members
+    if (a.household && a.household.length > 0) {
+      var hh = document.createElement('div');
+      hh.className = 'addr-household';
+      hh.innerHTML = '<small style="color:#64748b">' + a.household.map(function(m) {
+        return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' <span style="color:#94a3b8">('+m.age+')</span>' : '');
+      }).join(', ') + '</small>';
+      card.appendChild(hh);
     }
 
     // Assigned walker (group mode)
@@ -1018,7 +1029,17 @@ function openDoor(idx) {
 
   document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
   document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
-  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name : '';
+  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name + (a.voter_age ? ' (age ' + a.voter_age + ')' : '') : '';
+  // Household members in door panel
+  var hhEl = document.getElementById('doorHousehold');
+  if (a.household && a.household.length > 0) {
+    hhEl.innerHTML = 'Also at address: ' + a.household.map(function(m) {
+      return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' (' + m.age + ')' : '');
+    }).join(', ');
+    hhEl.style.display = '';
+  } else {
+    hhEl.style.display = 'none';
+  }
   document.getElementById('doorNotes').value = a.notes || '';
   document.getElementById('btnLogDoor').disabled = true;
 
@@ -1293,7 +1314,21 @@ function renderMap(addresses, walkerLocations, progress) {
 
     var popupContent = '<div style="font-size:13px;min-width:150px">' +
       '<strong>' + escHtml(addr.address) + (addr.unit ? ' ' + escHtml(addr.unit) : '') + '</strong>';
-    if (addr.voter_name) popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name) + '</span>';
+    if (addr.voter_name) {
+      popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name);
+      if (addr.voter_age) popupContent += ' <span style="color:#999">(age ' + addr.voter_age + ')</span>';
+      popupContent += '</span>';
+    }
+    // Household members
+    if (addr.household && addr.household.length > 0) {
+      popupContent += '<br><span style="color:#888;font-size:11px">Also at address:</span>';
+      for (var h = 0; h < addr.household.length; h++) {
+        var m = addr.household[h];
+        popupContent += '<br><span style="color:#888;font-size:11px">&nbsp;&bull; ' + escHtml(m.first_name + ' ' + m.last_name);
+        if (m.age) popupContent += ' (' + m.age + ')';
+        popupContent += '</span>';
+      }
+    }
     if (isDone) {
       popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
     } else {
