@@ -541,7 +541,14 @@ function createVoterExpandPanel(v) {
   ];
   fields.forEach(function(f) {
     var item = document.createElement('div');
-    item.innerHTML = '<span style="color:#64748b">' + f[0] + ':</span> <span style="color:#e2e8f0">' + (f[1] || '') + '</span>';
+    var label = document.createElement('span');
+    label.style.color = '#64748b';
+    label.textContent = f[0] + ': ';
+    var val = document.createElement('span');
+    val.style.color = '#e2e8f0';
+    val.textContent = f[1] || '';
+    item.appendChild(label);
+    item.appendChild(val);
     panel.appendChild(item);
   });
   return panel;
@@ -1881,6 +1888,7 @@ function isVoted(v) {
 function buildPrintPage(title, subtitle, tableHeaders, rows) {
   var printStyle = 'body{font-family:Arial,sans-serif;margin:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin-top:12px}th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:12px;text-transform:uppercase}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:12px}.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}';
   var w = window.open('', '_blank');
+  if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site to print.'); return; }
   var doc = w.document;
   doc.open();
   var styleEl = doc.createElement('style');
