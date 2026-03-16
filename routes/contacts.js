@@ -3,7 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { validate, rules } = require('../middleware/validate');
-const { normalizePhone } = require('../utils');
+const { normalizePhone, phoneDigits } = require('../utils');
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 
@@ -56,10 +56,18 @@ router.post('/contacts/import', validate({ contacts: rules.nonEmptyArray }), (re
   }
 });
 
-// Delete one contact
+// Delete one contact and their message history
 router.delete('/contacts/:id', (req, res) => {
-  db.prepare('DELETE FROM p2p_assignments WHERE contact_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+  const contact = db.prepare('SELECT phone FROM contacts WHERE id = ?').get(req.params.id);
+  const delContact = db.transaction(() => {
+    db.prepare('DELETE FROM p2p_assignments WHERE contact_id = ?').run(req.params.id);
+    // Delete message history for this contact's phone (GDPR/data retention compliance)
+    if (contact && contact.phone) {
+      db.prepare('DELETE FROM messages WHERE phone = ?').run(phoneDigits(contact.phone) || contact.phone);
+    }
+    db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+  });
+  delContact();
   res.json({ success: true });
 });
 

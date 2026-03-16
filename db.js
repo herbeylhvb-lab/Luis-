@@ -623,6 +623,8 @@ try {
     CREATE INDEX IF NOT EXISTS idx_admin_lists_captain ON admin_lists(assigned_captain_id);
     CREATE INDEX IF NOT EXISTS idx_voters_precinct ON voters(precinct);
     CREATE INDEX IF NOT EXISTS idx_voters_city ON voters(city);
+    CREATE INDEX IF NOT EXISTS idx_voters_party ON voters(party);
+    CREATE INDEX IF NOT EXISTS idx_voters_registration ON voters(registration_number);
     CREATE INDEX IF NOT EXISTS idx_block_walks_join ON block_walks(join_code, status);
   `);
 } catch (e) { /* indexes already exist */ }

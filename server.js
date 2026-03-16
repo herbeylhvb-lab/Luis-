@@ -351,7 +351,13 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   }
   // Use the provider's declared content type for all webhook responses
   const replyType = provider.responseContentType || 'application/json';
-  const webhook = provider.getWebhookData(req);
+  let webhook;
+  try {
+    webhook = provider.getWebhookData(req);
+  } catch (err) {
+    console.error('Webhook parse error:', err.message);
+    return res.type('application/json').send('{"ok":true}');
+  }
   const From = webhook.from;
   const Body = webhook.body;
   const channel = webhook.channel || 'sms';
@@ -361,6 +367,8 @@ app.post('/incoming', webhookLimiter, (req, res) => {
 
   // Normalize phone to 10-digit for matching against stored contacts
   const fromNormalized = phoneDigits(From);
+
+  try {
 
   const msgText = (Body || '').trim().toLowerCase();
   if (STOP_KEYWORDS.includes(msgText)) {
@@ -482,6 +490,11 @@ app.post('/incoming', webhookLimiter, (req, res) => {
     return res.type(replyType).send(provider.buildReply(autoReply));
   }
   res.type(replyType).send(provider.buildEmptyReply());
+
+  } catch (err) {
+    console.error('Webhook processing error:', err.message);
+    res.type(replyType).send(provider.buildEmptyReply());
+  }
 });
 
 // --- Messages & opt-outs ---

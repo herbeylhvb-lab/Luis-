@@ -80,8 +80,14 @@ router.get('/auth/google/callback', asyncHandler(async (req, res) => {
     let user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
 
     if (!user) {
-      // Try matching by email on an existing user (link accounts)
-      user = db.prepare('SELECT * FROM users WHERE username = ? OR google_email = ?').get(email, email);
+      // Only auto-link if user has an active session (they're already logged in)
+      // or if google_email was previously set (re-linking). Never link by username alone
+      // to prevent account takeover via email spoofing.
+      if (req.session && req.session.userId) {
+        user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
+      } else {
+        user = db.prepare('SELECT * FROM users WHERE google_email = ?').get(email);
+      }
 
       if (user) {
         // Link Google to existing user
@@ -163,7 +169,7 @@ router.post('/google/sheets/setup', asyncHandler(async (req, res) => {
     res.json({ success: true, spreadsheetId, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}` });
   } catch (err) {
     console.error('Sheets setup error:', err.message);
-    res.status(500).json({ error: 'Failed to create Google Sheet: ' + err.message });
+    res.status(500).json({ error: 'Failed to create Google Sheet. Please try again.' });
   }
 }));
 
@@ -218,7 +224,7 @@ router.post('/google/sheets/sync', asyncHandler(async (req, res) => {
     res.json({ success: true, syncedAt: now });
   } catch (err) {
     console.error('Sheets sync error:', err.message);
-    res.status(500).json({ error: 'Sync failed: ' + err.message });
+    res.status(500).json({ error: 'Sync failed. Please try again.' });
   }
 }));
 
@@ -262,7 +268,7 @@ router.post('/google/sheets/import', asyncHandler(async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('Sheets import error:', err.message);
-    res.status(500).json({ error: 'Import failed: ' + err.message });
+    res.status(500).json({ error: 'Import failed. Please try again.' });
   }
 }));
 

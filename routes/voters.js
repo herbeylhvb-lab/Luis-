@@ -354,7 +354,7 @@ router.post('/voters/import-canvass', (req, res) => {
   const phoneMap = {};
   for (const v of allVoters) {
     const d = phoneDigits(v.phone);
-    if (d.length >= 7) phoneMap[d] = v.id;
+    if (d.length >= 10) phoneMap[d] = v.id;
   }
   const regMap = {};
   for (const v of allVoters) {
@@ -385,7 +385,7 @@ router.post('/voters/import-canvass', (req, res) => {
       let matchMethod = '';
 
       // 1. Phone match
-      if (digits.length >= 7 && phoneMap[digits]) {
+      if (digits.length >= 10 && phoneMap[digits]) {
         voterId = phoneMap[digits];
         matchMethod = 'phone';
       }
@@ -1077,7 +1077,7 @@ router.post('/early-voting/import', (req, res) => {
   const phoneMap = {};
   for (const v of allVoters) {
     const d = phoneDigits(v.phone);
-    if (d.length >= 7) phoneMap[d] = v.id;
+    if (d.length >= 10) phoneMap[d] = v.id;
   }
   const findByNameAddr = db.prepare(
     "SELECT id FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 1"
@@ -1122,7 +1122,7 @@ router.post('/early-voting/import', (req, res) => {
       // 4. Phone match
       if (!voterId) {
         const digits = phoneDigits(row.phone);
-        if (digits.length >= 7 && phoneMap[digits]) {
+        if (digits.length >= 10 && phoneMap[digits]) {
           voterId = phoneMap[digits];
           matchMethod = 'phone';
         }
@@ -1295,8 +1295,10 @@ router.post('/voters/custom-columns', (req, res) => {
 // Helper: update custom fields on a voter after standard insert/update
 function updateCustomFields(voterId, voterData, customCols) {
   if (!customCols || customCols.length === 0) return;
+  // Validate column names against actual DB columns for defense-in-depth
+  const validCols = new Set(getVoterColumns());
   for (const col of customCols) {
-    if (voterData[col] !== undefined && voterData[col] !== '') {
+    if (voterData[col] !== undefined && voterData[col] !== '' && validCols.has(col)) {
       try {
         db.prepare('UPDATE voters SET ' + col + ' = ? WHERE id = ?').run(voterData[col], voterId);
       } catch (e) { /* column may not exist yet, skip */ }
@@ -1328,7 +1330,7 @@ router.post('/election-votes/import', (req, res) => {
   const phoneMapLocal = {};
   for (const v of allVoters) {
     const d = phoneDigits(v.phone);
-    if (d.length >= 7) phoneMapLocal[d] = v.id;
+    if (d.length >= 10) phoneMapLocal[d] = v.id;
   }
   const findByNameAddr = db.prepare(
     "SELECT id FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 1"
@@ -1346,7 +1348,7 @@ router.post('/election-votes/import', (req, res) => {
     if (reg && regMap[reg]) return regMap[reg];
     // 2. Phone
     const digits = phoneDigits(row.phone);
-    if (digits.length >= 7 && phoneMapLocal[digits]) return phoneMapLocal[digits];
+    if (digits.length >= 10 && phoneMapLocal[digits]) return phoneMapLocal[digits];
     // 3. Name+address
     if (row.first_name && row.last_name && row.address) {
       const addrWords = row.address.trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
@@ -1570,10 +1572,14 @@ router.post('/elections', (req, res) => {
 // Delete an election definition and all its vote records
 router.delete('/elections/:name', (req, res) => {
   const name = decodeURIComponent(req.params.name);
-  db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
-  const result = db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Election deleted: ' + name + ' (' + result.changes + ' vote records removed)');
-  res.json({ success: true, votes_removed: result.changes });
+  const delElection = db.transaction(() => {
+    db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
+    const result = db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Election deleted: ' + name + ' (' + result.changes + ' vote records removed)');
+    return result.changes;
+  });
+  const votesRemoved = delElection();
+  res.json({ success: true, votes_removed: votesRemoved });
 });
 
 // Bulk mark voters as voted in an election

@@ -5819,7 +5819,7 @@ window.buildUniverse = async function() {
       '<div class="stat-card"><div class="label">Targeted</div><div class="value" style="color:#818cf8">' + data.targeted.toLocaleString() + '</div><div class="sub">' + groupDesc + '</div></div>' +
       '</div>';
     if (data.created && data.created.universe) {
-      html += '<div style="margin-top:12px;font-size:13px;color:#94a3b8">List "<strong>' + escHtml(listName) + '</strong>" created with <strong>' + data.created.universe.added.toLocaleString() + ' voters</strong></div>';
+      html += '<div style="margin-top:12px;font-size:13px;color:#94a3b8">List "<strong>' + escHtml(listName) + '</strong>" created with <strong>' + (data.created.universe.added || 0).toLocaleString() + ' voters</strong></div>';
     }
     el.innerHTML = html;
   } catch (e) {

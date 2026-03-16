@@ -129,13 +129,14 @@ router.put('/candidates/:id', (req, res) => {
 router.delete('/candidates/:id', (req, res) => {
   const candidate = db.prepare('SELECT name FROM candidates WHERE id = ?').get(req.params.id);
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
-  db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
-  db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
-  // Clean up any shared captain relationships for this candidate
-  db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
-  // Nullify admin_lists candidate_id so they don't reference deactivated candidate
-  db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
+  const deactivate = db.transaction(() => {
+    db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
+    db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
+  });
+  deactivate();
   res.json({ success: true });
 });
 
@@ -462,8 +463,19 @@ router.delete('/candidates/:id/portal/captains/:captainId', requireCandidateAuth
   // Check if captain is shared with other candidates — if so, just unlink from this candidate instead of hard deleting
   const shares = db.prepare('SELECT COUNT(*) as n FROM captain_candidates WHERE captain_id = ?').get(req.params.captainId);
   if (shares && shares.n > 0) {
-    // Unlink from this candidate only, don't delete the captain
-    db.prepare('UPDATE captains SET candidate_id = NULL WHERE id = ?').run(req.params.captainId);
+    // Remove the sharing entry for this candidate, keep the captain's primary candidate_id intact
+    db.prepare('DELETE FROM captain_candidates WHERE captain_id = ? AND candidate_id = ?').run(req.params.captainId, req.params.id);
+    // If this candidate is the primary owner, reassign to first shared candidate
+    const cap = db.prepare('SELECT candidate_id FROM captains WHERE id = ?').get(req.params.captainId);
+    if (cap && String(cap.candidate_id) === String(req.params.id)) {
+      const nextShare = db.prepare('SELECT candidate_id FROM captain_candidates WHERE captain_id = ? LIMIT 1').get(req.params.captainId);
+      if (nextShare) {
+        db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(nextShare.candidate_id, req.params.captainId);
+        db.prepare('DELETE FROM captain_candidates WHERE captain_id = ? AND candidate_id = ?').run(req.params.captainId, nextShare.candidate_id);
+      } else {
+        db.prepare('UPDATE captains SET candidate_id = NULL WHERE id = ?').run(req.params.captainId);
+      }
+    }
     return res.json({ success: true, message: 'Captain "' + captain.name + '" removed from your campaign.' });
   }
   // Re-parent sub-captains before deleting

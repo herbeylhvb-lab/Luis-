@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
-const { generateJoinCode, asyncHandler, personalizeTemplate } = require('../utils');
+const { generateJoinCode, asyncHandler, personalizeTemplate, phoneDigits } = require('../utils');
 const { getProvider } = require('../providers');
 
 const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 'Too many send requests, slow down.' } });
@@ -315,10 +315,8 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   if (!session) return res.status(404).json({ error: 'Session not found.' });
 
   if (session.assignment_mode === 'claim') {
-    const unassigned = db.prepare("SELECT id FROM p2p_assignments WHERE session_id = ? AND volunteer_id IS NULL AND status = 'pending' LIMIT 1").get(vol.session_id);
-    if (unassigned) {
-      db.prepare('UPDATE p2p_assignments SET volunteer_id = ? WHERE id = ?').run(vol.id, unassigned.id);
-    }
+    // Atomic claim: UPDATE directly with WHERE volunteer_id IS NULL to prevent race conditions
+    db.prepare("UPDATE p2p_assignments SET volunteer_id = ? WHERE id = (SELECT id FROM p2p_assignments WHERE session_id = ? AND volunteer_id IS NULL AND status = 'pending' LIMIT 1)").run(vol.id, vol.session_id);
   }
 
   // Skip opted-out contacts automatically (TCPA compliance)
@@ -328,7 +326,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
     WHERE a.volunteer_id = ? AND a.status = 'pending' ORDER BY a.id ASC
   `).all(req.params.id);
   for (const p of pendingAll) {
-    if (optedOutPhones.has(p.phone)) {
+    if (optedOutPhones.has(phoneDigits(p.phone))) {
       db.prepare("UPDATE p2p_assignments SET status = 'skipped' WHERE id = ?").run(p.id);
     }
   }
@@ -391,8 +389,8 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     return res.json({ success: true, skipped: true, reason: 'Message already sent for this assignment.' });
   }
 
-  // Check opt-out list before sending (TCPA compliance)
-  const optedOut = db.prepare('SELECT id FROM opt_outs WHERE phone = ?').get(assignment.phone);
+  // Check opt-out list before sending (TCPA compliance) — normalize phone for consistent matching
+  const optedOut = db.prepare('SELECT id FROM opt_outs WHERE phone = ?').get(phoneDigits(assignment.phone));
   if (optedOut) {
     db.prepare("UPDATE p2p_assignments SET status = 'skipped' WHERE id = ?").run(assignmentId);
     return res.json({ success: true, skipped: true, reason: 'Contact has opted out.' });
