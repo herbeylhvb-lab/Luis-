@@ -74,7 +74,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .door-panel h3{font-size:16px;margin-bottom:4px}
 .door-panel .door-addr{color:#94a3b8;font-size:14px;margin-bottom:16px}
-.door-panel .door-voter{color:#f59e0b;font-size:13px;margin-bottom:16px}
+.door-panel .door-voter{color:#f59e0b;font-size:14px;margin-bottom:6px}
 
 /* Disposition grid */
 .disp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
@@ -293,7 +293,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <div class="door-voter" id="doorVoter"></div>
-    <div id="doorHousehold" style="font-size:12px;color:#94a3b8;margin-bottom:4px"></div>
+    <div id="doorHousehold" style="font-size:13px;color:#94a3b8;margin-bottom:8px;padding:6px 8px;background:rgba(255,255,255,0.05);border-radius:6px"></div>
     <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
 
     <!-- Script talking points & survey questions (injected dynamically) -->
@@ -1029,12 +1029,17 @@ function openDoor(idx) {
 
   document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
   document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
-  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name + (a.voter_age ? ' (age ' + a.voter_age + ')' : '') : '';
+  var voterEl = document.getElementById('doorVoter');
+  if (a.voter_name) {
+    voterEl.innerHTML = 'Voter: ' + escHtml(a.voter_name) + (a.voter_age ? ' <span style="color:#94a3b8">(age ' + a.voter_age + ')</span>' : '');
+  } else {
+    voterEl.textContent = '';
+  }
   // Household members in door panel
   var hhEl = document.getElementById('doorHousehold');
   if (a.household && a.household.length > 0) {
-    hhEl.innerHTML = 'Also at address: ' + a.household.map(function(m) {
-      return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' (' + m.age + ')' : '');
+    hhEl.innerHTML = '&#x1F3E0; Also at address: ' + a.household.map(function(m) {
+      return '<b>' + escHtml(m.first_name + ' ' + m.last_name) + '</b>' + (m.age ? ' (age ' + m.age + ')' : '');
     }).join(', ');
     hhEl.style.display = '';
   } else {
