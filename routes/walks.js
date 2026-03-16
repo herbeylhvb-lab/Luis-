@@ -68,6 +68,38 @@ function geocodeWalkAddresses(walkId) {
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 
+// ===================== VOTING HISTORY FILTER HELPER =====================
+// Builds SQL clauses to filter voters by election participation
+// Used by from-precinct, universe claim, and turf refresh
+function buildVotingHistorySQL(filters, params) {
+  let sql = '';
+  // "voted in at least N elections" — targets frequent voters
+  if (filters.min_elections && parseInt(filters.min_elections) > 0) {
+    sql += ' AND (SELECT COUNT(*) FROM election_votes ev WHERE ev.voter_id = voters.id) >= ?';
+    params.push(parseInt(filters.min_elections));
+  }
+  // "voted in a specific election" — e.g. voted in last municipal
+  if (filters.voted_in_election) {
+    sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
+    params.push(filters.voted_in_election);
+  }
+  // "did NOT vote in a specific election" — low-propensity / lapsed voters
+  if (filters.did_not_vote_in) {
+    sql += ' AND voters.id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
+    params.push(filters.did_not_vote_in);
+  }
+  // "has any voting history at all" — filters out brand new registrants
+  if (filters.has_voted) {
+    sql += ' AND voters.id IN (SELECT DISTINCT ev.voter_id FROM election_votes ev)';
+  }
+  // "voter score range" — if you've scored voters 0-100
+  if (filters.min_voter_score != null && parseInt(filters.min_voter_score) > 0) {
+    sql += ' AND voters.voter_score >= ?';
+    params.push(parseInt(filters.min_voter_score));
+  }
+  return sql;
+}
+
 // List all block walks with stats (single query instead of N+1)
 router.get('/walks', (req, res) => {
   const walks = db.prepare(`
@@ -489,6 +521,8 @@ router.post('/walks/from-precinct', (req, res) => {
     if (filters.exclude_contacted) {
       sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
     }
+    // Voting history filters (nonpartisan targeting)
+    sql += buildVotingHistorySQL(filters, params);
   }
   sql += ' ORDER BY address, last_name';
 
@@ -789,6 +823,17 @@ router.post('/walks/:id/location', (req, res) => {
   res.json({ ok: true });
 });
 
+// ===================== AVAILABLE ELECTIONS (for filter dropdowns) =====================
+router.get('/walk-elections', (req, res) => {
+  const elections = db.prepare(`
+    SELECT election_name, election_date, election_type, COUNT(DISTINCT voter_id) as voter_count
+    FROM election_votes
+    GROUP BY election_name
+    ORDER BY election_date DESC
+  `).all();
+  res.json({ elections });
+});
+
 // ===================== CANVASSING SCRIPTS =====================
 
 // List all scripts
@@ -1051,6 +1096,14 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   if (filters.exclude_early_voted) {
     sql += ' AND v.early_voted = 0';
   }
+  // Voting history filters — the "v" alias maps to "voters" in the helper
+  // We need to adjust for the alias
+  const votingParams = [];
+  let votingSql = buildVotingHistorySQL(filters, votingParams);
+  if (votingSql) {
+    sql += votingSql.replace(/voters\.id/g, 'v.id').replace(/voters\.voter_score/g, 'v.voter_score');
+    params.push(...votingParams);
+  }
 
   const available = db.prepare(sql).all(...params);
   if (available.length === 0) return res.status(400).json({ error: 'No more doors available in this universe. All have been assigned!' });
@@ -1186,6 +1239,8 @@ router.post('/walks/:id/refresh', (req, res) => {
   if (filters.exclude_contacted) {
     sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
   }
+  // Voting history filters
+  sql += buildVotingHistorySQL(filters, params);
   // Also exclude early voted
   sql += ' AND early_voted = 0';
   sql += ' ORDER BY address, last_name';

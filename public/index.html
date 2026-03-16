@@ -554,7 +554,15 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Filter by Party</label><select id="walkPrecinctParty"><option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option></select></div>
             <div class="form-group"><label>Filter by Support</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
           </div>
-          <div style="margin-bottom:12px"><label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="walkPrecinctExcludeContacted"> Skip voters already contacted</label></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+            <div class="form-group"><label>Voted In Election</label><select id="walkPrecinctVotedIn"><option value="">Any</option></select></div>
+            <div class="form-group"><label>Did NOT Vote In</label><select id="walkPrecinctDidNotVote"><option value="">--</option></select></div>
+            <div class="form-group"><label>Min Elections Voted</label><input type="number" id="walkPrecinctMinElections" placeholder="e.g. 2" min="0" max="20"></div>
+          </div>
+          <div style="margin-bottom:12px">
+            <label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="walkPrecinctHasVoted"> Only voters with voting history</label>
+            <label style="font-size:13px;color:#94a3b8;margin-left:16px"><input type="checkbox" id="walkPrecinctExcludeContacted"> Skip already contacted</label>
+          </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary btn-sm" id="btnBuildPrecinctWalk">Create Precinct Walk</button>
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('precinctWalkCard').style.display='none'">Cancel</button>
@@ -662,8 +670,14 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Party Filter</label><select id="newUnivParty"><option value="">All</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option></select></div>
             <div class="form-group"><label>Attach Script</label><select id="newUnivScript"><option value="">No Script</option></select></div>
           </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+            <div class="form-group"><label>Voted In Election</label><select id="newUnivVotedIn"><option value="">Any</option></select></div>
+            <div class="form-group"><label>Did NOT Vote In</label><select id="newUnivDidNotVote"><option value="">--</option></select></div>
+            <div class="form-group"><label>Min Elections Voted</label><input type="number" id="newUnivMinElections" placeholder="e.g. 2" min="0" max="20"></div>
+          </div>
           <div style="margin-bottom:12px">
-            <label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="newUnivExcludeContacted"> Exclude already contacted</label>
+            <label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="newUnivHasVoted"> Only voters with voting history</label>
+            <label style="font-size:13px;color:#94a3b8;margin-left:16px"><input type="checkbox" id="newUnivExcludeContacted"> Exclude already contacted</label>
             <label style="font-size:13px;color:#94a3b8;margin-left:16px"><input type="checkbox" id="newUnivExcludeVoted"> Exclude early voted</label>
           </div>
           <button class="btn btn-primary btn-sm" onclick="createUniverse()">Create Universe</button>
@@ -2931,8 +2945,26 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
         el.innerHTML = '<span style="color:#f59e0b;font-size:13px">No precinct data yet. Import the county voter file to get precincts.</span>';
       }
     } catch (e) {}
+    // Load election dropdowns for voting history filters
+    loadWalkElectionDropdowns();
   }
 });
+
+async function loadWalkElectionDropdowns() {
+  try {
+    var data = await api('/api/walk-elections');
+    if (!data.elections || data.elections.length === 0) return;
+    var opts = data.elections.map(function(e) {
+      return '<option value="' + escHtml(e.election_name) + '">' + escHtml(e.election_name) + ' (' + (e.voter_count || 0) + ' voters)</option>';
+    }).join('');
+    // Precinct walk dropdowns
+    document.getElementById('walkPrecinctVotedIn').innerHTML = '<option value="">Any</option>' + opts;
+    document.getElementById('walkPrecinctDidNotVote').innerHTML = '<option value="">--</option>' + opts;
+    // Universe dropdowns
+    document.getElementById('newUnivVotedIn').innerHTML = '<option value="">Any</option>' + opts;
+    document.getElementById('newUnivDidNotVote').innerHTML = '<option value="">--</option>' + opts;
+  } catch (e) { /* no election data yet */ }
+}
 
 document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async () => {
   var precincts = Array.from(document.querySelectorAll('.walk-precinct-cb:checked')).map(function(cb) { return cb.value; });
@@ -2947,6 +2979,14 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (party) filters.party = party;
     if (support) filters.support_level = support;
     if (document.getElementById('walkPrecinctExcludeContacted').checked) filters.exclude_contacted = true;
+    // Voting history filters
+    var votedIn = document.getElementById('walkPrecinctVotedIn').value;
+    var didNotVote = document.getElementById('walkPrecinctDidNotVote').value;
+    var minElections = document.getElementById('walkPrecinctMinElections').value;
+    if (votedIn) filters.voted_in_election = votedIn;
+    if (didNotVote) filters.did_not_vote_in = didNotVote;
+    if (minElections && parseInt(minElections) > 0) filters.min_elections = parseInt(minElections);
+    if (document.getElementById('walkPrecinctHasVoted').checked) filters.has_voted = true;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
       name: document.getElementById('precinctWalkName').value.trim() || undefined,
@@ -3139,7 +3179,7 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
     var target = tab.getAttribute('data-walktab');
     document.getElementById(target).style.display = '';
     if (target === 'walks-scripts') loadScripts();
-    if (target === 'walks-universes') loadUniverses();
+    if (target === 'walks-universes') { loadUniverses(); loadWalkElectionDropdowns(); }
     if (target === 'walks-leaderboard') loadLeaderboard();
   });
 });
@@ -3256,6 +3296,14 @@ window.createUniverse = async function() {
     if (party) filters.party = party;
     if (document.getElementById('newUnivExcludeContacted').checked) filters.exclude_contacted = true;
     if (document.getElementById('newUnivExcludeVoted').checked) filters.exclude_early_voted = true;
+    // Voting history filters
+    var votedIn = document.getElementById('newUnivVotedIn').value;
+    var didNotVote = document.getElementById('newUnivDidNotVote').value;
+    var minElections = document.getElementById('newUnivMinElections').value;
+    if (votedIn) filters.voted_in_election = votedIn;
+    if (didNotVote) filters.did_not_vote_in = didNotVote;
+    if (minElections && parseInt(minElections) > 0) filters.min_elections = parseInt(minElections);
+    if (document.getElementById('newUnivHasVoted').checked) filters.has_voted = true;
 
     var data = await apiPost('/api/walk-universes', {
       name: name,
