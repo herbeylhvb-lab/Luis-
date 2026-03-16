@@ -443,6 +443,13 @@ app.post('/incoming', webhookLimiter, (req, res) => {
       const nextQ = db.prepare('SELECT * FROM survey_questions WHERE survey_id = ? AND sort_order > ? ORDER BY sort_order, id LIMIT 1')
         .get(activeSend.survey_id, question.sort_order);
 
+      // Prevent duplicate responses to same question from same send
+      const existingResponse = db.prepare('SELECT id FROM survey_responses WHERE send_id = ? AND question_id = ?').get(activeSend.id, question.id);
+      if (existingResponse) {
+        // Already answered this question — skip
+        return res.type(replyType).send(provider.buildEmptyReply());
+      }
+
       // Wrap response recording + state update in a transaction for atomicity
       const surveyResponseTx = db.transaction(() => {
         db.prepare('INSERT INTO survey_responses (survey_id, send_id, question_id, phone, response_text, option_id) VALUES (?, ?, ?, ?, ?, ?)')
