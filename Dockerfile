@@ -34,10 +34,10 @@ COPY lib/ ./lib/
 COPY public/ ./public/
 
 ENV NODE_ENV=production
-ENV DATABASE_DIR=/data
+ENV DATABASE_DIR=/app/data
 
-# Create writable directories for SQLite — Railway volume mounts at /data
-RUN mkdir -p /data /app/data && chmod 777 /data /app/data
+# Create writable directory for SQLite — Railway volume mounts at /app/data
+RUN mkdir -p /app/data && chmod 777 /app/data
 
 # Railway injects PORT env var automatically
 EXPOSE ${PORT:-3000}
