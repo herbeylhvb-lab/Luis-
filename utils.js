@@ -68,14 +68,19 @@ function asyncHandler(fn) {
  */
 function personalizeTemplate(template, contact) {
   const c = contact || {};
+  const baseUrl = process.env.BASE_URL || 'https://villarrealjr.com';
+  const checkinLink = c.qr_token
+    ? '\nCheck in here: ' + baseUrl + '/v/' + c.qr_token
+    : '';
   const map = {
     '{firstName}': c.firstName || c.first_name || '',
     '{lastName}': c.lastName || c.last_name || '',
     '{city}': c.city || '',
+    '{checkin_link}': checkinLink,
   };
   // Replace all merge tags simultaneously to prevent double-substitution
   // (e.g. a first_name of "{city}" should NOT be replaced again)
-  return (template || '').replace(/\{firstName\}|\{lastName\}|\{city\}/g, (tag) => map[tag] || '');
+  return (template || '').replace(/\{firstName\}|\{lastName\}|\{city\}|\{checkin_link\}/g, (tag) => map[tag] || '');
 }
 
 module.exports = {

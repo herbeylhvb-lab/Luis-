@@ -332,8 +332,9 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   }
 
   const assignment = db.prepare(`
-    SELECT a.*, c.phone, c.first_name, c.last_name, c.city, c.preferred_channel
+    SELECT a.*, c.phone, c.first_name, c.last_name, c.city, c.preferred_channel, v.qr_token
     FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id
+    LEFT JOIN voters v ON v.phone = c.phone AND v.phone != ''
     WHERE a.volunteer_id = ? AND a.status = 'pending'
     ORDER BY a.id ASC LIMIT 1
   `).get(req.params.id);

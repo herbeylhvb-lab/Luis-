@@ -592,12 +592,13 @@ app.post('/api/events/:id/invite', (req, res) => {
   }
   if (contacts.length === 0) return res.status(400).json({ error: 'No contacts with phone numbers found.' });
 
-  // Build the invite message template
+  // Build the invite message template (includes personalized check-in link)
   const template = (messageTemplate || 'You\'re invited to {title} on {date} at {location}!')
     .replace(/{title}/g, event.title)
     .replace(/{date}/g, event.event_date)
     .replace(/{time}/g, event.event_time || '')
     .replace(/{location}/g, event.location || '')
+    + '{checkin_link}'
     + '\nReply STOP to opt out.';
 
   // Create a P2P session for the invites
