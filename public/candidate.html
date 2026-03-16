@@ -1642,7 +1642,7 @@ function filterMasterList() {
   if (q) {
     filtered = filtered.filter(function(v) {
       var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
-      v.lists.forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
+      (v.lists || []).forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
       return text.indexOf(q) !== -1;
     });
   }
@@ -1718,7 +1718,7 @@ function renderMasterRows(voters) {
     tr.appendChild(tdPhone);
 
     var tdLists = document.createElement('td');
-    v.lists.forEach(function(l) {
+    (v.lists || []).forEach(function(l) {
       var tag = document.createElement('span');
       tag.className = 'source-tag ' + l.source_type;
       if (l.source_type === 'captain') {
@@ -1933,7 +1933,7 @@ function printMasterList() {
   var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'];
   var rows = masterListData.map(function(v) {
     var voted = isVoted(v);
-    var listsStr = v.lists.map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join(', ');
+    var listsStr = (v.lists || []).map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join(', ');
     return [
       voterFullName(v) + (v.precinct ? ' (Pct ' + v.precinct + ')' : ''),
       voterIdDisplay(v) || '\u2014',
@@ -1950,7 +1950,7 @@ function printMasterList() {
 function downloadMasterCSV() {
   var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Precinct', 'Voted', 'Phone', 'On Lists'];
   var rows = masterListData.map(function(v) {
-    var listsStr = v.lists.map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join('; ');
+    var listsStr = (v.lists || []).map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join('; ');
     return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', v.precinct || '', isVoted(v) ? 'Yes' : 'No', v.phone || '', listsStr].map(csvEscape).join(',');
   });
   var csv = headers.join(',') + '\n' + rows.join('\n');
