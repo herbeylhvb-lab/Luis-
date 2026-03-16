@@ -124,6 +124,22 @@ tr:hover td{background:#1e293b80}
   .stats-grid{grid-template-columns:1fr 1fr}
   #candidatesTableWrap{display:none!important}
   #candidateCardsMobile{display:block!important}
+  /* Candidate detail mobile optimizations */
+  #candidateDetailCard .cand-detail-header{flex-direction:column!important;align-items:stretch!important;gap:10px!important}
+  #candidateDetailCard .cand-detail-header h3{font-size:18px}
+  #candidateDetailCard .cand-detail-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:6px!important}
+  #candidateDetailCard .cand-detail-actions .btn{font-size:12px!important;padding:8px 6px!important;text-align:center!important;white-space:nowrap}
+  /* Captain card mobile */
+  .captain-card-mobile .captain-header-row{flex-direction:column!important;align-items:stretch!important;gap:8px!important}
+  .captain-card-mobile .captain-left-info{flex-wrap:wrap!important}
+  .captain-card-mobile .captain-left-info span{font-size:11px!important}
+  .captain-card-mobile .captain-btns{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:4px!important;width:100%!important}
+  .captain-card-mobile .captain-btns .btn{font-size:11px!important;padding:6px 4px!important;text-align:center!important}
+  /* All Lists as cards on mobile */
+  #candidateListsTable{display:none!important}
+  .mobile-lists-container{display:block!important}
+  /* Progress stats 2-col on mobile */
+  .cand-stats-grid{grid-template-columns:1fr 1fr!important}
 }
 .mobile-candidate-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s}
 .mobile-candidate-card:active{border-color:#818cf8}
@@ -1655,13 +1671,13 @@ tr:hover td{background:#1e293b80}
 
       <!-- Candidate detail (shown when expanded) -->
       <div class="card" id="candidateDetailCard" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="cand-detail-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <h3 style="margin-bottom:0" id="candidateDetailTitle">Candidate Detail</h3>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="shareCandidateCode()">📤 Share via Text</button>
+          <div class="cand-detail-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="shareCandidateCode()">📤 Share</button>
             <button class="btn btn-sm btn-warning" onclick="viewCandidateMasterList()">&#128203; Master List</button>
-            <button class="btn btn-sm btn-primary" onclick="addCaptainToCandidate()">+ Add Captain</button>
-            <button class="btn btn-sm btn-success" onclick="addListToCandidate()">+ Add List</button>
+            <button class="btn btn-sm btn-primary" onclick="addCaptainToCandidate()">+ Captain</button>
+            <button class="btn btn-sm btn-success" onclick="addListToCandidate()">+ List</button>
             <button class="btn btn-sm btn-secondary" onclick="closeCandidateDetail()">Close</button>
           </div>
         </div>
@@ -1681,6 +1697,7 @@ tr:hover td{background:#1e293b80}
           <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
+        <div id="candidateListsMobile" class="mobile-lists-container" style="display:none"></div>
       </div>
     </div>
 
@@ -6568,6 +6585,7 @@ async function showCandidateDetail(id, name, code) {
     var totalNotVoted = totalV - totalVoted;
     var completionPct = totalV > 0 ? Math.round((totalVoted / totalV) * 100) : 0;
     var statsGrid = document.createElement('div');
+    statsGrid.className = 'cand-stats-grid';
     statsGrid.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px';
     [
       { n: totalV, l: 'Total Voters', bg: '#1e293b', c: '#e2e8f0' },
@@ -6605,10 +6623,12 @@ async function showCandidateDetail(id, name, code) {
       if (indent > 0) wrapper.style.cssText = 'margin-left:' + (indent * 24) + 'px;border-left:2px solid #334155;padding-left:10px';
 
       var card = document.createElement('div');
+      card.className = 'captain-card-mobile';
       card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px 16px;margin-bottom:8px';
 
       // Header row: name, code, status, toggle, delete, expand arrow
       var header = document.createElement('div');
+      header.className = 'captain-header-row';
       header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;cursor:pointer';
       header.onclick = function(e) {
         if (e.target.tagName === 'BUTTON') return; // don't toggle if clicking action buttons
@@ -6619,6 +6639,7 @@ async function showCandidateDetail(id, name, code) {
       };
 
       var left = document.createElement('div');
+      left.className = 'captain-left-info';
       left.style.cssText = 'display:flex;align-items:center;gap:8px;flex:1;min-width:0';
 
       var arrow = document.createElement('span');
@@ -6690,6 +6711,7 @@ async function showCandidateDetail(id, name, code) {
       header.appendChild(left);
 
       var right = document.createElement('div');
+      right.className = 'captain-btns';
       right.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
 
       if (c.is_shared) {
@@ -6827,9 +6849,13 @@ async function showCandidateDetail(id, name, code) {
       listSourceFilter.appendChild(opt);
     });
 
+    var mobileListsContainer = document.getElementById('candidateListsMobile');
+
     function renderAllListsTable(lists) {
       listTbody.textContent = '';
+      mobileListsContainer.textContent = '';
       lists.forEach(function(l) {
+        // Desktop table row
         var tr = document.createElement('tr');
         tr.style.cursor = 'pointer';
         tr.onmouseover = function() { tr.style.background = '#1e293b'; };
@@ -6875,6 +6901,52 @@ async function showCandidateDetail(id, name, code) {
         tdA.appendChild(delListBtn);
         tr.appendChild(tdA);
         listTbody.appendChild(tr);
+
+        // Mobile card
+        var mCard = document.createElement('div');
+        mCard.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer';
+        mCard.onclick = function() { viewCandidateListVoters(id, l); };
+        var mTop = document.createElement('div');
+        mTop.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px';
+        var mName = document.createElement('div');
+        mName.style.cssText = 'font-weight:600;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+        mName.textContent = l.name;
+        mTop.appendChild(mName);
+        var mSrcBadge = document.createElement('span');
+        mSrcBadge.className = l.source === 'captain' ? 'badge badge-blue' : 'badge badge-yellow';
+        mSrcBadge.style.cssText = 'font-size:10px;flex-shrink:0;margin-left:8px';
+        mSrcBadge.textContent = l.source === 'captain' ? 'Captain' : 'Admin';
+        mTop.appendChild(mSrcBadge);
+        mCard.appendChild(mTop);
+        if (l.source === 'captain' && l.captain_name) {
+          var mCapLabel = document.createElement('div');
+          mCapLabel.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px';
+          mCapLabel.textContent = 'Captain: ' + l.captain_name;
+          mCard.appendChild(mCapLabel);
+        }
+        var mBottom = document.createElement('div');
+        mBottom.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+        var mStats = document.createElement('div');
+        mStats.style.cssText = 'font-size:12px;color:#94a3b8';
+        mStats.innerHTML = '<strong style="color:#e2e8f0">' + (l.voter_count || 0) + '</strong> voters';
+        mBottom.appendChild(mStats);
+        var mDelBtn = document.createElement('button');
+        mDelBtn.className = 'btn btn-xs btn-danger';
+        mDelBtn.style.cssText = 'font-size:11px;padding:4px 10px';
+        mDelBtn.textContent = 'Delete';
+        mDelBtn.onclick = (function(list) { return function(e) {
+          e.stopPropagation();
+          if (!confirm('Delete list "' + list.name + '"?')) return;
+          var dp = list.source === 'captain'
+            ? apiDelete('/api/captains/' + list.captain_id + '/admin-lists/' + list.id)
+            : apiDelete('/api/admin-lists/' + list.id);
+          dp.then(function() {
+            showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+          }).catch(function(err) { alert('Error: ' + (err.message || err)); });
+        }; })(l);
+        mBottom.appendChild(mDelBtn);
+        mCard.appendChild(mBottom);
+        mobileListsContainer.appendChild(mCard);
       });
       if (lists.length === 0) {
         var emptyTr2 = document.createElement('tr');
@@ -6882,6 +6954,10 @@ async function showCandidateDetail(id, name, code) {
         emptyTd2.colSpan = 5; emptyTd2.style.cssText = 'color:#64748b;text-align:center';
         emptyTd2.textContent = listSourceFilter.value === 'all' ? 'No lists yet' : 'No lists match this filter';
         emptyTr2.appendChild(emptyTd2); listTbody.appendChild(emptyTr2);
+        var mEmpty = document.createElement('div');
+        mEmpty.style.cssText = 'color:#64748b;text-align:center;padding:1rem;font-size:13px';
+        mEmpty.textContent = listSourceFilter.value === 'all' ? 'No lists yet' : 'No lists match this filter';
+        mobileListsContainer.appendChild(mEmpty);
       }
     }
 
