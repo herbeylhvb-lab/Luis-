@@ -470,8 +470,34 @@ router.get('/walks/:id/walker/:name', (req, res) => {
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
   const myAddresses = db.prepare(
-    'SELECT id, address, unit, city, zip, voter_name, result, notes, knocked_at, sort_order, gps_verified, assigned_walker, lat, lng FROM walk_addresses WHERE walk_id = ? AND assigned_walker = ? ORDER BY sort_order, id'
+    `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
+            wa.knocked_at, wa.sort_order, wa.gps_verified, wa.assigned_walker, wa.lat, wa.lng, wa.voter_id,
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
+     FROM walk_addresses wa
+     LEFT JOIN voters v ON wa.voter_id = v.id
+     WHERE wa.walk_id = ? AND wa.assigned_walker = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id, req.params.name);
+
+  // Build household members for each address (other voters at same address+city)
+  const householdStmt = db.prepare(
+    `SELECT first_name, last_name, age FROM voters
+     WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name`
+  );
+  for (const addr of myAddresses) {
+    if (addr.voter_id && addr.address) {
+      addr.household = householdStmt.all(addr.address, addr.city || '', addr.voter_id);
+    } else {
+      addr.household = [];
+    }
+  }
+
+  // Add attempt counts per address
+  const attemptCounts = db.prepare(
+    'SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id'
+  ).all(req.params.id);
+  const countMap = {};
+  for (const a of attemptCounts) countMap[a.address_id] = a.c;
+  for (const addr of myAddresses) addr.attempt_count = countMap[addr.id] || 0;
 
   const allAddresses = db.prepare(
     'SELECT id, result, assigned_walker FROM walk_addresses WHERE walk_id = ?'
