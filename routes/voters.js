@@ -615,7 +615,7 @@ router.get('/voters/qr/:token', (req, res) => {
 
   // Get active/upcoming events (today or future, limited to recent)
   const events = db.prepare(`
-    SELECT id, title, event_date, event_time, location FROM events
+    SELECT id, title, event_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
     WHERE status = 'upcoming' AND event_date >= date('now', '-1 day')
     ORDER BY event_date ASC LIMIT 5
   `).all();
@@ -630,9 +630,21 @@ router.get('/voters/qr/:token', (req, res) => {
   res.json({ voter: { id: voter.id, first_name: voter.first_name, last_name: voter.last_name }, events, checkins });
 });
 
+// Haversine distance in meters between two lat/lng points
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // Check in a voter to an event via QR token (public endpoint)
 router.post('/voters/qr/:token/checkin', (req, res) => {
-  const { event_id } = req.body;
+  const { event_id, latitude, longitude } = req.body;
   if (!event_id) return res.status(400).json({ error: 'Event ID is required.' });
 
   const voter = db.prepare("SELECT id, first_name, last_name FROM voters WHERE qr_token = ?").get(req.params.token);
@@ -640,6 +652,38 @@ router.post('/voters/qr/:token/checkin', (req, res) => {
 
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(event_id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  // Time window check: only allow check-in during the event
+  if (event.event_time) {
+    const now = new Date();
+    const eventStart = new Date(event.event_date + 'T' + event.event_time);
+    if (!isNaN(eventStart.getTime()) && now < eventStart) {
+      return res.status(403).json({ error: 'Check-in hasn\'t opened yet. The event starts at ' + event.event_time + '.' });
+    }
+  }
+  if (event.event_end_time) {
+    const now = new Date();
+    const eventEnd = new Date(event.event_date + 'T' + event.event_end_time);
+    if (!isNaN(eventEnd.getTime()) && now > eventEnd) {
+      return res.status(403).json({ error: 'Check-in is closed. The event ended at ' + event.event_end_time + '.' });
+    }
+  }
+
+  // Geofence check: if event has coordinates, verify voter is within radius
+  if (event.latitude && event.longitude) {
+    if (latitude == null || longitude == null) {
+      return res.status(400).json({ error: 'Location is required to check in. Please enable location services.' });
+    }
+    const distance = haversineMeters(event.latitude, event.longitude, latitude, longitude);
+    const radius = event.checkin_radius || 500; // default 500 meters
+    if (distance > radius) {
+      return res.status(403).json({
+        error: 'You need to be at the event location to check in. You are about ' + Math.round(distance) + ' meters away.',
+        distance: Math.round(distance),
+        radius: radius
+      });
+    }
+  }
 
   // Check if already checked in
   const existing = db.prepare('SELECT id FROM voter_checkins WHERE voter_id = ? AND event_id = ?').get(voter.id, event_id);

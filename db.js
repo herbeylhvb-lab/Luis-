@@ -265,6 +265,12 @@ db.exec(`
 // --- Phase 3: Event flyer image for QR overlay ---
 addColumn("ALTER TABLE events ADD COLUMN flyer_image TEXT DEFAULT NULL");
 
+// --- Phase 4: Geofenced event check-in ---
+addColumn("ALTER TABLE events ADD COLUMN latitude REAL DEFAULT NULL");
+addColumn("ALTER TABLE events ADD COLUMN longitude REAL DEFAULT NULL");
+addColumn("ALTER TABLE events ADD COLUMN checkin_radius INTEGER DEFAULT 500");
+addColumn("ALTER TABLE events ADD COLUMN event_end_time TEXT DEFAULT ''");
+
 // Session type for P2P sessions (campaign, event, survey)
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN session_type TEXT DEFAULT 'campaign'");
 
