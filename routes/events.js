@@ -11,7 +11,8 @@ const { asyncHandler } = require('../utils');
 // List all events (includes has_flyer flag, excludes full base64) — single query with RSVP stats
 router.get('/events', (req, res) => {
   const events = db.prepare(`
-    SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_time, e.status, e.created_at,
+    SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_time, e.event_end_time, e.status, e.created_at,
+      e.latitude, e.longitude, e.checkin_radius,
       (e.flyer_image IS NOT NULL) as has_flyer,
       COUNT(er.id) as rsvp_total,
       SUM(CASE WHEN er.rsvp_status = 'confirmed' THEN 1 ELSE 0 END) as rsvp_confirmed,
@@ -36,7 +37,9 @@ router.post('/events', (req, res) => {
   const result = db.prepare(
     'INSERT INTO events (title, description, location, event_date, event_time, event_end_time, flyer_image, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(title, description || '', location || '', event_date, event_time || '', event_end_time || '',
-    flyer_image || null, latitude || null, longitude || null, checkin_radius || 500);
+    flyer_image || null,
+    latitude != null ? latitude : null, longitude != null ? longitude : null,
+    checkin_radius || 500);
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
