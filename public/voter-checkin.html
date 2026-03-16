@@ -237,18 +237,45 @@
               badge.textContent = '\u2705 Already Checked In';
               card.appendChild(badge);
             } else {
-              if (e.latitude && e.longitude) {
-                var geoBadge = document.createElement('div');
-                geoBadge.className = 'geo-badge';
-                geoBadge.textContent = '\uD83D\uDCCD Location verified check-in';
-                card.appendChild(geoBadge);
+              // Check if event is within check-in window
+              var now = new Date();
+              var notYet = false;
+              var ended = false;
+              if (e.event_time) {
+                var startDT = new Date(e.event_date + 'T' + e.event_time);
+                if (!isNaN(startDT.getTime()) && now < startDT) notYet = true;
               }
-              var btn = document.createElement('button');
-              btn.className = 'btn-checkin';
-              btn.textContent = 'Check In Here';
-              btn.setAttribute('data-event-id', e.id);
-              btn.addEventListener('click', function() { doCheckin(e.id, btn, e); });
-              card.appendChild(btn);
+              if (e.event_end_time) {
+                var endDT = new Date(e.event_date + 'T' + e.event_end_time);
+                if (!isNaN(endDT.getTime()) && now > endDT) ended = true;
+              }
+
+              if (notYet) {
+                var waitMsg = document.createElement('div');
+                waitMsg.className = 'location-msg';
+                waitMsg.style.color = '#f0ad4e';
+                waitMsg.textContent = '\u23F3 Check-in opens at ' + e.event_time;
+                card.appendChild(waitMsg);
+              } else if (ended) {
+                var closedMsg = document.createElement('div');
+                closedMsg.className = 'location-msg';
+                closedMsg.style.color = '#ff6b6b';
+                closedMsg.textContent = '\u26D4 Check-in closed';
+                card.appendChild(closedMsg);
+              } else {
+                if (e.latitude && e.longitude) {
+                  var geoBadge = document.createElement('div');
+                  geoBadge.className = 'geo-badge';
+                  geoBadge.textContent = '\uD83D\uDCCD Location verified check-in';
+                  card.appendChild(geoBadge);
+                }
+                var btn = document.createElement('button');
+                btn.className = 'btn-checkin';
+                btn.textContent = 'Check In Here';
+                btn.setAttribute('data-event-id', e.id);
+                btn.addEventListener('click', function() { doCheckin(e.id, btn, e); });
+                card.appendChild(btn);
+              }
             }
 
             eventsEl.appendChild(card);

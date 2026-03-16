@@ -1141,8 +1141,10 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-row" style="margin-bottom:12px">
             <div class="form-group"><label>Date</label><input type="date" id="eventDate"></div>
-            <div class="form-group"><label>Time</label><input type="time" id="eventTime"></div>
+            <div class="form-group"><label>Start Time</label><input type="time" id="eventTime"></div>
+            <div class="form-group"><label>End Time</label><input type="time" id="eventEndTime"></div>
           </div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:12px">Check-in opens at start time and closes at end time. Voters cannot check in early or late.</div>
           <div class="form-group"><label>Description</label><input type="text" id="eventDesc" placeholder="Join us for a community rally!"></div>
           <div class="form-group">
             <label>Location Verification (Geofenced Check-in)</label>
@@ -4699,6 +4701,7 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
     location: document.getElementById('eventLocation').value.trim(),
     event_date: date,
     event_time: document.getElementById('eventTime').value,
+    event_end_time: document.getElementById('eventEndTime').value,
     description: document.getElementById('eventDesc').value.trim(),
     flyer_image: flyerBase64,
     latitude: isNaN(lat) ? null : lat,
@@ -4707,6 +4710,7 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
   });
   document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
   document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
+  document.getElementById('eventEndTime').value = '';
   document.getElementById('eventDesc').value = ''; flyerInput.value = '';
   document.getElementById('eventLat').value = ''; document.getElementById('eventLng').value = '';
   loadEvents();

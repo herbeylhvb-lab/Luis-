@@ -615,7 +615,7 @@ router.get('/voters/qr/:token', (req, res) => {
 
   // Get active/upcoming events (today or future, limited to recent)
   const events = db.prepare(`
-    SELECT id, title, event_date, event_time, location, latitude, longitude, checkin_radius FROM events
+    SELECT id, title, event_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
     WHERE status = 'upcoming' AND event_date >= date('now', '-1 day')
     ORDER BY event_date ASC LIMIT 5
   `).all();
@@ -652,6 +652,22 @@ router.post('/voters/qr/:token/checkin', (req, res) => {
 
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(event_id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+  // Time window check: only allow check-in during the event
+  if (event.event_time) {
+    const now = new Date();
+    const eventStart = new Date(event.event_date + 'T' + event.event_time);
+    if (!isNaN(eventStart.getTime()) && now < eventStart) {
+      return res.status(403).json({ error: 'Check-in hasn\'t opened yet. The event starts at ' + event.event_time + '.' });
+    }
+  }
+  if (event.event_end_time) {
+    const now = new Date();
+    const eventEnd = new Date(event.event_date + 'T' + event.event_end_time);
+    if (!isNaN(eventEnd.getTime()) && now > eventEnd) {
+      return res.status(403).json({ error: 'Check-in is closed. The event ended at ' + event.event_end_time + '.' });
+    }
+  }
 
   // Geofence check: if event has coordinates, verify voter is within radius
   if (event.latitude && event.longitude) {
