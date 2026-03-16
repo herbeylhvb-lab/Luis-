@@ -58,8 +58,11 @@ router.post('/contacts/import', validate({ contacts: rules.nonEmptyArray }), (re
 
 // Delete one contact
 router.delete('/contacts/:id', (req, res) => {
-  db.prepare('DELETE FROM p2p_assignments WHERE contact_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+  const delContact = db.transaction(() => {
+    db.prepare('DELETE FROM p2p_assignments WHERE contact_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+  });
+  delContact();
   res.json({ success: true });
 });
 

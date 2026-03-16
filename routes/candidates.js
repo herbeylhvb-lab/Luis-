@@ -129,13 +129,14 @@ router.put('/candidates/:id', (req, res) => {
 router.delete('/candidates/:id', (req, res) => {
   const candidate = db.prepare('SELECT name FROM candidates WHERE id = ?').get(req.params.id);
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
-  db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
-  db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
-  // Clean up any shared captain relationships for this candidate
-  db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
-  // Nullify admin_lists candidate_id so they don't reference deactivated candidate
-  db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
+  const deactivate = db.transaction(() => {
+    db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
+    db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
+  });
+  deactivate();
   res.json({ success: true });
 });
 
