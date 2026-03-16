@@ -1145,6 +1145,24 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-group"><label>Description</label><input type="text" id="eventDesc" placeholder="Join us for a community rally!"></div>
           <div class="form-group">
+            <label>Location Verification (Geofenced Check-in)</label>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+              <input type="number" step="any" id="eventLat" placeholder="Latitude" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+              <input type="number" step="any" id="eventLng" placeholder="Longitude" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+              <button type="button" class="btn btn-secondary btn-xs" onclick="useMyLocation()" style="white-space:nowrap">Use My Location</button>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label style="margin:0;font-size:12px;color:#94a3b8">Check-in radius:</label>
+              <select id="eventRadius" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px 10px;color:#e2e8f0;font-size:13px">
+                <option value="200">200m (~650ft) - Small venue</option>
+                <option value="500" selected>500m (~1600ft) - Default</option>
+                <option value="1000">1km (~0.6mi) - Large area</option>
+                <option value="2000">2km (~1.2mi) - Very large</option>
+              </select>
+            </div>
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Set coordinates to require voters to be physically at the event to check in. Leave blank to allow check-in from anywhere.</div>
+          </div>
+          <div class="form-group">
             <label>Event Flyer (optional)</label>
             <input type="file" id="eventFlyer" accept="image/png,image/jpeg,image/webp" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
             <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image. A unique QR code will be overlaid per voter when sending MMS invites.</div>
@@ -4646,6 +4664,16 @@ window.sendEventInvites = async function() {
   loadEventDetail(state.currentEventId);
 };
 
+function useMyLocation() {
+  if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    document.getElementById('eventLat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('eventLng').value = pos.coords.longitude.toFixed(6);
+  }, function() {
+    alert('Could not get your location. Please enable location services or enter coordinates manually.');
+  });
+}
+
 document.getElementById('btnCreateEvent').addEventListener('click', async () => {
   const title = document.getElementById('eventTitle').value.trim();
   const date = document.getElementById('eventDate').value;
@@ -4662,17 +4690,25 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
     });
   }
 
+  const lat = parseFloat(document.getElementById('eventLat').value);
+  const lng = parseFloat(document.getElementById('eventLng').value);
+  const radius = parseInt(document.getElementById('eventRadius').value);
+
   await apiPost('/api/events', {
     title,
     location: document.getElementById('eventLocation').value.trim(),
     event_date: date,
     event_time: document.getElementById('eventTime').value,
     description: document.getElementById('eventDesc').value.trim(),
-    flyer_image: flyerBase64
+    flyer_image: flyerBase64,
+    latitude: isNaN(lat) ? null : lat,
+    longitude: isNaN(lng) ? null : lng,
+    checkin_radius: radius || 500
   });
   document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
   document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
   document.getElementById('eventDesc').value = ''; flyerInput.value = '';
+  document.getElementById('eventLat').value = ''; document.getElementById('eventLng').value = '';
   loadEvents();
 });
 

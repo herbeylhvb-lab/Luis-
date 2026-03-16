@@ -114,6 +114,21 @@
       font-size: 0.9rem;
       margin-top: 0.5rem;
     }
+    .geo-badge {
+      display: inline-block;
+      background: #1a1a3e;
+      border: 1px solid #4a9eff;
+      color: #4a9eff;
+      padding: 0.2rem 0.6rem;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    .location-msg {
+      color: #888;
+      font-size: 0.8rem;
+      margin-top: 0.4rem;
+    }
     .past-checkins {
       margin-top: 2rem;
       text-align: left;
@@ -222,11 +237,17 @@
               badge.textContent = '\u2705 Already Checked In';
               card.appendChild(badge);
             } else {
+              if (e.latitude && e.longitude) {
+                var geoBadge = document.createElement('div');
+                geoBadge.className = 'geo-badge';
+                geoBadge.textContent = '\uD83D\uDCCD Location verified check-in';
+                card.appendChild(geoBadge);
+              }
               var btn = document.createElement('button');
               btn.className = 'btn-checkin';
               btn.textContent = 'Check In Here';
               btn.setAttribute('data-event-id', e.id);
-              btn.addEventListener('click', function() { doCheckin(e.id, btn); });
+              btn.addEventListener('click', function() { doCheckin(e.id, btn, e); });
               card.appendChild(btn);
             }
 
@@ -250,15 +271,14 @@
         document.getElementById('not-found').style.display = 'block';
       });
 
-    function doCheckin(eventId, btn) {
-      btn.disabled = true;
-      btn.textContent = 'Checking in...';
-      document.getElementById('errorMsg').textContent = '';
+    function sendCheckin(eventId, btn, lat, lng) {
+      var body = { event_id: eventId };
+      if (lat != null && lng != null) { body.latitude = lat; body.longitude = lng; }
 
       fetch('/api/voters/qr/' + token + '/checkin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: eventId })
+        body: JSON.stringify(body)
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -278,6 +298,40 @@
           btn.disabled = false;
           btn.textContent = 'Check In Here';
         });
+    }
+
+    function doCheckin(eventId, btn, evt) {
+      btn.disabled = true;
+      document.getElementById('errorMsg').textContent = '';
+
+      // If event has geofence, get location first
+      if (evt && evt.latitude && evt.longitude) {
+        btn.textContent = 'Getting location...';
+        if (!navigator.geolocation) {
+          document.getElementById('errorMsg').textContent = 'Your browser does not support location services.';
+          btn.disabled = false;
+          btn.textContent = 'Check In Here';
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          function(pos) {
+            btn.textContent = 'Checking in...';
+            sendCheckin(eventId, btn, pos.coords.latitude, pos.coords.longitude);
+          },
+          function(err) {
+            var msg = 'Location access denied. Please enable location services to check in at this event.';
+            if (err.code === 2) msg = 'Location unavailable. Please try again.';
+            if (err.code === 3) msg = 'Location request timed out. Please try again.';
+            document.getElementById('errorMsg').textContent = msg;
+            btn.disabled = false;
+            btn.textContent = 'Check In Here';
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        );
+      } else {
+        btn.textContent = 'Checking in...';
+        sendCheckin(eventId, btn, null, null);
+      }
     }
   </script>
 </body>
