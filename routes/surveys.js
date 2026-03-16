@@ -336,6 +336,7 @@ function buildSurveyMessage(surveyName, question, options) {
   } else if (question.question_type === 'write_in') {
     msg += '\n\nReply with your answer.';
   }
+  msg += '\n\nReply STOP to opt out.';
   return msg;
 }
 

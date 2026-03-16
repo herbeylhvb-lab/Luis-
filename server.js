@@ -628,7 +628,7 @@ app.post('/api/events/:id/invite', (req, res) => {
   let queued = 0;
   const inviteTx = db.transaction(() => {
     for (const c of contacts) {
-      if (optedOutSet.has(c.phone)) continue;
+      if (optedOutSet.has(phoneDigits(c.phone))) continue;
       // Ensure contact exists in contacts table for P2P assignment
       let contactId = c.id;
       if (list_id) {

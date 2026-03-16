@@ -409,7 +409,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
-        .run(assignment.phone, message, vol.session_id, vol.name);
+        .run(phoneDigits(assignment.phone) || assignment.phone, message, vol.session_id, vol.name);
       db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
     })();
 
