@@ -717,6 +717,22 @@ router.post('/voters/qr/:token/scan-checkin', (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(event_id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
 
+  // Time window check: only allow check-in during the event
+  if (event.event_time) {
+    const now = new Date();
+    const eventStart = new Date(event.event_date + 'T' + event.event_time);
+    if (!isNaN(eventStart.getTime()) && now < eventStart) {
+      return res.status(403).json({ error: 'Check-in hasn\'t opened yet. The event starts at ' + event.event_time + '.' });
+    }
+  }
+  if (event.event_end_time) {
+    const now = new Date();
+    const eventEnd = new Date(event.event_date + 'T' + event.event_end_time);
+    if (!isNaN(eventEnd.getTime()) && now > eventEnd) {
+      return res.status(403).json({ error: 'Check-in is closed. The event ended at ' + event.event_end_time + '.' });
+    }
+  }
+
   // Check if already checked in
   const existing = db.prepare('SELECT id FROM voter_checkins WHERE voter_id = ? AND event_id = ?').get(voter.id, event_id);
   if (existing) {
@@ -741,7 +757,7 @@ router.post('/voters/qr/:token/scan-checkin', (req, res) => {
 // --- Today's events for volunteer scanner auto-detect ---
 router.get('/voters/checkins/today-events', (req, res) => {
   const events = db.prepare(`
-    SELECT id, title, event_date, event_time, location FROM events
+    SELECT id, title, event_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
     WHERE event_date = date('now', 'localtime') AND status IN ('upcoming', 'in_progress')
     ORDER BY event_time ASC
   `).all();
