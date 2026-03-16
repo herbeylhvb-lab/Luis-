@@ -188,6 +188,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <label>Your Name</label>
         <input type="text" id="joinNameInput" placeholder="e.g. Maria">
       </div>
+      <div class="form-group">
+        <label>Your Phone</label>
+        <input type="tel" id="joinPhoneInput" placeholder="e.g. 555-123-4567" inputmode="tel">
+      </div>
       <button class="btn btn-walk" id="btnJoinWalk" onclick="joinWalk()">Join Group Walk</button>
     </div>
 
@@ -201,6 +205,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="form-group">
         <label>Your Name</label>
         <input type="text" id="distNameInput" placeholder="e.g. Maria">
+      </div>
+      <div class="form-group">
+        <label>Your Phone</label>
+        <input type="tel" id="distPhoneInput" placeholder="e.g. 555-123-4567" inputmode="tel">
       </div>
       <div id="distGpsStatus" style="font-size:12px;color:#64748b;margin-bottom:8px">Getting your location...</div>
       <button class="btn btn-walk" id="btnDistClaim" onclick="claimDistributedTurf()">Get My Doors</button>
@@ -373,28 +381,31 @@ function setLoadMode(mode) {
 async function joinWalk() {
   var codeInput = document.getElementById('joinCodeInput');
   var nameInput = document.getElementById('joinNameInput');
+  var phoneInput = document.getElementById('joinPhoneInput');
   var errEl = document.getElementById('loadError');
   errEl.textContent = '';
 
   var joinCode = codeInput.value.trim().toUpperCase();
   var walkerName = nameInput.value.trim();
+  var phone = phoneInput.value.trim();
 
   if (!joinCode || joinCode.length < 4) { errEl.textContent = 'Enter the 4-character join code.'; return; }
   if (!walkerName) { errEl.textContent = 'Enter your name.'; return; }
+  if (!phone) { errEl.textContent = 'Enter your phone number.'; return; }
 
   document.getElementById('btnJoinWalk').disabled = true;
   try {
     var res = await fetch('/api/walks/join', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ joinCode: joinCode, walkerName: walkerName })
+      body: JSON.stringify({ joinCode: joinCode, walkerName: walkerName, phone: phone })
     });
     var data = await res.json();
     if (!res.ok || data.error) { errEl.textContent = data.error || 'Failed to join'; return; }
 
     walkState.walkId = data.walkId;
     walkState.isGroupMode = true;
-    walkState.walkerName = walkerName;
+    walkState.walkerName = data.walkerName || walkerName;
 
     // Load walker-specific addresses
     await loadGroupWalk(data.walkId, walkerName);
@@ -590,14 +601,17 @@ function startDistributedGps() {
 async function claimDistributedTurf() {
   var codeInput = document.getElementById('distCodeInput');
   var nameInput = document.getElementById('distNameInput');
+  var phoneInput = document.getElementById('distPhoneInput');
   var errEl = document.getElementById('loadError');
   errEl.textContent = '';
 
   var shareCode = codeInput.value.trim().toUpperCase();
   var walkerName = nameInput.value.trim();
+  var phone = phoneInput.value.trim();
 
   if (!shareCode || shareCode.length < 4) { errEl.textContent = 'Enter the canvass code from your organizer.'; return; }
   if (!walkerName) { errEl.textContent = 'Enter your name.'; return; }
+  if (!phone) { errEl.textContent = 'Enter your phone number.'; return; }
 
   document.getElementById('btnDistClaim').disabled = true;
   document.getElementById('btnDistClaim').textContent = 'Assigning doors...';
@@ -608,6 +622,7 @@ async function claimDistributedTurf() {
       body: JSON.stringify({
         shareCode: shareCode,
         walkerName: walkerName,
+        phone: phone,
         lat: walkState.distGpsLat,
         lng: walkState.distGpsLng
       })

@@ -399,6 +399,7 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_wgm_walk ON walk_group_members(walk_id);
 `);
+addColumn("ALTER TABLE walk_group_members ADD COLUMN phone TEXT DEFAULT NULL");
 // Assigned walker on each address (for group splitting)
 addColumn("ALTER TABLE walk_addresses ADD COLUMN assigned_walker TEXT DEFAULT NULL");
 

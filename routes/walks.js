@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
-const { generateAlphaCode } = require('../utils');
+const { generateAlphaCode, normalizePhone } = require('../utils');
 
 // ===================== GEOCODING =====================
 
@@ -419,22 +419,34 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
 // Join a walk group by join code
 router.post('/walks/join', (req, res) => {
-  const { joinCode, walkerName } = req.body;
+  const { joinCode, walkerName, phone } = req.body;
   if (!joinCode || !walkerName) return res.status(400).json({ error: 'Join code and walker name required.' });
+  if (!phone) return res.status(400).json({ error: 'Phone number is required.' });
+
+  const normPhone = normalizePhone(phone);
+  if (!normPhone) return res.status(400).json({ error: 'Enter a valid 10-digit phone number.' });
 
   const walk = db.prepare("SELECT * FROM block_walks WHERE join_code = ? AND status != 'completed'").get(String(joinCode).toUpperCase());
   if (!walk) return res.status(404).json({ error: 'Invalid join code or walk is completed.' });
+
+  // Check if this phone is already in the group (dedup by phone)
+  const existing = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND phone = ?').get(walk.id, normPhone);
+  if (existing) {
+    // Same phone already joined — let them back in with their original name
+    splitAddresses(walk.id);
+    return res.json({ success: true, walkId: walk.id, walkName: walk.name, walkerName: existing.walker_name });
+  }
 
   // Check member count
   const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
   if (members.c >= (walk.max_walkers || 4)) return res.status(400).json({ error: 'Group is full (max ' + (walk.max_walkers || 4) + ' walkers).' });
 
-  // Add member
+  // Add member with phone
   try {
-    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name) VALUES (?, ?)').run(walk.id, walkerName);
+    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
   } catch (e) {
     if (e.message.includes('UNIQUE constraint')) {
-      // Already a member
+      // Already a member by name
     } else throw e;
   }
 
@@ -1130,8 +1142,31 @@ router.get('/walk-universes', (req, res) => {
 const distributedJoinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many requests, try again later.' } });
 
 router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
-  const { shareCode, walkerName, lat, lng } = req.body;
+  const { shareCode, walkerName, phone, lat, lng } = req.body;
   if (!shareCode || !walkerName) return res.status(400).json({ error: 'Share code and name are required.' });
+  if (!phone) return res.status(400).json({ error: 'Phone number is required.' });
+
+  const normPhone = normalizePhone(phone);
+  if (!normPhone) return res.status(400).json({ error: 'Enter a valid 10-digit phone number.' });
+
+  // Check if this phone already claimed turf in this universe
+  const universe0 = db.prepare("SELECT id FROM walk_universes WHERE share_code = ? AND status = 'active'").get(String(shareCode).toUpperCase());
+  if (universe0) {
+    const existingWalk = db.prepare(
+      "SELECT bw.id, bw.name, bw.join_code FROM block_walks bw JOIN walk_addresses wa ON wa.walk_id = bw.id WHERE wa.universe_id = ? AND bw.assigned_to IN (SELECT walker_name FROM walk_group_members WHERE phone = ?) LIMIT 1"
+    ).get(universe0.id, normPhone);
+    if (!existingWalk) {
+      // Also check assigned_to directly (distributed walks store walker name there)
+      const existingByPhone = db.prepare(
+        "SELECT bw.id, bw.name, bw.join_code FROM block_walks bw JOIN walk_addresses wa ON wa.walk_id = bw.id WHERE wa.universe_id = ? AND bw.id IN (SELECT walk_id FROM walk_group_members WHERE phone = ?) LIMIT 1"
+      ).get(universe0.id, normPhone);
+      if (existingByPhone) {
+        return res.json({ success: true, walkId: existingByPhone.id, joinCode: existingByPhone.join_code, added: 0, walkName: existingByPhone.name, alreadyClaimed: true });
+      }
+    } else {
+      return res.json({ success: true, walkId: existingWalk.id, joinCode: existingWalk.join_code, added: 0, walkName: existingWalk.name, alreadyClaimed: true });
+    }
+  }
 
   const universe = db.prepare("SELECT * FROM walk_universes WHERE share_code = ? AND status = 'active'").get(String(shareCode).toUpperCase());
   if (!universe) return res.status(404).json({ error: 'Invalid share code or universe is closed.' });
@@ -1193,6 +1228,13 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
     'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
   const walkId = walkResult.lastInsertRowid;
+
+  // Track walker with phone for dedup across claims
+  try {
+    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walkId, walkerName, normPhone);
+  } catch (e) {
+    if (!e.message.includes('UNIQUE constraint')) throw e;
+  }
 
   // Add addresses
   const insert = db.prepare(
