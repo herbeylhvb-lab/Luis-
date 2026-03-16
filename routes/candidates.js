@@ -131,6 +131,8 @@ router.delete('/candidates/:id', (req, res) => {
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
   db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
   db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
+  // Clean up any shared captain relationships for this candidate
+  db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
   res.json({ success: true });
 });

@@ -1748,8 +1748,8 @@ router.post('/universe/build', (req, res) => {
     const finalName = list_name || list_name_universe;
     if (finalName) {
       const descParts = ['Targeted voters matching filters'];
-      if (activeGroups.length > 0) {
-        descParts.push(activeGroups.map(g => (g.types || [g.type]).join('/') + ' >= ' + g.min_count).join(', '));
+      if (elecNames.length > 0) {
+        descParts.push('Elections: ' + elecNames.join(', '));
       }
       const r = insertList.run(finalName, descParts.join(' — '), 'general');
       const listId = r.lastInsertRowid;
