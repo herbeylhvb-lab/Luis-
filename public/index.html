@@ -6189,10 +6189,29 @@ async function showCandidateDetail(id, name, code) {
       var right = document.createElement('div');
       right.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
 
+      if (c.is_shared) {
+        var sharedBadge = document.createElement('span');
+        sharedBadge.style.cssText = 'font-size:10px;color:#818cf8;background:rgba(129,140,248,0.15);padding:1px 6px;border-radius:4px;border:1px solid #818cf8';
+        sharedBadge.textContent = 'Shared';
+        right.appendChild(sharedBadge);
+      }
+
       var statusBadge = document.createElement('span');
       statusBadge.className = 'badge ' + (c.is_active ? 'badge-green' : 'badge-red');
       statusBadge.textContent = c.is_active ? 'Active' : 'Off';
       right.appendChild(statusBadge);
+
+      var moveBtn = document.createElement('button');
+      moveBtn.className = 'btn btn-xs btn-secondary';
+      moveBtn.textContent = 'Move';
+      moveBtn.onclick = (function(cap) { return function(e) { e.stopPropagation(); showMoveCaptainModal(cap, _candidateDetailId); }; })(c);
+      right.appendChild(moveBtn);
+
+      var shareBtn = document.createElement('button');
+      shareBtn.className = 'btn btn-xs btn-secondary';
+      shareBtn.textContent = 'Share';
+      shareBtn.onclick = (function(cap) { return function(e) { e.stopPropagation(); showShareCaptainWithCandidatesModal(cap, _candidateDetailId); }; })(c);
+      right.appendChild(shareBtn);
 
       var toggleBtn = document.createElement('button');
       toggleBtn.className = 'btn btn-xs ' + (c.is_active ? 'btn-secondary' : 'btn-success');
@@ -6230,10 +6249,23 @@ async function showCandidateDetail(id, name, code) {
           lName.textContent = '\uD83D\uDCC4 ' + l.name;
           listRow.appendChild(lName);
 
+          var lRight = document.createElement('div');
+          lRight.style.cssText = 'display:flex;align-items:center;gap:6px';
           var lCount = document.createElement('span');
           lCount.style.cssText = 'font-size:12px;color:#64748b';
           lCount.textContent = (l.voter_count || 0) + ' voters';
-          listRow.appendChild(lCount);
+          lRight.appendChild(lCount);
+
+          var lDelBtn = document.createElement('button');
+          lDelBtn.style.cssText = 'background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1';
+          lDelBtn.textContent = '\u00D7';
+          lDelBtn.title = 'Delete list';
+          lDelBtn.onclick = (function(capId, listId, listName) { return function(e) {
+            e.stopPropagation();
+            adminDeleteCaptainList(capId, listId, listName);
+          }; })(c.id, l.id, l.name);
+          lRight.appendChild(lDelBtn);
+          listRow.appendChild(lRight);
 
           listsDiv.appendChild(listRow);
         });
@@ -6547,6 +6579,151 @@ async function deleteCaptainForCandidate(captainId, captainName) {
     showCandidateDetail(_candidateDetailId, detailName);
     loadCandidates();
   } catch (e) { alert('Error deleting captain: ' + (e.message || e)); }
+}
+
+// Move captain modal — reassign to different candidate or parent captain
+async function showMoveCaptainModal(captain, currentCandidateId) {
+  var existing = document.getElementById('moveCaptainOverlay');
+  if (existing) existing.remove();
+
+  // Fetch all candidates and all captains for dropdowns
+  var candData = await api('/api/candidates');
+  var allCandidates = (candData.candidates || []).filter(function(c) { return c.is_active; });
+  var capData = await api('/api/candidates/' + currentCandidateId + '/captains');
+  var allCaps = (capData.captains || []).filter(function(c) { return c.id !== captain.id; });
+
+  var overlay = document.createElement('div');
+  overlay.id = 'moveCaptainOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:420px;width:90%';
+
+  var html = '<h3 style="font-size:17px;margin-bottom:16px">Move Captain: ' + captain.name + '</h3>';
+
+  // Candidate dropdown
+  html += '<label style="font-size:13px;color:#94a3b8;display:block;margin-bottom:4px">Move to Candidate</label>';
+  html += '<select id="moveCandidateSelect" style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;margin-bottom:12px;font-size:13px">';
+  html += '<option value="">-- Keep current candidate --</option>';
+  allCandidates.forEach(function(c) {
+    var sel = c.id === currentCandidateId ? ' selected' : '';
+    html += '<option value="' + c.id + '"' + sel + '>' + c.name + (c.office ? ' (' + c.office + ')' : '') + '</option>';
+  });
+  html += '</select>';
+
+  // Parent captain dropdown
+  html += '<label style="font-size:13px;color:#94a3b8;display:block;margin-bottom:4px">Move under Parent Captain (make sub-captain)</label>';
+  html += '<select id="moveParentSelect" style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0;margin-bottom:6px;font-size:13px">';
+  html += '<option value="">-- No parent (top-level captain) --</option>';
+  allCaps.forEach(function(c) {
+    var sel = c.id === captain.parent_captain_id ? ' selected' : '';
+    html += '<option value="' + c.id + '"' + sel + '>' + c.name + (c.is_shared ? ' (shared)' : '') + '</option>';
+  });
+  html += '</select>';
+  html += '<div style="font-size:11px;color:#64748b;margin-bottom:16px">All sub-captains under this captain will move with it.</div>';
+
+  html += '<div style="display:flex;gap:8px">';
+  html += '<button id="moveCapSave" class="btn btn-primary" style="flex:1">Move</button>';
+  html += '<button id="moveCapCancel" class="btn btn-secondary" style="flex:0 0 auto">Cancel</button>';
+  html += '</div>';
+
+  box.innerHTML = html;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  document.getElementById('moveCapCancel').onclick = function() { overlay.remove(); };
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('moveCapSave').onclick = async function() {
+    var newCandidateId = document.getElementById('moveCandidateSelect').value;
+    var newParentId = document.getElementById('moveParentSelect').value;
+    var body = {};
+    if (newCandidateId) body.candidate_id = parseInt(newCandidateId);
+    if (newParentId) { body.parent_captain_id = parseInt(newParentId); } else { body.parent_captain_id = null; }
+
+    try {
+      await apiPut('/api/captains/' + captain.id + '/reassign', body);
+      overlay.remove();
+      var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+      showCandidateDetail(_candidateDetailId, detailName);
+      loadCandidates();
+    } catch (e) { alert('Error moving captain: ' + (e.message || e)); }
+  };
+}
+
+// Share captain with other candidates modal
+async function showShareCaptainWithCandidatesModal(captain, currentCandidateId) {
+  var existing = document.getElementById('shareCaptainOverlay');
+  if (existing) existing.remove();
+
+  var candData = await api('/api/candidates');
+  var allCandidates = (candData.candidates || []).filter(function(c) { return c.is_active && c.id !== currentCandidateId; });
+  var sharedData = await api('/api/captains/' + captain.id + '/shared-candidates');
+  var sharedIds = (sharedData.shared || []).map(function(s) { return s.candidate_id; });
+
+  var overlay = document.createElement('div');
+  overlay.id = 'shareCaptainOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:420px;width:90%';
+
+  var html = '<h3 style="font-size:17px;margin-bottom:6px">Share Captain: ' + captain.name + '</h3>';
+  html += '<p style="font-size:12px;color:#94a3b8;margin-bottom:16px">Select candidates to share this captain with. They will see this captain and their lists.</p>';
+
+  if (allCandidates.length === 0) {
+    html += '<div style="color:#64748b;font-size:13px;padding:16px 0;text-align:center">No other candidates available</div>';
+  } else {
+    allCandidates.forEach(function(c) {
+      var checked = sharedIds.indexOf(c.id) >= 0 ? ' checked' : '';
+      html += '<label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:8px;margin-bottom:4px" onmouseover="this.style.background=\'#0f172a\'" onmouseout="this.style.background=\'\'">';
+      html += '<input type="checkbox" class="share-cap-check" data-cid="' + c.id + '"' + checked + ' style="width:16px;height:16px">';
+      html += '<span style="font-size:13px">' + c.name + (c.office ? ' <span style="color:#64748b">(' + c.office + ')</span>' : '') + '</span>';
+      html += '</label>';
+    });
+  }
+
+  html += '<div style="display:flex;gap:8px;margin-top:16px">';
+  html += '<button id="shareCapSave" class="btn btn-primary" style="flex:1">Save</button>';
+  html += '<button id="shareCapCancel" class="btn btn-secondary" style="flex:0 0 auto">Cancel</button>';
+  html += '</div>';
+
+  box.innerHTML = html;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  document.getElementById('shareCapCancel').onclick = function() { overlay.remove(); };
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  document.getElementById('shareCapSave').onclick = async function() {
+    var checks = box.querySelectorAll('.share-cap-check');
+    try {
+      for (var i = 0; i < checks.length; i++) {
+        var cid = parseInt(checks[i].getAttribute('data-cid'));
+        var wasShared = sharedIds.indexOf(cid) >= 0;
+        var isChecked = checks[i].checked;
+        if (isChecked && !wasShared) {
+          await apiPost('/api/captains/' + captain.id + '/share', { candidate_id: cid });
+        } else if (!isChecked && wasShared) {
+          await apiDelete('/api/captains/' + captain.id + '/share/' + cid);
+        }
+      }
+      overlay.remove();
+      var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+      showCandidateDetail(_candidateDetailId, detailName);
+      loadCandidates();
+    } catch (e) { alert('Error sharing captain: ' + (e.message || e)); }
+  };
+}
+
+// Admin delete a captain's list
+async function adminDeleteCaptainList(captainId, listId, listName) {
+  if (!confirm('Delete list "' + listName + '" and all its voters? This cannot be undone.')) return;
+  try {
+    await apiDelete('/api/captains/' + captainId + '/admin-lists/' + listId);
+    var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+    showCandidateDetail(_candidateDetailId, detailName);
+  } catch (e) { alert('Error deleting list: ' + (e.message || e)); }
 }
 
 async function addCaptainToCandidate() {

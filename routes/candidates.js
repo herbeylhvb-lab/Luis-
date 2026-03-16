@@ -135,15 +135,24 @@ router.delete('/candidates/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// List captains for a candidate (admin view)
+// List captains for a candidate (admin view) — includes shared captains
 router.get('/candidates/:id/captains', (req, res) => {
-  const captains = db.prepare(`
-    SELECT c.*, pc.name as parent_captain_name
+  const ownCaptains = db.prepare(`
+    SELECT c.*, pc.name as parent_captain_name, 0 as is_shared
     FROM captains c
     LEFT JOIN captains pc ON c.parent_captain_id = pc.id
     WHERE c.candidate_id = ?
     ORDER BY c.created_at DESC
   `).all(req.params.id);
+  const sharedCaptains = db.prepare(`
+    SELECT c.*, pc.name as parent_captain_name, 1 as is_shared
+    FROM captains c
+    LEFT JOIN captains pc ON c.parent_captain_id = pc.id
+    JOIN captain_candidates cc ON c.id = cc.captain_id
+    WHERE cc.candidate_id = ?
+    ORDER BY c.created_at DESC
+  `).all(req.params.id);
+  const captains = ownCaptains.concat(sharedCaptains);
 
   for (const c of captains) {
     c.lists = db.prepare(`
@@ -166,7 +175,7 @@ router.get('/candidates/:id/captains', (req, res) => {
     `).get(c.id) || { n: 0 }).n;
   }
 
-  // Aggregate totals across all captains
+  // Aggregate totals across all captains (own + shared)
   const totals = db.prepare(`
     SELECT COUNT(DISTINCT clv.voter_id) as total_voters,
       COUNT(DISTINCT CASE WHEN v.early_voted = 1 THEN clv.voter_id END) as total_voted
@@ -240,11 +249,18 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
 
   req.session.candidateId = candidate.id;
 
-  // Load dashboard data
-  const captains = db.prepare(`
-    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id
+  // Load dashboard data — own captains + shared captains
+  const ownCaptains = db.prepare(`
+    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 0 as is_shared
     FROM captains c WHERE c.candidate_id = ? ORDER BY c.name
   `).all(candidate.id);
+  const sharedCaptainsLogin = db.prepare(`
+    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 1 as is_shared
+    FROM captains c
+    JOIN captain_candidates cc ON c.id = cc.captain_id
+    WHERE cc.candidate_id = ? ORDER BY c.name
+  `).all(candidate.id);
+  const captains = ownCaptains.concat(sharedCaptainsLogin);
 
   for (const c of captains) {
     c.lists = db.prepare(`
@@ -274,29 +290,37 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(candidate.id);
 
-  // Aggregate stats
+  // Aggregate stats (include shared captain voters)
   const allVoterCount = (db.prepare(`
     SELECT COUNT(DISTINCT voter_id) as n FROM (
       SELECT clv.voter_id FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
       UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captain_candidates cc ON cl.captain_id = cc.captain_id WHERE cc.candidate_id = ?
+      UNION
       SELECT alv.voter_id FROM admin_list_voters alv
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
     )
-  `).get(candidate.id, candidate.id) || { n: 0 }).n;
+  `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
   const totalVoted = (db.prepare(`
     SELECT COUNT(DISTINCT sub.voter_id) as n FROM (
       SELECT clv.voter_id FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
       UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captain_candidates cc ON cl.captain_id = cc.captain_id WHERE cc.candidate_id = ?
+      UNION
       SELECT alv.voter_id FROM admin_list_voters alv
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
     ) sub
     JOIN voters v ON sub.voter_id = v.id
     WHERE v.early_voted = 1
-  `).get(candidate.id, candidate.id) || { n: 0 }).n;
+  `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
   const stats = {
     total_captains: captains.length,
     total_voters: allVoterCount,
@@ -313,10 +337,18 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
   const candidate = db.prepare('SELECT * FROM candidates WHERE id = ?').get(req.params.id);
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
 
-  const captains = db.prepare(`
-    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id
+  // Own captains + shared captains
+  const ownCapsPortal = db.prepare(`
+    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 0 as is_shared
     FROM captains c WHERE c.candidate_id = ? ORDER BY c.name
   `).all(candidate.id);
+  const sharedCapsPortal = db.prepare(`
+    SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 1 as is_shared
+    FROM captains c
+    JOIN captain_candidates cc ON c.id = cc.captain_id
+    WHERE cc.candidate_id = ? ORDER BY c.name
+  `).all(candidate.id);
+  const captains = ownCapsPortal.concat(sharedCapsPortal);
 
   for (const c of captains) {
     c.lists = db.prepare(`
@@ -326,7 +358,6 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
       WHERE cl.captain_id = ?
       GROUP BY cl.id ORDER BY cl.created_at DESC
     `).all(c.id);
-    // Total unique voters across all captain's lists
     c.total_voters = (db.prepare(`
       SELECT COUNT(DISTINCT voter_id) as n FROM captain_list_voters
       WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
@@ -347,29 +378,37 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(candidate.id);
 
-  // Aggregate stats for dashboard
+  // Aggregate stats for dashboard (include shared captain voters)
   const allVoterCount = (db.prepare(`
     SELECT COUNT(DISTINCT voter_id) as n FROM (
       SELECT clv.voter_id FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
       UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captain_candidates cc ON cl.captain_id = cc.captain_id WHERE cc.candidate_id = ?
+      UNION
       SELECT alv.voter_id FROM admin_list_voters alv
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
     )
-  `).get(candidate.id, candidate.id) || { n: 0 }).n;
+  `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
   const totalVoted = (db.prepare(`
     SELECT COUNT(DISTINCT sub.voter_id) as n FROM (
       SELECT clv.voter_id FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
       UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captain_candidates cc ON cl.captain_id = cc.captain_id WHERE cc.candidate_id = ?
+      UNION
       SELECT alv.voter_id FROM admin_list_voters alv
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
     ) sub
     JOIN voters v ON sub.voter_id = v.id
     WHERE v.early_voted = 1
-  `).get(candidate.id, candidate.id) || { n: 0 }).n;
+  `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
 
   const stats = {
     total_captains: captains.length,
