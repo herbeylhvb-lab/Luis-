@@ -1826,16 +1826,15 @@ router.post('/universe/build', (req, res) => {
       WHERE ev.election_date >= ?`).run(cutoffDate);
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_universe').get() || { c: 0 }).c;
 
-    // Step 3: Election Targeting — voter must have voted in ALL selected elections
+    // Step 3: Election Targeting — voter voted in ANY of the selected elections (OR logic)
     let targetedCount = universeCount;
     db.exec('DROP TABLE IF EXISTS _univ_targeted');
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
       db.exec('CREATE TEMP TABLE _univ_targeted (voter_id INTEGER PRIMARY KEY)');
       db.prepare(`INSERT INTO _univ_targeted
-        SELECT voter_id FROM election_votes
-        WHERE election_name IN (${ph}) AND voter_id IN (SELECT voter_id FROM _univ_universe)
-        GROUP BY voter_id HAVING COUNT(DISTINCT election_name) = ?`).run(...elecNames, elecNames.length);
+        SELECT DISTINCT voter_id FROM election_votes
+        WHERE election_name IN (${ph}) AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...elecNames);
       targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
     } else {
       db.exec('CREATE TEMP TABLE _univ_targeted AS SELECT * FROM _univ_universe');
@@ -1931,16 +1930,14 @@ router.post('/universe/preview', (req, res) => {
       WHERE ev.election_date >= ?`).run(cutoffDate);
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_universe').get() || { c: 0 }).c;
 
-    // Election targeting: voter must have voted in ALL selected elections (AND logic)
+    // Election targeting: voter voted in ANY of the selected elections (OR logic)
     let targetedCount = universeCount;
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
       targetedCount = (db.prepare(`
-        SELECT COUNT(*) as c FROM (
-          SELECT voter_id FROM election_votes
-          WHERE election_name IN (${ph}) AND voter_id IN (SELECT voter_id FROM _prev_universe)
-          GROUP BY voter_id HAVING COUNT(DISTINCT election_name) = ?
-        )`).get(...elecNames, elecNames.length) || { c: 0 }).c;
+        SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
+        WHERE election_name IN (${ph}) AND voter_id IN (SELECT voter_id FROM _prev_universe)
+      `).get(...elecNames) || { c: 0 }).c;
     }
 
     db.exec('DROP TABLE IF EXISTS _prev_precinct; DROP TABLE IF EXISTS _prev_universe');
