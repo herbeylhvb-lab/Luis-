@@ -3847,7 +3847,11 @@ const VOTER_COL_MAP = {
   'streetprefix':'_streetprefix','street prefix':'_streetprefix','street_prefix':'_streetprefix','streetdir':'_streetprefix','street direction':'_streetprefix',
   'streetname':'_streetname','street name':'_streetname','street_name':'_streetname',
   'streettype':'_streettype','street type':'_streettype','street_type':'_streettype','streetsuffix':'_streettype','street suffix':'_streettype',
-  'apt':'_apt','unit':'_apt','apartment':'_apt','suite':'_apt','apt number':'_apt','unit number':'_apt'
+  'apt':'_apt','unit':'_apt','apartment':'_apt','suite':'_apt','apt number':'_apt','unit number':'_apt',
+  // Demographics
+  'age':'age','voter age':'age','voter_age':'age',
+  'dob':'_dob','date of birth':'_dob','dateofbirth':'_dob','date_of_birth':'_dob','birthdate':'_dob','birth date':'_dob','birth_date':'_dob','birthday':'_dob',
+  'gender':'gender','sex':'gender','voter gender':'gender','voter_gender':'gender'
 };
 
 // Election history column pattern — columns like General24, Primary22Party, MayElection21, etc.
@@ -3870,6 +3874,17 @@ function parseVoterRow(header, cols, rawHeaders) {
     if (parts.length) v.address = parts.join(' ').trim();
   }
   if (!v.phone && v.secondary_phone) { v.phone = v.secondary_phone; v.secondary_phone = ''; }
+  // Calculate age from DOB if age not directly provided
+  if (!v.age && v._dob) {
+    var dob = new Date(v._dob);
+    if (!isNaN(dob.getTime())) {
+      var today = new Date();
+      var a = today.getFullYear() - dob.getFullYear();
+      var m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) a--;
+      if (a > 0 && a < 150) v.age = a;
+    }
+  }
   return v;
 }
 
