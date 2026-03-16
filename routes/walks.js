@@ -106,7 +106,7 @@ router.get('/walks/leaderboard', (req, res) => {
     SELECT
       walker_name as name,
       COUNT(*) as total_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters_found,
       MIN(attempted_at) as first_door,
       MAX(attempted_at) as last_door,
@@ -132,7 +132,7 @@ router.get('/walks/leaderboard', (req, res) => {
     SELECT
       COUNT(*) as total_attempts,
       COUNT(DISTINCT address_id) as unique_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as total_contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
@@ -298,7 +298,7 @@ function gpsDistance(lat1, lng1, lat2, lng2) {
 // Valid door-knock disposition values
 const VALID_RESULTS = new Set([
   'support', 'lean_support', 'undecided', 'lean_oppose',
-  'oppose', 'not_home', 'refused', 'moved', 'come_back'
+  'oppose', 'not_home', 'refused', 'moved', 'deceased', 'come_back'
 ]);
 
 const MAX_GPS_ACCURACY = 200; // ignore GPS worse than 200m
@@ -1033,7 +1033,7 @@ router.get('/walks/:id/attempt-stats', (req, res) => {
       COUNT(*) as total_attempts,
       COUNT(DISTINCT address_id) as unique_addresses,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home_count,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts_made,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts_made,
       COUNT(DISTINCT walker_name) as unique_walkers
     FROM walk_attempts WHERE walk_id = ?
   `).get(req.params.id);
@@ -1043,7 +1043,7 @@ router.get('/walks/:id/attempt-stats', (req, res) => {
     SELECT
       walker_name,
       COUNT(*) as attempts,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
       MIN(attempted_at) as first_attempt,
       MAX(attempted_at) as last_attempt
     FROM walk_attempts WHERE walk_id = ? AND walker_name != ''

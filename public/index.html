@@ -1887,7 +1887,7 @@ function scoreBadge(score) {
   return '<span class="badge ' + cls + '">' + score + '</span>';
 }
 function resultBadge(r) {
-  const colors = { not_visited:'badge-gray', not_home:'badge-yellow', supportive:'badge-green', undecided:'badge-yellow', opposed:'badge-red', moved:'badge-gray', refused:'badge-red', come_back:'badge-blue' };
+  const colors = { not_visited:'badge-gray', not_home:'badge-yellow', supportive:'badge-green', undecided:'badge-yellow', opposed:'badge-red', moved:'badge-gray', deceased:'badge-gray', refused:'badge-red', come_back:'badge-blue' };
   return '<span class="badge ' + (colors[r]||'badge-gray') + '">' + escHtml((r||'').replace(/_/g,' ')) + '</span>';
 }
 function statusBadge(s) {
