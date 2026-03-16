@@ -71,6 +71,12 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
       try {
         await provider.sendMessage(r.phone, personalMsg);
         db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'sms')").run(phoneDigits(r.phone), personalMsg);
+        // Log to voter profile if this is a voter (has voter_id)
+        if (r.voter_id) {
+          db.prepare(
+            'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+          ).run(r.voter_id, 'Broadcast Text', 'Sent', campaignName + ': ' + personalMsg.substring(0, 100), 'Broadcast');
+        }
         sent++;
       } catch (err) {
         failed++;

@@ -964,7 +964,31 @@ router.get('/voters/:id/touchpoints', (req, res) => {
     });
   }
 
-  // 4. Captain list membership (personal relationship)
+  // 4. Survey responses (matched by phone)
+  if (voter.phone) {
+    const surveyData = db.prepare(`
+      SELECT s.name as survey_name, ss.status, ss.sent_at, ss.completed_at,
+        GROUP_CONCAT(sq.question_text || ': ' || sr.response_text, '; ') as responses
+      FROM survey_sends ss
+      JOIN surveys s ON ss.survey_id = s.id
+      LEFT JOIN survey_responses sr ON sr.send_id = ss.id
+      LEFT JOIN survey_questions sq ON sr.question_id = sq.id
+      WHERE ss.phone = ?
+      GROUP BY ss.id
+      ORDER BY ss.sent_at DESC
+    `).all(voter.phone);
+    for (const sv of surveyData) {
+      touchpoints.push({
+        channel: 'Survey',
+        result: sv.status === 'completed' ? 'Completed' : 'Sent',
+        notes: sv.survey_name + (sv.responses ? ' — ' + sv.responses.substring(0, 150) : ''),
+        by: 'Campaign',
+        date: sv.completed_at || sv.sent_at
+      });
+    }
+  }
+
+  // 5. Captain list membership (personal relationship)
   const captainLists = db.prepare(`
     SELECT cl.name as list_name, c.name as captain_name, clv.added_at as date
     FROM captain_list_voters clv
