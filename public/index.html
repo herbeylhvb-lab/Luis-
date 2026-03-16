@@ -56,7 +56,7 @@ a{color:#818cf8;text-decoration:none}
 .btn-secondary{background:#334155;color:#e2e8f0}
 .btn-warning{background:#f59e0b;color:#000}
 .btn-sm{padding:6px 14px;font-size:13px}
-.btn-xs{padding:4px 10px;font-size:12px}
+.btn-xs{padding:10px 14px;font-size:12px;min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center}
 /* Table */
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -6743,6 +6743,7 @@ async function adminDeleteCaptainList(captainId, listId, listName) {
     await apiDelete('/api/captains/' + captainId + '/admin-lists/' + listId);
     var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
     showCandidateDetail(_candidateDetailId, detailName);
+    loadCandidates();
   } catch (e) { alert('Error deleting list: ' + (e.message || e)); }
 }
 

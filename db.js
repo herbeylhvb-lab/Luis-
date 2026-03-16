@@ -642,6 +642,15 @@ db.exec(`
   );
 `);
 
+// --- Broadcast campaigns indexes ---
+try {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_broadcast_status ON broadcast_campaigns(status);
+    CREATE INDEX IF NOT EXISTS idx_broadcast_list ON broadcast_campaigns(list_id);
+    CREATE INDEX IF NOT EXISTS idx_broadcast_created ON broadcast_campaigns(created_at);
+  `);
+} catch (e) { /* indexes already exist */ }
+
 // --- Channel tracking (SMS vs WhatsApp dual-send) ---
 addColumn("ALTER TABLE messages ADD COLUMN channel TEXT DEFAULT 'sms'");
 // contacts.email already added at line 311; skip duplicate

@@ -176,8 +176,10 @@ router.put('/captains/:id/reassign', (req, res) => {
 
   // Prevent setting parent to self or own descendant (cycle detection)
   if (parent_captain_id !== undefined && parent_captain_id !== null) {
+    // Validate parent exists
+    const parentExists = db.prepare('SELECT id FROM captains WHERE id = ?').get(parent_captain_id);
+    if (!parentExists) return res.status(404).json({ error: 'Parent captain not found.' });
     // Walk up from proposed parent to make sure we don't hit this captain
-    let check = db.prepare('SELECT parent_captain_id FROM captains WHERE id = ?').get(parent_captain_id);
     let current = parent_captain_id;
     while (current) {
       if (current === captain.id) return res.status(400).json({ error: 'Cannot move captain under its own descendant.' });
@@ -186,28 +188,40 @@ router.put('/captains/:id/reassign', (req, res) => {
     }
   }
 
-  // Update parent_captain_id if provided
-  if (parent_captain_id !== undefined) {
-    db.prepare('UPDATE captains SET parent_captain_id = ? WHERE id = ?').run(parent_captain_id, captain.id);
-  }
+  try {
+    const doReassign = db.transaction(() => {
+      // Update parent_captain_id if provided
+      if (parent_captain_id !== undefined) {
+        db.prepare('UPDATE captains SET parent_captain_id = ? WHERE id = ?').run(parent_captain_id, captain.id);
+      }
 
-  // Update candidate_id if provided — also recursively update all descendants
-  if (candidate_id !== undefined) {
-    const updateDescendants = db.transaction(() => {
-      db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, captain.id);
-      // Recursively update all sub-captains using a CTE
-      const descendants = db.prepare(`
-        WITH RECURSIVE subs AS (
-          SELECT id FROM captains WHERE parent_captain_id = ?
-          UNION ALL
-          SELECT c.id FROM captains c JOIN subs s ON c.parent_captain_id = s.id
-        ) SELECT id FROM subs
-      `).all(captain.id);
-      for (const d of descendants) {
-        db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, d.id);
+      // Update candidate_id if provided — also recursively update all descendants
+      if (candidate_id !== undefined) {
+        db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, captain.id);
+        // Get all descendant IDs
+        const descendants = db.prepare(`
+          WITH RECURSIVE subs AS (
+            SELECT id FROM captains WHERE parent_captain_id = ?
+            UNION ALL
+            SELECT c.id FROM captains c JOIN subs s ON c.parent_captain_id = s.id
+          ) SELECT id FROM subs
+        `).all(captain.id);
+        for (const d of descendants) {
+          db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, d.id);
+        }
+
+        // Clean up captain_candidates conflicts:
+        // If captain is now primary for this candidate, remove the share entry
+        db.prepare('DELETE FROM captain_candidates WHERE captain_id = ? AND candidate_id = ?').run(captain.id, candidate_id);
+        // Same for all descendants
+        for (const d of descendants) {
+          db.prepare('DELETE FROM captain_candidates WHERE captain_id = ? AND candidate_id = ?').run(d.id, candidate_id);
+        }
       }
     });
-    updateDescendants();
+    doReassign();
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to reassign captain: ' + e.message });
   }
 
   const parts = [];

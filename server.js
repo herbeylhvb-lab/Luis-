@@ -20,12 +20,15 @@ app.use(helmet({
 const ALLOWED_ORIGINS = [
   process.env.APP_URL,
 ].filter(Boolean);
+if (ALLOWED_ORIGINS.length === 0) console.warn('[WARN] APP_URL env var not set — CORS will allow all origins. Set APP_URL in production.');
 
 app.use(cors({
   credentials: true,
   origin: function(origin, callback) {
-    // Allow same-origin requests (no origin header) and allowed origins
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Allow same-origin requests (no origin header)
+    if (!origin) return callback(null, true);
+    // If APP_URL is configured, enforce it; otherwise allow all origins
+    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(null, false);
   }
 }));
@@ -36,11 +39,13 @@ const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 
 const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { error: 'Rate limit exceeded.' } });
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
-// Bulk import paths need a higher body limit (50mb); skip the default 2mb parser for them
+// Bulk import paths get a higher body limit (50mb); all others get 2mb
 const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich'];
+const bulkJsonParserEarly = express.json({ limit: '50mb' });
+const defaultJsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
-  if (BULK_PATHS.some(p => req.path.startsWith(p))) return next();
-  express.json({ limit: '2mb' })(req, res, next);
+  if (BULK_PATHS.some(p => req.path.startsWith(p))) return bulkJsonParserEarly(req, res, next);
+  defaultJsonParser(req, res, next);
 });
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 
@@ -66,7 +71,7 @@ app.use(session({
   cookie: {
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production'
   }
 }));
@@ -186,14 +191,6 @@ const { generateJoinCode, asyncHandler, phoneDigits } = require('./utils');
 const STOP_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
 
 // --- Mount API routes ---
-// Bulk import endpoints get a higher body limit for large CSV/voter file uploads
-const bulkJsonParser = express.json({ limit: '50mb' });
-app.use('/api/voters/import', bulkJsonParser);
-app.use('/api/voters/import-canvass', bulkJsonParser);
-app.use('/api/election-votes/import', bulkJsonParser);
-app.use('/api/election-votes/import-turnout', bulkJsonParser);
-app.use('/api/early-voting/import', bulkJsonParser);
-app.use('/api/voters/enrich', bulkJsonParser);
 
 app.use('/api', require('./routes/contacts'));
 // Rate limit public join endpoints
