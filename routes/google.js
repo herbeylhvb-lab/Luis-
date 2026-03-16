@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
+const { randomBytes } = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const db = require('../db');
+const { asyncHandler } = require('../utils');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,9 +27,14 @@ router.get('/auth/google', (req, res) => {
   const client = getOAuthClient();
   if (!client) return res.status(500).json({ error: 'Google OAuth not configured.' });
 
+  // Generate CSRF state token to prevent OAuth redirect attacks
+  const state = randomBytes(16).toString('hex');
+  req.session.oauthState = state;
+
   const url = client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
+    state,
     scope: [
       'openid',
       'https://www.googleapis.com/auth/userinfo.profile',
@@ -42,13 +49,19 @@ router.get('/auth/google', (req, res) => {
 // ---------------------------------------------------------------------------
 // 2. Google OAuth callback
 // ---------------------------------------------------------------------------
-router.get('/auth/google/callback', async (req, res) => {
+router.get('/auth/google/callback', asyncHandler(async (req, res) => {
   const client = getOAuthClient();
   if (!client) return res.redirect('/login?error=google_not_configured');
 
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   if (error) return res.redirect(`/login?error=${encodeURIComponent(error)}`);
   if (!code) return res.redirect('/login?error=no_code');
+
+  // Verify CSRF state token
+  if (!state || state !== req.session.oauthState) {
+    return res.redirect('/login?error=invalid_state');
+  }
+  delete req.session.oauthState;
 
   try {
     // Exchange code for tokens
@@ -124,12 +137,12 @@ router.get('/auth/google/callback', async (req, res) => {
     console.error('Google OAuth error:', err.message);
     res.redirect('/login?error=oauth_failed');
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // 3. Google Sheets — Setup (create spreadsheet)
 // ---------------------------------------------------------------------------
-router.post('/google/sheets/setup', async (req, res) => {
+router.post('/google/sheets/setup', asyncHandler(async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not logged in.' });
 
   try {
@@ -152,7 +165,7 @@ router.post('/google/sheets/setup', async (req, res) => {
     console.error('Sheets setup error:', err.message);
     res.status(500).json({ error: 'Failed to create Google Sheet: ' + err.message });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // 4. Google Sheets — Status
@@ -180,7 +193,7 @@ router.get('/google/sheets/status', (req, res) => {
 // ---------------------------------------------------------------------------
 // 5. Google Sheets — Manual sync
 // ---------------------------------------------------------------------------
-router.post('/google/sheets/sync', async (req, res) => {
+router.post('/google/sheets/sync', asyncHandler(async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not logged in.' });
 
   try {
@@ -207,7 +220,7 @@ router.post('/google/sheets/sync', async (req, res) => {
     console.error('Sheets sync error:', err.message);
     res.status(500).json({ error: 'Sync failed: ' + err.message });
   }
-});
+}));
 
 // ---------------------------------------------------------------------------
 // 6. Google Sheets — Toggle auto-sync
@@ -229,7 +242,7 @@ router.post('/google/sheets/toggle', (req, res) => {
 // ---------------------------------------------------------------------------
 // 7. Google Sheets — Import from Sheet (disaster recovery)
 // ---------------------------------------------------------------------------
-router.post('/google/sheets/import', async (req, res) => {
+router.post('/google/sheets/import', asyncHandler(async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ error: 'Not logged in.' });
 
   try {
@@ -251,6 +264,6 @@ router.post('/google/sheets/import', async (req, res) => {
     console.error('Sheets import error:', err.message);
     res.status(500).json({ error: 'Import failed: ' + err.message });
   }
-});
+}));
 
 module.exports = router;
