@@ -368,6 +368,8 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   // Normalize phone to 10-digit for matching against stored contacts
   const fromNormalized = phoneDigits(From);
 
+  try {
+
   const msgText = (Body || '').trim().toLowerCase();
   if (STOP_KEYWORDS.includes(msgText)) {
     db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(fromNormalized);
@@ -488,6 +490,11 @@ app.post('/incoming', webhookLimiter, (req, res) => {
     return res.type(replyType).send(provider.buildReply(autoReply));
   }
   res.type(replyType).send(provider.buildEmptyReply());
+
+  } catch (err) {
+    console.error('Webhook processing error:', err.message);
+    res.type(replyType).send(provider.buildEmptyReply());
+  }
 });
 
 // --- Messages & opt-outs ---

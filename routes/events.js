@@ -97,19 +97,24 @@ router.get('/events/:id/flyer', (req, res) => {
   const event = db.prepare('SELECT flyer_image FROM events WHERE id = ?').get(req.params.id);
   if (!event || !event.flyer_image) return res.status(404).json({ error: 'No flyer image.' });
 
-  // flyer_image stored as "data:image/png;base64,..." or "data:image/jpeg;base64,..."
-  const matches = event.flyer_image.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
-  if (matches) {
-    const mimeType = matches[1] === 'jpg' ? 'jpeg' : matches[1];
-    const buffer = Buffer.from(matches[2], 'base64');
-    res.set('Content-Type', 'image/' + mimeType);
-    res.set('Cache-Control', 'public, max-age=3600');
-    res.send(buffer);
-  } else {
-    // Assume raw base64 PNG
-    const buffer = Buffer.from(event.flyer_image, 'base64');
-    res.set('Content-Type', 'image/png');
-    res.send(buffer);
+  try {
+    // flyer_image stored as "data:image/png;base64,..." or "data:image/jpeg;base64,..."
+    const matches = event.flyer_image.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/);
+    if (matches) {
+      const mimeType = matches[1] === 'jpg' ? 'jpeg' : matches[1];
+      const buffer = Buffer.from(matches[2], 'base64');
+      res.set('Content-Type', 'image/' + mimeType);
+      res.set('Cache-Control', 'public, max-age=3600');
+      res.send(buffer);
+    } else {
+      // Assume raw base64 PNG
+      const buffer = Buffer.from(event.flyer_image, 'base64');
+      res.set('Content-Type', 'image/png');
+      res.send(buffer);
+    }
+  } catch (err) {
+    console.error('Flyer decode error:', err.message);
+    res.status(500).json({ error: 'Failed to decode flyer image.' });
   }
 });
 
