@@ -7928,7 +7928,7 @@ async function loadSurveyResults(id) {
       const maxScore = Math.max(1, sorted[0] ? sorted[0][1].score : 1);
       html += '<div style="font-size:12px;color:#64748b;margin-bottom:8px">Ranked by weighted score (1st place = most points)</div>';
       sorted.forEach(([key, val], rank) => {
-        const posInfo = Object.entries(val.positions).map(([p, c]) => ordinal(p) + ': ' + c).join(', ');
+        const posInfo = val.positions ? Object.entries(val.positions).map(([p, c]) => ordinal(p) + ': ' + c).join(', ') : '';
         html += '<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:13px"><span><strong style="color:#f59e0b">#' + (rank + 1) + '</strong> ' + escHtml(val.text) + '</span><span style="color:#94a3b8">Score: ' + val.score + (posInfo ? ' (' + posInfo + ')' : '') + '</span></div><div class="progress-bar"><div class="progress-fill blue" style="width:' + (val.score / maxScore * 100) + '%"></div></div></div>';
       });
     } else if (r.question.question_type !== 'write_in' && Object.keys(r.tally).length > 0) {

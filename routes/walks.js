@@ -229,6 +229,12 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
   if (!result) return res.status(400).json({ error: 'Result is required.' });
   if (!VALID_RESULTS.has(result)) return res.status(400).json({ error: 'Invalid result value.' });
 
+  // Verify walker is a group member (if walker_name provided and group exists)
+  if (walker_name) {
+    const member = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').get(req.params.walkId, walker_name);
+    if (!member) return res.status(403).json({ error: 'Not a member of this walk group.' });
+  }
+
   const addr = db.prepare('SELECT * FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
   if (!addr) return res.status(404).json({ error: 'Address not found.' });
 
@@ -736,6 +742,10 @@ router.post('/walks/:id/location', (req, res) => {
   }
   const walk = db.prepare('SELECT id FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  // Verify the walker is a member of this walk group
+  const member = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').get(req.params.id, walker_name);
+  if (!member) return res.status(403).json({ error: 'Not a member of this walk group.' });
 
   db.prepare(`
     INSERT INTO walker_locations (walk_id, walker_name, lat, lng, accuracy, updated_at)

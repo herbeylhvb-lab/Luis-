@@ -1267,7 +1267,11 @@ router.post('/voters/custom-columns', (req, res) => {
 
   // Sanitize: only allow alphanumeric + underscores, must start with letter
   const clean = column_name.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^[^a-z]+/, '').replace(/_+/g, '_').replace(/_$/, '');
-  if (!clean || clean.length < 2) return res.status(400).json({ error: 'Invalid column name. Must be at least 2 characters, start with a letter, and contain only letters, numbers, and underscores.' });
+  if (!clean || clean.length < 2 || clean.length > 64) return res.status(400).json({ error: 'Invalid column name. Must be 2-64 characters, start with a letter, and contain only letters, numbers, and underscores.' });
+
+  // Block SQLite reserved words to prevent SQL syntax issues
+  const reserved = new Set(['select','from','where','insert','update','delete','drop','alter','create','table','index','join','left','right','inner','outer','on','and','or','not','null','default','primary','key','references','foreign','unique','check','constraint','group','order','by','having','limit','offset','union','all','as','case','when','then','else','end','in','between','like','is','exists','values','into','set','column','add','text','integer','real','blob']);
+  if (reserved.has(clean)) return res.status(400).json({ error: 'Column name "' + clean + '" is a reserved word.' });
 
   // Check if it already exists
   const existing = getVoterColumns();
