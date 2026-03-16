@@ -290,8 +290,9 @@ router.delete('/captains/:id', (req, res) => {
   if (!captain) return res.status(404).json({ error: 'Captain not found.' });
   // Re-parent sub-captains to this captain's parent (or NULL if top-level), preventing orphans
   db.prepare('UPDATE captains SET parent_captain_id = ? WHERE parent_captain_id = ?').run(captain.parent_captain_id || null, captain.id);
-  // Clean up admin lists assigned to this captain
+  // Clean up admin lists and shared candidate entries
   db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE assigned_captain_id = ?').run(captain.id);
+  db.prepare('DELETE FROM captain_candidates WHERE captain_id = ?').run(captain.id);
   db.prepare('DELETE FROM captains WHERE id = ?').run(captain.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Block Captain removed: ' + captain.name);
   res.json({ success: true });
@@ -992,9 +993,10 @@ router.delete('/captains/:id/team/:memberId', requireCaptainAuth, (req, res) => 
     // Find matching sub-captain by name AND parent — use LIMIT 1 for safety
     const subCaptain = db.prepare('SELECT id FROM captains WHERE name = ? AND parent_captain_id = ? LIMIT 1').get(member.name, req.params.id);
     if (subCaptain) {
-      // Re-parent any sub-sub-captains to the grandparent before deleting
-      db.prepare('UPDATE captains SET parent_captain_id = ? WHERE parent_captain_id = ?').run(parseInt(req.params.id), subCaptain.id);
+      // Re-parent any sub-sub-captains to the current captain (grandparent) before deleting
+      db.prepare('UPDATE captains SET parent_captain_id = ? WHERE parent_captain_id = ?').run(req.params.id, subCaptain.id);
       db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE assigned_captain_id = ?').run(subCaptain.id);
+      db.prepare('DELETE FROM captain_candidates WHERE captain_id = ?').run(subCaptain.id);
       db.prepare('DELETE FROM captains WHERE id = ?').run(subCaptain.id);
     }
   });
