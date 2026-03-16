@@ -122,8 +122,10 @@ router.put('/walks/:id', (req, res) => {
 
 // Delete a walk
 router.delete('/walks/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM block_walks WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Walk not found.' });
+  const walk = db.prepare('SELECT name FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+  db.prepare('DELETE FROM block_walks WHERE id = ?').run(req.params.id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Block walk deleted: ' + (walk.name || req.params.id));
   res.json({ success: true });
 });
 

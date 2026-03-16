@@ -204,6 +204,11 @@ router.put('/events/:id/rsvps/:rsvpId', (req, res) => {
   if (!rsvp_status || !validStatuses.includes(rsvp_status)) {
     return res.status(400).json({ error: 'Invalid RSVP status. Must be: ' + validStatuses.join(', ') });
   }
+  // Prevent changing status after check-in (attended)
+  const existing = db.prepare('SELECT rsvp_status FROM event_rsvps WHERE id = ? AND event_id = ?').get(req.params.rsvpId, req.params.id);
+  if (existing && existing.rsvp_status === 'attended' && rsvp_status !== 'attended') {
+    return res.status(400).json({ error: 'Cannot change status after check-in.' });
+  }
   const result = db.prepare(
     'UPDATE event_rsvps SET rsvp_status = ?, responded_at = datetime(\'now\') WHERE id = ? AND event_id = ?'
   ).run(rsvp_status, req.params.rsvpId, req.params.id);
