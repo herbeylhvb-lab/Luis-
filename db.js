@@ -737,5 +737,18 @@ try {
   }
 } catch (e) { console.error('[migration] election_cycle backfill error:', e.message); }
 
+// --- Shared captains across candidates (many-to-many) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS captain_candidates (
+    id INTEGER PRIMARY KEY,
+    captain_id INTEGER NOT NULL REFERENCES captains(id) ON DELETE CASCADE,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    shared_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(captain_id, candidate_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_cc_captain ON captain_candidates(captain_id);
+  CREATE INDEX IF NOT EXISTS idx_cc_candidate ON captain_candidates(candidate_id);
+`);
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

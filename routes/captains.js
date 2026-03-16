@@ -168,6 +168,108 @@ router.put('/captains/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Reassign captain to different candidate and/or parent captain
+router.put('/captains/:id/reassign', (req, res) => {
+  const { candidate_id, parent_captain_id } = req.body;
+  const captain = db.prepare('SELECT id, name, candidate_id, parent_captain_id FROM captains WHERE id = ?').get(req.params.id);
+  if (!captain) return res.status(404).json({ error: 'Captain not found.' });
+
+  // Prevent setting parent to self or own descendant (cycle detection)
+  if (parent_captain_id !== undefined && parent_captain_id !== null) {
+    // Walk up from proposed parent to make sure we don't hit this captain
+    let check = db.prepare('SELECT parent_captain_id FROM captains WHERE id = ?').get(parent_captain_id);
+    let current = parent_captain_id;
+    while (current) {
+      if (current === captain.id) return res.status(400).json({ error: 'Cannot move captain under its own descendant.' });
+      const row = db.prepare('SELECT parent_captain_id FROM captains WHERE id = ?').get(current);
+      current = row ? row.parent_captain_id : null;
+    }
+  }
+
+  // Update parent_captain_id if provided
+  if (parent_captain_id !== undefined) {
+    db.prepare('UPDATE captains SET parent_captain_id = ? WHERE id = ?').run(parent_captain_id, captain.id);
+  }
+
+  // Update candidate_id if provided — also recursively update all descendants
+  if (candidate_id !== undefined) {
+    const updateDescendants = db.transaction(() => {
+      db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, captain.id);
+      // Recursively update all sub-captains using a CTE
+      const descendants = db.prepare(`
+        WITH RECURSIVE subs AS (
+          SELECT id FROM captains WHERE parent_captain_id = ?
+          UNION ALL
+          SELECT c.id FROM captains c JOIN subs s ON c.parent_captain_id = s.id
+        ) SELECT id FROM subs
+      `).all(captain.id);
+      for (const d of descendants) {
+        db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, d.id);
+      }
+    });
+    updateDescendants();
+  }
+
+  const parts = [];
+  if (candidate_id !== undefined) parts.push('candidate');
+  if (parent_captain_id !== undefined) parts.push('parent captain');
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Captain "' + captain.name + '" reassigned (' + parts.join(' & ') + ')'
+  );
+  res.json({ success: true });
+});
+
+// Share captain with additional candidate
+router.post('/captains/:id/share', (req, res) => {
+  const { candidate_id } = req.body;
+  if (!candidate_id) return res.status(400).json({ error: 'candidate_id is required.' });
+  const captain = db.prepare('SELECT id, name, candidate_id FROM captains WHERE id = ?').get(req.params.id);
+  if (!captain) return res.status(404).json({ error: 'Captain not found.' });
+  if (captain.candidate_id === candidate_id) return res.status(400).json({ error: 'Captain already belongs to this candidate.' });
+  const candidate = db.prepare('SELECT id, name FROM candidates WHERE id = ?').get(candidate_id);
+  if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
+
+  try {
+    db.prepare('INSERT INTO captain_candidates (captain_id, candidate_id) VALUES (?, ?)').run(captain.id, candidate_id);
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Already shared with this candidate.' });
+    throw e;
+  }
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Captain "' + captain.name + '" shared with candidate "' + candidate.name + '"'
+  );
+  res.json({ success: true });
+});
+
+// Unshare captain from candidate
+router.delete('/captains/:id/share/:candidateId', (req, res) => {
+  const result = db.prepare('DELETE FROM captain_candidates WHERE captain_id = ? AND candidate_id = ?')
+    .run(req.params.id, req.params.candidateId);
+  if (result.changes === 0) return res.status(404).json({ error: 'Share not found.' });
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Captain share removed');
+  res.json({ success: true });
+});
+
+// Get candidates a captain is shared with
+router.get('/captains/:id/shared-candidates', (req, res) => {
+  const shared = db.prepare(`
+    SELECT cc.candidate_id, c.name, c.office, cc.shared_at
+    FROM captain_candidates cc
+    JOIN candidates c ON cc.candidate_id = c.id
+    WHERE cc.captain_id = ?
+  `).all(req.params.id);
+  res.json({ shared });
+});
+
+// Admin delete a captain's list (no captain auth required)
+router.delete('/captains/:captainId/admin-lists/:listId', (req, res) => {
+  const list = db.prepare('SELECT id, name FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.captainId);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  db.prepare('DELETE FROM captain_lists WHERE id = ?').run(list.id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Admin deleted captain list: ' + list.name);
+  res.json({ success: true });
+});
+
 // Delete captain (cascades lists via FK)
 router.delete('/captains/:id', (req, res) => {
   const captain = db.prepare('SELECT name FROM captains WHERE id = ?').get(req.params.id);
