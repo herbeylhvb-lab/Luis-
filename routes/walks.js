@@ -258,37 +258,39 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
   const knocked_at = new Date().toISOString();
 
-  // Update the walk address
-  db.prepare(`
-    UPDATE walk_addresses SET
-      result = ?, notes = ?, knocked_at = ?,
-      gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
-    WHERE id = ? AND walk_id = ?
-  `).run(result, notes || '', knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
+  // Wrap address update + voter contact log in a transaction for atomicity
+  const logKnock = db.transaction(() => {
+    // Update the walk address
+    db.prepare(`
+      UPDATE walk_addresses SET
+        result = ?, notes = ?, knocked_at = ?,
+        gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
+      WHERE id = ? AND walk_id = ?
+    `).run(result, notes || '', knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
 
-  // Auto-log voter contact if voter_id is linked
-  if (addr.voter_id) {
-    // Map walk results to voter contact results
-    const contactResult = {
-      'support': 'Strong Support', 'lean_support': 'Lean Support',
-      'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
-      'oppose': 'Strong Oppose', 'not_home': 'Not Home',
-      'refused': 'Refused', 'moved': 'Moved', 'come_back': 'Come Back'
-    }[result] || result;
+    // Auto-log voter contact if voter_id is linked
+    if (addr.voter_id) {
+      const contactResult = {
+        'support': 'Strong Support', 'lean_support': 'Lean Support',
+        'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
+        'oppose': 'Strong Oppose', 'not_home': 'Not Home',
+        'refused': 'Refused', 'moved': 'Moved', 'come_back': 'Come Back'
+      }[result] || result;
 
-    db.prepare(
-      'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
-    ).run(addr.voter_id, 'Door-knock', contactResult, notes || '', walker_name || 'Block Walker');
+      db.prepare(
+        'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+      ).run(addr.voter_id, 'Door-knock', contactResult, notes || '', walker_name || 'Block Walker');
 
-    // Update support level if it's a support disposition
-    const supportMap = {
-      'support': 'strong_support', 'lean_support': 'lean_support',
-      'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose'
-    };
-    if (supportMap[result]) {
-      db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[result], addr.voter_id);
+      const supportMap = {
+        'support': 'strong_support', 'lean_support': 'lean_support',
+        'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose'
+      };
+      if (supportMap[result]) {
+        db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[result], addr.voter_id);
+      }
     }
-  }
+  });
+  logKnock();
 
   res.json({ success: true, gps_verified });
 });
@@ -600,7 +602,8 @@ router.get('/walks/:id/walker/:name/route', (req, res) => {
   if (waypoints.length >= 2) {
     const origin = (lat && lng) ? lat + ',' + lng : waypoints[0];
     const dest = waypoints[waypoints.length - 1];
-    const middle = waypoints.slice(0, -1).join('|');
+    // Exclude origin from waypoints if user GPS is used as origin, otherwise exclude last (it's the dest)
+    const middle = (lat && lng) ? waypoints.slice(0, -1).join('|') : waypoints.slice(1, -1).join('|');
     mapsUrl = 'https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=' + origin + '&destination=' + dest;
     if (middle) mapsUrl += '&waypoints=' + middle;
   } else if (waypoints.length === 1) {

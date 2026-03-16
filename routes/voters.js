@@ -12,6 +12,7 @@ function triggerSync(req) {
 }
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
+const checkinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many check-in attempts. Please wait.' } });
 
 // Search/list voters (with engagement scoring)
 router.get('/voters', (req, res) => {
@@ -643,7 +644,7 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 }
 
 // Check in a voter to an event via QR token (public endpoint)
-router.post('/voters/qr/:token/checkin', (req, res) => {
+router.post('/voters/qr/:token/checkin', checkinLimiter, (req, res) => {
   const { event_id, latitude, longitude } = req.body;
   if (!event_id) return res.status(400).json({ error: 'Event ID is required.' });
 
@@ -707,7 +708,7 @@ router.post('/voters/qr/:token/checkin', (req, res) => {
 });
 
 // --- Volunteer QR Scanner: Scan check-in endpoint ---
-router.post('/voters/qr/:token/scan-checkin', (req, res) => {
+router.post('/voters/qr/:token/scan-checkin', checkinLimiter, (req, res) => {
   const { event_id, scanned_by } = req.body;
   if (!event_id) return res.status(400).json({ error: 'Event ID is required.' });
 

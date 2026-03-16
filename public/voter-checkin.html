@@ -195,6 +195,10 @@
           return;
         }
         var v = data.voter;
+        if (!v) {
+          document.getElementById('not-found').style.display = 'block';
+          return;
+        }
         document.getElementById('voterName').textContent = v.first_name + ' ' + v.last_name;
         document.getElementById('main-content').style.display = 'block';
 

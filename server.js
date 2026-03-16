@@ -479,8 +479,10 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   `).get(fromNormalized);
 
   if (p2pAssignment) {
-    db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
-    db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
+    db.transaction(() => {
+      db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
+      db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
+    })();
     return res.type(replyType).send(provider.buildEmptyReply());
   }
 

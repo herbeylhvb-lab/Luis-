@@ -234,6 +234,21 @@ router.post('/events/:id/checkin', (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
 
+  // Time window enforcement
+  const now = new Date();
+  if (event.event_time) {
+    const startDT = new Date(event.event_date + 'T' + event.event_time);
+    if (!isNaN(startDT.getTime()) && now < startDT) {
+      return res.status(400).json({ error: 'Check-in has not opened yet. Event starts at ' + event.event_time });
+    }
+  }
+  if (event.event_end_time) {
+    const endDT = new Date(event.event_date + 'T' + event.event_end_time);
+    if (!isNaN(endDT.getTime()) && now > endDT) {
+      return res.status(400).json({ error: 'Check-in has closed. Event ended at ' + event.event_end_time });
+    }
+  }
+
   // Check if already checked in
   const existing = db.prepare('SELECT * FROM event_rsvps WHERE event_id = ? AND contact_phone = ?').get(req.params.id, phone);
   if (existing) {
