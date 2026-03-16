@@ -1295,8 +1295,10 @@ router.post('/voters/custom-columns', (req, res) => {
 // Helper: update custom fields on a voter after standard insert/update
 function updateCustomFields(voterId, voterData, customCols) {
   if (!customCols || customCols.length === 0) return;
+  // Validate column names against actual DB columns for defense-in-depth
+  const validCols = new Set(getVoterColumns());
   for (const col of customCols) {
-    if (voterData[col] !== undefined && voterData[col] !== '') {
+    if (voterData[col] !== undefined && voterData[col] !== '' && validCols.has(col)) {
       try {
         db.prepare('UPDATE voters SET ' + col + ' = ? WHERE id = ?').run(voterData[col], voterId);
       } catch (e) { /* column may not exist yet, skip */ }
@@ -1570,10 +1572,14 @@ router.post('/elections', (req, res) => {
 // Delete an election definition and all its vote records
 router.delete('/elections/:name', (req, res) => {
   const name = decodeURIComponent(req.params.name);
-  db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
-  const result = db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Election deleted: ' + name + ' (' + result.changes + ' vote records removed)');
-  res.json({ success: true, votes_removed: result.changes });
+  const delElection = db.transaction(() => {
+    db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
+    const result = db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Election deleted: ' + name + ' (' + result.changes + ' vote records removed)');
+    return result.changes;
+  });
+  const votesRemoved = delElection();
+  res.json({ success: true, votes_removed: votesRemoved });
 });
 
 // Bulk mark voters as voted in an election
