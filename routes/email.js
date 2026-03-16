@@ -46,6 +46,18 @@ router.get('/email/recipients', (req, res) => {
   res.json({ recipients, total: recipients.length });
 });
 
+// Get email recipients from a specific admin list
+router.get('/email/recipients-from-list/:listId', (req, res) => {
+  const recipients = db.prepare(`
+    SELECT v.first_name, v.last_name, v.email, v.city, v.precinct, 'voter' as source
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.email IS NOT NULL AND v.email != ''
+  `).all(req.params.listId);
+
+  res.json({ recipients, total: recipients.length });
+});
+
 // Send mass email
 router.post('/email/send', emailSendLimiter, asyncHandler(async (req, res) => {
   const { smtp, fromName, subject, bodyHtml, recipients } = req.body;
