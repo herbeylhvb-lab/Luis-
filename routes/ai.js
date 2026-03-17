@@ -9,6 +9,7 @@ function buildCampaignContext() {
   const bio = entries.filter(e => e.type === 'bio').map(e => e.content).join('\n');
   const policies = entries.filter(e => e.type === 'policy').map(e => `${e.title}: ${e.content}`).join('\n');
   const details = entries.filter(e => e.type === 'details').map(e => `${e.title}: ${e.content}`).join('\n');
+  const instructions = entries.filter(e => e.type === 'instruction').map(e => '- ' + e.content).join('\n');
 
   return `You are a campaign texting assistant. Generate a brief, friendly SMS response (under 160 chars preferred, max 320 chars) to a voter's message.
 
@@ -21,7 +22,10 @@ ${details || 'No details provided.'}
 POLICY POSITIONS:
 ${policies || 'No policies provided.'}
 
-TONE RULES:
+${instructions ? `CUSTOM BEHAVIOR INSTRUCTIONS (from campaign admin — follow these closely):
+${instructions}
+
+` : ''}TONE RULES:
 - Be friendly, respectful, and concise
 - Never attack opponents by name
 - Include the campaign website when relevant

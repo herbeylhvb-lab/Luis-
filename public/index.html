@@ -414,6 +414,17 @@ tr:hover td{background:#1e293b80}
         <div id="policiesList"></div>
       </div>
       <div class="card">
+        <h3>AI Behavior Instructions</h3>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Tell the AI how to handle different situations. Type naturally — e.g. "if someone is angry, stay calm and offer to connect them with our office" or "never mention opponent by name".</p>
+        <div id="aiInstructionsChat" style="max-height:300px;overflow-y:auto;margin-bottom:12px;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div id="aiInstructionsList"></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <textarea id="aiInstructionInput" rows="2" placeholder="Type an instruction... e.g. 'If someone says they support the opponent, thank them for their honesty and share our candidate's strengths'" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:none"></textarea>
+          <button class="btn btn-primary btn-sm" onclick="saveAiInstruction()" style="align-self:flex-end">Add</button>
+        </div>
+      </div>
+      <div class="card">
         <h3>Response Scripts <button class="btn btn-primary btn-xs" style="margin-left:12px" id="btnAddScript">+ Add Script</button></h3>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Fallback responses when AI can't generate a confident reply.</p>
         <div id="scriptsList"></div>
@@ -5557,6 +5568,9 @@ async function loadKnowledge() {
     // Policies
     const policies = entries.filter(e => e.type === 'policy');
     renderPolicies(policies);
+    // AI behavior instructions
+    const instructions = entries.filter(e => e.type === 'instruction');
+    renderAiInstructions(instructions);
   } catch(e) {}
   // Load scripts
   try {
@@ -5577,6 +5591,40 @@ function renderPolicies(policies) {
       <div style="color:#94a3b8;font-size:13px">${escHtml(p.content)}</div>
     </div>
   `).join('');
+}
+
+function renderAiInstructions(instructions) {
+  const el = document.getElementById('aiInstructionsList');
+  if (instructions.length === 0) {
+    el.innerHTML = '<div style="color:#64748b;font-size:13px;text-align:center;padding:16px">No instructions yet. Tell the AI how to handle different situations.</div>';
+    return;
+  }
+  el.innerHTML = instructions.map(i => `
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div style="flex:1">
+        <div style="color:#e2e8f0;font-size:13px;line-height:1.5">${escHtml(i.content)}</div>
+        <div style="color:#64748b;font-size:11px;margin-top:4px">${i.created_at ? new Date(i.created_at).toLocaleDateString() : ''}</div>
+      </div>
+      <button class="btn btn-danger btn-xs" onclick="deleteAiInstruction(${i.id})" style="flex-shrink:0">&#10005;</button>
+    </div>
+  `).join('');
+}
+
+async function saveAiInstruction() {
+  const input = document.getElementById('aiInstructionInput');
+  const text = input.value.trim();
+  if (!text) return;
+  await apiPost('/api/knowledge', { type: 'instruction', title: 'Custom Instruction', content: text });
+  input.value = '';
+  // Reload instructions
+  const d = await api('/api/knowledge');
+  renderAiInstructions((d.entries || []).filter(e => e.type === 'instruction'));
+}
+
+async function deleteAiInstruction(id) {
+  await apiDelete('/api/knowledge/' + id);
+  const d = await api('/api/knowledge');
+  renderAiInstructions((d.entries || []).filter(e => e.type === 'instruction'));
 }
 
 function renderScripts(scripts) {
