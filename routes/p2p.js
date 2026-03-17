@@ -355,9 +355,13 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
 
   // Attach last 3 messages to each conversation for preview
   for (const convo of activeConversations) {
-    convo.recentMessages = db.prepare(
-      'SELECT body, direction, created_at FROM messages WHERE phone = ? AND session_id = ? ORDER BY id DESC LIMIT 3'
-    ).all(convo.phone, convo.session_id).reverse();
+    const np = phoneDigits(convo.phone);
+    convo.recentMessages = db.prepare(`
+      SELECT body, direction, created_at FROM messages
+      WHERE (phone = ? OR phone = ? OR REPLACE(REPLACE(REPLACE(phone,'+1',''),'+',''),'-','') = ?)
+        AND (session_id = ? OR (session_id IS NULL AND direction = 'inbound'))
+      ORDER BY id DESC LIMIT 3
+    `).all(convo.phone, np, np, convo.session_id).reverse();
   }
 
   const stats = db.prepare(`
@@ -449,8 +453,15 @@ router.get('/p2p/conversations/:assignmentId', (req, res) => {
   `).get(req.params.assignmentId);
   if (!assignment) return res.status(404).json({ error: 'Assignment not found.' });
 
-  const messages = db.prepare('SELECT * FROM messages WHERE phone = ? AND session_id = ? ORDER BY id ASC')
-    .all(assignment.phone, assignment.session_id);
+  // Match messages by normalized phone (handles +1 vs 10-digit mismatches)
+  // Also include messages where session_id matches OR phone matches without session_id (synced inbound)
+  const normalizedPhone = phoneDigits(assignment.phone);
+  const messages = db.prepare(`
+    SELECT * FROM messages
+    WHERE (phone = ? OR phone = ? OR REPLACE(REPLACE(REPLACE(phone,'+1',''),'+',''),'-','') = ?)
+      AND (session_id = ? OR (session_id IS NULL AND direction = 'inbound'))
+    ORDER BY id ASC
+  `).all(assignment.phone, normalizedPhone, normalizedPhone, assignment.session_id);
 
   res.json({ messages, assignment });
 });

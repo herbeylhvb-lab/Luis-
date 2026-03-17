@@ -503,9 +503,10 @@ app.post('/incoming', webhookLimiter, (req, res) => {
     SELECT a.*, s.id as sid FROM p2p_assignments a
     JOIN p2p_sessions s ON a.session_id = s.id
     JOIN contacts c ON a.contact_id = c.id
-    WHERE c.phone = ? AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
+    WHERE (c.phone = ? OR REPLACE(REPLACE(REPLACE(c.phone,'+1',''),'+',''),'-','') = ?)
+      AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
     ORDER BY a.sent_at DESC LIMIT 1
-  `).get(fromNormalized);
+  `).get(fromNormalized, fromNormalized);
 
   if (p2pAssignment) {
     db.transaction(() => {
@@ -617,10 +618,20 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         ).get(msgPhone, msgBody);
         if (existing) continue;
 
-        // Insert the inbound message
+        // Find P2P session for this phone so we can tag the message with session_id
+        const p2pMatch = db.prepare(`
+          SELECT a.id as assignment_id, s.id as session_id FROM p2p_assignments a
+          JOIN p2p_sessions s ON a.session_id = s.id
+          JOIN contacts c ON a.contact_id = c.id
+          WHERE (c.phone = ? OR REPLACE(REPLACE(REPLACE(c.phone,'+1',''),'+',''),'-','') = ?)
+            AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
+          ORDER BY a.sent_at DESC LIMIT 1
+        `).get(msgPhone, msgPhone);
+
+        // Insert the inbound message (with session_id if P2P match found)
         const sentiment = analyzeSentiment(msgBody);
-        db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
-          .run(msgPhone, msgBody, sentiment, msgTime);
+        db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
+          .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
 
         // Check STOP keywords
@@ -681,16 +692,9 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           }
         }
 
-        // Route to P2P if applicable
-        const p2pAssignment = db.prepare(`
-          SELECT a.* FROM p2p_assignments a
-          JOIN p2p_sessions s ON a.session_id = s.id
-          JOIN contacts c ON a.contact_id = c.id
-          WHERE c.phone = ? AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
-          ORDER BY a.sent_at DESC LIMIT 1
-        `).get(msgPhone);
-        if (p2pAssignment) {
-          db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
+        // Route to P2P if applicable — update assignment status
+        if (p2pMatch) {
+          db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pMatch.assignment_id);
         }
       }
     } catch (err) {
