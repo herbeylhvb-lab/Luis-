@@ -385,8 +385,12 @@ tr:hover td{background:#1e293b80}
       <div class="card">
         <h3>AI Settings</h3>
         <div class="form-group"><label>Anthropic API Key</label><input type="password" id="anthropicKey" placeholder="sk-ant-..."></div>
-        <button class="btn btn-primary btn-sm" id="btnSaveApiKey">Save API Key</button>
-        <span id="apiKeyStatus" style="margin-left:12px;font-size:13px;color:#64748b"></span>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" id="btnSaveApiKey">Save API Key</button>
+          <button class="btn btn-secondary btn-sm" id="btnTestApiKey" onclick="testApiKey()">Test Connection</button>
+          <span id="apiKeyStatus" style="font-size:13px;color:#64748b"></span>
+        </div>
+        <div id="apiKeyConnectionStatus" style="margin-top:12px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;display:none"></div>
       </div>
       <div class="card">
         <h3>Campaign Details</h3>
@@ -5516,11 +5520,25 @@ async function loadSentimentStats() {
 
 // ===================== KNOWLEDGE BASE =====================
 async function loadKnowledge() {
-  // Load API key
+  // Load API key and check status
   try {
     const d = await api('/api/settings/anthropic_api_key');
     if (d.value) document.getElementById('anthropicKey').value = d.value;
-  } catch(e) {}
+    // Auto-test the key on load
+    if (d.isSet) {
+      showApiKeyStatus('testing');
+      const test = await apiPost('/api/ai/test-key', {});
+      if (test.success) {
+        showApiKeyStatus('connected', test.model);
+      } else {
+        showApiKeyStatus('error', test.error);
+      }
+    } else {
+      showApiKeyStatus('none');
+    }
+  } catch(e) {
+    showApiKeyStatus('none');
+  }
   // Load knowledge entries
   try {
     const d = await api('/api/knowledge');
@@ -5575,12 +5593,57 @@ function renderScripts(scripts) {
   `).join('');
 }
 
+function showApiKeyStatus(state, detail) {
+  const el = document.getElementById('apiKeyConnectionStatus');
+  if (state === 'connected') {
+    el.style.display = '';
+    el.style.background = 'rgba(34,197,94,0.12)';
+    el.style.border = '1px solid #22c55e';
+    el.style.color = '#4ade80';
+    el.innerHTML = '&#9679; Connected — AI is active (model: ' + (detail || 'claude-haiku') + ')';
+  } else if (state === 'error') {
+    el.style.display = '';
+    el.style.background = 'rgba(239,68,68,0.12)';
+    el.style.border = '1px solid #ef4444';
+    el.style.color = '#fca5a5';
+    el.innerHTML = '&#9679; Error — ' + (detail || 'Connection failed');
+  } else if (state === 'testing') {
+    el.style.display = '';
+    el.style.background = 'rgba(251,191,36,0.12)';
+    el.style.border = '1px solid #f59e0b';
+    el.style.color = '#fcd34d';
+    el.innerHTML = '&#8987; Testing connection...';
+  } else {
+    el.style.display = '';
+    el.style.background = 'rgba(100,116,139,0.12)';
+    el.style.border = '1px solid #475569';
+    el.style.color = '#94a3b8';
+    el.innerHTML = '&#9679; No API key set — AI features disabled';
+  }
+}
+
+async function testApiKey() {
+  showApiKeyStatus('testing');
+  try {
+    const test = await apiPost('/api/ai/test-key', {});
+    if (test.success) {
+      showApiKeyStatus('connected', test.model);
+    } else {
+      showApiKeyStatus('error', test.error);
+    }
+  } catch(e) {
+    showApiKeyStatus('error', e.message);
+  }
+}
+
 document.getElementById('btnSaveApiKey').addEventListener('click', async () => {
   const val = document.getElementById('anthropicKey').value.trim();
   if (!val) return;
   await apiPut('/api/settings/anthropic_api_key', { value: val });
   document.getElementById('apiKeyStatus').textContent = '✓ Saved';
   setTimeout(() => document.getElementById('apiKeyStatus').textContent = '', 2000);
+  // Auto-test after saving
+  testApiKey();
 });
 
 document.getElementById('btnSaveCampaignDetails').addEventListener('click', async () => {

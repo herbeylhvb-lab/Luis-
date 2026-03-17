@@ -135,4 +135,25 @@ router.post('/p2p/review-reply', asyncHandler(async (req, res) => {
   res.json({ corrected: draftText.trim(), changed: false });
 }));
 
+// POST /api/ai/test-key — verify the Anthropic API key works
+router.post('/ai/test-key', asyncHandler(async (req, res) => {
+  const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get();
+  if (!apiKey || !apiKey.value) {
+    return res.json({ success: false, error: 'No API key saved. Paste your key above and click Save first.' });
+  }
+  try {
+    const Anthropic = require('@anthropic-ai/sdk').default;
+    const client = new Anthropic({ apiKey: apiKey.value });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 20,
+      messages: [{ role: 'user', content: 'Say OK' }]
+    });
+    const text = response.content && response.content[0] ? response.content[0].text : '';
+    return res.json({ success: true, model: 'claude-haiku-4-5-20251001', response: text.trim() });
+  } catch (err) {
+    return res.json({ success: false, error: err.message });
+  }
+}));
+
 module.exports = router;
