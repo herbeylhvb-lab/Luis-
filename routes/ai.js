@@ -54,7 +54,6 @@ router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
   if (voterMessage.length > 2000) return res.status(400).json({ error: 'Voter message too long (max 2000 chars).' });
 
   const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get();
-
   // Try AI first
   if (apiKey && apiKey.value) {
     try {
@@ -79,7 +78,7 @@ Generate a short SMS reply:`;
         ? response.content[0].text.trim()
         : null;
 
-      if (aiReply && aiReply !== 'NO_MATCH') {
+      if (aiReply && !aiReply.startsWith('NO_MATCH')) {
         return res.json({ source: 'ai', suggestion: aiReply });
       }
     } catch (err) {
