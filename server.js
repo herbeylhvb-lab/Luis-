@@ -549,7 +549,7 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Reply send error:', err.message);
-    res.status(500).json({ error: 'Failed to send reply. Check messaging provider configuration.' });
+    res.status(500).json({ error: 'Failed to send reply: ' + err.message });
   }
 }));
 

@@ -382,7 +382,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
 
   const assignment = db.prepare(`
-    SELECT a.*, c.phone FROM p2p_assignments a
+    SELECT a.*, c.phone, c.first_name, c.last_name, c.city FROM p2p_assignments a
     JOIN contacts c ON a.contact_id = c.id WHERE a.id = ?
   `).get(assignmentId);
   if (!assignment) return res.status(404).json({ error: 'Assignment not found.' });
@@ -405,6 +405,19 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   }
 
   try {
+    // Auto-sync contact to RumbleUp before sending (ensures phone exists in their system)
+    if (provider.syncContact) {
+      try {
+        await provider.syncContact({
+          phone: phoneDigits(assignment.phone),
+          first_name: assignment.first_name || '',
+          last_name: assignment.last_name || '',
+          city: assignment.city || ''
+        });
+      } catch (syncErr) {
+        console.warn('Contact sync warning:', syncErr.message);
+      }
+    }
     await provider.sendMessage(assignment.phone, message);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
@@ -416,7 +429,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     res.json({ success: true, smsSent: true });
   } catch (err) {
     console.error('P2P send error:', err.message);
-    res.status(500).json({ error: 'Failed to send message. Check messaging provider configuration.' });
+    res.status(500).json({ error: 'Failed to send: ' + err.message });
   }
 }));
 
