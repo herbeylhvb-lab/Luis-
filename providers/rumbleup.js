@@ -194,7 +194,11 @@ async function updateProject(projectId, updates) {
 
 async function sendTestMessage(projectId, testPhone, message) {
   const body = { test_phone: testPhone, terms_agree: true };
-  if (message) body.message = message;
+  if (message) {
+    // RumbleUp requires opt-out instructions in test messages
+    const hasOptOut = /stop|opt.?out|unsubscribe/i.test(message);
+    body.message = hasOptOut ? message : message + '\nSTOP to opt-out';
+  }
   return apiPost('/project/test/' + projectId, body);
 }
 
@@ -276,7 +280,7 @@ async function sendMessage(to, body, channel) {
 }
 
 async function getNextContact(actionId) {
-  return apiGet('/message/next', { action: String(actionId) });
+  return apiPost('/message/next', { action: String(actionId) });
 }
 
 async function getMessageLog(params) {
