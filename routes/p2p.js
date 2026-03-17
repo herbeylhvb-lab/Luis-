@@ -407,16 +407,12 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   try {
     // Auto-sync contact to RumbleUp before sending (ensures phone exists in their system)
     if (provider.syncContact) {
-      try {
-        await provider.syncContact({
-          phone: phoneDigits(assignment.phone),
-          first_name: assignment.first_name || '',
-          last_name: assignment.last_name || '',
-          city: assignment.city || ''
-        });
-      } catch (syncErr) {
-        console.warn('Contact sync warning:', syncErr.message);
-      }
+      await provider.syncContact({
+        phone: phoneDigits(assignment.phone),
+        first_name: assignment.first_name || '',
+        last_name: assignment.last_name || '',
+        city: assignment.city || ''
+      });
     }
     await provider.sendMessage(assignment.phone, message);
     // Atomic: log message + update assignment status together

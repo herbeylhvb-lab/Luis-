@@ -224,7 +224,13 @@ async function getContacts(params) {
 
 async function syncContact(contactData) {
   // contactData: { phone (required), first_name, last_name, email, city, zipcode, flags, custom1-5, ... }
-  return apiPost('/contact/sync', contactData);
+  // Always include the action ID so the contact is associated with the active project
+  const creds = getCredentials();
+  const data = { ...contactData };
+  if (creds.actionId && !data.action) {
+    data.action = String(creds.actionId);
+  }
+  return apiPost('/contact/sync', data);
 }
 
 async function importContacts(csvBuffer, filename) {
