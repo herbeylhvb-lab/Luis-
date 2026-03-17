@@ -379,7 +379,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
 // ========== MESSAGING ==========
 
 router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
-  const { volunteerId, assignmentId, message } = req.body;
+  const { volunteerId, assignmentId, message, isReply } = req.body;
   if (!volunteerId || !assignmentId || !message) return res.status(400).json({ error: 'volunteerId, assignmentId, and message required.' });
 
   const provider = getProvider();
@@ -399,8 +399,8 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'This assignment belongs to another volunteer.' });
   }
 
-  // Idempotency: prevent double-sends if already sent
-  if (assignment.status === 'sent' || assignment.status === 'in_conversation' || assignment.status === 'completed') {
+  // Idempotency: prevent double-sends of the initial message (but allow replies)
+  if (!isReply && (assignment.status === 'sent' || assignment.status === 'in_conversation' || assignment.status === 'completed')) {
     return res.json({ success: true, skipped: true, reason: 'Message already sent for this assignment.' });
   }
 
@@ -426,7 +426,13 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
         .run(phoneDigits(assignment.phone) || assignment.phone, message, vol.session_id, vol.name);
-      db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
+      if (isReply) {
+        // Reply: keep in conversation state
+        db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(assignmentId);
+      } else {
+        // Initial send: mark as sent
+        db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
+      }
     })();
 
     res.json({ success: true, smsSent: true });

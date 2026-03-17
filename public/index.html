@@ -6022,7 +6022,7 @@ function showP2pVolunteer() {
   loadVolunteerQueue();
   // Start polling
   if (p2pState.pollTimer) clearInterval(p2pState.pollTimer);
-  p2pState.pollTimer = setInterval(loadVolunteerQueue, 10000); // Poll every 10s for fast reply detection
+  p2pState.pollTimer = setInterval(loadVolunteerQueue, 5000); // Poll every 5s for fast reply detection
 }
 
 function leaveP2pVolunteer() {
@@ -6188,7 +6188,8 @@ async function openP2pConversation(assignmentId) {
       await apiPost('/api/p2p/send', {
         volunteerId: p2pState.volunteerId,
         assignmentId,
-        message: body
+        message: body,
+        isReply: true
       });
       openP2pConversation(assignmentId);
     };
@@ -6233,7 +6234,8 @@ async function getSuggestion(voterMessage, voterName, sentiment, assignmentId) {
         await apiPost('/api/p2p/send', {
           volunteerId: p2pState.volunteerId,
           assignmentId,
-          message: d.suggestion
+          message: d.suggestion,
+          isReply: true
         });
         openP2pConversation(assignmentId);
       };

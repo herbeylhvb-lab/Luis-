@@ -657,7 +657,7 @@
 
         loadQueue();
         if (volState.pollInterval) clearInterval(volState.pollInterval);
-        volState.pollInterval = setInterval(loadQueue, 10000);  // Poll every 10s for fast reply detection
+        volState.pollInterval = setInterval(loadQueue, 5000);  // Poll every 5s for fast reply detection
       } catch (e) {
         errEl.textContent = 'Network error. Please try again.';
         document.getElementById('btnJoin').disabled = false;
@@ -666,6 +666,8 @@
 
     async function loadQueue() {
       if (!volState.volunteerId) return;
+      // Auto-sync inbound messages from RumbleUp on each poll
+      fetch('/api/sync-inbound', { method: 'POST' }).catch(function() {});
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
       // Keep session type in sync
       if (data.sessionType) volState.sessionType = data.sessionType;
