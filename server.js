@@ -364,7 +364,7 @@ app.post('/test-connection', asyncHandler(async (req, res) => {
 }));
 
 // --- Incoming webhook (messaging provider) ---
-app.post('/incoming', webhookLimiter, (req, res) => {
+app.post('/incoming', webhookLimiter, async (req, res) => {
   console.log('[webhook /incoming] Received webhook:', JSON.stringify(req.body).substring(0, 500));
   let provider;
   try {
@@ -400,7 +400,7 @@ app.post('/incoming', webhookLimiter, (req, res) => {
     return res.type(replyType).send(provider.buildReply("You've been removed from our list. -- Campaign HQ"));
   }
 
-  const sentiment = analyzeSentiment(Body);
+  const sentiment = await analyzeSentimentAI(Body);
 
   // Check if this is a survey response (only when the survey is actively running)
   const activeSend = db.prepare(`
@@ -716,7 +716,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         const msgLower = msgBody.trim().toLowerCase();
         if (STOP_KEYWORDS.includes(msgLower)) {
           db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
-          const sentiment = analyzeSentiment(msgBody);
+          const sentiment = await analyzeSentimentAI(msgBody);
           db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
             .run(msgPhone, msgBody, sentiment, msgTime);
           totalSynced++;
@@ -734,7 +734,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         `).get(msgPhone, msgPhone);
 
         // Insert the inbound message (with session_id if P2P match found)
-        const sentiment = analyzeSentiment(msgBody);
+        const sentiment = await analyzeSentimentAI(msgBody);
         db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
           .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
@@ -925,7 +925,8 @@ app.post('/api/events/:id/invite', (req, res) => {
 });
 
 // --- Sentiment analysis ---
-function analyzeSentiment(text) {
+// Keyword fallback for when AI is unavailable
+function analyzeSentimentKeywords(text) {
   const msg = (text || '').toLowerCase();
   const positiveWords = ['yes', 'sure', 'support', 'agree', 'thanks', 'thank', 'great', 'love', 'count me in', 'absolutely', 'interested', 'definitely', 'of course', 'wonderful', 'awesome', 'perfect', 'good', 'ok', 'okay', 'yep', 'yea', 'yeah'];
   const negativeWords = ['no', 'stop', 'disagree', 'oppose', 'hate', 'unsubscribe', 'leave me alone', 'not interested', 'remove', 'never', 'terrible', 'awful', 'worst', 'don\'t', 'wont', 'refuse', 'against', 'bad'];
@@ -935,6 +936,34 @@ function analyzeSentiment(text) {
   if (score > 0) return 'positive';
   if (score < 0) return 'negative';
   return 'neutral';
+}
+
+// AI-powered sentiment analysis with keyword fallback
+async function analyzeSentimentAI(text) {
+  if (!text || !text.trim()) return 'neutral';
+  const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get();
+  if (!apiKey || !apiKey.value) return analyzeSentimentKeywords(text);
+  try {
+    const Anthropic = require('@anthropic-ai/sdk').default;
+    const client = new Anthropic({ apiKey: apiKey.value });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 10,
+      system: 'You analyze text messages sent to a political campaign. Classify the sentiment as exactly one word: positive, negative, or neutral. Positive = supportive, interested, friendly, willing to help. Negative = opposed, hostile, annoyed, wants to be left alone. Neutral = questions, unclear intent, or informational. Reply with ONLY one word.',
+      messages: [{ role: 'user', content: text }]
+    });
+    const result = (response.content[0].text || '').trim().toLowerCase();
+    if (['positive', 'negative', 'neutral'].includes(result)) return result;
+    return analyzeSentimentKeywords(text);
+  } catch (err) {
+    console.warn('[sentiment] AI analysis failed, using keywords:', err.message);
+    return analyzeSentimentKeywords(text);
+  }
+}
+
+// Synchronous wrapper for webhook path (uses keywords, AI runs after)
+function analyzeSentiment(text) {
+  return analyzeSentimentKeywords(text);
 }
 
 function generateAutoReply(msg) {

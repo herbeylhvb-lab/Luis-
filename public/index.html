@@ -353,11 +353,19 @@ tr:hover td{background:#1e293b80}
     <div class="page" id="page-inbox">
       <div class="card">
         <h3>Incoming Messages</h3>
-        <div style="display:flex;gap:8px;margin-bottom:16px">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-secondary btn-sm" id="btnRefreshInbox">Refresh</button>
           <button class="btn btn-sm" style="background:#059669;border-color:#047857" id="btnSyncInbound" onclick="syncInboundMessages()">🔄 Sync from RumbleUp</button>
           <span id="syncStatus" style="font-size:12px;color:#64748b;align-self:center"></span>
+          <span style="border-left:1px solid #334155;height:24px;margin:0 4px"></span>
+          <button class="btn btn-sm inbox-filter active" data-sentiment="all" onclick="filterInbox('all')">All</button>
+          <button class="btn btn-sm inbox-filter" data-sentiment="positive" onclick="filterInbox('positive')" style="background:transparent;border:1px solid #22c55e;color:#22c55e">Positive</button>
+          <button class="btn btn-sm inbox-filter" data-sentiment="negative" onclick="filterInbox('negative')" style="background:transparent;border:1px solid #ef4444;color:#ef4444">Negative</button>
+          <button class="btn btn-sm inbox-filter" data-sentiment="neutral" onclick="filterInbox('neutral')" style="background:transparent;border:1px solid #64748b;color:#64748b">Neutral</button>
+          <span style="border-left:1px solid #334155;height:24px;margin:0 4px"></span>
+          <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="buildListFromInbox()">📋 Build Voter List</button>
         </div>
+        <div id="inboxSentimentSummary" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px"></div>
         <div class="msg-list" id="inboxMessages"><div style="color:#64748b;font-size:14px">No messages yet.</div></div>
       </div>
       <div class="card">
@@ -2599,31 +2607,157 @@ document.getElementById('btnSendCampaign').addEventListener('click', async () =>
 });
 
 // ===================== INBOX =====================
+var inboxData = [];
+var inboxFilter = 'all';
+
+function buildMsgItem(m) {
+  var item = document.createElement('div');
+  item.className = 'msg-item';
+  item.dataset.sentiment = m.sentiment || 'neutral';
+  // Phone / name row
+  var phoneDiv = document.createElement('div');
+  phoneDiv.className = 'phone';
+  if (m.contact_name && m.contact_name.trim()) {
+    var nameEl = document.createElement('strong');
+    nameEl.style.color = '#e2e8f0';
+    nameEl.textContent = m.contact_name.trim();
+    phoneDiv.appendChild(nameEl);
+    var phoneSpan = document.createElement('span');
+    phoneSpan.style.cssText = 'color:#64748b;font-size:12px;margin-left:4px';
+    phoneSpan.textContent = '(' + (m.phone || '') + ')';
+    phoneDiv.appendChild(phoneSpan);
+  } else {
+    phoneDiv.textContent = m.phone || '';
+  }
+  // Sentiment badge
+  var badge = document.createElement('span');
+  badge.style.marginLeft = '8px';
+  if (m.sentiment === 'positive') { badge.className = 'badge badge-green'; badge.textContent = 'Positive'; }
+  else if (m.sentiment === 'negative') { badge.className = 'badge badge-red'; badge.textContent = 'Negative'; }
+  else { badge.className = 'badge badge-gray'; badge.textContent = 'Neutral'; }
+  phoneDiv.appendChild(badge);
+  item.appendChild(phoneDiv);
+  // Body
+  var bodyDiv = document.createElement('div');
+  bodyDiv.className = 'body';
+  bodyDiv.textContent = m.body || '';
+  item.appendChild(bodyDiv);
+  // Time
+  var timeDiv = document.createElement('div');
+  timeDiv.className = 'time';
+  timeDiv.textContent = m.timestamp ? utcToLocal(m.timestamp).toLocaleString() : '';
+  item.appendChild(timeDiv);
+  // Reply box
+  var replyDiv = document.createElement('div');
+  replyDiv.className = 'reply-box';
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Type reply...';
+  input.id = 'reply-' + (m.phone || '').replace(/\+/g, '');
+  replyDiv.appendChild(input);
+  var btn = document.createElement('button');
+  btn.className = 'btn btn-primary btn-sm';
+  btn.textContent = 'Reply';
+  var replyPhone = (m.phone || '').replace(/'/g, '');
+  btn.addEventListener('click', function() { sendReply(replyPhone); });
+  replyDiv.appendChild(btn);
+  item.appendChild(replyDiv);
+  return item;
+}
+
+function renderInboxMessages(messages) {
+  var el = document.getElementById('inboxMessages');
+  var filtered = inboxFilter === 'all' ? messages : messages.filter(function(m) { return m.sentiment === inboxFilter; });
+  el.textContent = '';
+  if (!filtered || filtered.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'color:#64748b;font-size:14px';
+    empty.textContent = inboxFilter === 'all' ? 'No messages yet.' : 'No ' + inboxFilter + ' messages.';
+    el.appendChild(empty);
+  } else {
+    filtered.forEach(function(m) { el.appendChild(buildMsgItem(m)); });
+  }
+  // Sentiment summary
+  var pos = messages.filter(function(m) { return m.sentiment === 'positive'; }).length;
+  var neg = messages.filter(function(m) { return m.sentiment === 'negative'; }).length;
+  var neu = messages.filter(function(m) { return m.sentiment === 'neutral' || !m.sentiment; }).length;
+  var summary = document.getElementById('inboxSentimentSummary');
+  summary.textContent = '';
+  [['#22c55e', '\u25B2 ' + pos + ' Positive'], ['#ef4444', '\u25BC ' + neg + ' Negative'], ['#64748b', '\u2500 ' + neu + ' Neutral'], ['#94a3b8', '\u2022 ' + messages.length + ' Total']].forEach(function(pair) {
+    var s = document.createElement('span');
+    s.style.color = pair[0];
+    s.textContent = pair[1];
+    summary.appendChild(s);
+  });
+}
+
+function filterInbox(sentiment) {
+  inboxFilter = sentiment;
+  document.querySelectorAll('.inbox-filter').forEach(function(b) {
+    b.classList.remove('active');
+    b.style.background = 'transparent';
+  });
+  var active = document.querySelector('.inbox-filter[data-sentiment="' + sentiment + '"]');
+  if (active) {
+    active.classList.add('active');
+    if (sentiment === 'positive') active.style.background = 'rgba(34,197,94,0.2)';
+    else if (sentiment === 'negative') active.style.background = 'rgba(239,68,68,0.2)';
+    else if (sentiment === 'neutral') active.style.background = 'rgba(100,116,139,0.2)';
+    else active.style.background = '';
+  }
+  renderInboxMessages(inboxData);
+}
+
+async function buildListFromInbox() {
+  var sentiment = inboxFilter === 'all' ? null : inboxFilter;
+  var label = sentiment ? sentiment.charAt(0).toUpperCase() + sentiment.slice(1) : 'All';
+  var listName = prompt('Name for the voter list:', label + ' Responders - ' + new Date().toLocaleDateString());
+  if (!listName) return;
+  try {
+    var phones = [];
+    var msgs = sentiment ? inboxData.filter(function(m) { return m.sentiment === sentiment; }) : inboxData;
+    var seen = {};
+    msgs.forEach(function(m) { if (m.phone && !seen[m.phone]) { phones.push(m.phone); seen[m.phone] = true; } });
+    if (phones.length === 0) { alert('No messages to build list from.'); return; }
+    var listData = await apiPost('/api/admin-lists', { name: listName, type: 'text', description: 'Auto-built from ' + label.toLowerCase() + ' inbox responses (' + phones.length + ' contacts)' });
+    var added = 0;
+    for (var i = 0; i < phones.length; i++) {
+      try {
+        var vResult = await api('/api/voters?q=' + encodeURIComponent(phones[i]) + '&limit=1');
+        if (vResult.voters && vResult.voters.length > 0) {
+          await apiPost('/api/admin-lists/' + listData.id + '/voters', { voterIds: [vResult.voters[0].id] });
+          added++;
+        }
+      } catch (e) { /* voter not in file */ }
+    }
+    alert('List "' + listName + '" created with ' + added + ' voter' + (added !== 1 ? 's' : '') + ' (from ' + phones.length + ' phone numbers).');
+  } catch (err) { alert('Failed to build list: ' + (err.message || 'Unknown error')); }
+}
+
 async function loadInbox() {
   try {
-    const data = await api('/api/messages');
-    const el = document.getElementById('inboxMessages');
-    if (!data.messages || data.messages.length === 0) { el.innerHTML = '<div style="color:#64748b;font-size:14px">No messages yet.</div>'; }
-    else {
-      el.innerHTML = data.messages.map(m => {
-        const sBadge = m.sentiment === 'positive' ? '<span class="badge badge-green" style="margin-left:8px">Positive</span>'
-          : m.sentiment === 'negative' ? '<span class="badge badge-red" style="margin-left:8px">Negative</span>'
-          : m.sentiment ? '<span class="badge badge-gray" style="margin-left:8px">Neutral</span>' : '';
-        const nameLabel = m.contact_name && m.contact_name.trim() ? '<strong style="color:#e2e8f0">' + escHtml(m.contact_name.trim()) + '</strong> <span style="color:#64748b;font-size:12px">(' + escHtml(m.phone) + ')</span>' : escHtml(m.phone);
-        return '<div class="msg-item"><div class="phone">' + nameLabel + sBadge + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + utcToLocal(m.timestamp).toLocaleString() + '</div>' +
-        '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + (m.phone||'').replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + escHtml((m.phone||'').replace(/'/g,'')) + '\')">Reply</button></div></div>';
-      }).join('');
-    }
-    const optEl = document.getElementById('optedOutList');
+    var data = await api('/api/messages');
+    inboxData = data.messages || [];
+    renderInboxMessages(inboxData);
+    var optEl = document.getElementById('optedOutList');
     if (!data.optedOut || data.optedOut.length === 0) { optEl.textContent = 'No opted-out numbers.'; }
-    else { optEl.innerHTML = data.optedOut.map(n => '<span class="badge badge-red" style="margin:2px">' + escHtml(n) + '</span>').join(' '); }
+    else {
+      optEl.textContent = '';
+      data.optedOut.forEach(function(n) {
+        var b = document.createElement('span');
+        b.className = 'badge badge-red';
+        b.style.margin = '2px';
+        b.textContent = n;
+        optEl.appendChild(b);
+      });
+    }
   } catch (err) { console.error('Inbox load failed:', err); }
 }
 window.sendReply = async function(phone) {
   if (!state.credentials.connected) { alert('Set up messaging credentials first.'); return; }
-  const input = document.getElementById('reply-' + phone.replace(/\+/g,''));
-  const body = input.value.trim(); if (!body) return;
-  try { await apiPost('/reply', { to: phone, body }); input.value = ''; } catch (err) { alert('Reply failed.'); }
+  var input = document.getElementById('reply-' + phone.replace(/\+/g, ''));
+  var body = input.value.trim(); if (!body) return;
+  try { await apiPost('/reply', { to: phone, body: body }); input.value = ''; } catch (err) { alert('Reply failed.'); }
 };
 document.getElementById('btnRefreshInbox').addEventListener('click', loadInbox);
 
