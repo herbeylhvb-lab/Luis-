@@ -595,11 +595,15 @@ tr:hover td{background:#1e293b80}
           </div>
         </div>
         <div class="card" id="p2pConversationsCard" style="display:none">
-          <h3>Active Conversations <span class="badge badge-blue" id="p2pConvCount">0</span></h3>
+          <h3>Responses <span class="badge badge-blue" id="p2pConvCount">0</span></h3>
+          <button class="btn btn-success btn-sm" style="margin-bottom:10px;width:100%" onclick="startP2pReplyPipeline()">&#9654; Start Responding (one by one)</button>
           <div id="p2pConversationsList"></div>
         </div>
         <div class="card" id="p2pReplyCard" style="display:none">
-          <div class="back-btn" onclick="closeP2pReply()">&#8592; Back to Queue</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div class="back-btn" onclick="closeP2pReply()" style="margin-bottom:0">&#8592; Back to Queue</div>
+            <span id="p2pPipelineCounter" style="display:none;font-size:12px;color:#94a3b8;font-weight:600"></span>
+          </div>
           <h3 id="p2pReplyHeader">Conversation</h3>
           <div class="msg-list" id="p2pThread"></div>
           <div id="p2pSuggestion" style="margin-top:12px;display:none">
@@ -616,6 +620,7 @@ tr:hover td{background:#1e293b80}
             <div style="display:flex;gap:8px">
               <button class="btn btn-success btn-sm" id="btnSendReply">Send Reply</button>
               <button class="btn btn-secondary btn-sm" id="btnMarkComplete">Mark Complete</button>
+              <button class="btn btn-secondary btn-sm" id="btnNextP2pConvo" style="display:none" onclick="advanceP2pPipeline()">Next &#8594;</button>
             </div>
           </div>
         </div>
@@ -6113,6 +6118,35 @@ document.getElementById('btnToggleOnline').addEventListener('click', async () =>
   if (p2pState.isOnline) loadVolunteerQueue();
 });
 
+// ===== REPLY PIPELINE =====
+var p2pReplyPipeline = [];
+var p2pPipelineIdx = -1;
+
+function startP2pReplyPipeline() {
+  const convos = document.querySelectorAll('#p2pConversationsList > div[onclick]');
+  p2pReplyPipeline = [];
+  convos.forEach(el => {
+    const m = el.getAttribute('onclick').match(/openP2pConversation\((\d+)\)/);
+    if (m) p2pReplyPipeline.push(parseInt(m[1]));
+  });
+  if (p2pReplyPipeline.length === 0) return;
+  p2pPipelineIdx = 0;
+  openP2pConversation(p2pReplyPipeline[0]);
+}
+
+function advanceP2pPipeline() {
+  if (p2pPipelineIdx < 0) { closeP2pReply(); loadVolunteerQueue(); return; }
+  p2pPipelineIdx++;
+  if (p2pPipelineIdx < p2pReplyPipeline.length) {
+    openP2pConversation(p2pReplyPipeline[p2pPipelineIdx]);
+  } else {
+    p2pPipelineIdx = -1;
+    p2pReplyPipeline = [];
+    closeP2pReply();
+    loadVolunteerQueue();
+  }
+}
+
 // ===== CONVERSATION THREAD =====
 async function openP2pConversation(assignmentId) {
   document.getElementById('p2pQueueCard').style.display = 'none';
@@ -6121,6 +6155,15 @@ async function openP2pConversation(assignmentId) {
   try {
     const d = await api('/api/p2p/conversations/' + assignmentId);
     document.getElementById('p2pReplyHeader').textContent = (d.assignment.first_name || '') + ' ' + (d.assignment.last_name || '');
+    // Pipeline counter
+    const ctr = document.getElementById('p2pPipelineCounter');
+    const nextBtn = document.getElementById('btnNextP2pConvo');
+    if (p2pPipelineIdx >= 0) {
+      ctr.style.display = ''; ctr.textContent = (p2pPipelineIdx + 1) + ' of ' + p2pReplyPipeline.length;
+      nextBtn.style.display = '';
+    } else {
+      ctr.style.display = 'none'; nextBtn.style.display = 'none';
+    }
     const thread = document.getElementById('p2pThread');
     thread.innerHTML = (d.messages || []).map(m => `
       <div style="padding:8px 12px;border-radius:8px;margin-bottom:6px;max-width:80%;${m.direction === 'outbound' ? 'background:#312e81;margin-left:auto;text-align:right' : 'background:#1e293b'}">
@@ -6150,8 +6193,12 @@ async function openP2pConversation(assignmentId) {
 
     document.getElementById('btnMarkComplete').onclick = async () => {
       await apiPatch('/api/p2p/assignments/' + assignmentId + '/complete');
-      closeP2pReply();
-      loadVolunteerQueue();
+      if (p2pPipelineIdx >= 0) {
+        advanceP2pPipeline();
+      } else {
+        closeP2pReply();
+        loadVolunteerQueue();
+      }
     };
   } catch(e) { console.error(e); }
 }

@@ -473,9 +473,10 @@
       <!-- ACTIVE CONVERSATIONS (always visible when there are any) -->
       <div class="card" id="convosCard" style="display:none">
         <h3 style="display:flex;align-items:center;justify-content:space-between">
-          <span>&#128172; Active Conversations <span class="badge badge-yellow" id="convoCount">0</span></span>
+          <span>&#128172; Responses <span class="badge badge-yellow" id="convoCount">0</span></span>
           <span id="convoNewDot" style="display:none;width:10px;height:10px;background:#fbbf24;border-radius:50%;animation:replyPulse 1.5s ease-in-out infinite"></span>
         </h3>
+        <button class="btn btn-sm btn-success" style="margin-bottom:10px;width:100%" onclick="startReplyPipeline()">&#9654; Start Responding (one by one)</button>
         <div id="convosList"></div>
       </div>
 
@@ -489,7 +490,10 @@
       <div class="card" id="convoViewCard" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h3 id="convoViewTitle">Conversation</h3>
-          <button class="btn btn-sm btn-secondary" onclick="closeConvo()">Back</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span id="pipelineCounter" style="display:none;font-size:12px;color:#94a3b8;font-weight:600"></span>
+            <button class="btn btn-sm btn-secondary" onclick="closeConvo()">Back</button>
+          </div>
         </div>
         <div class="convo-messages" id="convoMessages"></div>
         <!-- AI Suggestion -->
@@ -525,6 +529,7 @@
         </div>
         <div class="btn-row">
           <button class="btn btn-sm btn-success" id="btnMarkDone" onclick="markComplete()">Mark Complete</button>
+          <button class="btn btn-sm btn-secondary" id="btnNextConvo" style="display:none" onclick="advancePipeline()">Next Response &#8594;</button>
         </div>
       </div>
     </div>
@@ -850,6 +855,28 @@
     }
 
     var convoMessageCount = 0; // Track message count to detect new messages
+    var replyPipeline = [];    // Queue of assignment IDs to work through
+    var pipelineIndex = -1;    // Current position in pipeline (-1 = not in pipeline mode)
+
+    function startReplyPipeline() {
+      replyPipeline = volState.lastConvoIds.slice(); // Copy current conversation IDs
+      if (replyPipeline.length === 0) return;
+      pipelineIndex = 0;
+      openConvo(replyPipeline[0]);
+    }
+
+    function advancePipeline() {
+      if (pipelineIndex < 0) { closeConvo(); return; }
+      pipelineIndex++;
+      if (pipelineIndex < replyPipeline.length) {
+        openConvo(replyPipeline[pipelineIndex]);
+      } else {
+        // Pipeline complete
+        pipelineIndex = -1;
+        replyPipeline = [];
+        closeConvo();
+      }
+    }
 
     async function openConvo(assignmentId) {
       volState.viewingConvoId = assignmentId;
@@ -860,6 +887,17 @@
 
       var data = await apiCall('/api/p2p/conversations/' + assignmentId);
       document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
+
+      // Show pipeline counter if in pipeline mode
+      var counterEl = document.getElementById('pipelineCounter');
+      if (pipelineIndex >= 0) {
+        counterEl.style.display = '';
+        counterEl.textContent = (pipelineIndex + 1) + ' of ' + replyPipeline.length;
+        document.getElementById('btnNextConvo').style.display = '';
+      } else {
+        counterEl.style.display = 'none';
+        document.getElementById('btnNextConvo').style.display = 'none';
+      }
 
       var msgEl = document.getElementById('convoMessages');
       var newCount = (data.messages || []).length;
@@ -1044,7 +1082,12 @@
     async function markComplete() {
       if (!volState.viewingConvoId) return;
       await apiCall('/api/p2p/assignments/' + volState.viewingConvoId + '/complete', { method: 'PATCH' });
-      closeConvo();
+      // In pipeline mode, auto-advance to next response
+      if (pipelineIndex >= 0) {
+        advancePipeline();
+      } else {
+        closeConvo();
+      }
     }
 
     async function leaveSession() {
