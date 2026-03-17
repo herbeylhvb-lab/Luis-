@@ -1103,6 +1103,7 @@ tr:hover td{background:#1e293b80}
           <h4 style="margin:0">Voters in List <span class="badge badge-green" id="adminListVoterCount">0</span></h4>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
+            <button class="btn btn-sm" style="background:#f59e0b;border-color:#d97706;color:#000" onclick="exportRumbleUpCSV()">📱 Export for RumbleUp</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
             <button class="btn btn-sm" style="background:#ef4444;border-color:#dc2626" onclick="inviteListToEvent()">📅 Invite to Event</button>
             <button class="btn btn-sm" style="background:#3b82f6;border-color:#2563eb" onclick="emailThisList()">📧 Email This List</button>
@@ -8469,6 +8470,16 @@ function csvEsc(val) {
   return s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1
     ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
+
+window.exportRumbleUpCSV = function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  // Direct download via the server endpoint
+  var link = document.createElement('a');
+  link.href = '/api/admin-lists/' + listId + '/export-rumbleup';
+  link.download = 'rumbleup_contacts.csv';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
 
 window.createWalkFromList = async function() {
   var listId = state.currentAdminListId;

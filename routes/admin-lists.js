@@ -135,6 +135,35 @@ router.get('/admin-lists/:id/contacts', (req, res) => {
   res.json({ contacts, total: contacts.length, listName: list.name });
 });
 
+// Export list as CSV for RumbleUp import (first_name, last_name, phone, city, zip)
+router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const voters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+
+  // Build CSV
+  const header = 'first_name,last_name,phone,city,zip,email';
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+  const rows = voters.map(v =>
+    [v.first_name, v.last_name, v.phone, v.city, v.zip, v.email].map(csvEscape).join(',')
+  );
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_rumbleup.csv"');
+  res.send(csv);
+});
+
 // Get distinct precincts within a list (for precinct sub-filtering)
 router.get('/admin-lists/:id/precincts', (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(req.params.id);
