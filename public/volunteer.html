@@ -666,8 +666,11 @@
 
     async function loadQueue() {
       if (!volState.volunteerId) return;
+      // Don't overwrite UI while viewing a conversation
+      if (document.getElementById('convoViewCard').style.display !== 'none') return;
       // Auto-sync inbound messages from RumbleUp on each poll
       fetch('/api/sync-inbound', { method: 'POST' }).catch(function() {});
+      try {
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
       // Keep session type in sync
       if (data.sessionType) volState.sessionType = data.sessionType;
@@ -828,6 +831,7 @@
       } else {
         convosCard.style.display = 'none';
       }
+      } catch (err) { console.error('loadQueue error:', err); }
     }
 
     async function sendText(assignmentId, message) {
@@ -996,19 +1000,30 @@
 
     async function sendReplyText(text) {
       if (!text || !volState.viewingConvoId) return;
+      var savedText = text;
       document.getElementById('replyText').value = '';
       document.getElementById('aiSuggestion').style.display = 'none';
-      await apiCall('/api/p2p/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          volunteerId: volState.volunteerId,
-          assignmentId: volState.viewingConvoId,
-          message: text,
-          isReply: true
-        })
-      });
-      openConvo(volState.viewingConvoId);
+      try {
+        var resp = await apiCall('/api/p2p/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            volunteerId: volState.volunteerId,
+            assignmentId: volState.viewingConvoId,
+            message: text,
+            isReply: true
+          })
+        });
+        if (resp && resp.error) {
+          alert('Reply failed: ' + resp.error);
+          document.getElementById('replyText').value = savedText;
+          return;
+        }
+        openConvo(volState.viewingConvoId);
+      } catch (err) {
+        alert('Reply failed. Check your connection.');
+        document.getElementById('replyText').value = savedText;
+      }
     }
 
     function closeConvo() {

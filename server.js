@@ -612,11 +612,25 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
 
         if (!msgBody.trim()) continue;
 
-        // Check for duplicate by phone + body + approximate time
-        const existing = db.prepare(
-          "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' LIMIT 1"
-        ).get(msgPhone, msgBody);
+        // Check for duplicate by phone + body (use timestamp when available to allow repeated messages)
+        const dedupQuery = msgTime
+          ? "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp = ? LIMIT 1"
+          : "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' LIMIT 1";
+        const existing = msgTime
+          ? db.prepare(dedupQuery).get(msgPhone, msgBody, msgTime)
+          : db.prepare(dedupQuery).get(msgPhone, msgBody);
         if (existing) continue;
+
+        // Check STOP keywords FIRST (before any routing)
+        const msgLower = msgBody.trim().toLowerCase();
+        if (STOP_KEYWORDS.includes(msgLower)) {
+          db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
+          const sentiment = analyzeSentiment(msgBody);
+          db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
+            .run(msgPhone, msgBody, sentiment, msgTime);
+          totalSynced++;
+          continue; // Don't route STOP messages to surveys or P2P
+        }
 
         // Find P2P session for this phone so we can tag the message with session_id
         const p2pMatch = db.prepare(`
@@ -633,12 +647,6 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
           .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
-
-        // Check STOP keywords
-        const msgLower = msgBody.trim().toLowerCase();
-        if (STOP_KEYWORDS.includes(msgLower)) {
-          db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
-        }
 
         // Route to survey if applicable
         const activeSend = db.prepare(`
@@ -692,8 +700,8 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           }
         }
 
-        // Route to P2P if applicable — update assignment status
-        if (p2pMatch) {
+        // Route to P2P if applicable — only if not already handled by survey
+        if (p2pMatch && !(activeSend && activeSend.current_question_id)) {
           db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pMatch.assignment_id);
         }
       }

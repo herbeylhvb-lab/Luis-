@@ -357,7 +357,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   for (const convo of activeConversations) {
     const np = phoneDigits(convo.phone);
     convo.recentMessages = db.prepare(`
-      SELECT body, direction, created_at FROM messages
+      SELECT body, direction, timestamp as created_at FROM messages
       WHERE (phone = ? OR phone = ? OR REPLACE(REPLACE(REPLACE(phone,'+1',''),'+',''),'-','') = ?)
         AND (session_id = ? OR (session_id IS NULL AND direction = 'inbound'))
       ORDER BY id DESC LIMIT 3
@@ -398,8 +398,8 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   `).get(assignmentId);
   if (!assignment) return res.status(404).json({ error: 'Assignment not found.' });
 
-  // Verify this volunteer owns the assignment
-  if (assignment.volunteer_id !== volunteerId) {
+  // Verify this volunteer owns the assignment (loose comparison: SQLite returns int, client may send string)
+  if (String(assignment.volunteer_id) !== String(volunteerId)) {
     return res.status(403).json({ error: 'This assignment belongs to another volunteer.' });
   }
 

@@ -6036,12 +6036,15 @@ function leaveP2pVolunteer() {
 
 async function loadVolunteerQueue() {
   if (!p2pState.volunteerId) return;
+  // Don't overwrite UI while volunteer is viewing a conversation
+  if (document.getElementById('p2pReplyCard').style.display !== 'none') return;
   // Auto-sync inbound messages from RumbleUp (runs in background, doesn't block)
   fetch('/api/sync-inbound', { method: 'POST' }).catch(() => {});
   try {
     const d = await api('/api/p2p/volunteers/' + p2pState.volunteerId + '/queue');
+    const stats = d.stats || {};
     // Progress
-    document.getElementById('p2pVolProgress').textContent = (d.stats.sent || 0) + ' sent / ' + (d.stats.remaining || 0) + ' remaining';
+    document.getElementById('p2pVolProgress').textContent = (stats.sent || 0) + ' sent / ' + (stats.remaining || 0) + ' remaining';
 
     // Next contact in queue
     const qCard = document.getElementById('p2pQueueCard');
@@ -6056,7 +6059,7 @@ async function loadVolunteerQueue() {
     } else {
       qCard.style.display = 'none';
       p2pState.currentAssignment = null;
-      if ((d.stats.remaining || 0) === 0) {
+      if ((stats.remaining || 0) === 0) {
         document.getElementById('p2pContactInfo').innerHTML = '<p style="color:#64748b">All contacts in your queue have been texted! 🎉</p>';
       }
     }
@@ -6154,6 +6157,8 @@ async function openP2pConversation(assignmentId) {
   document.getElementById('p2pQueueCard').style.display = 'none';
   document.getElementById('p2pConversationsCard').style.display = 'none';
   document.getElementById('p2pReplyCard').style.display = '';
+  document.getElementById('p2pReplyText').value = '';
+  document.getElementById('p2pSuggestion').style.display = 'none';
   try {
     const d = await api('/api/p2p/conversations/' + assignmentId);
     document.getElementById('p2pReplyHeader').textContent = (d.assignment.first_name || '') + ' ' + (d.assignment.last_name || '');
@@ -6185,13 +6190,19 @@ async function openP2pConversation(assignmentId) {
     document.getElementById('btnSendReply').onclick = async () => {
       const body = document.getElementById('p2pReplyText').value.trim();
       if (!body) return alert('Type a reply.');
-      await apiPost('/api/p2p/send', {
-        volunteerId: p2pState.volunteerId,
-        assignmentId,
-        message: body,
-        isReply: true
-      });
-      openP2pConversation(assignmentId);
+      try {
+        const resp = await apiPost('/api/p2p/send', {
+          volunteerId: p2pState.volunteerId,
+          assignmentId,
+          message: body,
+          isReply: true
+        });
+        if (resp && resp.error) { alert('Reply failed: ' + resp.error); return; }
+        document.getElementById('p2pReplyText').value = '';
+        openP2pConversation(assignmentId);
+      } catch (err) {
+        alert('Reply failed. Check your connection.');
+      }
     };
 
     document.getElementById('btnMarkComplete').onclick = async () => {
