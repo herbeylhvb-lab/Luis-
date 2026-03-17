@@ -363,6 +363,7 @@ app.post('/test-connection', asyncHandler(async (req, res) => {
 
 // --- Incoming webhook (messaging provider) ---
 app.post('/incoming', webhookLimiter, (req, res) => {
+  console.log('[webhook /incoming] Received webhook:', JSON.stringify(req.body).substring(0, 500));
   let provider;
   try {
     provider = getProvider();
@@ -566,6 +567,57 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   }
 }));
 
+// --- Debug endpoint: test RumbleUp message log API directly ---
+app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  // Gather all the phones the sync would check
+  const phoneSet = new Set();
+  try {
+    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-7 days')`)
+      .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
+  } catch (e) { /* table may not exist */ }
+  const p2pCount = phoneSet.size;
+
+  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-7 days')`)
+    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
+  const surveyCount = phoneSet.size - p2pCount;
+
+  const beforeOutbound = phoneSet.size;
+  if (phoneSet.size < 25) {
+    db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-3 days')`)
+      .all().forEach(r => { if (r.phone && phoneSet.size < 25) phoneSet.add(r.phone); });
+  }
+  const outboundCount = phoneSet.size - beforeOutbound;
+
+  const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
+  const lastSyncRow = db.prepare("SELECT value FROM settings WHERE key = 'last_inbound_sync'").get();
+  const inboundCount = db.prepare("SELECT COUNT(*) as cnt FROM messages WHERE direction = 'inbound'").get();
+  const outboundTotal = db.prepare("SELECT COUNT(*) as cnt FROM messages WHERE direction = 'outbound'").get();
+
+  // Test RumbleUp API with first phone if available
+  let apiTest = null;
+  const testPhone = req.query.phone || sentPhones[0];
+  if (testPhone && provider.getMessageLog) {
+    try {
+      const raw = await provider.getMessageLog({ phone: testPhone });
+      apiTest = { phone: testPhone, rawResponse: raw, type: typeof raw, isArray: Array.isArray(raw) };
+    } catch (err) {
+      apiTest = { phone: testPhone, error: err.message };
+    }
+  }
+
+  res.json({
+    phonesToCheck: sentPhones.length,
+    breakdown: { p2p: p2pCount, survey: surveyCount, outbound: outboundCount },
+    samplePhones: sentPhones.slice(0, 5),
+    lastSync: lastSyncRow?.value || null,
+    dbCounts: { inbound: inboundCount?.cnt || 0, outbound: outboundTotal?.cnt || 0 },
+    apiTest
+  });
+}));
+
 // --- Sync inbound messages from RumbleUp ---
 // Cooldown: skip if last sync was < 4 seconds ago (prevents stacking from rapid polls)
 let _lastSyncTime = 0;
@@ -597,6 +649,8 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
 
   const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
 
+  console.log('[sync-inbound] Phones to check:', sentPhones.length, '| P2P:', phoneSet.size, '| Sample:', sentPhones.slice(0, 3));
+
   if (sentPhones.length === 0) return res.json({ synced: 0, checked: 0, message: 'No outbound messages to check replies for.' });
 
   // Get the last sync timestamp
@@ -615,12 +669,29 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         const params = { phone };
         if (lastSync) params.since = lastSync;
         const result = await provider.getMessageLog(params);
+
+        // DEBUG: Log raw API response shape for first phone
+        if (i === 0 && phone === batch[0]) {
+          console.log('[sync-inbound] Raw API response keys:', Object.keys(result || {}));
+          console.log('[sync-inbound] Raw API response (first 500 chars):', JSON.stringify(result).substring(0, 500));
+        }
+
         const messages = result.messages || result.data || result || [];
-        if (!Array.isArray(messages)) return;
+        if (!Array.isArray(messages)) {
+          console.log('[sync-inbound] Messages not an array for phone', phone, '| type:', typeof messages, '| keys:', Object.keys(messages || {}));
+          return;
+        }
+        if (messages.length > 0) {
+          console.log('[sync-inbound] Found', messages.length, 'messages for phone', phone, '| First msg keys:', Object.keys(messages[0]));
+        }
 
       for (const msg of messages) {
         // Only import inbound messages (sender === phone means incoming)
         const isInbound = msg.status === 'received' || msg.sender === msg.phone || msg.sender === phone || msg.direction === 'inbound';
+        // DEBUG: Log message direction detection
+        if (i === 0 && phone === batch[0]) {
+          console.log('[sync-inbound] Msg:', { status: msg.status, sender: msg.sender, phone: msg.phone, direction: msg.direction, isInbound, body: (msg.text || msg.body || msg.message || '').substring(0, 50) });
+        }
         if (!isInbound) continue;
 
         const msgPhone = phoneDigits(msg.phone || msg.from || phone);
