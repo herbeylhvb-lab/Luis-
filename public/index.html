@@ -1395,6 +1395,12 @@ tr:hover td{background:#1e293b80}
             <input type="file" id="eventFlyer" accept="image/png,image/jpeg,image/webp" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
             <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image. A unique QR code will be overlaid per voter when sending MMS invites.</div>
           </div>
+          <div id="eventUploadProgress" style="display:none;margin-bottom:12px">
+            <div style="font-size:13px;color:#94a3b8;margin-bottom:4px"><span id="eventUploadLabel">Uploading flyer...</span></div>
+            <div style="background:#1e293b;border-radius:8px;overflow:hidden;height:8px;width:100%">
+              <div id="eventUploadBar" style="height:100%;background:linear-gradient(90deg,#6366f1,#a78bfa);border-radius:8px;width:0%;transition:width 0.3s ease"></div>
+            </div>
+          </div>
           <button class="btn btn-primary" id="btnCreateEvent">Create Event</button>
         </div>
         <div class="card">
@@ -5354,27 +5360,75 @@ function useMyLocation() {
   });
 }
 
+// Compress image client-side: resize to max 1600px wide, convert to JPEG at 0.8 quality
+function compressImage(file, maxWidth, quality) {
+  maxWidth = maxWidth || 1600;
+  quality = quality || 0.8;
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width, h = img.height;
+      if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Upload JSON with XHR progress tracking
+function uploadWithProgress(url, jsonBody, onProgress) {
+  return new Promise(function(resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded / e.total * 100));
+    };
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText));
+      } else {
+        var data = {}; try { data = JSON.parse(xhr.responseText); } catch(e) {}
+        reject(new Error(data.error || 'Upload failed (' + xhr.status + ')'));
+      }
+    };
+    xhr.onerror = function() { reject(new Error('Network error during upload')); };
+    xhr.send(JSON.stringify(jsonBody));
+  });
+}
+
 document.getElementById('btnCreateEvent').addEventListener('click', async () => {
   const title = document.getElementById('eventTitle').value.trim();
   const date = document.getElementById('eventDate').value;
   if (!title || !date) { alert('Title and date are required.'); return; }
 
-  // Read flyer image as base64 if provided
+  const progressWrap = document.getElementById('eventUploadProgress');
+  const progressBar = document.getElementById('eventUploadBar');
+  const progressLabel = document.getElementById('eventUploadLabel');
+  const btn = document.getElementById('btnCreateEvent');
+
+  // Read and compress flyer image if provided
   let flyerBase64 = null;
   const flyerInput = document.getElementById('eventFlyer');
-  if (flyerInput.files && flyerInput.files[0]) {
-    flyerBase64 = await new Promise(function(resolve) {
-      const reader = new FileReader();
-      reader.onload = function() { resolve(reader.result); };
-      reader.readAsDataURL(flyerInput.files[0]);
-    });
+  const hasFlyer = flyerInput.files && flyerInput.files[0];
+  if (hasFlyer) {
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressLabel.textContent = 'Compressing image...';
+    btn.disabled = true; btn.textContent = 'Uploading...';
+    flyerBase64 = await compressImage(flyerInput.files[0], 1600, 0.8);
+    progressBar.style.width = '10%';
+    progressLabel.textContent = 'Uploading flyer...';
   }
 
   const lat = parseFloat(document.getElementById('eventLat').value);
   const lng = parseFloat(document.getElementById('eventLng').value);
   const radius = parseInt(document.getElementById('eventRadius').value);
 
-  await apiPost('/api/events', {
+  const payload = {
     title,
     location: document.getElementById('eventLocation').value.trim(),
     event_date: date,
@@ -5385,13 +5439,31 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
     latitude: isNaN(lat) ? null : lat,
     longitude: isNaN(lng) ? null : lng,
     checkin_radius: radius || 500
-  });
-  document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
-  document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
-  document.getElementById('eventEndTime').value = '';
-  document.getElementById('eventDesc').value = ''; flyerInput.value = '';
-  document.getElementById('eventLat').value = ''; document.getElementById('eventLng').value = '';
-  loadEvents();
+  };
+
+  try {
+    if (hasFlyer) {
+      await uploadWithProgress('/api/events', payload, function(pct) {
+        progressBar.style.width = (10 + pct * 0.9) + '%';
+        progressLabel.textContent = 'Uploading flyer... ' + pct + '%';
+      });
+      progressBar.style.width = '100%';
+      progressLabel.textContent = 'Done!';
+    } else {
+      await apiPost('/api/events', payload);
+    }
+    document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
+    document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
+    document.getElementById('eventEndTime').value = '';
+    document.getElementById('eventDesc').value = ''; flyerInput.value = '';
+    document.getElementById('eventLat').value = ''; document.getElementById('eventLng').value = '';
+    loadEvents();
+  } catch(err) {
+    alert('Error creating event: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create Event';
+    setTimeout(function() { progressWrap.style.display = 'none'; }, 1500);
+  }
 });
 
 // ===================== MIGRATE localStorage contacts (one-time) =====================
