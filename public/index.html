@@ -194,7 +194,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
     <div class="sidebar-section">Campaign</div>
     <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
-    <div class="nav-item" data-page="groups"><span class="icon">&#128101;</span><span>Groups</span></div>
+    <div class="nav-item" data-page="groups"><span class="icon">🚶</span><span>Block Walkers</span></div>
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
   </div>
@@ -796,6 +796,7 @@ tr:hover td{background:#1e293b80}
       <div class="sub-tabs" id="voterSubTabs">
         <div class="sub-tab active" data-subtab="voters-tab">Voter File</div>
         <div class="sub-tab" data-subtab="lists-tab">My Lists</div>
+        <div class="sub-tab" data-subtab="universes-tab">My Universes</div>
         <div class="sub-tab" data-subtab="universe-tab">Universe Builder</div>
       </div>
       <!-- SUB-TAB: VOTERS -->
@@ -1185,6 +1186,18 @@ tr:hover td{background:#1e293b80}
         <div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Address</th><th>City</th><th>Party</th><th>Actions</th></tr></thead><tbody id="adminListVotersBody"></tbody></table></div>
       </div>
       </div><!-- end lists-tab sub-page -->
+
+      <!-- SUB-TAB: MY UNIVERSES -->
+      <div class="sub-page" id="universes-tab">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin-bottom:0">My Universes</h3>
+          <button class="btn btn-sm btn-secondary" onclick="loadMyUniverses()">Refresh</button>
+        </div>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Universes you've built with the Universe Builder. You can view, rename, or delete them here.</p>
+        <div id="myUniversesContainer"><p style="color:#64748b;text-align:center">Loading...</p></div>
+      </div>
+      </div>
 
       <!-- SUB-TAB: UNIVERSE BUILDER -->
       <div class="sub-page" id="universe-tab">
@@ -1825,13 +1838,13 @@ tr:hover td{background:#1e293b80}
     <div class="page" id="page-groups">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h3 style="margin-bottom:0">Groups <span style="font-size:13px;color:#64748b">(max 10)</span></h3>
-          <button class="btn btn-sm btn-primary" onclick="showAddGroupForm()">+ Add Group</button>
+          <h3 style="margin-bottom:0">Block Walkers <span style="font-size:13px;color:#64748b">(max 10 per walk)</span></h3>
+          <button class="btn btn-sm btn-primary" onclick="showAddGroupForm()">+ Add Block Walker</button>
         </div>
 
         <div id="addGroupForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
           <div style="display:flex;gap:12px;align-items:flex-end">
-            <div class="form-group" style="flex:1;margin-bottom:0"><label>Group Name *</label><input type="text" id="newGroupName" placeholder="e.g. Team Alpha"></div>
+            <div class="form-group" style="flex:1;margin-bottom:0"><label>Walker Name *</label><input type="text" id="newGroupName" placeholder="e.g. John Smith"></div>
             <button class="btn btn-sm btn-success" onclick="createGroup()">Create</button>
             <button class="btn btn-sm btn-secondary" onclick="hideAddGroupForm()">Cancel</button>
           </div>
@@ -1844,12 +1857,12 @@ tr:hover td{background:#1e293b80}
       </div>
 
       <div class="card" style="margin-top:16px">
-        <h3>How Groups Work</h3>
+        <h3>How Block Walkers Work</h3>
         <div style="color:#94a3b8;font-size:14px;line-height:1.6">
-          <p>1. Create a group (up to 10)</p>
-          <p>2. Share the group code or portal link with your team</p>
-          <p>3. Members log in at the group portal and join active block walks</p>
-          <p>4. Members can only access block walks &mdash; no admin features</p>
+          <p>1. Add individual block walkers (each gets a unique login code)</p>
+          <p>2. Share the code or portal link with the walker</p>
+          <p>3. Walkers log in and join active block walks (up to 10 per walk)</p>
+          <p>4. Walkers can only access their assigned walks &mdash; no admin features</p>
         </div>
       </div>
     </div>
@@ -2056,6 +2069,7 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       // Load data for sub-tabs
       const subtab = tab.dataset.subtab;
       if (subtab === 'lists-tab') loadAdminLists();
+      if (subtab === 'universes-tab') loadMyUniverses();
       if (subtab === 'universe-tab') loadUniverseBuilder();
       if (subtab === 'checkins-tab') loadCheckinPage();
       if (subtab === 'voters-tab') { showVoterList(); searchVoters(); }
@@ -8214,6 +8228,82 @@ async function loadAdminLists() {
     el.appendChild(row);
   });
 }
+// ---- My Universes Management ----
+async function loadMyUniverses() {
+  var data = await api('/api/admin-lists');
+  var el = document.getElementById('myUniversesContainer');
+  el.textContent = '';
+  var universes = (data.lists || []).filter(function(l) { return l.list_type === 'universe'; });
+  if (universes.length === 0) {
+    var msg = document.createElement('p');
+    msg.style.cssText = 'color:#64748b;text-align:center;padding:24px 0';
+    msg.textContent = 'No universes built yet. Use the Universe Builder tab to create one.';
+    el.appendChild(msg);
+    return;
+  }
+  universes.forEach(function(l) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:14px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:8px;flex-wrap:wrap;gap:8px';
+    var left = document.createElement('div');
+    var title = document.createElement('strong');
+    title.style.color = '#e2e8f0';
+    title.textContent = l.name;
+    left.appendChild(title);
+    var count = document.createElement('span');
+    count.className = 'badge badge-green';
+    count.textContent = l.voterCount + ' voters';
+    count.style.marginLeft = '8px';
+    left.appendChild(count);
+    var phoneBadge = document.createElement('span');
+    phoneBadge.style.cssText = 'margin-left:8px;font-size:12px;color:#94a3b8';
+    phoneBadge.textContent = (l.withPhone || 0) + ' with phone';
+    left.appendChild(phoneBadge);
+    if (l.description) {
+      var desc = document.createElement('div');
+      desc.style.cssText = 'font-size:12px;color:#64748b;margin-top:4px';
+      desc.textContent = l.description;
+      left.appendChild(desc);
+    }
+    var created = document.createElement('div');
+    created.style.cssText = 'font-size:11px;color:#475569;margin-top:4px';
+    created.textContent = 'Created: ' + (l.created_at ? new Date(l.created_at).toLocaleDateString() : 'N/A');
+    left.appendChild(created);
+    row.appendChild(left);
+    var right = document.createElement('div');
+    right.style.cssText = 'display:flex;gap:6px;align-items:center';
+    var openBtn = document.createElement('button');
+    openBtn.className = 'btn btn-sm btn-primary';
+    openBtn.textContent = 'View';
+    openBtn.addEventListener('click', function() {
+      // Switch to My Lists tab and open this list
+      document.querySelector('[data-subtab="lists-tab"]').click();
+      setTimeout(function() { openAdminList(l.id, l.name); }, 200);
+    });
+    right.appendChild(openBtn);
+    var renameBtn = document.createElement('button');
+    renameBtn.className = 'btn btn-sm btn-secondary';
+    renameBtn.textContent = 'Rename';
+    renameBtn.addEventListener('click', function() {
+      var newName = prompt('Rename universe:', l.name);
+      if (newName && newName !== l.name) {
+        apiPut('/api/admin-lists/' + l.id, { name: newName }).then(function() { loadMyUniverses(); });
+      }
+    });
+    right.appendChild(renameBtn);
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-sm btn-danger';
+    delBtn.textContent = 'Delete';
+    delBtn.addEventListener('click', function() {
+      if (confirm('Delete universe "' + l.name + '"? This will remove the list and all ' + l.voterCount + ' voter associations.')) {
+        apiDelete('/api/admin-lists/' + l.id).then(function() { loadMyUniverses(); });
+      }
+    });
+    right.appendChild(delBtn);
+    row.appendChild(right);
+    el.appendChild(row);
+  });
+}
+
 async function openAdminList(listId, name) {
   state.currentAdminListId = listId;
   document.getElementById('adminListDetailCard').style.display = '';
@@ -9050,7 +9140,7 @@ async function loadGroups() {
     const tbody = document.getElementById('groupsTableBody');
     const groups = data.groups || [];
     if (groups.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#64748b">No groups yet. Click "+ Add Group" to create one.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#64748b">No block walkers yet. Click "+ Add Block Walker" to create one.</td></tr>';
       return;
     }
     const baseUrl = location.origin;

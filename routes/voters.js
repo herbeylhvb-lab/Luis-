@@ -1815,7 +1815,7 @@ router.post('/universe/build', (req, res) => {
       const created = {};
       const finalName = list_name || list_name_universe;
       if (finalName) {
-        const r = insertList.run(finalName, 'All registered voters matching filters', 'general');
+        const r = insertList.run(finalName, 'All registered voters matching filters', 'universe');
         const listId = r.lastInsertRowid;
         const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_precinct').run(listId);
         created.universe = { listId, added: added.changes };
@@ -1872,7 +1872,7 @@ router.post('/universe/build', (req, res) => {
       if (elecNames.length > 0) {
         descParts.push('Elections: ' + elecNames.join(', '));
       }
-      const r = insertList.run(finalName, descParts.join(' — '), 'general');
+      const r = insertList.run(finalName, descParts.join(' — '), 'universe');
       const listId = r.lastInsertRowid;
       const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_targeted').run(listId);
       created.universe = { listId, added: added.changes };
