@@ -69,7 +69,7 @@ Context: P2P texting session${sessionName ? ': ' + sessionName : ''}
 Generate a short SMS reply:`;
 
       const response = await client.messages.create({
-        model: 'claude-haiku-4-20250414',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 300,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
@@ -115,7 +115,7 @@ router.post('/p2p/review-reply', asyncHandler(async (req, res) => {
       const client = new Anthropic({ apiKey: apiKey.value });
 
       const response = await client.messages.create({
-        model: 'claude-haiku-4-20250414',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         system: `You are a grammar and spelling checker for SMS campaign texts. Fix grammar, spelling, and punctuation errors in the volunteer's draft message. Keep the same tone, meaning, and length. Only fix actual errors — do not rewrite or improve the message beyond corrections. If the message has no errors, return it exactly as-is. Return ONLY the corrected text, nothing else.`,
         messages: [{ role: 'user', content: draftText }]
