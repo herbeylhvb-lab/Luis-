@@ -885,11 +885,15 @@
     }
 
     async function openConvo(assignmentId) {
+      var isFirstOpen = volState.viewingConvoId !== assignmentId;
       volState.viewingConvoId = assignmentId;
       document.getElementById('queueCard').style.display = 'none';
       document.getElementById('convosCard').style.display = 'none';
       document.getElementById('convoViewCard').style.display = '';
-      document.getElementById('aiSuggestion').style.display = 'none';
+      // Only hide AI suggestion on first open, not on auto-refresh
+      if (isFirstOpen) {
+        document.getElementById('aiSuggestion').style.display = 'none';
+      }
 
       var data = await apiCall('/api/p2p/conversations/' + assignmentId);
       document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
@@ -934,9 +938,9 @@
         titleEl.textContent += ' (prefers WhatsApp)';
       }
 
-      // Get AI suggestion for the last inbound message (only on first open, not refresh)
+      // Get AI suggestion only when first opening a conversation (not on auto-refresh)
       var lastInbound = (data.messages || []).filter(function(m) { return m.direction === 'inbound'; }).pop();
-      if (lastInbound && isRefresh && document.getElementById('aiSuggestion').style.display === 'none') {
+      if (lastInbound && isFirstOpen) {
         fetchAiSuggestion(lastInbound.body, data.assignment.first_name, lastInbound.sentiment, assignmentId);
       }
 

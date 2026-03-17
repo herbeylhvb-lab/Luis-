@@ -633,20 +633,21 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   if (!provider.getMessageLog) return res.status(400).json({ error: 'Provider does not support message log sync.' });
 
   // PRIORITY 1: Check P2P active conversations first (most important for reply detection)
+  // Extended to 30 days and raised cap to 100 phones to catch more replies
   const phoneSet = new Set();
   try {
-    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-7 days')`)
+    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-30 days')`)
       .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
   } catch (e) { /* table may not exist */ }
 
   // PRIORITY 2: Active survey sends
-  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-7 days')`)
-    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
+  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-30 days')`)
+    .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
 
-  // PRIORITY 3: Recent outbound (only if we have capacity — cap at 25 phones per sync)
-  if (phoneSet.size < 25) {
-    db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-3 days')`)
-      .all().forEach(r => { if (r.phone && phoneSet.size < 25) phoneSet.add(r.phone); });
+  // PRIORITY 3: Recent outbound — check all phones we've texted in last 14 days (cap at 100)
+  if (phoneSet.size < 100) {
+    db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-14 days')`)
+      .all().forEach(r => { if (r.phone && phoneSet.size < 100) phoneSet.add(phoneDigits(r.phone)); });
   }
 
   const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
@@ -668,9 +669,9 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
     const batch = sentPhones.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(batch.map(async (phone) => {
       try {
-        const params = { phone };
-        if (lastSync) params.since = lastSync;
-        const result = await provider.getMessageLog(params);
+        // Don't pass 'since' — RumbleUp may interpret timestamps differently
+        // and skip messages. Instead fetch all recent messages and dedup locally.
+        const result = await provider.getMessageLog({ phone });
 
         // DEBUG: Log raw API response shape for first phone
         if (i === 0 && phone === batch[0]) {
