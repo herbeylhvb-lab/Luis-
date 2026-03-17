@@ -172,30 +172,24 @@ tr:hover td{background:#1e293b80}
   <div class="sidebar-nav">
     <div class="sidebar-section">Campaign</div>
     <div class="nav-item active" data-page="dashboard"><span class="icon">&#128202;</span><span>Dashboard</span></div>
-    <div class="nav-item" data-page="compose"><span class="icon">&#9993;&#65039;</span><span>Compose &amp; Send</span></div>
+    <div class="nav-item" data-page="texting"><span class="icon">&#128241;</span><span>Texting</span></div>
     <div class="nav-item" data-page="contacts"><span class="icon">&#128101;</span><span>Contacts</span></div>
+    <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
     <div class="sidebar-section">Field</div>
-    <div class="nav-item" data-page="walks"><span class="icon">&#128694;</span><span>Block Walk</span></div>
+    <div class="nav-item" data-page="blockwalk"><span class="icon">&#128694;</span><span>Block Walking</span></div>
     <div class="nav-item" data-page="voters"><span class="icon">&#128209;</span><span>Voter File</span></div>
     <div class="nav-item" data-page="events"><span class="icon">&#128197;</span><span>Events</span></div>
-    <div class="sidebar-section">Responses</div>
-    <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
+    <div class="sidebar-section">Outreach</div>
+    <div class="nav-item" data-page="gotv"><span class="icon">&#127383;</span><span>GOTV Chase</span></div>
+    <div class="nav-item" data-page="surveys"><span class="icon">&#128202;</span><span>Polls &amp; Surveys</span></div>
+    <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
     <div class="sidebar-section">System</div>
     <div class="nav-item" data-page="messaging"><span class="icon">&#128273;</span><span>Messaging Setup</span></div>
     <div class="nav-item" data-page="autoreply"><span class="icon">&#129302;</span><span>Auto-Reply AI</span></div>
     <div class="nav-item" data-page="rumbleup"><span class="icon">&#128225;</span><span>RumbleUp Hub</span></div>
-    <div class="sidebar-section">P2P</div>
-    <div class="nav-item" data-page="p2p"><span class="icon">&#128241;</span><span>P2P Texting</span></div>
     <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
-    <div class="sidebar-section">Outreach</div>
-    <div class="nav-item" data-page="broadcast"><span class="icon">&#128227;</span><span>Broadcast SMS</span></div>
-    <div class="nav-item" data-page="gotv"><span class="icon">&#127383;</span><span>GOTV Chase</span></div>
-    <div class="nav-item" data-page="surveys"><span class="icon">&#128202;</span><span>Polls &amp; Surveys</span></div>
-    <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
-    <div class="sidebar-section">Campaign</div>
-    <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
-    <div class="nav-item" data-page="groups"><span class="icon">🚶</span><span>Block Walkers</span></div>
     <div class="sidebar-section">Admin</div>
+    <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
   </div>
   <div id="userBar" style="padding:10px 16px;border-top:1px solid #334155;font-size:12px;display:none">
@@ -303,8 +297,17 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ==================== TEXTING (combined) ==================== -->
+    <div class="page" id="page-texting">
+      <div class="sub-tabs" id="textingSubTabs">
+        <div class="sub-tab active" data-textingtab="compose">Compose & Send</div>
+        <div class="sub-tab" data-textingtab="p2p">P2P Texting</div>
+        <div class="sub-tab" data-textingtab="broadcast">Broadcast SMS</div>
+      </div>
+    </div>
+
     <!-- ==================== COMPOSE & SEND ==================== -->
-    <div class="page" id="page-compose">
+    <div class="page texting-subpage" id="page-compose" data-texting="compose">
       <div class="card">
         <div class="alert alert-info" style="margin-bottom:16px;border-left:4px solid #818cf8" id="complianceBanner">
           <strong>P2P Compliant (TCPA)</strong> &mdash; SMS messages are sent individually by volunteers via P2P sessions. Each text requires a human to click send. WhatsApp and Email use their own compliance frameworks.
@@ -469,7 +472,7 @@ tr:hover td{background:#1e293b80}
     </div>
 
     <!-- ================= P2P TEXTING ================= -->
-    <div class="page" id="page-p2p">
+    <div class="page texting-subpage" id="page-p2p" data-texting="p2p">
       <div id="p2p-admin-view">
         <div class="card" style="border-left:4px solid #22c55e;margin-bottom:16px">
           <h3 style="color:#22c55e">TCPA P2P Compliance</h3>
@@ -599,8 +602,16 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ==================== BLOCK WALKING (combined) ==================== -->
+    <div class="page" id="page-blockwalk">
+      <div class="sub-tabs" id="blockwalkSubTabs">
+        <div class="sub-tab active" data-bwtab="walks">Block Walks</div>
+        <div class="sub-tab" data-bwtab="walkers">Block Walkers</div>
+      </div>
+    </div>
+
     <!-- ==================== BLOCK WALK ==================== -->
-    <div class="page" id="page-walks">
+    <div class="page bw-subpage" id="page-walks" data-bw="walks">
       <!-- Walk sub-tabs -->
       <div class="sub-tabs" id="walkSubTabs" style="margin-bottom:16px">
         <div class="sub-tab active" data-walktab="walks-main">Walks</div>
@@ -1566,7 +1577,7 @@ tr:hover td{background:#1e293b80}
 
     <!-- ==================== BLOCK CAPTAINS ==================== -->
     <!-- ==================== BROADCAST SMS ==================== -->
-    <div class="page" id="page-broadcast">
+    <div class="page texting-subpage" id="page-broadcast" data-texting="broadcast">
       <div class="card">
         <div class="alert alert-info" style="margin-bottom:16px;border-left:4px solid #f59e0b">
           <strong>Mass Broadcast</strong> &mdash; Send the same message to all contacts at once. Unlike P2P, these are sent automatically. Ensure you have proper consent and 10DLC registration.
@@ -1834,8 +1845,8 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
-    <!-- Groups Page -->
-    <div class="page" id="page-groups">
+    <!-- Block Walkers Page -->
+    <div class="page bw-subpage" id="page-groups" data-bw="walkers">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <h3 style="margin-bottom:0">Block Walkers <span style="font-size:13px;color:#64748b">(max 10 per walk)</span></h3>
@@ -2034,6 +2045,19 @@ document.querySelectorAll('.nav-item').forEach(item => {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById('page-' + page).classList.add('active');
     document.getElementById('pageTitle').textContent = item.querySelector('span:last-child').textContent;
+    // Combined pages — also show the active sub-page alongside the tab bar
+    if (page === 'texting') {
+      var activeTab = document.querySelector('#textingSubTabs .sub-tab.active');
+      var target = activeTab ? activeTab.dataset.textingtab : 'compose';
+      var sp = document.querySelector('.texting-subpage[data-texting="' + target + '"]');
+      if (sp) sp.classList.add('active');
+    }
+    if (page === 'blockwalk') {
+      var activeTab = document.querySelector('#blockwalkSubTabs .sub-tab.active');
+      var target = activeTab ? activeTab.dataset.bwtab : 'walks';
+      var sp = document.querySelector('.bw-subpage[data-bw="' + target + '"]');
+      if (sp) sp.classList.add('active');
+    }
     // Load data when switching pages
     if (page === 'contacts') loadContacts();
     if (page === 'walks') { showWalkList(); loadWalks(); }
@@ -2051,7 +2075,62 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'gotv') { loadGotvPage(); }
     if (page === 'analytics') { loadAnalyticsPage(); }
     if (page === 'rumbleup') { rumbleupRefresh(); }
+    // Combined pages — load data for the active sub-tab
+    if (page === 'texting') {
+      var tt = (document.querySelector('#textingSubTabs .sub-tab.active') || {}).dataset;
+      var tn = tt ? tt.textingtab : 'compose';
+      if (tn === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
+      if (tn === 'broadcast') { loadBroadcastPage(); }
+    }
+    if (page === 'blockwalk') {
+      var bt = (document.querySelector('#blockwalkSubTabs .sub-tab.active') || {}).dataset;
+      var bn = bt ? bt.bwtab : 'walks';
+      if (bn === 'walks') { showWalkList(); loadWalks(); }
+      if (bn === 'walkers') { loadGroups(); }
+    }
   });
+});
+
+// ===================== COMBINED PAGE TAB SWITCHING =====================
+function switchTextingTab(tabName) {
+  var tabs = document.getElementById('textingSubTabs');
+  if (tabName) {
+    tabs.querySelectorAll('.sub-tab').forEach(function(t) { t.classList.remove('active'); });
+    tabs.querySelector('[data-textingtab="' + tabName + '"]').classList.add('active');
+  }
+  var active = tabs.querySelector('.sub-tab.active');
+  var target = active ? active.dataset.textingtab : 'compose';
+  document.querySelectorAll('.texting-subpage').forEach(function(p) { p.classList.remove('active'); });
+  var targetPage = document.querySelector('.texting-subpage[data-texting="' + target + '"]');
+  if (targetPage) targetPage.classList.add('active');
+  // Load data for the active tab
+  if (target === 'compose') { /* already loaded */ }
+  if (target === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
+  if (target === 'broadcast') { loadBroadcastPage(); }
+}
+
+document.querySelectorAll('[data-textingtab]').forEach(function(tab) {
+  tab.addEventListener('click', function() { switchTextingTab(tab.dataset.textingtab); });
+});
+
+function switchBlockwalkTab(tabName) {
+  var tabs = document.getElementById('blockwalkSubTabs');
+  if (tabName) {
+    tabs.querySelectorAll('.sub-tab').forEach(function(t) { t.classList.remove('active'); });
+    tabs.querySelector('[data-bwtab="' + tabName + '"]').classList.add('active');
+  }
+  var active = tabs.querySelector('.sub-tab.active');
+  var target = active ? active.dataset.bwtab : 'walks';
+  document.querySelectorAll('.bw-subpage').forEach(function(p) { p.classList.remove('active'); });
+  var targetPage = document.querySelector('.bw-subpage[data-bw="' + target + '"]');
+  if (targetPage) targetPage.classList.add('active');
+  // Load data for the active tab
+  if (target === 'walks') { showWalkList(); loadWalks(); }
+  if (target === 'walkers') { loadGroups(); }
+}
+
+document.querySelectorAll('[data-bwtab]').forEach(function(tab) {
+  tab.addEventListener('click', function() { switchBlockwalkTab(tab.dataset.bwtab); });
 });
 
 // ===================== SUB-TAB NAVIGATION =====================
