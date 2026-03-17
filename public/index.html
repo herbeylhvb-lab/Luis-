@@ -183,6 +183,7 @@ tr:hover td{background:#1e293b80}
     <div class="sidebar-section">System</div>
     <div class="nav-item" data-page="messaging"><span class="icon">&#128273;</span><span>Messaging Setup</span></div>
     <div class="nav-item" data-page="autoreply"><span class="icon">&#129302;</span><span>Auto-Reply AI</span></div>
+    <div class="nav-item" data-page="rumbleup"><span class="icon">&#128225;</span><span>RumbleUp Hub</span></div>
     <div class="sidebar-section">P2P</div>
     <div class="nav-item" data-page="p2p"><span class="icon">&#128241;</span><span>P2P Texting</span></div>
     <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
@@ -395,6 +396,75 @@ tr:hover td{background:#1e293b80}
         <h3>Response Scripts <button class="btn btn-primary btn-xs" style="margin-left:12px" id="btnAddScript">+ Add Script</button></h3>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Fallback responses when AI can't generate a confident reply.</p>
         <div id="scriptsList"></div>
+      </div>
+    </div>
+
+    <!-- ==================== RUMBLEUP HUB ==================== -->
+    <div class="page" id="page-rumbleup">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">RumbleUp Hub</h2>
+        <button class="btn btn-sm" onclick="rumbleupRefresh()" style="background:#6366f1;border-color:#4f46e5">Refresh</button>
+      </div>
+
+      <!-- Account Info -->
+      <div class="card" id="ru-account-card">
+        <h3>Account</h3>
+        <div id="ru-account-info" style="color:#94a3b8">Loading...</div>
+      </div>
+
+      <!-- Projects -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0">Projects</h3>
+          <button class="btn btn-sm" onclick="rumbleupShowCreateProject()" style="background:#10b981;border-color:#059669">+ New Project</button>
+        </div>
+        <div id="ru-create-project-form" style="display:none;margin-bottom:16px;padding:12px;background:#1e293b;border-radius:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <input id="ru-proj-name" class="form-control" placeholder="Project name" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+            <input id="ru-proj-campaign" class="form-control" placeholder="TCR Campaign ID (optional)" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+          </div>
+          <textarea id="ru-proj-message" class="form-control" rows="3" placeholder="Message template..." style="background:#0f172a;border-color:#334155;color:#e2e8f0;margin-bottom:8px"></textarea>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" onclick="rumbleupCreateProject()" style="background:#10b981;border-color:#059669">Create</button>
+            <button class="btn btn-sm" onclick="document.getElementById('ru-create-project-form').style.display='none'" style="background:#475569;border-color:#334155">Cancel</button>
+          </div>
+        </div>
+        <div id="ru-projects-list" style="color:#94a3b8">Loading...</div>
+      </div>
+
+      <!-- Push Contacts -->
+      <div class="card">
+        <h3>Push Contacts to RumbleUp</h3>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Import contacts from your Universe Builder lists directly into RumbleUp via API.</p>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <select id="ru-import-list" class="form-control" style="background:#0f172a;border-color:#334155;color:#e2e8f0;flex:1">
+            <option value="">Select an admin list...</option>
+          </select>
+          <button class="btn btn-sm" onclick="rumbleupImportContacts()" style="background:#f59e0b;border-color:#d97706;color:#000">Import via API</button>
+        </div>
+        <div id="ru-import-status" style="font-size:13px"></div>
+      </div>
+
+      <!-- Send Test Message -->
+      <div class="card">
+        <h3>Send Test Message</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <input id="ru-test-project" class="form-control" placeholder="Project ID" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+          <input id="ru-test-phone" class="form-control" placeholder="Phone number" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+        </div>
+        <textarea id="ru-test-message" class="form-control" rows="2" placeholder="Test message (optional — uses project message if blank)" style="background:#0f172a;border-color:#334155;color:#e2e8f0;margin-bottom:8px"></textarea>
+        <button class="btn btn-sm" onclick="rumbleupSendTest()" style="background:#6366f1;border-color:#4f46e5">Send Test</button>
+        <div id="ru-test-status" style="font-size:13px;margin-top:8px"></div>
+      </div>
+
+      <!-- Message Logs -->
+      <div class="card">
+        <h3>Message Logs</h3>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input id="ru-log-phone" class="form-control" placeholder="Phone number to look up" style="background:#0f172a;border-color:#334155;color:#e2e8f0;flex:1">
+          <button class="btn btn-sm" onclick="rumbleupGetLogs()" style="background:#6366f1;border-color:#4f46e5">Search</button>
+        </div>
+        <div id="ru-logs-list" style="font-size:13px;color:#94a3b8;max-height:300px;overflow-y:auto"></div>
       </div>
     </div>
 
@@ -1967,6 +2037,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'broadcast') { loadBroadcastPage(); }
     if (page === 'gotv') { loadGotvPage(); }
     if (page === 'analytics') { loadAnalyticsPage(); }
+    if (page === 'rumbleup') { rumbleupRefresh(); }
   });
 });
 
@@ -8480,6 +8551,214 @@ window.exportRumbleUpCSV = function() {
   link.download = 'rumbleup_contacts.csv';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
+
+// ===================== RUMBLEUP HUB =====================
+
+async function rumbleupRefresh() {
+  rumbleupLoadAccount();
+  rumbleupLoadProjects();
+  rumbleupLoadAdminLists();
+}
+
+async function rumbleupLoadAccount() {
+  var el = document.getElementById('ru-account-info');
+  try {
+    var resp = await fetch('/api/rumbleup/account');
+    if (!resp.ok) { el.textContent = 'Not connected. Configure credentials in Messaging Setup.'; return; }
+    var data = await resp.json();
+    el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">' +
+      '<div><div style="color:#64748b;font-size:11px">Account</div><div style="color:#e2e8f0;font-weight:600">' + (data.name || '-') + '</div></div>' +
+      '<div><div style="color:#64748b;font-size:11px">Status</div><div style="color:' + (data.status === 'Active' ? '#10b981' : '#ef4444') + ';font-weight:600">' + (data.status || '-') + '</div></div>' +
+      '<div><div style="color:#64748b;font-size:11px">Balance</div><div style="color:#e2e8f0;font-weight:600">$' + (data.balance != null ? data.balance : '-') + '</div></div>' +
+    '</div>';
+  } catch (e) { el.textContent = 'Error loading account: ' + e.message; }
+}
+
+async function rumbleupLoadProjects() {
+  var el = document.getElementById('ru-projects-list');
+  try {
+    var resp = await fetch('/api/rumbleup/projects');
+    if (!resp.ok) { el.textContent = 'Failed to load projects.'; return; }
+    var data = await resp.json();
+    var projects = data.projects || [];
+    if (projects.length === 0) { el.textContent = 'No projects found.'; return; }
+    var html = '<table style="width:100%;font-size:13px;border-collapse:collapse">' +
+      '<tr style="color:#64748b;text-align:left;border-bottom:1px solid #334155"><th style="padding:6px">ID</th><th style="padding:6px">Name</th><th style="padding:6px">Status</th><th style="padding:6px">Type</th><th style="padding:6px">Sent</th><th style="padding:6px">Delivered</th><th style="padding:6px">Replies</th><th style="padding:6px">Actions</th></tr>';
+    projects.forEach(function(p) {
+      var statusColor = p.status === 'Live' ? '#10b981' : p.status === 'Draft' ? '#f59e0b' : '#94a3b8';
+      html += '<tr style="border-bottom:1px solid #1e293b">' +
+        '<td style="padding:6px;color:#818cf8">' + p.action + '</td>' +
+        '<td style="padding:6px;color:#e2e8f0">' + (p.name || 'Untitled') + '</td>' +
+        '<td style="padding:6px;color:' + statusColor + ';font-weight:600">' + p.status + '</td>' +
+        '<td style="padding:6px;color:#94a3b8">' + (p.type || 'SMS') + '</td>' +
+        '<td style="padding:6px;color:#e2e8f0">' + (p.sent || 0) + '</td>' +
+        '<td style="padding:6px;color:#e2e8f0">' + (p.delivered || 0) + '</td>' +
+        '<td style="padding:6px;color:#e2e8f0">' + (p.replies || 0) + '</td>' +
+        '<td style="padding:6px">';
+      if (p.status === 'Draft') {
+        html += '<button class="btn btn-sm" onclick="rumbleupGoLive(\'' + p.action + '\')" style="background:#10b981;border-color:#059669;font-size:11px;padding:2px 8px;margin-right:4px">Go Live</button>';
+      }
+      if (p.status === 'Live') {
+        html += '<button class="btn btn-sm" onclick="rumbleupStopProject(\'' + p.action + '\')" style="background:#ef4444;border-color:#dc2626;font-size:11px;padding:2px 8px;margin-right:4px">Stop</button>';
+      }
+      html += '<button class="btn btn-sm" onclick="rumbleupViewProject(\'' + p.action + '\')" style="background:#334155;border-color:#475569;font-size:11px;padding:2px 8px">Details</button>';
+      html += '</td></tr>';
+    });
+    html += '</table>';
+    el.innerHTML = html;
+  } catch (e) { el.textContent = 'Error: ' + e.message; }
+}
+
+function rumbleupShowCreateProject() {
+  var form = document.getElementById('ru-create-project-form');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function rumbleupCreateProject() {
+  var name = document.getElementById('ru-proj-name').value.trim();
+  var message = document.getElementById('ru-proj-message').value.trim();
+  var campaignId = document.getElementById('ru-proj-campaign').value.trim();
+  if (!name || !message) return alert('Name and message are required.');
+  try {
+    var body = { name: name, message: message };
+    if (campaignId) body.campaignId = campaignId;
+    var resp = await fetch('/api/rumbleup/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var data = await resp.json();
+    if (!resp.ok) return alert('Error: ' + (data.error || 'Failed to create project'));
+    alert('Project created! ID: ' + (data.action || data.num || '?'));
+    document.getElementById('ru-create-project-form').style.display = 'none';
+    document.getElementById('ru-proj-name').value = '';
+    document.getElementById('ru-proj-message').value = '';
+    document.getElementById('ru-proj-campaign').value = '';
+    rumbleupLoadProjects();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function rumbleupGoLive(projectId) {
+  if (!confirm('Make project #' + projectId + ' go LIVE? Texters will be able to send messages.')) return;
+  try {
+    var resp = await fetch('/api/rumbleup/projects/' + projectId + '/live', { method: 'POST' });
+    var data = await resp.json();
+    if (!resp.ok) return alert('Error: ' + (data.error || 'Failed'));
+    alert('Project #' + projectId + ' is now LIVE!');
+    rumbleupLoadProjects();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function rumbleupStopProject(projectId) {
+  if (!confirm('Stop project #' + projectId + '? This will halt message sending.')) return;
+  try {
+    var resp = await fetch('/api/rumbleup/projects/' + projectId + '/stop', { method: 'POST' });
+    var data = await resp.json();
+    if (!resp.ok) return alert('Error: ' + (data.error || 'Failed'));
+    alert('Project #' + projectId + ' stopped.');
+    rumbleupLoadProjects();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function rumbleupViewProject(projectId) {
+  try {
+    var resp = await fetch('/api/rumbleup/projects/' + projectId);
+    var data = await resp.json();
+    if (!resp.ok) return alert('Error: ' + (data.error || 'Failed'));
+    var info = 'Project #' + data.action + ': ' + data.name +
+      '\nStatus: ' + data.status +
+      '\nType: ' + data.type +
+      '\nMessage: ' + (data.message || '(none)') +
+      '\nTarget: ' + (data.target || 0) +
+      '\nSent: ' + (data.sent || 0) +
+      '\nDelivered: ' + (data.delivered || 0) + ' (' + (data.delivered_percent || 0) + '%)' +
+      '\nReplies: ' + (data.replies || 0) +
+      '\nDND: ' + (data.dnd || 0) +
+      '\nBad: ' + (data.bad || 0) +
+      '\nCost: ' + (data.cost || '$0.00') +
+      '\nProxy: ' + (Array.isArray(data.proxy) ? data.proxy.join(', ') : (data.proxy || '-')) +
+      '\nCampaign: ' + (data.campaignId || '-') +
+      '\nLive Time: ' + (data.live_time || 'Not live') +
+      '\nUpdated: ' + (data.update_time || '-');
+    alert(info);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function rumbleupLoadAdminLists() {
+  var select = document.getElementById('ru-import-list');
+  try {
+    var resp = await fetch('/api/admin-lists');
+    if (!resp.ok) return;
+    var data = await resp.json();
+    var lists = data.lists || [];
+    select.innerHTML = '<option value="">Select an admin list...</option>';
+    lists.forEach(function(l) {
+      select.innerHTML += '<option value="' + l.id + '">' + l.name + ' (' + (l.voter_count || 0) + ' voters)</option>';
+    });
+  } catch (e) { /* ignore */ }
+}
+
+async function rumbleupImportContacts() {
+  var listId = document.getElementById('ru-import-list').value;
+  if (!listId) return alert('Select a list first.');
+  var statusEl = document.getElementById('ru-import-status');
+  statusEl.innerHTML = '<span style="color:#f59e0b">Importing contacts to RumbleUp... this may take a moment.</span>';
+  try {
+    var resp = await fetch('/api/rumbleup/contacts/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ list_id: parseInt(listId) })
+    });
+    var data = await resp.json();
+    if (!resp.ok) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + (data.error || 'Import failed') + '</span>'; return; }
+    statusEl.innerHTML = '<span style="color:#10b981">Imported ' + (data.imported || 0) + ' contacts from "' + (data.listName || '') + '" to RumbleUp. Group: ' + (data.name || data.gid || 'created') + '</span>';
+  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>'; }
+}
+
+async function rumbleupSendTest() {
+  var projectId = document.getElementById('ru-test-project').value.trim();
+  var phone = document.getElementById('ru-test-phone').value.trim();
+  var message = document.getElementById('ru-test-message').value.trim();
+  var statusEl = document.getElementById('ru-test-status');
+  if (!projectId || !phone) return alert('Project ID and phone number are required.');
+  statusEl.innerHTML = '<span style="color:#f59e0b">Sending test...</span>';
+  try {
+    var body = { test_phone: phone };
+    if (message) body.message = message;
+    var resp = await fetch('/api/rumbleup/projects/' + projectId + '/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    var data = await resp.json();
+    if (!resp.ok) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + (data.error || 'Send failed') + '</span>'; return; }
+    statusEl.innerHTML = '<span style="color:#10b981">Test message sent to ' + phone + '!</span>';
+  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>'; }
+}
+
+async function rumbleupGetLogs() {
+  var phone = document.getElementById('ru-log-phone').value.trim().replace(/\D/g, '');
+  if (!phone) return alert('Enter a phone number.');
+  var el = document.getElementById('ru-logs-list');
+  el.innerHTML = '<span style="color:#f59e0b">Loading...</span>';
+  try {
+    var resp = await fetch('/api/rumbleup/messaging/logs?phone=' + phone);
+    var data = await resp.json();
+    if (!resp.ok) { el.innerHTML = '<span style="color:#ef4444">Error: ' + (data.error || 'Failed') + '</span>'; return; }
+    var logs = data.data || [];
+    if (logs.length === 0) { el.innerHTML = 'No messages found for this number.'; return; }
+    var html = '<table style="width:100%;border-collapse:collapse">' +
+      '<tr style="color:#64748b;text-align:left;border-bottom:1px solid #334155"><th style="padding:4px">Time</th><th style="padding:4px">Dir</th><th style="padding:4px">Status</th><th style="padding:4px">Message</th></tr>';
+    logs.forEach(function(m) {
+      var dir = (m.sender === 'rumbleup' || m.sender === m.proxy) ? 'OUT' : 'IN';
+      var dirColor = dir === 'OUT' ? '#818cf8' : '#10b981';
+      html += '<tr style="border-bottom:1px solid #1e293b">' +
+        '<td style="padding:4px;color:#94a3b8;white-space:nowrap">' + (m.sent_time || m.update_time || '-') + '</td>' +
+        '<td style="padding:4px;color:' + dirColor + ';font-weight:600">' + dir + '</td>' +
+        '<td style="padding:4px;color:#e2e8f0">' + (m.status || '-') + '</td>' +
+        '<td style="padding:4px;color:#e2e8f0">' + (m.text || '').substring(0, 80) + '</td></tr>';
+    });
+    html += '</table>';
+    if (data.total) html += '<div style="color:#64748b;margin-top:8px">Total: ' + data.total + ' messages</div>';
+    el.innerHTML = html;
+  } catch (e) { el.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>'; }
+}
 
 window.createWalkFromList = async function() {
   var listId = state.currentAdminListId;

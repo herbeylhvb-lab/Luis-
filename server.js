@@ -226,6 +226,7 @@ app.use('/api', require('./routes/admin-lists'));
 app.use('/api', require('./routes/groups'));
 app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
+app.use('/api', require('./routes/rumbleup'));
 
 // --- TCPA: Bulk SMS endpoint removed ---
 app.post('/send', (req, res) => {
