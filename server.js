@@ -198,6 +198,8 @@ app.use((req, res, next) => {
   if (req.path === '/' || req.path.startsWith('/site')) return next();
   // Allow /app (handles its own auth redirect)
   if (req.path === '/app') return next();
+  // Allow debug sync status (read-only diagnostic)
+  if (req.path === '/api/debug/sync-status') return next();
   // Everything else requires auth
   requireAuth(req, res, next);
 });
