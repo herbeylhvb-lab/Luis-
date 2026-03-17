@@ -6022,7 +6022,7 @@ function showP2pVolunteer() {
   loadVolunteerQueue();
   // Start polling
   if (p2pState.pollTimer) clearInterval(p2pState.pollTimer);
-  p2pState.pollTimer = setInterval(loadVolunteerQueue, 60000);
+  p2pState.pollTimer = setInterval(loadVolunteerQueue, 10000); // Poll every 10s for fast reply detection
 }
 
 function leaveP2pVolunteer() {
@@ -6036,6 +6036,8 @@ function leaveP2pVolunteer() {
 
 async function loadVolunteerQueue() {
   if (!p2pState.volunteerId) return;
+  // Auto-sync inbound messages from RumbleUp (runs in background, doesn't block)
+  fetch('/api/sync-inbound', { method: 'POST' }).catch(() => {});
   try {
     const d = await api('/api/p2p/volunteers/' + p2pState.volunteerId + '/queue');
     // Progress
