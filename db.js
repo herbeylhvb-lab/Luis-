@@ -850,6 +850,27 @@ addColumn("ALTER TABLE walk_group_members ADD COLUMN last_knock_at TEXT DEFAULT 
 addColumn("ALTER TABLE block_walks ADD COLUMN source_precincts TEXT DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN source_filters_json TEXT DEFAULT NULL");
 
+// --- Walkers — persistent block walk volunteers tied to a candidate ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walkers (
+    id INTEGER PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT NULL,
+    code TEXT NOT NULL UNIQUE,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_walkers_candidate ON walkers(candidate_id);
+  CREATE INDEX IF NOT EXISTS idx_walkers_code ON walkers(code);
+`);
+// Link walk_group_members to persistent walker identity
+addColumn("ALTER TABLE walk_group_members ADD COLUMN walker_id INTEGER DEFAULT NULL");
+// Track which walker knocked each door
+addColumn("ALTER TABLE walk_attempts ADD COLUMN walker_id INTEGER DEFAULT NULL");
+// Bump default max walkers to 10
+try { db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run(); } catch(e) {}
+
 // --- Groups table (code-based login, block walk only, max 10) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS groups (

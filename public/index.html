@@ -2932,6 +2932,31 @@ async function loadWalkDetail(id) {
       gWrap.style.display = 'none';
     }
   } catch(e) { /* group info optional */ }
+  // Assign Walkers button
+  var assignWalkersWrap = document.getElementById('walkAssignWalkersWrap');
+  if (!assignWalkersWrap) {
+    assignWalkersWrap = document.createElement('div');
+    assignWalkersWrap.id = 'walkAssignWalkersWrap';
+    assignWalkersWrap.style.cssText = 'margin:8px 0';
+    var assignWalkersBtn = document.createElement('button');
+    assignWalkersBtn.className = 'btn btn-sm btn-primary';
+    assignWalkersBtn.style.cssText = 'width:auto;padding:8px 16px';
+    assignWalkersBtn.textContent = 'Assign Walkers';
+    assignWalkersBtn.onclick = function() { showAssignWalkersModal(id); };
+    assignWalkersWrap.appendChild(assignWalkersBtn);
+    document.getElementById('walkGroupMembers').parentNode.insertBefore(assignWalkersWrap, document.getElementById('walkGroupMembers').nextSibling);
+  }
+  // Show assigned walker count
+  try {
+    var wkData = await api('/api/walks/' + id + '/walkers');
+    var wkMembers = wkData.members || [];
+    if (wkMembers.length > 0) {
+      var wkLabel = document.createElement('div');
+      wkLabel.style.cssText = 'font-size:12px;color:#64748b;margin-top:6px';
+      wkLabel.textContent = 'Assigned Walkers: ' + wkMembers.map(function(m) { return m.walker_name + ' (' + (m.doors_knocked || 0) + ' doors)'; }).join(', ');
+      assignWalkersWrap.appendChild(wkLabel);
+    }
+  } catch(e) { /* optional */ }
   // Result stats
   const results = ['not_visited','not_home','supportive','undecided','opposed','moved','refused','come_back'];
   const statsHtml = results.map(r => '<div class="stat-card" style="padding:12px"><div class="label">' + r.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + (w.resultStats[r] || 0) + '</div></div>').join('');
@@ -6878,6 +6903,25 @@ async function showCandidateDetail(id, name, code) {
       container.appendChild(emptyDiv);
     }
 
+    // ===================== WALKERS SECTION =====================
+    var walkersHeader = document.createElement('div');
+    walkersHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-top:20px;margin-bottom:10px';
+    var walkersTitle = document.createElement('h4');
+    walkersTitle.style.cssText = 'color:#94a3b8;font-size:13px;margin:0';
+    walkersTitle.textContent = 'WALKERS';
+    walkersHeader.appendChild(walkersTitle);
+    var addWalkerBtn = document.createElement('button');
+    addWalkerBtn.className = 'btn btn-xs btn-primary';
+    addWalkerBtn.textContent = '+ New Walker';
+    addWalkerBtn.onclick = function() { showAddWalkerForm(id); };
+    walkersHeader.appendChild(addWalkerBtn);
+    container.appendChild(walkersHeader);
+
+    var walkersContainer = document.createElement('div');
+    walkersContainer.id = 'candidateWalkersContainer';
+    container.appendChild(walkersContainer);
+    loadCandidateWalkers(id, walkersContainer);
+
     // All Lists table with source filter
     var listData = await api('/api/candidates/' + id + '/lists');
     var allLists = listData.lists || [];
@@ -7238,6 +7282,278 @@ async function deleteCaptainForCandidate(captainId, captainName) {
     showCandidateDetail(_candidateDetailId, detailName);
     loadCandidates();
   } catch (e) { alert('Error deleting captain: ' + (e.message || e)); }
+}
+
+// ===================== WALKER MANAGEMENT =====================
+
+async function loadCandidateWalkers(candidateId, container) {
+  container.textContent = '';
+  try {
+    var data = await api('/api/candidates/' + candidateId + '/walkers');
+    var walkers = data.walkers || [];
+    if (walkers.length === 0) {
+      var empty = document.createElement('div');
+      empty.style.cssText = 'color:#64748b;text-align:center;padding:16px;font-size:13px';
+      empty.textContent = 'No walkers yet. Click "+ New Walker" to create one.';
+      container.appendChild(empty);
+      return;
+    }
+    for (var i = 0; i < walkers.length; i++) {
+      var w = walkers[i];
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px 16px;margin-bottom:8px';
+
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px';
+
+      var left = document.createElement('div');
+      var nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-weight:600;font-size:14px';
+      nameSpan.textContent = w.name;
+      left.appendChild(nameSpan);
+
+      var codeSpan = document.createElement('span');
+      codeSpan.style.cssText = 'font-size:12px;color:#818cf8;margin-left:8px;font-family:monospace';
+      codeSpan.textContent = w.code;
+      left.appendChild(codeSpan);
+
+      if (!w.is_active) {
+        var badge = document.createElement('span');
+        badge.style.cssText = 'font-size:10px;background:#7f1d1d;color:#fca5a5;padding:2px 6px;border-radius:9999px;margin-left:6px';
+        badge.textContent = 'Inactive';
+        left.appendChild(badge);
+      }
+      row.appendChild(left);
+
+      var right = document.createElement('div');
+      right.style.cssText = 'display:flex;gap:4px;align-items:center';
+
+      var toggleBtn = document.createElement('button');
+      toggleBtn.className = 'btn btn-xs ' + (w.is_active ? 'btn-secondary' : 'btn-success');
+      toggleBtn.textContent = w.is_active ? 'Disable' : 'Enable';
+      toggleBtn.onclick = (function(wk) { return function() { toggleWalker(wk.id, !wk.is_active, candidateId); }; })(w);
+      right.appendChild(toggleBtn);
+
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-xs btn-danger';
+      delBtn.textContent = 'Delete';
+      delBtn.onclick = (function(wk) { return function() { deleteWalker(wk.id, wk.name, candidateId); }; })(w);
+      right.appendChild(delBtn);
+
+      row.appendChild(right);
+      card.appendChild(row);
+
+      // Stats row
+      var stats = document.createElement('div');
+      stats.style.cssText = 'display:flex;gap:16px;margin-top:6px;font-size:12px;color:#64748b';
+      stats.textContent = (w.total_doors || 0) + ' doors \u00B7 ' + (w.total_contacts || 0) + ' contacts \u00B7 ' + (w.walks_participated || 0) + ' walks';
+      if (w.last_active) {
+        stats.textContent += ' \u00B7 Last: ' + new Date(w.last_active).toLocaleDateString();
+      } else {
+        stats.textContent += ' \u00B7 Never active';
+      }
+      card.appendChild(stats);
+
+      // Walker portal link
+      var portalLink = document.createElement('div');
+      portalLink.style.cssText = 'font-size:11px;color:#475569;margin-top:4px';
+      portalLink.textContent = 'Portal: ' + window.location.origin + '/walker?code=' + w.code;
+      card.appendChild(portalLink);
+
+      container.appendChild(card);
+    }
+  } catch(e) {
+    container.textContent = 'Error loading walkers: ' + e.message;
+  }
+}
+
+function showAddWalkerForm(candidateId) {
+  var existing = document.getElementById('addWalkerOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'addWalkerOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:400px;width:90%';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin-bottom:16px;font-size:16px';
+  title.textContent = 'Add Walker';
+  box.appendChild(title);
+
+  var nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.placeholder = 'Walker name';
+  nameInput.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;color:#e2e8f0;font-size:14px;margin-bottom:10px;outline:none';
+  box.appendChild(nameInput);
+
+  var phoneInput = document.createElement('input');
+  phoneInput.type = 'tel';
+  phoneInput.placeholder = 'Phone (optional)';
+  phoneInput.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;color:#e2e8f0;font-size:14px;margin-bottom:14px;outline:none';
+  box.appendChild(phoneInput);
+
+  var errDiv = document.createElement('div');
+  errDiv.style.cssText = 'color:#ef4444;font-size:13px;margin-bottom:8px;display:none';
+  box.appendChild(errDiv);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px';
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-sm btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.flex = '1';
+  cancelBtn.onclick = function() { overlay.remove(); };
+  btnRow.appendChild(cancelBtn);
+
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-sm btn-primary';
+  saveBtn.textContent = 'Create';
+  saveBtn.style.flex = '1';
+  saveBtn.onclick = async function() {
+    var name = nameInput.value.trim();
+    if (!name) { errDiv.textContent = 'Name is required'; errDiv.style.display = ''; return; }
+    saveBtn.disabled = true;
+    try {
+      var data = await apiPost('/api/candidates/' + candidateId + '/walkers', { name: name, phone: phoneInput.value.trim() || null });
+      overlay.remove();
+      var wContainer = document.getElementById('candidateWalkersContainer');
+      if (wContainer) loadCandidateWalkers(candidateId, wContainer);
+      alert('Walker created! Code: ' + data.code);
+    } catch(e) {
+      errDiv.textContent = e.message;
+      errDiv.style.display = '';
+      saveBtn.disabled = false;
+    }
+  };
+  btnRow.appendChild(saveBtn);
+  box.appendChild(btnRow);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  nameInput.focus();
+}
+
+async function toggleWalker(walkerId, newState, candidateId) {
+  try {
+    await apiPut('/api/walkers/' + walkerId, { is_active: newState });
+    var wContainer = document.getElementById('candidateWalkersContainer');
+    if (wContainer) loadCandidateWalkers(candidateId, wContainer);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteWalker(walkerId, walkerName, candidateId) {
+  if (!confirm('Delete walker "' + walkerName + '"? This cannot be undone.')) return;
+  try {
+    await api('/api/walkers/' + walkerId, { method: 'DELETE' });
+    var wContainer = document.getElementById('candidateWalkersContainer');
+    if (wContainer) loadCandidateWalkers(candidateId, wContainer);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ===================== WALK WALKER ASSIGNMENT =====================
+
+async function showAssignWalkersModal(walkId) {
+  var existing = document.getElementById('assignWalkersOverlay');
+  if (existing) existing.remove();
+
+  // Fetch all candidates with walkers and current walk assignments
+  var candData = await api('/api/candidates');
+  var walkersData = await api('/api/walks/' + walkId + '/walkers');
+  var assignedIds = new Set((walkersData.members || []).map(function(m) { return m.walker_id; }));
+
+  var overlay = document.createElement('div');
+  overlay.id = 'assignWalkersOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin-bottom:16px;font-size:16px';
+  title.textContent = 'Assign Walkers (max 10)';
+  box.appendChild(title);
+
+  // Current assignments
+  var assigned = walkersData.members || [];
+  if (assigned.length > 0) {
+    var curTitle = document.createElement('div');
+    curTitle.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:6px';
+    curTitle.textContent = 'CURRENTLY ASSIGNED (' + assigned.length + ')';
+    box.appendChild(curTitle);
+    for (var a = 0; a < assigned.length; a++) {
+      var aRow = document.createElement('div');
+      aRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;margin-bottom:4px';
+
+      var aName = document.createElement('span');
+      aName.style.cssText = 'font-size:13px';
+      aName.textContent = assigned[a].walker_name + ' (' + (assigned[a].doors_knocked || 0) + ' doors)';
+      aRow.appendChild(aName);
+
+      var removeBtn = document.createElement('button');
+      removeBtn.className = 'btn btn-xs btn-danger';
+      removeBtn.textContent = 'Remove';
+      removeBtn.onclick = (function(wId) { return async function() {
+        await apiPost('/api/walks/' + walkId + '/remove-walker', { walker_id: wId });
+        showAssignWalkersModal(walkId);
+      }; })(assigned[a].walker_id);
+      aRow.appendChild(removeBtn);
+      box.appendChild(aRow);
+    }
+  }
+
+  // Available walkers by candidate
+  var candidates = (candData.candidates || []).filter(function(c) { return c.is_active; });
+  for (var ci = 0; ci < candidates.length; ci++) {
+    var cand = candidates[ci];
+    try {
+      var wData = await api('/api/candidates/' + cand.id + '/walkers');
+      var available = (wData.walkers || []).filter(function(w) { return w.is_active && !assignedIds.has(w.id); });
+      if (available.length === 0) continue;
+
+      var candTitle = document.createElement('div');
+      candTitle.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:12px;margin-bottom:6px';
+      candTitle.textContent = cand.name + ' WALKERS';
+      box.appendChild(candTitle);
+
+      for (var wi = 0; wi < available.length; wi++) {
+        var wRow = document.createElement('div');
+        wRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;margin-bottom:4px';
+
+        var wName = document.createElement('span');
+        wName.style.cssText = 'font-size:13px';
+        wName.textContent = available[wi].name;
+        wRow.appendChild(wName);
+
+        var assignBtn = document.createElement('button');
+        assignBtn.className = 'btn btn-xs btn-primary';
+        assignBtn.textContent = 'Assign';
+        assignBtn.onclick = (function(wId) { return async function() {
+          try {
+            await apiPost('/api/walks/' + walkId + '/assign-walker', { walker_id: wId });
+            showAssignWalkersModal(walkId);
+          } catch(e) { alert(e.message); }
+        }; })(available[wi].id);
+        wRow.appendChild(assignBtn);
+        box.appendChild(wRow);
+      }
+    } catch(e) { /* skip */ }
+  }
+
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-sm btn-secondary';
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = 'margin-top:16px;width:100%';
+  closeBtn.onclick = function() { overlay.remove(); };
+  box.appendChild(closeBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
 }
 
 // Move captain modal — reassign to different candidate or parent captain

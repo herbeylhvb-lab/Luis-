@@ -348,6 +348,7 @@ var walkState = {
   // Group walking
   isGroupMode: false,
   walkerName: '',
+  walkerId: null,
   groupMembers: [],
   mapsUrl: '',
   routeActive: false,
@@ -1128,6 +1129,7 @@ async function logDoor() {
         gps_lng: walkState.gpsLng,
         gps_accuracy: walkState.gpsAccuracy,
         walker_name: walkerName,
+        walker_id: walkState.walkerId || undefined,
         survey_responses: Object.keys(walkState.surveyResponses).length > 0 ? walkState.surveyResponses : undefined
       })
     });
@@ -1456,6 +1458,49 @@ async function triggerGeocode() {
     if (notice) notice.innerHTML = '<div style="font-size:13px;color:#ef4444;padding:10px">Failed to start geocoding.</div>';
   }
 }
+
+// ===================== AUTO-LOAD FROM WALKER PORTAL =====================
+// If URL has ?walkId=X&walkerId=Y, auto-load the walk for that walker
+(async function() {
+  var params = new URLSearchParams(window.location.search);
+  var walkId = parseInt(params.get('walkId'));
+  var wId = parseInt(params.get('walkerId'));
+  if (!walkId || !wId) return;
+
+  try {
+    var res = await fetch('/api/walks/' + walkId + '/walker-by-id/' + wId);
+    var data = await res.json();
+    if (!res.ok || data.error) return;
+
+    walkState.walkId = walkId;
+    walkState.walkerId = wId;
+    walkState.isGroupMode = true;
+    walkState.walk = data.walk;
+    walkState.walk.addresses = data.addresses;
+    walkState.walk.progress = data.progress;
+
+    // Get walker name from group members
+    var gRes = await fetch('/api/walks/' + walkId + '/walkers');
+    var gData = await gRes.json();
+    var members = gData.members || [];
+    for (var i = 0; i < members.length; i++) {
+      if (members[i].walker_id === wId) {
+        walkState.walkerName = members[i].walker_name;
+        break;
+      }
+    }
+    walkState.groupMembers = members.map(function(m) { return { walker_name: m.walker_name }; });
+
+    renderWalk();
+    renderGroupBar();
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkScreen').style.display = '';
+    startGps();
+    loadWalkScript();
+  } catch(e) {
+    // Fall back to normal load screen
+  }
+})();
 
 </script>
 </body>

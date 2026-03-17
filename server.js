@@ -120,6 +120,7 @@ app.get('/v/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', '
 app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'captain.html')));
 app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'candidate.html')));
 app.get('/group', (req, res) => res.sendFile(path.join(__dirname, 'public', 'group.html')));
+app.get('/walker', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walker.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -175,6 +176,12 @@ app.use((req, res, next) => {
   // Allow group portal endpoints (used by group.html without admin auth)
   if (req.path.match(/^\/api\/groups\/login/) ||
       req.path.match(/^\/api\/groups\/\d+\/walks/)) {
+    return next();
+  }
+  // Allow walker portal endpoints (used by walker.html without admin auth)
+  if (req.path.match(/^\/api\/walkers\/login/) ||
+      req.path.match(/^\/api\/walkers\/\d+\/dashboard/) ||
+      req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//)) {
     return next();
   }
   // Allow messaging provider webhook

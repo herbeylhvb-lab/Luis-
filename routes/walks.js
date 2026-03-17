@@ -329,12 +329,15 @@ function isValidCoord(lat, lng) {
 
 // Log a door knock result with GPS verification and attempt tracking
 router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
-  const { result, notes, gps_lat, gps_lng, gps_accuracy, walker_name, survey_responses } = req.body;
+  const { result, notes, gps_lat, gps_lng, gps_accuracy, walker_name, walker_id, survey_responses } = req.body;
   if (!result) return res.status(400).json({ error: 'Result is required.' });
   if (!VALID_RESULTS.has(result)) return res.status(400).json({ error: 'Invalid result value.' });
 
-  // Verify walker is a group member (if walker_name provided and group exists)
-  if (walker_name) {
+  // Verify walker is assigned to this walk (persistent walker_id takes priority)
+  if (walker_id) {
+    const member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
+    if (!member) return res.status(403).json({ error: 'Not assigned to this walk.' });
+  } else if (walker_name) {
     const member = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').get(req.params.walkId, walker_name);
     if (!member) return res.status(403).json({ error: 'Not a member of this walk group.' });
   }
@@ -370,13 +373,23 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       WHERE id = ? AND walk_id = ?
     `).run(result, notes || '', knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
 
-    // Record attempt in attempt history
+    // Record attempt in attempt history (with walker_id if available)
     db.prepare(
-      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(req.params.addrId, req.params.walkId, result, notes || '', walker_name || '', gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, survey_responses ? JSON.stringify(survey_responses) : null);
+      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.addrId, req.params.walkId, result, notes || '', walker_name || '', walker_id || null, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, survey_responses ? JSON.stringify(survey_responses) : null);
 
-    // Update walker performance metrics (if group member)
-    if (walker_name) {
+    // Update walker performance metrics
+    if (walker_id) {
+      const isContact = !['not_home', 'moved', 'refused'].includes(result);
+      db.prepare(`
+        UPDATE walk_group_members SET
+          doors_knocked = doors_knocked + 1,
+          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          first_knock_at = COALESCE(first_knock_at, ?),
+          last_knock_at = ?
+        WHERE walk_id = ? AND walker_id = ?
+      `).run(knocked_at, knocked_at, req.params.walkId, walker_id);
+    } else if (walker_name) {
       const isContact = !['not_home', 'moved', 'refused'].includes(result);
       db.prepare(`
         UPDATE walk_group_members SET
@@ -1519,6 +1532,94 @@ tr:nth-child(even) { background: #f9fafb; }
 
   html += '</tbody></table></body></html>';
   res.type('html').send(html);
+});
+
+// ===================== WALKER ASSIGNMENT (admin-controlled) =====================
+
+// Admin-assign a walker to a walk
+router.post('/walks/:id/assign-walker', (req, res) => {
+  const { walker_id } = req.body;
+  if (!walker_id) return res.status(400).json({ error: 'walker_id is required.' });
+
+  const walk = db.prepare('SELECT * FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  const walker = db.prepare('SELECT * FROM walkers WHERE id = ?').get(walker_id);
+  if (!walker) return res.status(404).json({ error: 'Walker not found.' });
+
+  const count = (db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(req.params.id) || { c: 0 }).c;
+  if (count >= (walk.max_walkers || 10)) return res.status(400).json({ error: 'Walk is full (max ' + (walk.max_walkers || 10) + ' walkers).' });
+
+  const existing = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.id, walker_id);
+  if (existing) return res.status(400).json({ error: 'Walker already assigned to this walk.' });
+
+  db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)').run(req.params.id, walker.name, walker.id, walker.phone || '');
+  res.json({ success: true });
+});
+
+// Remove walker from walk
+router.post('/walks/:id/remove-walker', (req, res) => {
+  const { walker_id } = req.body;
+  if (!walker_id) return res.status(400).json({ error: 'walker_id is required.' });
+  db.prepare('DELETE FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').run(req.params.id, walker_id);
+  res.json({ success: true });
+});
+
+// List walkers assigned to a walk (with per-walk stats)
+router.get('/walks/:id/walkers', (req, res) => {
+  const members = db.prepare(`
+    SELECT wgm.walker_id, wgm.joined_at, wgm.doors_knocked, wgm.contacts_made, wgm.first_knock_at, wgm.last_knock_at,
+      w.name as walker_name, w.code as walker_code, w.is_active, w.phone as walker_phone
+    FROM walk_group_members wgm
+    JOIN walkers w ON w.id = wgm.walker_id
+    WHERE wgm.walk_id = ? AND wgm.walker_id IS NOT NULL
+    ORDER BY wgm.joined_at
+  `).all(req.params.id);
+  res.json({ members });
+});
+
+// Get all addresses for a walker (no split — everyone sees everything, first-knock-gets-credit)
+router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
+  const walk = db.prepare('SELECT id, name, description, status FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  const addresses = db.prepare(
+    `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
+            wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
+     FROM walk_addresses wa
+     LEFT JOIN voters v ON wa.voter_id = v.id
+     WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
+  ).all(req.params.id);
+
+  // Mark which doors this walker knocked
+  const myKnocks = new Set(
+    db.prepare('SELECT address_id FROM walk_attempts WHERE walk_id = ? AND walker_id = ?')
+      .all(req.params.id, req.params.walkerId)
+      .map(r => r.address_id)
+  );
+  for (const addr of addresses) {
+    addr.knocked_by_me = myKnocks.has(addr.id);
+  }
+
+  // Household members
+  const householdStmt = db.prepare(
+    'SELECT first_name, last_name, age FROM voters WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name'
+  );
+  for (const addr of addresses) {
+    addr.household = (addr.voter_id && addr.address) ? householdStmt.all(addr.address, addr.city || '', addr.voter_id) : [];
+  }
+
+  // Attempt counts
+  const attemptCounts = db.prepare('SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id').all(req.params.id);
+  const countMap = {};
+  for (const a of attemptCounts) countMap[a.address_id] = a.c;
+  for (const addr of addresses) addr.attempt_count = countMap[addr.id] || 0;
+
+  const total = addresses.length;
+  const knocked = addresses.filter(a => a.result !== 'not_visited').length;
+
+  res.json({ walk, addresses, progress: { total, knocked, remaining: total - knocked } });
 });
 
 module.exports = router;

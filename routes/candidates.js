@@ -752,4 +752,121 @@ router.post('/candidates/:id/lists/:listId/assign', requireCandidateAuth, (req, 
   res.json({ success: true, captain_name: captain.name });
 });
 
+// ===================== WALKERS (per-candidate, persistent identity) =====================
+
+const walkerLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
+
+// List walkers for a candidate (with aggregated stats)
+router.get('/candidates/:id/walkers', (req, res) => {
+  const walkers = db.prepare(`
+    SELECT w.*,
+      (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = w.id) as total_doors,
+      (SELECT COALESCE(SUM(CASE WHEN wa.result NOT IN ('not_home','moved','deceased','refused') THEN 1 ELSE 0 END),0) FROM walk_attempts wa WHERE wa.walker_id = w.id) as total_contacts,
+      (SELECT COUNT(DISTINCT wa.walk_id) FROM walk_attempts wa WHERE wa.walker_id = w.id) as walks_participated,
+      (SELECT MAX(wa.attempted_at) FROM walk_attempts wa WHERE wa.walker_id = w.id) as last_active
+    FROM walkers w WHERE w.candidate_id = ? ORDER BY w.created_at DESC
+  `).all(req.params.id);
+  res.json({ walkers });
+});
+
+// Create walker for a candidate
+router.post('/candidates/:id/walkers', (req, res) => {
+  const { name, phone } = req.body;
+  if (!name) return res.status(400).json({ error: 'Walker name is required.' });
+  const candidate = db.prepare('SELECT id, name FROM candidates WHERE id = ?').get(req.params.id);
+  if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
+
+  let code;
+  for (let i = 0; i < 10; i++) {
+    code = generateCaptainCode();
+    if (!db.prepare('SELECT id FROM walkers WHERE code = ?').get(code)) break;
+    if (i === 9) return res.status(500).json({ error: 'Could not generate unique code. Try again.' });
+  }
+
+  const result = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code) VALUES (?, ?, ?, ?)').run(req.params.id, name.trim(), phone || null, code);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker created for ' + candidate.name + ': ' + name.trim() + ' (code: ' + code + ')');
+  res.json({ success: true, id: result.lastInsertRowid, code });
+});
+
+// Update walker
+router.put('/walkers/:id', (req, res) => {
+  const { name, phone, is_active } = req.body;
+  const result = db.prepare(`UPDATE walkers SET
+    name = COALESCE(?, name),
+    phone = COALESCE(?, phone),
+    is_active = COALESCE(?, is_active)
+    WHERE id = ?`
+  ).run(name || null, phone !== undefined ? phone : null, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Walker not found.' });
+  res.json({ success: true });
+});
+
+// Delete walker
+router.delete('/walkers/:id', (req, res) => {
+  const walker = db.prepare('SELECT name FROM walkers WHERE id = ?').get(req.params.id);
+  if (!walker) return res.status(404).json({ error: 'Walker not found.' });
+  db.prepare('DELETE FROM walkers WHERE id = ?').run(req.params.id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker deleted: ' + walker.name);
+  res.json({ success: true });
+});
+
+// Walker login (public — code-based)
+router.post('/walkers/login', walkerLoginLimiter, (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Code is required.' });
+  const walker = db.prepare(`
+    SELECT w.*, c.name as candidate_name, c.office as candidate_office
+    FROM walkers w JOIN candidates c ON w.candidate_id = c.id
+    WHERE w.code = ?
+  `).get(code.trim().toUpperCase());
+  if (!walker) return res.status(404).json({ error: 'Invalid walker code.' });
+  if (!walker.is_active) return res.status(403).json({ error: 'This walker has been deactivated. Contact the campaign admin.' });
+  res.json({ success: true, walker: { id: walker.id, name: walker.name, candidate_id: walker.candidate_id, candidate_name: walker.candidate_name, candidate_office: walker.candidate_office, code: walker.code } });
+});
+
+// Walker dashboard (stats + leaderboard + assigned walks)
+router.get('/walkers/:id/dashboard', (req, res) => {
+  const walker = db.prepare(`
+    SELECT w.*, c.name as candidate_name, c.office as candidate_office
+    FROM walkers w JOIN candidates c ON w.candidate_id = c.id
+    WHERE w.id = ?
+  `).get(req.params.id);
+  if (!walker) return res.status(404).json({ error: 'Walker not found.' });
+
+  const stats = db.prepare(`
+    SELECT
+      COUNT(*) as total_doors,
+      COALESCE(SUM(CASE WHEN result NOT IN ('not_home','moved','deceased','refused') THEN 1 ELSE 0 END),0) as total_contacts,
+      COALESCE(SUM(CASE WHEN result IN ('support','lean_support') THEN 1 ELSE 0 END),0) as supporters_found,
+      COUNT(DISTINCT walk_id) as walks_participated
+    FROM walk_attempts WHERE walker_id = ?
+  `).get(walker.id);
+  stats.contact_rate = stats.total_doors > 0 ? Math.round(stats.total_contacts / stats.total_doors * 100) : 0;
+
+  const leaderboard = db.prepare(`
+    SELECT w.id, w.name,
+      COUNT(wa.id) as total_doors,
+      COALESCE(SUM(CASE WHEN wa.result NOT IN ('not_home','moved','deceased','refused') THEN 1 ELSE 0 END),0) as total_contacts,
+      COUNT(DISTINCT wa.walk_id) as walks_participated
+    FROM walkers w
+    LEFT JOIN walk_attempts wa ON wa.walker_id = w.id
+    WHERE w.candidate_id = ? AND w.is_active = 1
+    GROUP BY w.id
+    ORDER BY total_doors DESC
+  `).all(walker.candidate_id);
+
+  const walks = db.prepare(`
+    SELECT bw.id, bw.name, bw.description, bw.status, bw.join_code,
+      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
+      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses,
+      (SELECT COUNT(*) FROM walk_attempts WHERE walk_id = bw.id AND walker_id = ?) as my_doors
+    FROM block_walks bw
+    JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND wgm.walker_id = ?
+    WHERE bw.status != 'completed'
+    ORDER BY bw.created_at DESC
+  `).all(walker.id, walker.id);
+
+  res.json({ walker, stats, leaderboard, walks });
+});
+
 module.exports = router;
