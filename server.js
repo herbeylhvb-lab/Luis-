@@ -567,21 +567,34 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
 }));
 
 // --- Sync inbound messages from RumbleUp ---
+// Cooldown: skip if last sync was < 4 seconds ago (prevents stacking from rapid polls)
+let _lastSyncTime = 0;
 app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
+  const now = Date.now();
+  if (now - _lastSyncTime < 4000) return res.json({ synced: 0, skipped: true, message: 'Sync cooldown active' });
+  _lastSyncTime = now;
+
   const provider = getProvider();
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
   if (!provider.getMessageLog) return res.status(400).json({ error: 'Provider does not support message log sync.' });
 
-  // Get all phones we've contacted recently — from messages, survey sends, P2P assignments, broadcast
+  // PRIORITY 1: Check P2P active conversations first (most important for reply detection)
   const phoneSet = new Set();
-  db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-30 days')`)
-    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
-  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE sent_at > datetime('now', '-30 days')`)
-    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
   try {
-    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-30 days')`)
+    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-7 days')`)
       .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
   } catch (e) { /* table may not exist */ }
+
+  // PRIORITY 2: Active survey sends
+  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-7 days')`)
+    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
+
+  // PRIORITY 3: Recent outbound (only if we have capacity — cap at 25 phones per sync)
+  if (phoneSet.size < 25) {
+    db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-3 days')`)
+      .all().forEach(r => { if (r.phone && phoneSet.size < 25) phoneSet.add(r.phone); });
+  }
+
   const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
 
   if (sentPhones.length === 0) return res.json({ synced: 0, checked: 0, message: 'No outbound messages to check replies for.' });
@@ -593,13 +606,17 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   let totalSynced = 0;
   const errors = [];
 
-  for (const phone of sentPhones) {
-    try {
-      const params = { phone };
-      if (lastSync) params.since = lastSync;
-      const result = await provider.getMessageLog(params);
-      const messages = result.messages || result.data || result || [];
-      if (!Array.isArray(messages)) continue;
+  // Process phones in parallel batches of 5 for speed
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < sentPhones.length; i += BATCH_SIZE) {
+    const batch = sentPhones.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(batch.map(async (phone) => {
+      try {
+        const params = { phone };
+        if (lastSync) params.since = lastSync;
+        const result = await provider.getMessageLog(params);
+        const messages = result.messages || result.data || result || [];
+        if (!Array.isArray(messages)) return;
 
       for (const msg of messages) {
         // Only import inbound messages (sender === phone means incoming)
@@ -708,6 +725,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
     } catch (err) {
       errors.push({ phone, error: err.message });
     }
+    }));
   }
 
   // Update last sync timestamp
