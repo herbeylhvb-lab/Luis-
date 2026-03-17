@@ -256,6 +256,27 @@
     .convo-item:hover { background: #334155; border-radius: 6px; }
     .convo-item:last-child { border-bottom: none; }
 
+    /* New reply notification pulse */
+    @keyframes replyPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(250,204,21,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(250,204,21,0); }
+    }
+    .convo-item.new-reply {
+      animation: replyPulse 1.5s ease-in-out 3;
+      background: rgba(250,204,21,0.08);
+    }
+    .new-reply-banner {
+      background: #422006;
+      color: #fcd34d;
+      padding: 10px 16px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+    }
+    .new-reply-banner:hover { background: #4a2507; }
+
     /* Scanner styles */
     .scan-result {
       text-align: center;
@@ -445,19 +466,23 @@
       <button class="btn-leave" onclick="leaveSession()">Leave</button>
     </div>
 
+    <div id="newReplyBanner" class="new-reply-banner" onclick="scrollToConvos()">&#128172; New reply received! Tap to view conversations</div>
     <div class="container">
       <div class="stats-bar" id="volStats"></div>
+
+      <!-- ACTIVE CONVERSATIONS (always visible when there are any) -->
+      <div class="card" id="convosCard" style="display:none">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+          <span>&#128172; Active Conversations <span class="badge badge-yellow" id="convoCount">0</span></span>
+          <span id="convoNewDot" style="display:none;width:10px;height:10px;background:#fbbf24;border-radius:50%;animation:replyPulse 1.5s ease-in-out infinite"></span>
+        </h3>
+        <div id="convosList"></div>
+      </div>
 
       <!-- CURRENT CONTACT TO TEXT -->
       <div class="card" id="queueCard">
         <h3 id="queueCardTitle">Next Contact</h3>
         <div id="queueContent"></div>
-      </div>
-
-      <!-- ACTIVE CONVERSATIONS -->
-      <div class="card" id="convosCard" style="display:none">
-        <h3>Active Conversations <span class="badge badge-yellow" id="convoCount">0</span></h3>
-        <div id="convosList"></div>
       </div>
 
       <!-- CONVERSATION VIEW -->
@@ -513,8 +538,34 @@
       sessionType: 'campaign',
       currentAssignmentId: null,
       viewingConvoId: null,
-      pollInterval: null
+      pollInterval: null,
+      convoRefreshInterval: null,
+      lastConvoIds: [],       // Track active conversation IDs to detect new replies
+      notificationSound: null // Audio element for notification ping
     };
+
+    // Create a simple notification sound using Web Audio API
+    function playNotificationSound() {
+      try {
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 880; osc.type = 'sine';
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch(e) { /* Audio not supported */ }
+    }
+
+    function scrollToConvos() {
+      document.getElementById('newReplyBanner').style.display = 'none';
+      var convosCard = document.getElementById('convosCard');
+      if (convosCard.style.display !== 'none') {
+        convosCard.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
 
     var typeConfig = {
       campaign: { label: 'Campaign', icon: '\uD83D\uDCE2', badgeClass: 'badge-blue', bannerClass: 'type-campaign', bannerText: 'Campaign Texting' },
@@ -601,7 +652,7 @@
 
         loadQueue();
         if (volState.pollInterval) clearInterval(volState.pollInterval);
-        volState.pollInterval = setInterval(loadQueue, 60000);
+        volState.pollInterval = setInterval(loadQueue, 10000);  // Poll every 10s for fast reply detection
       } catch (e) {
         errEl.textContent = 'Network error. Please try again.';
         document.getElementById('btnJoin').disabled = false;
@@ -697,16 +748,34 @@
         queueEl.appendChild(empty);
       }
 
-      // Active conversations
+      // Active conversations — detect new replies
       var convosCard = document.getElementById('convosCard');
       var convosList = document.getElementById('convosList');
+      var currentConvoIds = (data.activeConversations || []).map(function(c) { return c.id; });
+      var newConvoIds = currentConvoIds.filter(function(id) { return volState.lastConvoIds.indexOf(id) === -1; });
+      var hasNewReplies = newConvoIds.length > 0 && volState.lastConvoIds.length > 0; // Only notify after first load
+      volState.lastConvoIds = currentConvoIds;
+
+      if (hasNewReplies) {
+        playNotificationSound();
+        var banner = document.getElementById('newReplyBanner');
+        banner.style.display = '';
+        setTimeout(function() { banner.style.display = 'none'; }, 8000);
+        document.getElementById('convoNewDot').style.display = '';
+
+        // If viewing a conversation, auto-refresh it
+        if (volState.viewingConvoId) {
+          openConvo(volState.viewingConvoId);
+        }
+      }
+
       if (data.activeConversations && data.activeConversations.length > 0) {
         convosCard.style.display = '';
         document.getElementById('convoCount').textContent = data.activeConversations.length;
         convosList.textContent = '';
         data.activeConversations.forEach(function(c) {
           var item = document.createElement('div');
-          item.className = 'convo-item';
+          item.className = 'convo-item' + (newConvoIds.indexOf(c.id) !== -1 ? ' new-reply' : '');
           var info = document.createElement('div');
           var nameEl = document.createElement('strong');
           nameEl.textContent = (c.first_name || '') + ' ' + (c.last_name || '');
@@ -720,7 +789,10 @@
           badge.className = 'badge badge-yellow';
           badge.textContent = c.preferred_channel === 'whatsapp' ? 'WA Reply' : 'Reply';
           item.appendChild(badge);
-          item.addEventListener('click', function() { openConvo(c.id); });
+          item.addEventListener('click', function() {
+            document.getElementById('convoNewDot').style.display = 'none';
+            openConvo(c.id);
+          });
           convosList.appendChild(item);
         });
       } else {
@@ -754,6 +826,8 @@
       loadQueue();
     }
 
+    var convoMessageCount = 0; // Track message count to detect new messages
+
     async function openConvo(assignmentId) {
       volState.viewingConvoId = assignmentId;
       document.getElementById('queueCard').style.display = 'none';
@@ -765,25 +839,47 @@
       document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
 
       var msgEl = document.getElementById('convoMessages');
-      msgEl.textContent = '';
-      (data.messages || []).forEach(function(m) {
-        var bubble = document.createElement('div');
-        bubble.className = 'msg-bubble ' + (m.direction === 'outbound' ? 'msg-outbound' : 'msg-inbound');
-        var channelTag = (m.channel === 'whatsapp') ? ' [WA]' : '';
-        bubble.textContent = m.body + channelTag;
-        msgEl.appendChild(bubble);
-      });
-      msgEl.scrollTop = msgEl.scrollHeight;
+      var newCount = (data.messages || []).length;
+      var isRefresh = (newCount !== convoMessageCount) || convoMessageCount === 0;
+      convoMessageCount = newCount;
+
+      if (isRefresh) {
+        msgEl.textContent = '';
+        (data.messages || []).forEach(function(m) {
+          var bubble = document.createElement('div');
+          bubble.className = 'msg-bubble ' + (m.direction === 'outbound' ? 'msg-outbound' : 'msg-inbound');
+          var channelTag = (m.channel === 'whatsapp') ? ' [WA]' : '';
+          bubble.textContent = m.body + channelTag;
+          var timeEl = document.createElement('div');
+          timeEl.style.cssText = 'font-size:10px;color:#64748b;margin-top:4px';
+          var ts = m.created_at || m.timestamp;
+          if (ts) { try { timeEl.textContent = new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); } catch(e){} }
+          bubble.appendChild(timeEl);
+          msgEl.appendChild(bubble);
+        });
+        msgEl.scrollTop = msgEl.scrollHeight;
+      }
 
       // Show preferred channel indicator if set
       var prefChannel = data.assignment.preferred_channel;
-      document.getElementById('convoViewTitle').textContent += prefChannel === 'whatsapp' ? ' (prefers WhatsApp)' : '';
+      var titleEl = document.getElementById('convoViewTitle');
+      if (prefChannel === 'whatsapp' && titleEl.textContent.indexOf('WhatsApp') === -1) {
+        titleEl.textContent += ' (prefers WhatsApp)';
+      }
 
-      // Get AI suggestion for the last inbound message
+      // Get AI suggestion for the last inbound message (only on first open, not refresh)
       var lastInbound = (data.messages || []).filter(function(m) { return m.direction === 'inbound'; }).pop();
-      if (lastInbound) {
+      if (lastInbound && isRefresh && document.getElementById('aiSuggestion').style.display === 'none') {
         fetchAiSuggestion(lastInbound.body, data.assignment.first_name, lastInbound.sentiment, assignmentId);
       }
+
+      // Start auto-refresh for this conversation (every 5s)
+      if (volState.convoRefreshInterval) clearInterval(volState.convoRefreshInterval);
+      volState.convoRefreshInterval = setInterval(function() {
+        if (volState.viewingConvoId === assignmentId) {
+          openConvo(assignmentId);
+        }
+      }, 5000);
     }
 
     var currentAiSuggestion = '';
@@ -854,6 +950,8 @@
 
     function closeConvo() {
       volState.viewingConvoId = null;
+      convoMessageCount = 0;
+      if (volState.convoRefreshInterval) { clearInterval(volState.convoRefreshInterval); volState.convoRefreshInterval = null; }
       document.getElementById('convoViewCard').style.display = 'none';
       document.getElementById('aiSuggestion').style.display = 'none';
       document.getElementById('queueCard').style.display = '';
@@ -925,6 +1023,8 @@
     async function leaveSession() {
       if (!volState.volunteerId) return;
       if (volState.pollInterval) { clearInterval(volState.pollInterval); volState.pollInterval = null; }
+      if (volState.convoRefreshInterval) { clearInterval(volState.convoRefreshInterval); volState.convoRefreshInterval = null; }
+      volState.lastConvoIds = [];
       await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
