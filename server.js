@@ -399,7 +399,7 @@ app.post('/incoming', webhookLimiter, (req, res) => {
 
   // Check if this is a survey response (only when the survey is actively running)
   const activeSend = db.prepare(`
-    SELECT ss.*, s.name as survey_name FROM survey_sends ss
+    SELECT ss.*, s.name as survey_name, s.completion_message FROM survey_sends ss
     JOIN surveys s ON ss.survey_id = s.id
     WHERE ss.phone = ? AND ss.status IN ('sent', 'in_progress')
       AND s.status = 'active'
@@ -490,7 +490,8 @@ app.post('/incoming', webhookLimiter, (req, res) => {
         const nextMsg = buildSurveyMessage(activeSend.survey_name, nextQ, nextOpts);
         return res.type(replyType).send(provider.buildReply(nextMsg));
       } else {
-        return res.type(replyType).send(provider.buildReply('Thank you for completing the survey! Your responses have been recorded.'));
+        const completionMsg = activeSend.completion_message || 'Thank you for completing the survey! Your responses have been recorded.';
+        return res.type(replyType).send(provider.buildReply(completionMsg));
       }
     }
   }
@@ -527,7 +528,16 @@ app.post('/incoming', webhookLimiter, (req, res) => {
 
 // --- Messages & opt-outs ---
 app.get('/api/messages', (req, res) => {
-  const messages = db.prepare("SELECT * FROM messages WHERE direction = 'inbound' ORDER BY id DESC LIMIT 200").all();
+  const messages = db.prepare(`
+    SELECT m.*,
+      COALESCE(v.first_name || ' ' || v.last_name, c.first_name || ' ' || c.last_name) as contact_name
+    FROM messages m
+    LEFT JOIN voters v ON m.phone = v.phone AND v.phone != '' AND v.phone IS NOT NULL
+    LEFT JOIN contacts c ON m.phone = c.phone AND c.phone != '' AND c.phone IS NOT NULL
+    WHERE m.direction = 'inbound'
+    GROUP BY m.id
+    ORDER BY m.id DESC LIMIT 200
+  `).all();
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
   res.json({ messages, optedOut });
 });
@@ -619,7 +629,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
 
         // Route to survey if applicable
         const activeSend = db.prepare(`
-          SELECT ss.*, s.name as survey_name FROM survey_sends ss
+          SELECT ss.*, s.name as survey_name, s.completion_message FROM survey_sends ss
           JOIN surveys s ON ss.survey_id = s.id
           WHERE ss.phone = ? AND ss.status IN ('sent', 'in_progress') AND s.status = 'active'
           ORDER BY ss.sent_at DESC LIMIT 1
@@ -655,6 +665,15 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
                 db.prepare("UPDATE survey_sends SET current_question_id = ?, status = 'in_progress' WHERE id = ?").run(nextQ.id, activeSend.id);
               } else {
                 db.prepare("UPDATE survey_sends SET status = 'completed', completed_at = datetime('now'), current_question_id = NULL WHERE id = ?").run(activeSend.id);
+                // Send thank-you auto-reply
+                const thankYouMsg = activeSend.completion_message || 'Thank you for completing the survey! Your responses have been recorded.';
+                try {
+                  await provider.sendMessage(msgPhone, thankYouMsg);
+                  db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'sms')")
+                    .run(msgPhone, thankYouMsg);
+                } catch (replyErr) {
+                  console.warn('Survey thank-you auto-reply failed:', replyErr.message);
+                }
               }
             }
           }

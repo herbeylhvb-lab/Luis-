@@ -883,5 +883,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_groups_code ON groups(code);
 `);
 
+// --- Survey completion message ---
+addColumn("ALTER TABLE surveys ADD COLUMN completion_message TEXT DEFAULT ''");
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

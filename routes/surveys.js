@@ -20,9 +20,9 @@ router.get('/surveys', (req, res) => {
 
 // Create survey
 router.post('/surveys', (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, completion_message } = req.body;
   if (!name) return res.status(400).json({ error: 'Survey name is required.' });
-  const result = db.prepare('INSERT INTO surveys (name, description) VALUES (?, ?)').run(name, description || '');
+  const result = db.prepare('INSERT INTO surveys (name, description, completion_message) VALUES (?, ?, ?)').run(name, description || '', completion_message || '');
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Survey created: ' + name);
   res.json({ success: true, id: result.lastInsertRowid });
 });
@@ -49,13 +49,13 @@ router.get('/surveys/:id', (req, res) => {
 
 // Update survey metadata
 router.put('/surveys/:id', (req, res) => {
-  const { name, description, status } = req.body;
+  const { name, description, status, completion_message } = req.body;
   const validStatuses = ['draft', 'active', 'closed'];
   if (status && !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be: ' + validStatuses.join(', ') });
   }
-  const result = db.prepare('UPDATE surveys SET name = COALESCE(?, name), description = COALESCE(?, description), status = COALESCE(?, status) WHERE id = ?')
-    .run(name, description, status, req.params.id);
+  const result = db.prepare('UPDATE surveys SET name = COALESCE(?, name), description = COALESCE(?, description), status = COALESCE(?, status), completion_message = COALESCE(?, completion_message) WHERE id = ?')
+    .run(name, description, status, completion_message, req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Survey not found.' });
   res.json({ success: true });
 });

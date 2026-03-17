@@ -1517,6 +1517,11 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Survey Name</label><input type="text" id="surveyName" placeholder="Voter Issues Poll - Feb 2026"></div>
             <div class="form-group"><label>Description (optional)</label><input type="text" id="surveyDesc" placeholder="Quick poll on top issues"></div>
           </div>
+          <div class="form-group" style="margin-bottom:16px">
+            <label>Auto-Reply After Completion</label>
+            <input type="text" id="surveyCompletionMsg" placeholder="Thank you for your time! Your voice matters to our campaign." value="Thank you for completing the survey! Your responses have been recorded.">
+            <p style="font-size:11px;color:#64748b;margin-top:4px">This message is automatically sent back after they answer the last question.</p>
+          </div>
           <button class="btn btn-primary" id="btnCreateSurvey">Create Survey</button>
         </div>
         <div class="card">
@@ -2576,7 +2581,8 @@ async function loadInbox() {
         const sBadge = m.sentiment === 'positive' ? '<span class="badge badge-green" style="margin-left:8px">Positive</span>'
           : m.sentiment === 'negative' ? '<span class="badge badge-red" style="margin-left:8px">Negative</span>'
           : m.sentiment ? '<span class="badge badge-gray" style="margin-left:8px">Neutral</span>' : '';
-        return '<div class="msg-item"><div class="phone">' + escHtml(m.phone) + sBadge + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
+        const nameLabel = m.contact_name && m.contact_name.trim() ? '<strong style="color:#e2e8f0">' + escHtml(m.contact_name.trim()) + '</strong> <span style="color:#64748b;font-size:12px">(' + escHtml(m.phone) + ')</span>' : escHtml(m.phone);
+        return '<div class="msg-item"><div class="phone">' + nameLabel + sBadge + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
         '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + (m.phone||'').replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + escHtml((m.phone||'').replace(/'/g,'')) + '\')">Reply</button></div></div>';
       }).join('');
     }
@@ -9347,10 +9353,12 @@ document.getElementById('btnCreateSurvey').addEventListener('click', async () =>
   const name = document.getElementById('surveyName').value.trim();
   if (!name) return;
   const desc = document.getElementById('surveyDesc').value.trim();
-  const result = await apiPost('/api/surveys', { name, description: desc });
+  const completionMsg = document.getElementById('surveyCompletionMsg').value.trim();
+  const result = await apiPost('/api/surveys', { name, description: desc, completion_message: completionMsg });
   if (result.success) {
     document.getElementById('surveyName').value = '';
     document.getElementById('surveyDesc').value = '';
+    document.getElementById('surveyCompletionMsg').value = 'Thank you for completing the survey! Your responses have been recorded.';
     showSurveyDetail(result.id);
   }
 });
