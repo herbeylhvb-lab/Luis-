@@ -70,8 +70,12 @@ router.post('/rumbleup/projects/:id/test', asyncHandler(async (req, res) => {
   const ru = getRumbleUp();
   const { test_phone, message } = req.body;
   if (!test_phone) return res.status(400).json({ error: 'test_phone is required.' });
-  const result = await ru.sendTestMessage(req.params.id, test_phone, message);
-  res.json({ success: true, ...result });
+  try {
+    const result = await ru.sendTestMessage(req.params.id, test_phone, message);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 router.post('/rumbleup/projects/:id/live', asyncHandler(async (req, res) => {
@@ -184,8 +188,12 @@ router.post('/rumbleup/messaging/send', asyncHandler(async (req, res) => {
   if (!phone || !text) return res.status(400).json({ error: 'phone and text are required.' });
   const actionId = action || ru.getCredentials().actionId;
   if (!actionId) return res.status(400).json({ error: 'action (project ID) is required.' });
-  const result = await ru.sendToProject(phone, actionId, text, { name, group, flags });
-  res.json(result);
+  try {
+    const result = await ru.sendToProject(phone, actionId, text, { name, group, flags });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 router.get('/rumbleup/messaging/logs', asyncHandler(async (req, res) => {
