@@ -247,6 +247,16 @@ tr:hover td{background:#1e293b80}
         <button class="btn btn-secondary" id="btnSaveCredentials" style="margin-left:8px">Save Credentials</button>
       </div>
       <div class="card">
+        <h3>Webhook Setup (Receive Replies)</h3>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:14px">To receive survey answers and text replies in real-time, configure this webhook URL in your RumbleUp dashboard:</p>
+        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:12px">
+          <code id="webhookUrlDisplay" style="color:#22c55e;font-size:14px;word-break:break-all">https://campaigntext-production.up.railway.app/incoming</code>
+          <button class="btn btn-xs btn-secondary" style="margin-left:8px" onclick="navigator.clipboard.writeText(document.getElementById('webhookUrlDisplay').textContent)">Copy</button>
+        </div>
+        <p style="color:#64748b;font-size:12px;margin-bottom:8px">In RumbleUp: Settings > Webhooks > Add endpoint > paste the URL above.</p>
+        <p style="color:#64748b;font-size:12px">If webhooks aren't set up, use the <strong style="color:#e2e8f0">Sync from RumbleUp</strong> button on the Inbox page to manually pull replies.</p>
+      </div>
+      <div class="card">
         <h3>Email (SMTP) Configuration</h3>
         <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Configure email for mass campaigns. Use Gmail with an App Password.</p>
         <div id="smtpAlert"></div>
@@ -343,7 +353,11 @@ tr:hover td{background:#1e293b80}
     <div class="page" id="page-inbox">
       <div class="card">
         <h3>Incoming Messages</h3>
-        <button class="btn btn-secondary btn-sm" id="btnRefreshInbox" style="margin-bottom:16px">Refresh</button>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <button class="btn btn-secondary btn-sm" id="btnRefreshInbox">Refresh</button>
+          <button class="btn btn-sm" style="background:#059669;border-color:#047857" id="btnSyncInbound" onclick="syncInboundMessages()">🔄 Sync from RumbleUp</button>
+          <span id="syncStatus" style="font-size:12px;color:#64748b;align-self:center"></span>
+        </div>
         <div class="msg-list" id="inboxMessages"><div style="color:#64748b;font-size:14px">No messages yet.</div></div>
       </div>
       <div class="card">
@@ -2063,7 +2077,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'walks') { showWalkList(); loadWalks(); }
     if (page === 'voters') { showVoterList(); searchVoters(); loadPrecinctFilter(); loadCityFilter(); loadElectionFilter(); }
     if (page === 'events') { showEventList(); loadEvents(); }
-    if (page === 'inbox') loadInbox();
+    if (page === 'inbox') { loadInbox(); syncInboundMessages(); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
@@ -2578,6 +2592,25 @@ window.sendReply = async function(phone) {
   try { await apiPost('/reply', { to: phone, body }); input.value = ''; } catch (err) { alert('Reply failed.'); }
 };
 document.getElementById('btnRefreshInbox').addEventListener('click', loadInbox);
+
+async function syncInboundMessages() {
+  var btn = document.getElementById('btnSyncInbound');
+  var status = document.getElementById('syncStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Syncing...';
+  status.textContent = '';
+  try {
+    var data = await apiPost('/api/sync-inbound', {});
+    status.textContent = 'Synced ' + data.synced + ' new message' + (data.synced !== 1 ? 's' : '') + ' (checked ' + data.checked + ' contacts)';
+    status.style.color = data.synced > 0 ? '#22c55e' : '#64748b';
+    if (data.synced > 0) loadInbox();
+  } catch (err) {
+    status.textContent = 'Sync failed: ' + (err.message || err);
+    status.style.color = '#ef4444';
+  }
+  btn.disabled = false;
+  btn.textContent = '🔄 Sync from RumbleUp';
+}
 
 // ===================== DASHBOARD =====================
 async function loadDashboard() {

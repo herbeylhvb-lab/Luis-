@@ -553,6 +553,136 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   }
 }));
 
+// --- Sync inbound messages from RumbleUp ---
+app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+  if (!provider.getMessageLog) return res.status(400).json({ error: 'Provider does not support message log sync.' });
+
+  // Get all phones we've contacted recently — from messages, survey sends, P2P assignments, broadcast
+  const phoneSet = new Set();
+  db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-30 days')`)
+    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
+  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE sent_at > datetime('now', '-30 days')`)
+    .all().forEach(r => { if (r.phone) phoneSet.add(r.phone); });
+  try {
+    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-30 days')`)
+      .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
+  } catch (e) { /* table may not exist */ }
+  const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
+
+  if (sentPhones.length === 0) return res.json({ synced: 0, checked: 0, message: 'No outbound messages to check replies for.' });
+
+  // Get the last sync timestamp
+  const lastSyncRow = db.prepare("SELECT value FROM settings WHERE key = 'last_inbound_sync'").get();
+  const lastSync = lastSyncRow ? lastSyncRow.value : null;
+
+  let totalSynced = 0;
+  const errors = [];
+
+  for (const phone of sentPhones) {
+    try {
+      const params = { phone };
+      if (lastSync) params.since = lastSync;
+      const result = await provider.getMessageLog(params);
+      const messages = result.messages || result.data || result || [];
+      if (!Array.isArray(messages)) continue;
+
+      for (const msg of messages) {
+        // Only import inbound messages (sender === phone means incoming)
+        const isInbound = msg.status === 'received' || msg.sender === msg.phone || msg.sender === phone || msg.direction === 'inbound';
+        if (!isInbound) continue;
+
+        const msgPhone = phoneDigits(msg.phone || msg.from || phone);
+        const msgBody = msg.text || msg.body || msg.message || '';
+        const msgTime = msg.timestamp || msg.created || msg.date || null;
+
+        if (!msgBody.trim()) continue;
+
+        // Check for duplicate by phone + body + approximate time
+        const existing = db.prepare(
+          "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' LIMIT 1"
+        ).get(msgPhone, msgBody);
+        if (existing) continue;
+
+        // Insert the inbound message
+        const sentiment = analyzeSentiment(msgBody);
+        db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
+          .run(msgPhone, msgBody, sentiment, msgTime);
+        totalSynced++;
+
+        // Check STOP keywords
+        const msgLower = msgBody.trim().toLowerCase();
+        if (STOP_KEYWORDS.includes(msgLower)) {
+          db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
+        }
+
+        // Route to survey if applicable
+        const activeSend = db.prepare(`
+          SELECT ss.*, s.name as survey_name FROM survey_sends ss
+          JOIN surveys s ON ss.survey_id = s.id
+          WHERE ss.phone = ? AND ss.status IN ('sent', 'in_progress') AND s.status = 'active'
+          ORDER BY ss.sent_at DESC LIMIT 1
+        `).get(msgPhone);
+
+        if (activeSend && activeSend.current_question_id) {
+          const question = db.prepare('SELECT * FROM survey_questions WHERE id = ?').get(activeSend.current_question_id);
+          if (question) {
+            const options = db.prepare('SELECT * FROM survey_options WHERE question_id = ? ORDER BY sort_order, id').all(question.id);
+            let matchedOption = null;
+            let responseText = msgBody.trim();
+
+            if (question.question_type !== 'write_in' && options.length > 0) {
+              const t = responseText;
+              const tLower = t.toLowerCase();
+              matchedOption = options.find(o => o.option_key === t);
+              if (!matchedOption) {
+                const num = parseInt(t, 10);
+                if (!isNaN(num) && num >= 1 && num <= options.length) matchedOption = options[num - 1];
+              }
+              if (!matchedOption) matchedOption = options.find(o => o.option_text.toLowerCase() === tLower);
+              if (!matchedOption) matchedOption = options.find(o => tLower.includes(o.option_text.toLowerCase()) || o.option_text.toLowerCase().includes(tLower));
+              if (matchedOption) responseText = matchedOption.option_key;
+            }
+
+            const existingResp = db.prepare('SELECT id FROM survey_responses WHERE send_id = ? AND question_id = ?').get(activeSend.id, question.id);
+            if (!existingResp) {
+              const nextQ = db.prepare('SELECT * FROM survey_questions WHERE survey_id = ? AND sort_order > ? ORDER BY sort_order, id LIMIT 1')
+                .get(activeSend.survey_id, question.sort_order);
+              db.prepare('INSERT INTO survey_responses (survey_id, send_id, question_id, phone, response_text, option_id) VALUES (?, ?, ?, ?, ?, ?)')
+                .run(activeSend.survey_id, activeSend.id, question.id, msgPhone, responseText, matchedOption ? matchedOption.id : null);
+              if (nextQ) {
+                db.prepare("UPDATE survey_sends SET current_question_id = ?, status = 'in_progress' WHERE id = ?").run(nextQ.id, activeSend.id);
+              } else {
+                db.prepare("UPDATE survey_sends SET status = 'completed', completed_at = datetime('now'), current_question_id = NULL WHERE id = ?").run(activeSend.id);
+              }
+            }
+          }
+        }
+
+        // Route to P2P if applicable
+        const p2pAssignment = db.prepare(`
+          SELECT a.* FROM p2p_assignments a
+          JOIN p2p_sessions s ON a.session_id = s.id
+          JOIN contacts c ON a.contact_id = c.id
+          WHERE c.phone = ? AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
+          ORDER BY a.sent_at DESC LIMIT 1
+        `).get(msgPhone);
+        if (p2pAssignment) {
+          db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
+        }
+      }
+    } catch (err) {
+      errors.push({ phone, error: err.message });
+    }
+  }
+
+  // Update last sync timestamp
+  db.prepare("INSERT INTO settings (key, value) VALUES ('last_inbound_sync', datetime('now')) ON CONFLICT(key) DO UPDATE SET value = datetime('now')").run();
+
+  res.json({ synced: totalSynced, checked: sentPhones.length, errors: errors.length > 0 ? errors : undefined });
+}));
+
 // --- WhatsApp bulk send (stub — provider does not yet support WhatsApp) ---
 app.post('/api/whatsapp/send', asyncHandler(async (req, res) => {
   const provider = getProvider();
