@@ -920,7 +920,7 @@
           var timeEl = document.createElement('div');
           timeEl.style.cssText = 'font-size:10px;color:#64748b;margin-top:4px';
           var ts = m.created_at || m.timestamp;
-          if (ts) { try { timeEl.textContent = new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); } catch(e){} }
+          if (ts) { try { timeEl.textContent = utcToLocal(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); } catch(e){} }
           bubble.appendChild(timeEl);
           msgEl.appendChild(bubble);
         });
@@ -1135,6 +1135,7 @@
       processing: false
     };
 
+    function utcToLocal(ts) { if (!ts) return new Date(); var s = String(ts).trim(); if (!/[Z+\-]/.test(s.slice(-6))) s += 'Z'; return new Date(s); }
     function escHtml(t) {
       var d = document.createElement('div');
       d.textContent = t;

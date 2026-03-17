@@ -1943,6 +1943,8 @@ let searchTimeout = null;
 
 // ===================== HELPERS =====================
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+// Convert UTC timestamp from SQLite (no timezone suffix) to local Date
+function utcToLocal(ts) { if (!ts) return new Date(); var s = String(ts).trim(); if (!/[Z+\-]/.test(s.slice(-6))) s += 'Z'; return new Date(s); }
 function ordinal(n) { const s = ['th','st','nd','rd']; const v = parseInt(n,10) % 100; return n + (s[(v-20)%10]||s[v]||s[0]); }
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -2608,7 +2610,7 @@ async function loadInbox() {
           : m.sentiment === 'negative' ? '<span class="badge badge-red" style="margin-left:8px">Negative</span>'
           : m.sentiment ? '<span class="badge badge-gray" style="margin-left:8px">Neutral</span>' : '';
         const nameLabel = m.contact_name && m.contact_name.trim() ? '<strong style="color:#e2e8f0">' + escHtml(m.contact_name.trim()) + '</strong> <span style="color:#64748b;font-size:12px">(' + escHtml(m.phone) + ')</span>' : escHtml(m.phone);
-        return '<div class="msg-item"><div class="phone">' + nameLabel + sBadge + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + new Date(m.timestamp).toLocaleString() + '</div>' +
+        return '<div class="msg-item"><div class="phone">' + nameLabel + sBadge + '</div><div class="body">' + escHtml(m.body) + '</div><div class="time">' + utcToLocal(m.timestamp).toLocaleString() + '</div>' +
         '<div class="reply-box"><input type="text" placeholder="Type reply..." id="reply-' + (m.phone||'').replace(/\+/g,'') + '"><button class="btn btn-primary btn-sm" onclick="sendReply(\'' + escHtml((m.phone||'').replace(/'/g,'')) + '\')">Reply</button></div></div>';
       }).join('');
     }
@@ -2662,7 +2664,7 @@ async function loadDashboard() {
     const data = await api('/api/activity');
     const el = document.getElementById('activityLog');
     if (!data.logs || data.logs.length === 0) { el.innerHTML = '<div class="log-entry" style="color:#64748b">No activity yet.</div>'; }
-    else { el.innerHTML = data.logs.map(l => '<div class="log-entry"><span class="log-time">' + new Date(l.created_at).toLocaleString() + '</span> &mdash; ' + escHtml(l.message) + '</div>').join(''); }
+    else { el.innerHTML = data.logs.map(l => '<div class="log-entry"><span class="log-time">' + utcToLocal(l.created_at).toLocaleString() + '</span> &mdash; ' + escHtml(l.message) + '</div>').join(''); }
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
   loadSentimentStats();
@@ -5608,7 +5610,7 @@ function renderAiInstructions(instructions) {
     <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div style="flex:1">
         <div style="color:#e2e8f0;font-size:13px;line-height:1.5">${escHtml(i.content)}</div>
-        <div style="color:#64748b;font-size:11px;margin-top:4px">${i.created_at ? new Date(i.created_at).toLocaleDateString() : ''}</div>
+        <div style="color:#64748b;font-size:11px;margin-top:4px">${i.created_at ? utcToLocal(i.created_at).toLocaleDateString() : ''}</div>
       </div>
       <button class="btn btn-danger btn-xs" onclick="deleteAiInstruction(${i.id})" style="flex-shrink:0">&#10005;</button>
     </div>
@@ -8637,7 +8639,7 @@ async function loadMyUniverses() {
     }
     var created = document.createElement('div');
     created.style.cssText = 'font-size:11px;color:#475569;margin-top:4px';
-    created.textContent = 'Created: ' + (l.created_at ? new Date(l.created_at).toLocaleDateString() : 'N/A');
+    created.textContent = 'Created: ' + (l.created_at ? utcToLocal(l.created_at).toLocaleDateString() : 'N/A');
     left.appendChild(created);
     row.appendChild(left);
     var right = document.createElement('div');
@@ -9366,7 +9368,7 @@ async function showVoterTouchpoints(voterId) {
       top.appendChild(ch);
       var dateSpan = document.createElement('span');
       dateSpan.style.cssText = 'font-size:12px;color:#64748b';
-      dateSpan.textContent = tp.date ? new Date(tp.date).toLocaleString() : '';
+      dateSpan.textContent = tp.date ? utcToLocal(tp.date).toLocaleString() : '';
       top.appendChild(dateSpan);
       item.appendChild(top);
       if (tp.result) {
@@ -10026,7 +10028,7 @@ async function loadBroadcastHistory() {
     }
     tbody.innerHTML = data.campaigns.map(function(c) {
       var statusCls = c.status === 'completed' ? 'badge-green' : (c.status === 'sending' ? 'badge-yellow' : 'badge-gray');
-      return '<tr><td>' + escHtml(c.name) + '</td><td>' + escHtml(c.list_name || 'All') + '</td><td style="color:#22c55e">' + c.sent_count + '</td><td style="color:#ef4444">' + c.failed_count + '</td><td>' + c.total_recipients + '</td><td><span class="badge ' + statusCls + '">' + c.status + '</span></td><td style="font-size:12px;color:#64748b">' + new Date(c.created_at).toLocaleString() + '</td></tr>';
+      return '<tr><td>' + escHtml(c.name) + '</td><td>' + escHtml(c.list_name || 'All') + '</td><td style="color:#22c55e">' + c.sent_count + '</td><td style="color:#ef4444">' + c.failed_count + '</td><td>' + c.total_recipients + '</td><td><span class="badge ' + statusCls + '">' + c.status + '</span></td><td style="font-size:12px;color:#64748b">' + utcToLocal(c.created_at).toLocaleString() + '</td></tr>';
     }).join('');
   } catch (e) {}
 }
