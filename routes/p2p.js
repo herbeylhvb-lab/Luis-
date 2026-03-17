@@ -223,9 +223,9 @@ router.get('/p2p/sessions/:id', (req, res) => {
   const sessionStats = db.prepare(`
     SELECT
       COUNT(*) as totalContacts,
-      SUM(CASE WHEN status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END) as totalSent,
-      SUM(CASE WHEN status = 'in_conversation' THEN 1 ELSE 0 END) as totalReplies,
-      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as remaining
+      COALESCE(SUM(CASE WHEN status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END), 0) as totalSent,
+      COALESCE(SUM(CASE WHEN status = 'in_conversation' THEN 1 ELSE 0 END), 0) as totalReplies,
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as remaining
     FROM p2p_assignments WHERE session_id = ?
   `).get(session.id);
   session.totalContacts = sessionStats.totalContacts;
@@ -363,8 +363,8 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total,
-      SUM(CASE WHEN status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END) as sent,
-      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as remaining
+      COALESCE(SUM(CASE WHEN status IN ('sent', 'in_conversation', 'completed') THEN 1 ELSE 0 END), 0) as sent,
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as remaining
     FROM p2p_assignments WHERE volunteer_id = ?
   `).get(req.params.id);
 
