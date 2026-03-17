@@ -533,6 +533,27 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 });
 
 // --- Messages & opt-outs ---
+// Pending messages: last inbound per phone with no outbound reply after it
+app.get('/api/messages/pending', (req, res) => {
+  const pending = db.prepare(`
+    SELECT m.*,
+      COALESCE(v.first_name || ' ' || v.last_name, c.first_name || ' ' || c.last_name) as contact_name
+    FROM messages m
+    LEFT JOIN voters v ON m.phone = v.phone AND v.phone != '' AND v.phone IS NOT NULL
+    LEFT JOIN contacts c ON m.phone = c.phone AND c.phone != '' AND c.phone IS NOT NULL
+    WHERE m.direction = 'inbound'
+      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE m2.phone = m.phone AND m2.direction = 'inbound')
+      AND NOT EXISTS (
+        SELECT 1 FROM messages out_msg
+        WHERE out_msg.phone = m.phone AND out_msg.direction = 'outbound' AND out_msg.id > m.id
+      )
+      AND m.phone NOT IN (SELECT phone FROM opt_outs)
+    GROUP BY m.phone
+    ORDER BY m.id DESC LIMIT 100
+  `).all();
+  res.json({ messages: pending });
+});
+
 app.get('/api/messages', (req, res) => {
   const messages = db.prepare(`
     SELECT m.*,
@@ -699,7 +720,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
 
         const msgPhone = phoneDigits(msg.phone || msg.from || phone);
         const msgBody = msg.text || msg.body || msg.message || '';
-        const msgTime = msg.timestamp || msg.created || msg.date || null;
+        const msgTime = msg.timestamp || msg.created || msg.date || msg.sent_time || msg.update_time || null;
 
         if (!msgBody.trim()) continue;
 

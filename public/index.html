@@ -351,8 +351,16 @@ tr:hover td{background:#1e293b80}
 
     <!-- ==================== INBOX ==================== -->
     <div class="page" id="page-inbox">
+      <div class="card" style="border-left:3px solid #f59e0b">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0">Needs Response <span id="pendingCount" class="badge" style="background:#f59e0b;color:#000;margin-left:8px;font-size:12px">0</span></h3>
+          <button class="btn btn-sm btn-secondary" onclick="loadPendingMessages()">Refresh</button>
+        </div>
+        <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">Messages waiting for your reply — once you respond, they move to the full inbox below.</p>
+        <div class="msg-list" id="pendingMessages"><div style="color:#64748b;font-size:14px">Loading...</div></div>
+      </div>
       <div class="card">
-        <h3>Incoming Messages</h3>
+        <h3>All Incoming Messages</h3>
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-secondary btn-sm" id="btnRefreshInbox">Refresh</button>
           <button class="btn btn-sm" style="background:#059669;border-color:#047857" id="btnSyncInbound" onclick="syncInboundMessages()">🔄 Sync from RumbleUp</button>
@@ -2118,7 +2126,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'walks') { showWalkList(); loadWalks(); }
     if (page === 'voters') { showVoterList(); searchVoters(); loadPrecinctFilter(); loadCityFilter(); loadElectionFilter(); }
     if (page === 'events') { showEventList(); loadEvents(); }
-    if (page === 'inbox') { loadInbox(); syncInboundMessages(); }
+    if (page === 'inbox') { loadPendingMessages(); loadInbox(); syncInboundMessages(); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
@@ -2732,6 +2740,63 @@ async function buildListFromInbox() {
     }
     alert('List "' + listName + '" created with ' + added + ' voter' + (added !== 1 ? 's' : '') + ' (from ' + phones.length + ' phone numbers).');
   } catch (err) { alert('Failed to build list: ' + (err.message || 'Unknown error')); }
+}
+
+async function loadPendingMessages() {
+  var el = document.getElementById('pendingMessages');
+  try {
+    var data = await api('/api/messages/pending');
+    var msgs = data.messages || [];
+    document.getElementById('pendingCount').textContent = msgs.length;
+    el.textContent = '';
+    if (msgs.length === 0) {
+      var empty = document.createElement('div');
+      empty.style.cssText = 'color:#22c55e;font-size:14px;padding:8px 0';
+      empty.textContent = 'All caught up — no pending messages!';
+      el.appendChild(empty);
+    } else {
+      msgs.forEach(function(m) {
+        var item = buildMsgItem(m);
+        item.style.borderLeft = '3px solid #f59e0b';
+        item.style.paddingLeft = '12px';
+        // Override reply button to also refresh pending list after sending
+        var replyBtn = item.querySelector('button');
+        if (replyBtn) {
+          var replyPhone = (m.phone || '').replace(/'/g, '');
+          replyBtn.addEventListener('click', function() {
+            var input = item.querySelector('input');
+            var body = input ? input.value.trim() : '';
+            if (!body) return;
+            apiPost('/reply', { to: replyPhone, body: body }).then(function() {
+              input.value = '';
+              loadPendingMessages();
+              loadInbox();
+            }).catch(function() { alert('Reply failed.'); });
+          }, { once: true });
+          // Remove the original click handler by replacing the button
+          var newBtn = replyBtn.cloneNode(true);
+          replyBtn.parentNode.replaceChild(newBtn, replyBtn);
+          newBtn.addEventListener('click', function() {
+            var input = item.querySelector('input');
+            var body = input ? input.value.trim() : '';
+            if (!body) return;
+            apiPost('/reply', { to: (m.phone || '').replace(/'/g, ''), body: body }).then(function() {
+              input.value = '';
+              loadPendingMessages();
+              loadInbox();
+            }).catch(function() { alert('Reply failed.'); });
+          });
+        }
+        el.appendChild(item);
+      });
+    }
+  } catch (err) {
+    el.textContent = '';
+    var errEl = document.createElement('div');
+    errEl.style.color = '#ef4444';
+    errEl.textContent = 'Failed to load pending messages.';
+    el.appendChild(errEl);
+  }
 }
 
 async function loadInbox() {
