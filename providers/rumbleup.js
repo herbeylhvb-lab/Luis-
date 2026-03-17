@@ -108,7 +108,13 @@ async function apiRequest(path, body, creds, options = {}) {
   }
 
   if (resp.status === 401 || resp.status === 403) {
-    throw new Error('RumbleUp authentication failed. Check your API key and secret.');
+    const errBody = await resp.text().catch(() => '');
+    let detail = '';
+    try { detail = JSON.parse(errBody).message || ''; } catch { detail = errBody; }
+    if (resp.status === 401) {
+      throw new Error('RumbleUp authentication failed. Check your API key and secret.' + (detail ? ' (' + detail + ')' : ''));
+    }
+    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check account balance or permissions.'));
   }
   if (resp.status === 429) {
     const retry = resp.headers.get('Retry-After') || '5';
