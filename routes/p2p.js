@@ -353,6 +353,13 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
     ORDER BY a.id ASC
   `).all(req.params.id);
 
+  // Attach last 3 messages to each conversation for preview
+  for (const convo of activeConversations) {
+    convo.recentMessages = db.prepare(
+      'SELECT body, direction, created_at FROM messages WHERE phone = ? AND session_id = ? ORDER BY id DESC LIMIT 3'
+    ).all(convo.phone, convo.session_id).reverse();
+  }
+
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total,

@@ -6060,15 +6060,23 @@ async function loadVolunteerQueue() {
     if (d.activeConversations && d.activeConversations.length > 0) {
       convCard.style.display = '';
       document.getElementById('p2pConvCount').textContent = d.activeConversations.length;
-      convList.innerHTML = d.activeConversations.map(c => `
-        <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onclick="openP2pConversation(${c.id})">
-          <div>
-            <strong style="color:#e2e8f0">${escHtml(c.first_name)} ${escHtml(c.last_name)}</strong>
-            <span style="color:#64748b;font-size:13px;margin-left:8px">${escHtml(c.phone)}</span>
+      convList.innerHTML = d.activeConversations.map(c => {
+        const preview = (c.recentMessages || []).map(m => {
+          const arrow = m.direction === 'outbound' ? '↑' : '↓';
+          const text = (m.body || '').length > 60 ? m.body.substring(0, 60) + '…' : (m.body || '');
+          return `<div style="font-size:12px;color:${m.direction === 'inbound' ? '#fbbf24' : '#94a3b8'};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arrow} ${escHtml(text)}</div>`;
+        }).join('');
+        return `<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;margin-bottom:8px;cursor:pointer" onclick="openP2pConversation(${c.id})">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <strong style="color:#e2e8f0">${escHtml(c.first_name)} ${escHtml(c.last_name)}</strong>
+              <span style="color:#64748b;font-size:13px;margin-left:8px">${escHtml(c.phone)}</span>
+            </div>
+            <span class="badge badge-blue">Reply</span>
           </div>
-          <span class="badge badge-blue">Reply</span>
-        </div>
-      `).join('');
+          <div style="margin-top:6px;max-width:100%;overflow:hidden">${preview}</div>
+        </div>`;
+      }).join('');
     } else {
       convCard.style.display = 'none';
     }

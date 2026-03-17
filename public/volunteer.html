@@ -776,6 +776,11 @@
         data.activeConversations.forEach(function(c) {
           var item = document.createElement('div');
           item.className = 'convo-item' + (newConvoIds.indexOf(c.id) !== -1 ? ' new-reply' : '');
+          item.style.cssText = 'cursor:pointer';
+
+          // Header row: name + badge
+          var header = document.createElement('div');
+          header.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
           var info = document.createElement('div');
           var nameEl = document.createElement('strong');
           nameEl.textContent = (c.first_name || '') + ' ' + (c.last_name || '');
@@ -784,11 +789,29 @@
           phoneEl.style.cssText = 'font-size:12px;color:#64748b';
           phoneEl.textContent = c.phone + (c.preferred_channel === 'whatsapp' ? ' (WhatsApp)' : '');
           info.appendChild(phoneEl);
-          item.appendChild(info);
+          header.appendChild(info);
           var badge = document.createElement('span');
           badge.className = 'badge badge-yellow';
           badge.textContent = c.preferred_channel === 'whatsapp' ? 'WA Reply' : 'Reply';
-          item.appendChild(badge);
+          header.appendChild(badge);
+          item.appendChild(header);
+
+          // Mini thread preview (last 3 messages)
+          if (c.recentMessages && c.recentMessages.length > 0) {
+            var preview = document.createElement('div');
+            preview.style.cssText = 'margin-top:6px;overflow:hidden';
+            c.recentMessages.forEach(function(m) {
+              var line = document.createElement('div');
+              var arrow = m.direction === 'outbound' ? '\u2191' : '\u2193';
+              var text = (m.body || '');
+              if (text.length > 60) text = text.substring(0, 60) + '\u2026';
+              line.style.cssText = 'font-size:12px;color:' + (m.direction === 'inbound' ? '#fbbf24' : '#94a3b8') + ';margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+              line.textContent = arrow + ' ' + text;
+              preview.appendChild(line);
+            });
+            item.appendChild(preview);
+          }
+
           item.addEventListener('click', function() {
             document.getElementById('convoNewDot').style.display = 'none';
             openConvo(c.id);
@@ -964,13 +987,12 @@
       var text = document.getElementById('replyText').value.trim();
       if (!text) return;
 
-      // Run grammar check on manually typed replies
+      // Show checking state on the send button, not the grammar panel
       pendingGrammarOriginal = text;
-      var reviewEl = document.getElementById('grammarReview');
-      reviewEl.style.display = '';
-      document.getElementById('grammarLoading').style.display = '';
-      document.getElementById('grammarOriginal').textContent = '';
-      document.getElementById('grammarCorrected').textContent = '';
+      var sendBtn = document.querySelector('.reply-area button');
+      var origBtnText = sendBtn.textContent;
+      sendBtn.textContent = 'Checking...';
+      sendBtn.disabled = true;
 
       try {
         var data = await apiCall('/api/p2p/review-reply', {
@@ -978,21 +1000,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ draftText: text })
         });
-        document.getElementById('grammarLoading').style.display = 'none';
+
+        sendBtn.textContent = origBtnText;
+        sendBtn.disabled = false;
 
         if (data.changed) {
-          // Show the correction for approval
+          // Only show grammar panel when there's actually a correction
+          var reviewEl = document.getElementById('grammarReview');
+          reviewEl.style.display = '';
+          document.getElementById('grammarLoading').style.display = 'none';
           document.getElementById('grammarOriginal').textContent = 'Original: ' + data.original;
           document.getElementById('grammarCorrected').textContent = data.corrected;
           pendingGrammarOriginal = data.original;
         } else {
-          // No changes needed — send immediately
-          reviewEl.style.display = 'none';
+          // No changes needed — send immediately (no flash)
           sendReplyText(text);
         }
       } catch (e) {
         // If review fails, send as-is
-        reviewEl.style.display = 'none';
+        sendBtn.textContent = origBtnText;
+        sendBtn.disabled = false;
         sendReplyText(text);
       }
     }
