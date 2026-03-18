@@ -1617,7 +1617,8 @@
               srcBadge.className = 'badge badge-blue';
               srcBadge.style.cssText = 'font-size:9px;margin-left:4px';
               srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
-              aiBox.querySelector('span').appendChild(srcBadge);
+              var labelSpan = aiBox.querySelector('span');
+              if (labelSpan) labelSpan.appendChild(srcBadge); else aiBox.prepend(srcBadge);
               var btnUse = document.createElement('button');
               btnUse.className = 'btn btn-sm btn-success';
               btnUse.style.cssText = 'padding:3px 8px;font-size:11px';
