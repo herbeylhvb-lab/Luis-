@@ -155,7 +155,9 @@ app.use((req, res, next) => {
       req.path === '/api/p2p/suggest-reply' ||
       req.path === '/api/p2p/review-reply' ||
       req.path === '/api/texting-volunteers/login' ||
-      req.path.match(/^\/api\/texting-volunteers\/\d+\/dashboard/)) {
+      req.path.match(/^\/api\/texting-volunteers\/\d+\/dashboard/) ||
+      req.path === '/api/messages/pending' ||
+      req.path === '/reply') {
     return next();
   }
   // Allow captain portal endpoints (used by captain.html without admin auth)

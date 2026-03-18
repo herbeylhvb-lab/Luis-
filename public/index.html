@@ -350,35 +350,70 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
-    <!-- ==================== INBOX ==================== -->
+    <!-- ==================== INBOX (tabbed) ==================== -->
     <div class="page" id="page-inbox">
-      <div class="card" style="border-left:3px solid #f59e0b">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <h3 style="margin:0">Needs Response <span id="pendingCount" class="badge" style="background:#f59e0b;color:#000;margin-left:8px;font-size:12px">0</span></h3>
+      <div class="sub-tabs" id="inboxSubTabs">
+        <div class="sub-tab active" data-inboxtab="needs-response">Needs Response <span id="pendingCount" class="badge" style="background:#f59e0b;color:#000;font-size:11px;margin-left:4px">0</span></div>
+        <div class="sub-tab" data-inboxtab="send">Send</div>
+        <div class="sub-tab" data-inboxtab="all-messages">All Messages</div>
+        <div class="sub-tab" data-inboxtab="opted-out">Opted Out</div>
+      </div>
+    </div>
+
+    <!-- Inbox sub-tab: Needs Response -->
+    <div class="page inbox-subpage" id="inbox-needs-response" data-inbox="needs-response">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="display:flex;gap:8px;align-items:center">
           <button class="btn btn-sm btn-secondary" onclick="loadPendingMessages()">Refresh</button>
+          <button class="btn btn-sm" style="background:#059669;border-color:#047857" id="btnSyncInbound" onclick="syncInboundMessages()">Sync from RumbleUp</button>
+          <span id="syncStatus" style="font-size:12px;color:#64748b"></span>
         </div>
-        <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">Messages waiting for your reply — once you respond, they move to the full inbox below.</p>
-        <div class="msg-list" id="pendingMessages"><div style="color:#64748b;font-size:14px">Loading...</div></div>
       </div>
+      <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">Messages waiting for your reply — with conversation preview, AI suggestions, and grammar check.</p>
+      <div id="pendingMessages"><div style="color:#64748b;font-size:14px">Loading...</div></div>
+    </div>
+
+    <!-- Inbox sub-tab: Send (P2P queue for admin) -->
+    <div class="page inbox-subpage" id="inbox-send" data-inbox="send" style="display:none">
       <div class="card">
-        <h3>All Incoming Messages</h3>
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-secondary btn-sm" id="btnRefreshInbox">Refresh</button>
-          <button class="btn btn-sm" style="background:#059669;border-color:#047857" id="btnSyncInbound" onclick="syncInboundMessages()">🔄 Sync from RumbleUp</button>
-          <span id="syncStatus" style="font-size:12px;color:#64748b;align-self:center"></span>
-          <span style="border-left:1px solid #334155;height:24px;margin:0 4px"></span>
-          <button class="btn btn-sm inbox-filter active" data-sentiment="all" onclick="filterInbox('all')">All</button>
-          <button class="btn btn-sm inbox-filter" data-sentiment="positive" onclick="filterInbox('positive')" style="background:transparent;border:1px solid #22c55e;color:#22c55e">Positive</button>
-          <button class="btn btn-sm inbox-filter" data-sentiment="negative" onclick="filterInbox('negative')" style="background:transparent;border:1px solid #ef4444;color:#ef4444">Negative</button>
-          <button class="btn btn-sm inbox-filter" data-sentiment="neutral" onclick="filterInbox('neutral')" style="background:transparent;border:1px solid #64748b;color:#64748b">Neutral</button>
-          <span style="border-left:1px solid #334155;height:24px;margin:0 4px"></span>
-          <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="buildListFromInbox()">📋 Build Voter List</button>
+        <h3>Quick Send</h3>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Send a text to any phone number directly.</p>
+        <div class="form-row" style="margin-bottom:12px">
+          <div class="form-group"><label>Phone Number</label><input type="text" id="quickSendPhone" placeholder="956-xxx-xxxx"></div>
+          <div class="form-group"><label>Message</label><input type="text" id="quickSendMsg" placeholder="Type your message..."></div>
         </div>
-        <div id="inboxSentimentSummary" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px"></div>
-        <div class="msg-list" id="inboxMessages"><div style="color:#64748b;font-size:14px">No messages yet.</div></div>
+        <button class="btn btn-success btn-sm" onclick="quickSendText()">Send</button>
+        <span id="quickSendStatus" style="font-size:12px;color:#64748b;margin-left:8px"></span>
       </div>
+      <div class="card" id="adminP2pQueueCard">
+        <h3>P2P Session Queue</h3>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">Select an active session to send texts as the campaign.</p>
+        <div class="form-group"><label>Session</label><select id="adminSessionSelect" onchange="loadAdminQueue()" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px"><option value="">-- Select a session --</option></select></div>
+        <div id="adminQueueContent" style="margin-top:12px"><div style="color:#64748b;font-size:13px">Select a session above to start sending.</div></div>
+      </div>
+    </div>
+
+    <!-- Inbox sub-tab: All Messages -->
+    <div class="page inbox-subpage" id="inbox-all-messages" data-inbox="all-messages" style="display:none">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-secondary btn-sm" id="btnRefreshInbox">Refresh</button>
+        <span style="border-left:1px solid #334155;height:24px;margin:0 4px"></span>
+        <button class="btn btn-sm inbox-filter active" data-sentiment="all" onclick="filterInbox('all')">All</button>
+        <button class="btn btn-sm inbox-filter" data-sentiment="positive" onclick="filterInbox('positive')" style="background:transparent;border:1px solid #22c55e;color:#22c55e">Positive</button>
+        <button class="btn btn-sm inbox-filter" data-sentiment="negative" onclick="filterInbox('negative')" style="background:transparent;border:1px solid #ef4444;color:#ef4444">Negative</button>
+        <button class="btn btn-sm inbox-filter" data-sentiment="neutral" onclick="filterInbox('neutral')" style="background:transparent;border:1px solid #64748b;color:#64748b">Neutral</button>
+        <span style="border-left:1px solid #334155;height:24px;margin:0 4px"></span>
+        <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="buildListFromInbox()">Build Voter List</button>
+      </div>
+      <div id="inboxSentimentSummary" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px"></div>
+      <div class="msg-list" id="inboxMessages"><div style="color:#64748b;font-size:14px">No messages yet.</div></div>
+    </div>
+
+    <!-- Inbox sub-tab: Opted Out -->
+    <div class="page inbox-subpage" id="inbox-opted-out" data-inbox="opted-out" style="display:none">
       <div class="card">
         <h3>Opted Out Numbers</h3>
+        <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">Contacts who replied STOP. They are automatically excluded from all future messages.</p>
         <div id="optedOutList" style="color:#64748b;font-size:14px">No opted-out numbers.</div>
       </div>
     </div>
@@ -2173,7 +2208,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'walks') { showWalkList(); loadWalks(); }
     if (page === 'voters') { showVoterList(); searchVoters(); loadPrecinctFilter(); loadCityFilter(); loadElectionFilter(); }
     if (page === 'events') { showEventList(); loadEvents(); }
-    if (page === 'inbox') { loadPendingMessages(); loadInbox(); }
+    if (page === 'inbox') { switchInboxTab('needs-response'); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
@@ -2661,6 +2696,139 @@ document.getElementById('btnSendCampaign').addEventListener('click', async () =>
     document.getElementById('btnSendCampaign').disabled = false;
   }
 });
+
+// ===================== INBOX TABS =====================
+function switchInboxTab(tab) {
+  document.querySelectorAll('#inboxSubTabs .sub-tab').forEach(function(t) { t.classList.remove('active'); });
+  var activeTab = document.querySelector('#inboxSubTabs .sub-tab[data-inboxtab="' + tab + '"]');
+  if (activeTab) activeTab.classList.add('active');
+  document.querySelectorAll('.inbox-subpage').forEach(function(p) { p.style.display = 'none'; p.classList.remove('active'); });
+  var targetPage = document.querySelector('.inbox-subpage[data-inbox="' + tab + '"]');
+  if (targetPage) { targetPage.style.display = ''; targetPage.classList.add('active'); }
+  if (tab === 'needs-response') { loadPendingMessages(); }
+  if (tab === 'all-messages') { loadInbox(); }
+  if (tab === 'opted-out') { loadInbox(); }
+  if (tab === 'send') { loadAdminSessions(); }
+}
+document.getElementById('inboxSubTabs').addEventListener('click', function(e) {
+  var tab = e.target.closest('.sub-tab');
+  if (!tab) return;
+  switchInboxTab(tab.dataset.inboxtab);
+});
+
+// Quick send from Send tab
+async function quickSendText() {
+  var phone = document.getElementById('quickSendPhone').value.trim();
+  var msg = document.getElementById('quickSendMsg').value.trim();
+  var status = document.getElementById('quickSendStatus');
+  if (!phone || !msg) { status.textContent = 'Phone and message required.'; status.style.color = '#ef4444'; return; }
+  if (!state.credentials.connected) { alert('Set up messaging credentials first.'); return; }
+  try {
+    await apiPost('/reply', { to: phone, body: msg });
+    status.textContent = 'Sent!';
+    status.style.color = '#22c55e';
+    document.getElementById('quickSendMsg').value = '';
+    setTimeout(function() { status.textContent = ''; }, 3000);
+  } catch (e) { status.textContent = 'Failed: ' + (e.message || 'Error'); status.style.color = '#ef4444'; }
+}
+
+// Load active sessions for admin Send tab
+async function loadAdminSessions() {
+  try {
+    var data = await api('/api/p2p/sessions');
+    var sel = document.getElementById('adminSessionSelect');
+    var current = sel.value;
+    sel.textContent = '';
+    var opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = '-- Select a session --';
+    sel.appendChild(opt0);
+    (data.sessions || []).filter(function(s) { return s.status === 'active'; }).forEach(function(s) {
+      var opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name + ' (' + s.sent + '/' + s.totalContacts + ' sent)';
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  } catch (e) { /* silent */ }
+}
+
+// Load P2P queue for admin to send from
+async function loadAdminQueue() {
+  var sessionId = document.getElementById('adminSessionSelect').value;
+  var el = document.getElementById('adminQueueContent');
+  if (!sessionId) { el.textContent = ''; var p = document.createElement('div'); p.style.cssText = 'color:#64748b;font-size:13px'; p.textContent = 'Select a session above to start sending.'; el.appendChild(p); return; }
+  try {
+    // Get first volunteer in the session to use their queue
+    var sData = await api('/api/p2p/sessions/' + sessionId);
+    var vols = sData.session.volunteers || [];
+    if (vols.length === 0) { el.textContent = ''; var nv = document.createElement('div'); nv.style.cssText = 'color:#f59e0b;font-size:13px'; nv.textContent = 'No volunteers in this session. Join as a volunteer first at /volunteer.'; el.appendChild(nv); return; }
+    var volId = vols[0].id;
+    var qData = await api('/api/p2p/volunteers/' + volId + '/queue');
+    el.textContent = '';
+    if (!qData.assignment) {
+      var done = document.createElement('div');
+      done.style.cssText = 'color:#22c55e;font-size:14px;padding:12px 0';
+      done.textContent = 'All contacts in this session have been texted!';
+      el.appendChild(done);
+      return;
+    }
+    var a = qData.assignment;
+    // Contact card
+    var card = document.createElement('div');
+    card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:10px;padding:14px;margin-bottom:10px';
+    var nameEl = document.createElement('div');
+    nameEl.style.cssText = 'font-weight:600;font-size:15px;color:#e2e8f0';
+    nameEl.textContent = (a.first_name || '') + ' ' + (a.last_name || '');
+    card.appendChild(nameEl);
+    var phoneEl = document.createElement('div');
+    phoneEl.style.cssText = 'font-size:13px;color:#64748b;margin-top:2px';
+    phoneEl.textContent = a.phone || '';
+    card.appendChild(phoneEl);
+    if (a.city) { var cityEl = document.createElement('div'); cityEl.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:2px'; cityEl.textContent = a.city; card.appendChild(cityEl); }
+    // Message preview
+    var msgPrev = document.createElement('div');
+    msgPrev.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:10px;font-size:13px;color:#94a3b8;line-height:1.5;white-space:pre-wrap';
+    msgPrev.textContent = qData.resolvedMessage || qData.messageTemplate || '';
+    card.appendChild(msgPrev);
+    // Send button
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px';
+    var sendBtn = document.createElement('button');
+    sendBtn.className = 'btn btn-success';
+    sendBtn.textContent = 'Send';
+    sendBtn.style.cssText = 'flex:1;padding:12px';
+    sendBtn.addEventListener('click', function() {
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending...';
+      apiPost('/api/p2p/send', { volunteerId: volId, assignmentId: a.id, message: qData.resolvedMessage || '', isReply: false }).then(function() {
+        loadAdminQueue();
+      }).catch(function(e) { alert('Send failed: ' + (e.message || 'Error')); sendBtn.disabled = false; sendBtn.textContent = 'Send'; });
+    });
+    btnRow.appendChild(sendBtn);
+    var skipBtn = document.createElement('button');
+    skipBtn.className = 'btn btn-secondary';
+    skipBtn.textContent = 'Skip';
+    skipBtn.style.padding = '12px 20px';
+    skipBtn.addEventListener('click', function() {
+      apiPost('/api/p2p/assignments/' + a.id + '/skip', {}).then(function() { loadAdminQueue(); }).catch(function() { loadAdminQueue(); });
+    });
+    btnRow.appendChild(skipBtn);
+    card.appendChild(btnRow);
+    // Stats
+    var statsEl = document.createElement('div');
+    statsEl.style.cssText = 'font-size:12px;color:#64748b;margin-top:8px';
+    statsEl.textContent = (qData.stats ? qData.stats.sent + ' sent, ' + qData.stats.remaining + ' remaining' : '');
+    card.appendChild(statsEl);
+    el.appendChild(card);
+  } catch (e) {
+    el.textContent = '';
+    var err = document.createElement('div');
+    err.style.cssText = 'color:#ef4444;font-size:13px';
+    err.textContent = 'Error: ' + (e.message || 'Failed to load queue');
+    el.appendChild(err);
+  }
+}
 
 // ===================== INBOX =====================
 var inboxData = [];
