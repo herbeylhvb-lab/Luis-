@@ -663,8 +663,13 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: loginData.volunteer.name, code: s.join_code, textingVolunteerId: loginData.volunteer.id })
           });
-          if (joinData.volunteerId) volState.volunteerId = joinData.volunteerId;
-          else volState.volunteerId = loginData.volunteer.id; // use persistent ID as fallback
+          if (joinData.volunteerId) {
+            volState.volunteerId = joinData.volunteerId;
+          } else {
+            // Join didn't return a volunteer ID — can't use queue, but still allow Needs Response
+            volState.volunteerId = loginData.volunteer.id;
+            volState.sessionId = null;
+          }
         } else {
           // No active sessions — still let them in for Needs Response
           volState.sessionId = null;
