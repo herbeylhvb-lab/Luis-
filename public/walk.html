@@ -528,6 +528,7 @@ async function loadGroupWalk(walkId, walkerName) {
   // Load group members
   var gRes = await fetch('/api/walks/' + walkId + '/group');
   var gData = await gRes.json();
+  if (!gRes.ok || gData.error) { console.warn('Failed to load group:', gData.error); }
   walkState.groupMembers = gData.members || [];
 
   renderWalk();
@@ -560,9 +561,10 @@ function renderGroupBar() {
 async function leaveGroup() {
   if (!confirm('Leave this walking group?')) return;
   try {
-    await fetch('/api/walks/' + walkState.walkId + '/group/' + encodeURIComponent(walkState.walkerName), {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/group/' + encodeURIComponent(walkState.walkerName), {
       method: 'DELETE'
     });
+    if (!res.ok) { alert('Failed to leave group. Try again.'); return; }
     exitWalk();
   } catch(e) {
     alert('Failed to leave group: ' + e.message);
@@ -1574,6 +1576,7 @@ async function triggerGeocode() {
     // Get walker name from group members
     var gRes = await fetch('/api/walks/' + walkId + '/walkers');
     var gData = await gRes.json();
+    if (!gRes.ok || gData.error) { console.warn('Failed to load walkers:', gData.error); }
     var members = gData.members || [];
     for (var i = 0; i < members.length; i++) {
       if (members[i].walker_id === wId) {
