@@ -8397,24 +8397,7 @@ async function showCandidateDetail(id, name, code) {
       container.appendChild(emptyDiv);
     }
 
-    // ===================== WALKERS SECTION =====================
-    var walkersHeader = document.createElement('div');
-    walkersHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-top:20px;margin-bottom:10px';
-    var walkersTitle = document.createElement('h4');
-    walkersTitle.style.cssText = 'color:#94a3b8;font-size:13px;margin:0';
-    walkersTitle.textContent = 'WALKERS';
-    walkersHeader.appendChild(walkersTitle);
-    var addWalkerBtn = document.createElement('button');
-    addWalkerBtn.className = 'btn btn-xs btn-primary';
-    addWalkerBtn.textContent = '+ New Walker';
-    addWalkerBtn.onclick = function() { showAddWalkerForm(id); };
-    walkersHeader.appendChild(addWalkerBtn);
-    container.appendChild(walkersHeader);
-
-    var walkersContainer = document.createElement('div');
-    walkersContainer.id = 'candidateWalkersContainer';
-    container.appendChild(walkersContainer);
-    loadCandidateWalkers(id, walkersContainer);
+    // Walkers removed — managed in sidebar Volunteers section
 
     // All Lists table with source filter
     var listData = await api('/api/candidates/' + id + '/lists');
