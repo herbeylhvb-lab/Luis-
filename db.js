@@ -689,6 +689,7 @@ db.exec(`
 `);
 
 // --- Google OAuth columns on users ---
+addColumn("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL");
 addColumn("ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL");
 addColumn("ALTER TABLE users ADD COLUMN google_email TEXT DEFAULT NULL");
 addColumn("ALTER TABLE users ADD COLUMN google_name TEXT DEFAULT NULL");
