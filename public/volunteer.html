@@ -1629,9 +1629,10 @@
             }
           }).catch(function(err) {
             loading.remove();
-            aiText.textContent = 'AI unavailable — write your own reply.';
-            aiText.style.color = '#94a3b8';
+            aiText.textContent = 'AI error: ' + (err.message || 'Unknown error');
+            aiText.style.color = '#ef4444';
             aiText.style.fontSize = '12px';
+            console.error('[AI Pending Card Error]', err);
           });
         } // end else (no cache)
       }
