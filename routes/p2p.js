@@ -526,6 +526,7 @@ router.put('/texting-volunteers/:id', (req, res) => {
 router.delete('/texting-volunteers/:id', (req, res) => {
   const vol = db.prepare('SELECT name FROM texting_volunteers WHERE id = ?').get(req.params.id);
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
+  db.prepare('UPDATE p2p_volunteers SET volunteer_id = NULL WHERE volunteer_id = ?').run(req.params.id);
   db.prepare('DELETE FROM texting_volunteers WHERE id = ?').run(req.params.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Texting volunteer deleted: ' + vol.name);
   res.json({ success: true });

@@ -631,7 +631,6 @@ try {
 
     -- Walk and captain performance indexes
     CREATE INDEX IF NOT EXISTS idx_walk_addrs_assigned ON walk_addresses(walk_id, assigned_walker);
-    CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id);
     CREATE INDEX IF NOT EXISTS idx_admin_lists_captain ON admin_lists(assigned_captain_id);
     CREATE INDEX IF NOT EXISTS idx_voters_precinct ON voters(precinct);
     CREATE INDEX IF NOT EXISTS idx_voters_city ON voters(city);
@@ -673,6 +672,7 @@ addColumn("ALTER TABLE p2p_assignments ADD COLUMN wa_status TEXT DEFAULT NULL");
 
 // --- Captain hierarchy: team members become real captains ---
 addColumn("ALTER TABLE captains ADD COLUMN parent_captain_id INTEGER DEFAULT NULL");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id)"); } catch (e) { /* exists */ }
 
 // --- Election definitions (so elections can exist before any voter is marked) ---
 db.exec(`
@@ -900,6 +900,8 @@ db.exec(`
 `);
 // Link p2p session volunteers to persistent identity
 addColumn("ALTER TABLE p2p_volunteers ADD COLUMN volunteer_id INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE p2p_volunteers ADD COLUMN last_active TEXT DEFAULT NULL");
+addColumn("ALTER TABLE p2p_assignments ADD COLUMN volunteer_name TEXT DEFAULT NULL");
 
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

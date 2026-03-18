@@ -2152,7 +2152,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'walks') { showWalkList(); loadWalks(); }
     if (page === 'voters') { showVoterList(); searchVoters(); loadPrecinctFilter(); loadCityFilter(); loadElectionFilter(); }
     if (page === 'events') { showEventList(); loadEvents(); }
-    if (page === 'inbox') { loadPendingMessages(); loadInbox(); syncInboundMessages(); }
+    if (page === 'inbox') { loadPendingMessages(); loadInbox(); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
@@ -2786,31 +2786,23 @@ async function loadPendingMessages() {
         item.style.borderLeft = '3px solid #f59e0b';
         item.style.paddingLeft = '12px';
         // Override reply button to also refresh pending list after sending
+        // Replace reply button with one that refreshes pending list after sending
         var replyBtn = item.querySelector('button');
         if (replyBtn) {
+          var newBtn = replyBtn.cloneNode(true);
+          replyBtn.parentNode.replaceChild(newBtn, replyBtn);
           var replyPhone = (m.phone || '').replace(/'/g, '');
-          replyBtn.addEventListener('click', function() {
+          newBtn.addEventListener('click', function() {
+            if (!state.credentials.connected) { alert('Set up messaging credentials first.'); return; }
             var input = item.querySelector('input');
             var body = input ? input.value.trim() : '';
             if (!body) return;
+            newBtn.disabled = true;
             apiPost('/reply', { to: replyPhone, body: body }).then(function() {
               input.value = '';
               loadPendingMessages();
               loadInbox();
-            }).catch(function() { alert('Reply failed.'); });
-          }, { once: true });
-          // Remove the original click handler by replacing the button
-          var newBtn = replyBtn.cloneNode(true);
-          replyBtn.parentNode.replaceChild(newBtn, replyBtn);
-          newBtn.addEventListener('click', function() {
-            var input = item.querySelector('input');
-            var body = input ? input.value.trim() : '';
-            if (!body) return;
-            apiPost('/reply', { to: (m.phone || '').replace(/'/g, ''), body: body }).then(function() {
-              input.value = '';
-              loadPendingMessages();
-              loadInbox();
-            }).catch(function() { alert('Reply failed.'); });
+            }).catch(function() { alert('Reply failed.'); newBtn.disabled = false; });
           });
         }
         el.appendChild(item);
@@ -6313,10 +6305,10 @@ async function loadTextingVolunteers() {
 
 async function sendVolunteerInfo(vol) {
   if (!state.credentials.connected) { alert('Set up messaging credentials first in Messaging Setup.'); return; }
+  if (!vol.phone) { alert('No phone number on file for this volunteer. Add one first.'); return; }
   var portalLink = window.location.origin + '/texter?code=' + vol.code;
   var msg = 'Hi ' + vol.name + '! Your Campaign Text HQ volunteer code is: ' + vol.code + '\n\nOpen your portal here: ' + portalLink + '\n\nTo join a texting session, go to: ' + window.location.origin + '/volunteer';
-  if (!confirm('Send this info via SMS to ' + (vol.phone || 'no phone') + '?\n\n' + msg)) return;
-  if (!vol.phone) { alert('No phone number on file for this volunteer. Add one first.'); return; }
+  if (!confirm('Send this info via SMS to ' + vol.phone + '?\n\n' + msg)) return;
   try {
     await apiPost('/reply', { to: vol.phone, body: msg });
     alert('Info sent to ' + vol.name + '!');
@@ -6329,19 +6321,17 @@ async function deleteTextingVolunteer(id, name) {
 }
 
 function copyP2pCode() {
+  var btn = event ? event.target : null;
   var code = document.getElementById('p2pJoinCodeDisplay').textContent;
   navigator.clipboard.writeText(code).then(function() {
-    var btn = event.target;
-    btn.textContent = 'Copied!';
-    setTimeout(function() { btn.textContent = 'Copy Code'; }, 2000);
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Code'; }, 2000); }
   });
 }
 function copyP2pLink() {
+  var btn = event ? event.target : null;
   var link = document.getElementById('p2pVolunteerLink').href;
   navigator.clipboard.writeText(link).then(function() {
-    var btn = event.target;
-    btn.textContent = 'Copied!';
-    setTimeout(function() { btn.textContent = 'Copy Share Link'; }, 2000);
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Share Link'; }, 2000); }
   });
 }
 

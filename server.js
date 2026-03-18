@@ -201,8 +201,7 @@ app.use((req, res, next) => {
   if (req.path === '/' || req.path.startsWith('/site')) return next();
   // Allow /app (handles its own auth redirect)
   if (req.path === '/app') return next();
-  // Allow debug sync status (read-only diagnostic)
-  if (req.path === '/api/debug/sync-status') return next();
+  // Debug sync-status requires admin auth (contains phone numbers)
   // Everything else requires auth
   requireAuth(req, res, next);
 });
@@ -551,7 +550,6 @@ app.get('/api/messages/pending', (req, res) => {
         WHERE out_msg.phone = m.phone AND out_msg.direction = 'outbound' AND out_msg.id > m.id
       )
       AND m.phone NOT IN (SELECT phone FROM opt_outs)
-    GROUP BY m.phone
     ORDER BY m.id DESC LIMIT 100
   `).all();
   res.json({ messages: pending });
@@ -740,7 +738,8 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         const msgLower = msgBody.trim().toLowerCase();
         if (STOP_KEYWORDS.includes(msgLower)) {
           db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
-          const sentiment = await analyzeSentimentAI(msgBody);
+          // Use fast keyword sentiment during sync (AI would be too slow for batch)
+          const sentiment = analyzeSentiment(msgBody);
           db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
             .run(msgPhone, msgBody, sentiment, msgTime);
           totalSynced++;
@@ -758,7 +757,8 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         `).get(msgPhone, msgPhone);
 
         // Insert the inbound message (with session_id if P2P match found)
-        const sentiment = await analyzeSentimentAI(msgBody);
+        // Use fast keyword sentiment during sync (AI would be too slow for batch)
+        const sentiment = analyzeSentiment(msgBody);
         db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
           .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
