@@ -1453,11 +1453,12 @@
     var volPendingTimer = null;
     var aiSuggestionCache = {}; // Cache AI suggestions by message ID to avoid re-fetching
 
+    var volPendingPhones = {}; // Track which phones have cards already
     async function loadVolPending() {
-      // Skip refresh if user is typing in any reply input (prevents erasing their text)
+      // Skip refresh if user is typing in any reply input
       var activeInput = document.querySelector('#volPendingList input:focus');
       if (activeInput && activeInput.value.trim()) return;
-      // Skip refresh if AI suggestion is loading (prevents the flicker/disappear bug)
+      // Skip refresh if AI suggestion is still loading
       var aiLoading = document.querySelector('#volPendingList .ai-loading-indicator');
       if (aiLoading) return;
       try {
@@ -1465,21 +1466,40 @@
         var msgs = data.messages || [];
         document.getElementById('volPendingCount').textContent = msgs.length;
         var el = document.getElementById('volPendingList');
-        el.textContent = '';
-        if (msgs.length === 0) {
+        // Smart diff: only add new cards, remove resolved ones
+        var newPhones = {};
+        msgs.forEach(function(m) { newPhones[m.phone] = m; });
+        // Remove cards for phones no longer pending
+        var existingCards = el.querySelectorAll('[data-pending-phone]');
+        existingCards.forEach(function(card) {
+          var ph = card.getAttribute('data-pending-phone');
+          if (!newPhones[ph]) card.remove();
+        });
+        // Add cards for new phones only
+        msgs.forEach(function(m) {
+          if (!el.querySelector('[data-pending-phone="' + m.phone + '"]')) {
+            el.appendChild(buildVolPendingCard(m));
+          }
+        });
+        // Show empty state
+        if (msgs.length === 0 && !el.querySelector('.vol-empty-msg')) {
+          el.textContent = '';
           var empty = document.createElement('div');
+          empty.className = 'vol-empty-msg';
           empty.style.cssText = 'color:#22c55e;font-size:13px;padding:6px 0';
           empty.textContent = 'All caught up!';
           el.appendChild(empty);
-          return;
+        } else if (msgs.length > 0) {
+          var emptyMsg = el.querySelector('.vol-empty-msg');
+          if (emptyMsg) emptyMsg.remove();
         }
-        msgs.forEach(function(m) { el.appendChild(buildVolPendingCard(m)); });
       } catch (e) { /* silent */ }
     }
 
     function buildVolPendingCard(m) {
       var card = document.createElement('div');
       card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:10px';
+      card.setAttribute('data-pending-phone', m.phone);
       // Name + phone
       var header = document.createElement('div');
       header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
@@ -1607,7 +1627,7 @@
     function startVolPendingRefresh() {
       if (volPendingTimer) clearInterval(volPendingTimer);
       loadVolPending();
-      volPendingTimer = setInterval(loadVolPending, 10000);
+      volPendingTimer = setInterval(loadVolPending, 25000);
     }
     function stopVolPendingRefresh() {
       if (volPendingTimer) { clearInterval(volPendingTimer); volPendingTimer = null; }
