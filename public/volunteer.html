@@ -1034,10 +1034,13 @@
           document.getElementById('aiSuggestionText').textContent = data.suggestion;
           document.getElementById('aiSource').textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
         } else {
-          el.style.display = 'none';
+          document.getElementById('aiSuggestionText').textContent = 'No suggestion available — write your own reply.';
+          document.getElementById('aiSuggestionText').style.color = '#94a3b8';
         }
       } catch (e) {
-        el.style.display = 'none';
+        document.getElementById('aiLoading').style.display = 'none';
+        document.getElementById('aiSuggestionText').textContent = 'AI suggestion unavailable: ' + (e.message || 'Error');
+        document.getElementById('aiSuggestionText').style.color = '#94a3b8';
       }
     }
 
