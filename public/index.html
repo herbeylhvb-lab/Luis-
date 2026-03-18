@@ -2666,7 +2666,8 @@ document.getElementById('btnSendCampaign').addEventListener('click', async () =>
 var inboxData = [];
 var inboxFilter = 'all';
 
-function buildMsgItem(m) {
+function buildMsgItem(m, opts) {
+  opts = opts || {};
   var item = document.createElement('div');
   item.className = 'msg-item';
   item.dataset.sentiment = m.sentiment || 'neutral';
@@ -2703,21 +2704,23 @@ function buildMsgItem(m) {
   timeDiv.className = 'time';
   timeDiv.textContent = m.timestamp ? utcToLocal(m.timestamp).toLocaleString() : '';
   item.appendChild(timeDiv);
-  // Reply box
-  var replyDiv = document.createElement('div');
-  replyDiv.className = 'reply-box';
-  var input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = 'Type reply...';
-  input.id = 'reply-' + (m.phone || '').replace(/\+/g, '');
-  replyDiv.appendChild(input);
-  var btn = document.createElement('button');
-  btn.className = 'btn btn-primary btn-sm';
-  btn.textContent = 'Reply';
-  var replyPhone = (m.phone || '').replace(/'/g, '');
-  btn.addEventListener('click', function() { sendReply(replyPhone); });
-  replyDiv.appendChild(btn);
-  item.appendChild(replyDiv);
+  // Reply box (only if not readOnly)
+  if (!opts.readOnly) {
+    var replyDiv = document.createElement('div');
+    replyDiv.className = 'reply-box';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Type reply...';
+    input.id = 'reply-' + (m.phone || '').replace(/\+/g, '');
+    replyDiv.appendChild(input);
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = 'Reply';
+    var replyPhone = (m.phone || '').replace(/'/g, '');
+    btn.addEventListener('click', function() { sendReply(replyPhone); });
+    replyDiv.appendChild(btn);
+    item.appendChild(replyDiv);
+  }
   return item;
 }
 
@@ -2731,7 +2734,7 @@ function renderInboxMessages(messages) {
     empty.textContent = inboxFilter === 'all' ? 'No messages yet.' : 'No ' + inboxFilter + ' messages.';
     el.appendChild(empty);
   } else {
-    filtered.forEach(function(m) { el.appendChild(buildMsgItem(m)); });
+    filtered.forEach(function(m) { el.appendChild(buildMsgItem(m, { readOnly: true })); });
   }
   // Sentiment summary
   var pos = messages.filter(function(m) { return m.sentiment === 'positive'; }).length;
@@ -2790,6 +2793,208 @@ async function buildListFromInbox() {
   } catch (err) { alert('Failed to build list: ' + (err.message || 'Unknown error')); }
 }
 
+function buildPendingCard(m) {
+  var card = document.createElement('div');
+  card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-left:3px solid #f59e0b;border-radius:10px;padding:16px;margin-bottom:14px';
+
+  // Header: name + phone + sentiment
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px';
+  var nameDiv = document.createElement('div');
+  if (m.contact_name && m.contact_name.trim()) {
+    var nameEl = document.createElement('strong');
+    nameEl.style.cssText = 'color:#e2e8f0;font-size:15px';
+    nameEl.textContent = m.contact_name.trim();
+    nameDiv.appendChild(nameEl);
+    var phoneSm = document.createElement('span');
+    phoneSm.style.cssText = 'color:#64748b;font-size:12px;margin-left:6px';
+    phoneSm.textContent = '(' + (m.phone || '') + ')';
+    nameDiv.appendChild(phoneSm);
+  } else {
+    nameDiv.style.cssText = 'color:#e2e8f0;font-size:15px;font-weight:600';
+    nameDiv.textContent = m.phone || '';
+  }
+  header.appendChild(nameDiv);
+  var badge = document.createElement('span');
+  if (m.sentiment === 'positive') { badge.className = 'badge badge-green'; badge.textContent = 'Positive'; }
+  else if (m.sentiment === 'negative') { badge.className = 'badge badge-red'; badge.textContent = 'Negative'; }
+  else { badge.className = 'badge badge-gray'; badge.textContent = 'Neutral'; }
+  header.appendChild(badge);
+  card.appendChild(header);
+
+  // Conversation preview (mini chat bubbles)
+  var convo = m.conversation || [];
+  if (convo.length > 0) {
+    var convoDiv = document.createElement('div');
+    convoDiv.style.cssText = 'background:#1e293b;border-radius:8px;padding:10px;margin-bottom:12px;max-height:160px;overflow-y:auto';
+    convo.forEach(function(c) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;margin-bottom:6px;' + (c.direction === 'outbound' ? 'justify-content:flex-end' : 'justify-content:flex-start');
+      var bubble = document.createElement('div');
+      bubble.style.cssText = 'max-width:80%;padding:6px 10px;border-radius:8px;font-size:13px;line-height:1.4;' +
+        (c.direction === 'outbound' ? 'background:#1e3a5f;color:#93c5fd' : 'background:#334155;color:#e2e8f0');
+      bubble.textContent = c.body || '';
+      row.appendChild(bubble);
+      var time = document.createElement('div');
+      time.style.cssText = 'font-size:10px;color:#475569;margin-top:2px;' + (c.direction === 'outbound' ? 'text-align:right' : '');
+      time.textContent = c.timestamp ? utcToLocal(c.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+      var wrap = document.createElement('div');
+      wrap.appendChild(bubble);
+      wrap.appendChild(time);
+      wrap.style.maxWidth = '80%';
+      row.textContent = '';
+      row.appendChild(wrap);
+      convoDiv.appendChild(row);
+    });
+    convoDiv.scrollTop = convoDiv.scrollHeight;
+    card.appendChild(convoDiv);
+  }
+
+  // AI Suggestion box (loads async)
+  var aiBox = document.createElement('div');
+  aiBox.style.cssText = 'background:#1a1a3e;border:1px solid #818cf8;border-radius:8px;padding:10px;margin-bottom:10px;display:none';
+  var aiHeader = document.createElement('div');
+  aiHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px';
+  var aiLabel = document.createElement('span');
+  aiLabel.style.cssText = 'font-size:12px;font-weight:600;color:#818cf8';
+  aiLabel.textContent = 'AI Suggested Reply';
+  var aiLoading = document.createElement('span');
+  aiLoading.style.cssText = 'font-size:11px;color:#64748b';
+  aiLoading.textContent = 'Thinking...';
+  aiHeader.appendChild(aiLabel);
+  aiHeader.appendChild(aiLoading);
+  aiBox.appendChild(aiHeader);
+  var aiText = document.createElement('div');
+  aiText.style.cssText = 'color:#e2e8f0;font-size:13px;line-height:1.5;margin-bottom:8px';
+  aiBox.appendChild(aiText);
+  var aiBtns = document.createElement('div');
+  aiBtns.style.cssText = 'display:flex;gap:6px;display:none';
+  aiBox.appendChild(aiBtns);
+  card.appendChild(aiBox);
+
+  // Grammar review panel (hidden until needed)
+  var grammarBox = document.createElement('div');
+  grammarBox.style.cssText = 'background:#1a2e1a;border:1px solid #22c55e;border-radius:8px;padding:10px;margin-bottom:10px;display:none';
+  card.appendChild(grammarBox);
+
+  // Reply input
+  var replyDiv = document.createElement('div');
+  replyDiv.style.cssText = 'display:flex;gap:8px;align-items:center';
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Type your reply...';
+  input.style.cssText = 'flex:1;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;outline:none';
+  replyDiv.appendChild(input);
+  var sendBtn = document.createElement('button');
+  sendBtn.className = 'btn btn-success btn-sm';
+  sendBtn.textContent = 'Send';
+  sendBtn.style.minWidth = '70px';
+  replyDiv.appendChild(sendBtn);
+  card.appendChild(replyDiv);
+
+  var replyPhone = (m.phone || '').replace(/'/g, '');
+
+  // Send with grammar check
+  function doSend(text) {
+    if (!state.credentials.connected) { alert('Set up messaging credentials first.'); return; }
+    if (!text || !text.trim()) return;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Sending...';
+    apiPost('/reply', { to: replyPhone, body: text.trim() }).then(function() {
+      card.style.opacity = '0.5';
+      card.style.pointerEvents = 'none';
+      loadPendingMessages();
+      loadInbox();
+    }).catch(function() { alert('Reply failed.'); sendBtn.disabled = false; sendBtn.textContent = 'Send'; });
+  }
+
+  sendBtn.addEventListener('click', function() {
+    var text = input.value.trim();
+    if (!text) return;
+    sendBtn.disabled = true;
+    // Grammar check first
+    apiPost('/api/p2p/review-reply', { draftText: text }).then(function(data) {
+      if (data.changed) {
+        // Show grammar review
+        grammarBox.style.display = '';
+        grammarBox.textContent = '';
+        var gLabel = document.createElement('div');
+        gLabel.style.cssText = 'font-size:11px;color:#22c55e;font-weight:600;margin-bottom:6px';
+        gLabel.textContent = 'Grammar suggestion:';
+        grammarBox.appendChild(gLabel);
+        var origLine = document.createElement('div');
+        origLine.style.cssText = 'font-size:13px;color:#94a3b8;text-decoration:line-through;margin-bottom:4px';
+        origLine.textContent = data.original || text;
+        grammarBox.appendChild(origLine);
+        var corrLine = document.createElement('div');
+        corrLine.style.cssText = 'font-size:13px;color:#e2e8f0;font-weight:600;margin-bottom:8px';
+        corrLine.textContent = data.corrected;
+        grammarBox.appendChild(corrLine);
+        var gBtns = document.createElement('div');
+        gBtns.style.cssText = 'display:flex;gap:6px';
+        var btnCorr = document.createElement('button');
+        btnCorr.className = 'btn btn-success btn-sm';
+        btnCorr.textContent = 'Send Corrected';
+        btnCorr.addEventListener('click', function() { doSend(data.corrected); });
+        gBtns.appendChild(btnCorr);
+        var btnOrig = document.createElement('button');
+        btnOrig.className = 'btn btn-secondary btn-sm';
+        btnOrig.textContent = 'Send Original';
+        btnOrig.addEventListener('click', function() { doSend(text); });
+        gBtns.appendChild(btnOrig);
+        grammarBox.appendChild(gBtns);
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send';
+      } else {
+        doSend(text);
+      }
+    }).catch(function() { doSend(text); });
+  });
+
+  // Enter key sends
+  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') sendBtn.click(); });
+
+  // Fetch AI suggestion async
+  if (m.body) {
+    aiBox.style.display = '';
+    apiPost('/api/p2p/suggest-reply', {
+      voterMessage: m.body,
+      voterName: (m.contact_name || '').trim() || 'Voter',
+      sentiment: m.sentiment || 'neutral'
+    }).then(function(data) {
+      aiLoading.style.display = 'none';
+      if (data.suggestion) {
+        aiText.textContent = data.suggestion;
+        aiBtns.style.display = 'flex';
+        var btnSend = document.createElement('button');
+        btnSend.className = 'btn btn-sm btn-success';
+        btnSend.textContent = 'Send As-Is';
+        btnSend.addEventListener('click', function() { doSend(data.suggestion); });
+        aiBtns.appendChild(btnSend);
+        var btnEdit = document.createElement('button');
+        btnEdit.className = 'btn btn-sm btn-secondary';
+        btnEdit.textContent = 'Edit First';
+        btnEdit.addEventListener('click', function() { input.value = data.suggestion; aiBox.style.display = 'none'; input.focus(); });
+        aiBtns.appendChild(btnEdit);
+        var btnDismiss = document.createElement('button');
+        btnDismiss.className = 'btn btn-sm btn-secondary';
+        btnDismiss.textContent = 'Write My Own';
+        btnDismiss.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); });
+        aiBtns.appendChild(btnDismiss);
+        var srcBadge = document.createElement('span');
+        srcBadge.className = 'badge badge-blue';
+        srcBadge.style.cssText = 'margin-left:6px;font-size:10px';
+        srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
+        aiLabel.appendChild(srcBadge);
+      } else {
+        aiBox.style.display = 'none';
+      }
+    }).catch(function() { aiBox.style.display = 'none'; });
+  }
+
+  return card;
+}
+
 async function loadPendingMessages() {
   var el = document.getElementById('pendingMessages');
   try {
@@ -2803,32 +3008,7 @@ async function loadPendingMessages() {
       empty.textContent = 'All caught up — no pending messages!';
       el.appendChild(empty);
     } else {
-      msgs.forEach(function(m) {
-        var item = buildMsgItem(m);
-        item.style.borderLeft = '3px solid #f59e0b';
-        item.style.paddingLeft = '12px';
-        // Override reply button to also refresh pending list after sending
-        // Replace reply button with one that refreshes pending list after sending
-        var replyBtn = item.querySelector('button');
-        if (replyBtn) {
-          var newBtn = replyBtn.cloneNode(true);
-          replyBtn.parentNode.replaceChild(newBtn, replyBtn);
-          var replyPhone = (m.phone || '').replace(/'/g, '');
-          newBtn.addEventListener('click', function() {
-            if (!state.credentials.connected) { alert('Set up messaging credentials first.'); return; }
-            var input = item.querySelector('input');
-            var body = input ? input.value.trim() : '';
-            if (!body) return;
-            newBtn.disabled = true;
-            apiPost('/reply', { to: replyPhone, body: body }).then(function() {
-              input.value = '';
-              loadPendingMessages();
-              loadInbox();
-            }).catch(function() { alert('Reply failed.'); newBtn.disabled = false; });
-          });
-        }
-        el.appendChild(item);
-      });
+      msgs.forEach(function(m) { el.appendChild(buildPendingCard(m)); });
     }
   } catch (err) {
     el.textContent = '';
