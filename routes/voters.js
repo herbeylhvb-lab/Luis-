@@ -4,13 +4,6 @@ const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { generateQrToken } = require('../db');
 const { phoneDigits, normalizePhone } = require('../utils');
-const { queueSync } = require('../lib/google-sheets-sync');
-
-// Fire-and-forget sync after data mutations
-function triggerSync(req) {
-  if (req.session?.userId) setImmediate(() => queueSync(req.session.userId));
-}
-
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 const checkinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many check-in attempts. Please wait.' } });
 
@@ -472,11 +465,8 @@ router.post('/voters/import-canvass', (req, res) => {
 
 // --- Enrich voter data from purchased lists ---
 router.post('/voters/enrich', (req, res) => {
-  const { rows, enrich_fields } = req.body;
+  const { rows } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
-
-  // enrich_fields: optional list of field names to enrich (beyond phone). e.g. ['phone','email','custom_col']
-  const fieldsToEnrich = enrich_fields || ['phone'];
 
   const allVoters = db.prepare("SELECT id, first_name, last_name, phone, email, address, registration_number FROM voters").all();
   const regMap = {};
@@ -555,7 +545,7 @@ router.post('/voters/enrich', (req, res) => {
           try {
             db.prepare("UPDATE voters SET email = CASE WHEN email = '' OR email IS NULL THEN ? ELSE email END, updated_at = datetime('now') WHERE id = ?")
               .run(row.email.trim(), voter.id);
-          } catch (e) { /* ignore */ }
+          } catch (_e) { /* ignore */ }
         }
         // Update any custom columns
         if (customCols.length > 0) {
@@ -566,7 +556,7 @@ router.post('/voters/enrich', (req, res) => {
                 db.prepare('UPDATE voters SET ' + col + " = CASE WHEN " + col + " = '' OR " + col + " IS NULL THEN ? ELSE " + col + " END WHERE id = ?")
                   .run(row[col], voter.id);
                 updated = true;
-              } catch (e) { /* column may not exist */ }
+              } catch (_e) { /* column may not exist */ }
             }
           }
           if (updated) results.custom_fields_updated++;
@@ -1394,7 +1384,7 @@ function updateCustomFields(voterId, voterData, customCols) {
     if (voterData[col] !== undefined && voterData[col] !== '' && validCols.has(col)) {
       try {
         db.prepare('UPDATE voters SET ' + col + ' = ? WHERE id = ?').run(voterData[col], voterId);
-      } catch (e) { /* column may not exist yet, skip */ }
+      } catch (_e) { /* column may not exist yet, skip */ }
     }
   }
 }
@@ -1528,7 +1518,7 @@ router.post('/election-votes/import-turnout', (req, res) => {
   try {
     db.prepare('INSERT OR IGNORE INTO elections (election_name, election_date, election_type) VALUES (?, ?, ?)')
       .run(election_name, election_date || '', election_type || 'general');
-  } catch (e) { /* already exists */ }
+  } catch (_e) { /* already exists */ }
 
   const results = { total: rows.length, matched: 0, not_found: 0, votes_recorded: 0,
     details: { by_state_file_id: 0, by_registration: 0, by_county_file_id: 0, by_vanid: 0 } };
@@ -1777,7 +1767,7 @@ function buildStep1Filter(filters) {
   }
 
   // Party filter: voter must have voted with one of these parties in any primary
-  let partyJoin = '';
+  const partyJoin = '';
   if (parties && parties.length > 0) {
     clauses.push('voters.id IN (SELECT ev_party.voter_id FROM election_votes ev_party WHERE ev_party.party_voted IN (' + parties.map(() => '?').join(',') + '))');
     params.push(...parties);
@@ -1788,7 +1778,7 @@ function buildStep1Filter(filters) {
 
 router.post('/universe/build', (req, res) => {
   const { precincts, years_back, election_cycles, priority_elections, selected_elections,
-          list_name, list_name_universe, list_name_sub, list_name_priority,
+          list_name, list_name_universe,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);

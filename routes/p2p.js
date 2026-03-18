@@ -130,7 +130,7 @@ router.post('/p2p/sessions', (req, res) => {
         try {
           const r = insertContact.run(v.phone, v.first_name || '', v.last_name || '', v.city || '', v.email || '');
           ids.push(r.lastInsertRowid);
-        } catch (e) {
+        } catch (_e) {
           // Handle race condition: another request inserted this phone between our check and insert
           contact = findContact.get(v.phone);
           if (contact) ids.push(contact.id);

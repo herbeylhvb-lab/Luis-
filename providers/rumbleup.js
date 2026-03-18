@@ -176,7 +176,7 @@ async function listAccounts(params) {
 
 // --- Projects (Actions) ---
 
-async function createProject({ name, message, group, campaignId, proxy, media }) {
+async function createProject({ name, message, group, campaignId, proxy, media: _media }) {
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;

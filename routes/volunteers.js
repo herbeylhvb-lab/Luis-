@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { randomBytes } = require('crypto');
 const db = require('../db');
-const { asyncHandler } = require('../utils');
+// asyncHandler available from utils if needed for async routes
 
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 

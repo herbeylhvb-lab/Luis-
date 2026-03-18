@@ -20,7 +20,7 @@ router.post('/email/test', asyncHandler(async (req, res) => {
     const transporter = nodemailer.createTransport(transportOpts);
     await transporter.verify();
     res.json({ success: true, message: 'SMTP connection successful.' });
-  } catch (err) {
+  } catch (_err) {
     res.status(400).json({ success: false, error: 'SMTP connection failed. Check your credentials and server settings.' });
   }
 }));

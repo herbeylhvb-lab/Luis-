@@ -33,7 +33,7 @@ async function geocodeAddress(address, city, zip) {
     if (data && data.length > 0) {
       return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
     }
-  } catch (e) {
+  } catch (_e) {
     // Geocoding failure is non-fatal — address just won't appear on the map
   }
   return null;
@@ -1245,7 +1245,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   // Voting history filters — the "v" alias maps to "voters" in the helper
   // We need to adjust for the alias
   const votingParams = [];
-  let votingSql = buildVotingHistorySQL(filters, votingParams);
+  const votingSql = buildVotingHistorySQL(filters, votingParams);
   if (votingSql) {
     sql += votingSql.replace(/voters\.id/g, 'v.id').replace(/voters\.voter_score/g, 'v.voter_score');
     params.push(...votingParams);
@@ -1255,14 +1255,8 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   if (available.length === 0) return res.status(400).json({ error: 'No more doors available in this universe. All have been assigned!' });
 
   // If GPS provided, sort by distance to get nearest doors
-  let sorted = available;
+  const sorted = available;
   if (lat && lng && isValidCoord(parseFloat(lat), parseFloat(lng))) {
-    const wLat = parseFloat(lat), wLng = parseFloat(lng);
-    // Use voter geocoded coords if available, otherwise we'll just take the first N
-    sorted = available.map(v => {
-      // Try to use voter's address geocoding (we may not have lat/lng on voters, so fallback)
-      return v;
-    });
     // Sort by distance if voters have coordinates (from walk_addresses lat/lng — voters table doesn't have them)
     // Since voters don't have lat/lng, we'll use address matching as a proxy
     // For now, just take the first N available — addresses will be geocoded after walk creation
@@ -1276,7 +1270,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   const walkName = universe.name + ' - ' + walkerName;
   const walkResult = db.prepare(
     'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, universe.script_id, precincts.join(','), universe.filters_json);
+  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
   const walkId = walkResult.lastInsertRowid;
 
   // Track walker with phone for dedup across claims

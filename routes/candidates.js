@@ -629,7 +629,7 @@ router.post('/candidates/:id/lists/:listId/bulk-upload', requireCandidateAuth, (
   if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
   const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ?');
   const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
-  let added = 0, duplicates = 0, notFound = [];
+  let added = 0, duplicates = 0; const notFound = [];
   const tx = db.transaction(() => {
     for (const ident of identifiers) {
       const voter = lookup.get(ident, ident, ident);

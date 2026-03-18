@@ -65,7 +65,7 @@ function findBestScript(voterMessage, sentiment) {
 
 // POST /api/p2p/suggest-reply
 router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
-  const { voterMessage, voterName, sentiment, sessionName } = req.body;
+  const { voterMessage, voterName, sentiment } = req.body;
   if (!voterMessage) return res.status(400).json({ error: 'voterMessage required.' });
   if (voterMessage.length > 2000) return res.status(400).json({ error: 'Voter message too long (max 2000 chars).' });
 
