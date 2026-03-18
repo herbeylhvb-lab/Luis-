@@ -273,11 +273,16 @@ router.post('/p2p/join', (req, res) => {
   if (!session) return res.status(404).json({ error: 'Invalid or expired code.' });
   if (new Date(session.code_expires_at) < new Date()) return res.status(410).json({ error: 'Join code has expired.' });
 
-  // Link to persistent texting volunteer identity (verified by ID + name match)
+  // Link to persistent volunteer identity (check unified volunteers first, then legacy texting_volunteers)
   const { textingVolunteerId } = req.body;
-  const persistentVol = textingVolunteerId
-    ? db.prepare('SELECT id FROM texting_volunteers WHERE id = ? AND name = ? AND is_active = 1').get(textingVolunteerId, name)
-    : db.prepare('SELECT id FROM texting_volunteers WHERE name = ? AND is_active = 1').get(name);
+  let persistentVol = null;
+  if (textingVolunteerId) {
+    persistentVol = db.prepare('SELECT id FROM volunteers WHERE id = ? AND name = ? AND is_active = 1').get(textingVolunteerId, name)
+      || db.prepare('SELECT id FROM texting_volunteers WHERE id = ? AND name = ? AND is_active = 1').get(textingVolunteerId, name);
+  } else {
+    persistentVol = db.prepare('SELECT id FROM volunteers WHERE name = ? AND is_active = 1').get(name)
+      || db.prepare('SELECT id FROM texting_volunteers WHERE name = ? AND is_active = 1').get(name);
+  }
   let volunteer = db.prepare('SELECT * FROM p2p_volunteers WHERE session_id = ? AND name = ?').get(session.id, name);
   if (volunteer) {
     db.prepare('UPDATE p2p_volunteers SET is_online = 1 WHERE id = ?').run(volunteer.id);

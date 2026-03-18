@@ -568,10 +568,20 @@ app.get('/api/messages/pending', (req, res) => {
       AND m.phone NOT IN (SELECT phone FROM opt_outs)
     ORDER BY m.id DESC LIMIT 100
   `).all();
-  // Attach recent conversation history (last 5 messages both directions) per pending message
-  const convQuery = db.prepare('SELECT body, direction, timestamp FROM messages WHERE phone = ? ORDER BY id DESC LIMIT 5');
-  for (const msg of pending) {
-    msg.conversation = (convQuery.all(msg.phone) || []).reverse();
+  // Batch-load conversation history for all pending phones in one query
+  if (pending.length > 0) {
+    const phones = pending.map(m => m.phone);
+    const placeholders = phones.map(() => '?').join(',');
+    const allConvos = db.prepare(`SELECT phone, body, direction, timestamp, ROW_NUMBER() OVER (PARTITION BY phone ORDER BY id DESC) as rn FROM messages WHERE phone IN (${placeholders})`).all(...phones);
+    const convoMap = {};
+    for (const c of allConvos) {
+      if (c.rn > 5) continue; // limit 5 per phone
+      if (!convoMap[c.phone]) convoMap[c.phone] = [];
+      convoMap[c.phone].push({ body: c.body, direction: c.direction, timestamp: c.timestamp });
+    }
+    for (const msg of pending) {
+      msg.conversation = (convoMap[msg.phone] || []).reverse();
+    }
   }
   res.json({ messages: pending });
 });

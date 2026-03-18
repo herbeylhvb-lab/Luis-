@@ -12,8 +12,8 @@ router.get('/volunteers', (req, res) => {
     SELECT v.*,
       (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = v.id) as sessions_joined,
       (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = v.id WHERE pa.status IN ('sent','in_conversation','completed')) as texts_sent,
-      (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = v.id) as doors_knocked,
-      (SELECT COUNT(DISTINCT wa.walk_id) FROM walk_attempts wa WHERE wa.walker_id = v.id) as walks_participated,
+      (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = COALESCE((SELECT w.id FROM walkers w WHERE w.code = v.code), v.id)) as doors_knocked,
+      (SELECT COUNT(DISTINCT wa.walk_id) FROM walk_attempts wa WHERE wa.walker_id = COALESCE((SELECT w.id FROM walkers w WHERE w.code = v.code), v.id)) as walks_participated,
       (SELECT MAX(pv.last_active) FROM p2p_volunteers pv WHERE pv.volunteer_id = v.id) as last_active
     FROM volunteers v ORDER BY v.created_at DESC
   `).all();
@@ -87,28 +87,45 @@ router.post('/volunteers/login', (req, res) => {
       FROM p2p_sessions s WHERE s.status = 'active' ORDER BY s.created_at DESC`).all();
   }
 
-  // Get active walks (if can_walk)
+  // For walking: find or create a matching walkers record (walkers table has different ID space)
+  let walkerId = null;
   let walks = [];
   if (vol.can_walk) {
-    // Auto-assign to any walks they're not in
-    const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
-      WHERE bw.status != 'completed'
-      AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`).all(vol.id);
-    if (unassigned.length > 0) {
-      const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
-      for (const w of unassigned) { ins.run(w.id, vol.name, vol.id, vol.phone || ''); }
+    // Find existing walker by code or name+phone
+    let walker = db.prepare('SELECT id FROM walkers WHERE code = ?').get(vol.code);
+    if (!walker) walker = db.prepare('SELECT id FROM walkers WHERE name = ? AND phone = ?').get(vol.name, vol.phone);
+    if (!walker) {
+      // Create a walkers entry linked to this volunteer
+      const candidates = db.prepare('SELECT id FROM candidates WHERE is_active = 1 LIMIT 1').all();
+      const candId = candidates.length > 0 ? candidates[0].id : null;
+      if (candId) {
+        const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(candId, vol.name, vol.phone || '', vol.code);
+        walker = { id: wResult.lastInsertRowid };
+      }
     }
-    walks = db.prepare(`SELECT bw.id, bw.name, bw.description, bw.status,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses
-      FROM block_walks bw
-      JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND wgm.walker_id = ?
-      WHERE bw.status != 'completed' ORDER BY bw.created_at DESC`).all(vol.id);
+    walkerId = walker ? walker.id : null;
+
+    if (walkerId) {
+      // Auto-assign to walks they're not in
+      const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
+        WHERE bw.status != 'completed'
+        AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`).all(walkerId);
+      if (unassigned.length > 0) {
+        const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
+        for (const w of unassigned) { ins.run(w.id, vol.name, walkerId, vol.phone || ''); }
+      }
+      walks = db.prepare(`SELECT bw.id, bw.name, bw.description, bw.status,
+        (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
+        (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses
+        FROM block_walks bw
+        JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND wgm.walker_id = ?
+        WHERE bw.status != 'completed' ORDER BY bw.created_at DESC`).all(walkerId);
+    }
   }
 
   res.json({
     success: true,
-    volunteer: { id: vol.id, name: vol.name, code: vol.code, can_text: !!vol.can_text, can_walk: !!vol.can_walk },
+    volunteer: { id: vol.id, name: vol.name, code: vol.code, can_text: !!vol.can_text, can_walk: !!vol.can_walk, walkerId: walkerId },
     sessions,
     walks
   });
@@ -119,11 +136,15 @@ router.get('/volunteers/:id/dashboard', (req, res) => {
   const vol = db.prepare('SELECT * FROM volunteers WHERE id = ?').get(req.params.id);
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
 
+  // Find the corresponding walkers.id for walking stats
+  const walker = db.prepare('SELECT id FROM walkers WHERE code = ?').get(vol.code);
+  const wId = walker ? walker.id : vol.id;
+
   const stats = {
     sessions_joined: (db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE volunteer_id = ?').get(vol.id) || {}).c || 0,
     texts_sent: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = ? WHERE pa.status IN ('sent','in_conversation','completed')`).get(vol.id) || {}).c || 0,
-    doors_knocked: (db.prepare('SELECT COUNT(*) as c FROM walk_attempts WHERE walker_id = ?').get(vol.id) || {}).c || 0,
-    walks_participated: (db.prepare('SELECT COUNT(DISTINCT walk_id) as c FROM walk_attempts WHERE walker_id = ?').get(vol.id) || {}).c || 0
+    doors_knocked: (db.prepare('SELECT COUNT(*) as c FROM walk_attempts WHERE walker_id = ?').get(wId) || {}).c || 0,
+    walks_participated: (db.prepare('SELECT COUNT(DISTINCT walk_id) as c FROM walk_attempts WHERE walker_id = ?').get(wId) || {}).c || 0
   };
 
   // Leaderboard
