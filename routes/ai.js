@@ -66,6 +66,7 @@ function findBestScript(voterMessage, sentiment) {
 // POST /api/p2p/suggest-reply
 router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
   const { voterMessage, voterName, sentiment, sessionName } = req.body;
+  console.log('[suggest-reply] Request:', { voterMessage: (voterMessage || '').substring(0, 50), voterName, sentiment, hasBody: !!req.body, bodyKeys: Object.keys(req.body || {}) });
   if (!voterMessage) return res.status(400).json({ error: 'voterMessage required.' });
   if (voterMessage.length > 2000) return res.status(400).json({ error: 'Voter message too long (max 2000 chars).' });
 
@@ -97,16 +98,20 @@ Reply directly to what they said. Be specific — don't give a generic campaign 
         return res.json({ source: 'ai', suggestion: aiReply });
       }
     } catch (err) {
-      console.error('AI suggestion error:', err.message);
+      console.error('[suggest-reply] AI error:', err.message);
     }
+  } else {
+    console.log('[suggest-reply] No API key found — skipping AI');
   }
 
   // Fallback to scripts
   const script = findBestScript(voterMessage, sentiment || 'neutral');
   if (script) {
+    console.log('[suggest-reply] Using script fallback:', script.label);
     return res.json({ source: 'script', suggestion: script.content, scriptLabel: script.label });
   }
 
+  console.log('[suggest-reply] No AI and no script match — returning null');
   res.json({ source: 'none', suggestion: null });
 }));
 

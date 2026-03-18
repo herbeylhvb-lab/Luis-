@@ -1039,8 +1039,9 @@
         }
       } catch (e) {
         document.getElementById('aiLoading').style.display = 'none';
-        document.getElementById('aiSuggestionText').textContent = 'AI suggestion unavailable: ' + (e.message || 'Error');
-        document.getElementById('aiSuggestionText').style.color = '#94a3b8';
+        console.error('[AI Suggestion Error]', e);
+        document.getElementById('aiSuggestionText').textContent = 'AI error: ' + (e.message || 'Unknown') + ' — try refreshing the page';
+        document.getElementById('aiSuggestionText').style.color = '#ef4444';
       }
     }
 
