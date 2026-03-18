@@ -478,4 +478,110 @@ router.patch('/p2p/assignments/:id/skip', (req, res) => {
   res.json({ success: true });
 });
 
+// ===================== TEXTING VOLUNTEERS (persistent identity) =====================
+const { randomBytes } = require('crypto');
+function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
+
+// List all texting volunteers
+router.get('/texting-volunteers', (req, res) => {
+  const volunteers = db.prepare(`
+    SELECT tv.*,
+      (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = tv.id) as sessions_joined,
+      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = tv.id WHERE pa.status IN ('sent','in_conversation','completed')) as total_sent,
+      (SELECT MAX(pv.last_active) FROM p2p_volunteers pv WHERE pv.volunteer_id = tv.id) as last_active
+    FROM texting_volunteers tv ORDER BY tv.created_at DESC
+  `).all();
+  res.json({ volunteers });
+});
+
+// Create texting volunteer
+router.post('/texting-volunteers', (req, res) => {
+  const { name, phone } = req.body;
+  if (!name) return res.status(400).json({ error: 'Volunteer name is required.' });
+  let code;
+  for (let i = 0; i < 10; i++) {
+    code = generateVolCode();
+    if (!db.prepare('SELECT id FROM texting_volunteers WHERE code = ?').get(code)) break;
+    if (i === 9) return res.status(500).json({ error: 'Could not generate unique code. Try again.' });
+  }
+  const result = db.prepare('INSERT INTO texting_volunteers (name, phone, code) VALUES (?, ?, ?)').run(name.trim(), phone || null, code);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Texting volunteer created: ' + name.trim() + ' (code: ' + code + ')');
+  res.json({ success: true, id: result.lastInsertRowid, code });
+});
+
+// Update texting volunteer
+router.put('/texting-volunteers/:id', (req, res) => {
+  const { name, phone, is_active } = req.body;
+  const result = db.prepare(`UPDATE texting_volunteers SET
+    name = COALESCE(?, name),
+    phone = COALESCE(?, phone),
+    is_active = COALESCE(?, is_active)
+    WHERE id = ?`
+  ).run(name || null, phone !== undefined ? phone : null, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Volunteer not found.' });
+  res.json({ success: true });
+});
+
+// Delete texting volunteer
+router.delete('/texting-volunteers/:id', (req, res) => {
+  const vol = db.prepare('SELECT name FROM texting_volunteers WHERE id = ?').get(req.params.id);
+  if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
+  db.prepare('DELETE FROM texting_volunteers WHERE id = ?').run(req.params.id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Texting volunteer deleted: ' + vol.name);
+  res.json({ success: true });
+});
+
+// Volunteer login (public — code-based, no auth required)
+router.post('/texting-volunteers/login', (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Code is required.' });
+  const vol = db.prepare('SELECT * FROM texting_volunteers WHERE code = ?').get(code.trim().toUpperCase());
+  if (!vol) return res.status(404).json({ error: 'Invalid volunteer code.' });
+  if (!vol.is_active) return res.status(403).json({ error: 'This volunteer has been deactivated. Contact your campaign admin.' });
+  // Get their session history
+  const sessions = db.prepare(`
+    SELECT pv.session_id, s.name, s.status, s.join_code,
+      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_name = pv.name AND pa.status IN ('sent','in_conversation','completed')) as sent,
+      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_name = pv.name AND pa.status = 'in_conversation') as active_chats
+    FROM p2p_volunteers pv
+    JOIN p2p_sessions s ON pv.session_id = s.id
+    WHERE pv.volunteer_id = ? AND s.status = 'active'
+    ORDER BY pv.joined_at DESC
+  `).all(vol.id);
+  const stats = db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = ?) as sessions_joined,
+      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = ? WHERE pa.volunteer_name = (SELECT name FROM texting_volunteers WHERE id = ?) AND pa.status IN ('sent','in_conversation','completed')) as total_sent
+  `).get(vol.id, vol.id, vol.id);
+  res.json({ success: true, volunteer: { id: vol.id, name: vol.name, code: vol.code }, sessions, stats });
+});
+
+// Volunteer dashboard
+router.get('/texting-volunteers/:id/dashboard', (req, res) => {
+  const vol = db.prepare('SELECT * FROM texting_volunteers WHERE id = ?').get(req.params.id);
+  if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
+  const stats = {
+    sessions_joined: (db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE volunteer_id = ?').get(vol.id) || {}).c || 0,
+    total_sent: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = ? WHERE pa.volunteer_name = ? AND pa.status IN ('sent','in_conversation','completed')`).get(vol.id, vol.name) || {}).c || 0,
+    active_chats: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = ? WHERE pa.volunteer_name = ? AND pa.status = 'in_conversation'`).get(vol.id, vol.name) || {}).c || 0
+  };
+  // Leaderboard of all active texting volunteers
+  const leaderboard = db.prepare(`
+    SELECT tv.id, tv.name,
+      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = tv.id WHERE pa.volunteer_name = tv.name AND pa.status IN ('sent','in_conversation','completed')) as total_sent,
+      (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = tv.id) as sessions
+    FROM texting_volunteers tv WHERE tv.is_active = 1
+    ORDER BY total_sent DESC LIMIT 15
+  `).all();
+  // Active sessions
+  const sessions = db.prepare(`
+    SELECT s.id, s.name, s.status, s.join_code
+    FROM p2p_volunteers pv
+    JOIN p2p_sessions s ON pv.session_id = s.id
+    WHERE pv.volunteer_id = ? AND s.status = 'active'
+    ORDER BY pv.joined_at DESC
+  `).all(vol.id);
+  res.json({ volunteer: vol, stats, leaderboard, sessions });
+});
+
 module.exports = router;

@@ -886,5 +886,20 @@ db.exec(`
 // --- Survey completion message ---
 addColumn("ALTER TABLE surveys ADD COLUMN completion_message TEXT DEFAULT ''");
 
+// --- Texting volunteers (persistent identity, mirrors walkers table) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS texting_volunteers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT NULL,
+    code TEXT NOT NULL UNIQUE,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_texting_volunteers_code ON texting_volunteers(code);
+`);
+// Link p2p session volunteers to persistent identity
+addColumn("ALTER TABLE p2p_volunteers ADD COLUMN volunteer_id INTEGER DEFAULT NULL");
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

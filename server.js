@@ -121,6 +121,7 @@ app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'c
 app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'candidate.html')));
 app.get('/group', (req, res) => res.sendFile(path.join(__dirname, 'public', 'group.html')));
 app.get('/walker', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walker.html')));
+app.get('/texter', (req, res) => res.sendFile(path.join(__dirname, 'public', 'texter.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -152,7 +153,9 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/p2p\/assignments\/\d+/) ||
       req.path === '/api/p2p/send' ||
       req.path === '/api/p2p/suggest-reply' ||
-      req.path === '/api/p2p/review-reply') {
+      req.path === '/api/p2p/review-reply' ||
+      req.path === '/api/p2p/texting-volunteers/login' ||
+      req.path.match(/^\/api\/p2p\/texting-volunteers\/\d+\/dashboard/)) {
     return next();
   }
   // Allow captain portal endpoints (used by captain.html without admin auth)

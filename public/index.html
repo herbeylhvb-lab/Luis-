@@ -568,6 +568,21 @@ tr:hover td{background:#1e293b80}
           <h3>Active Sessions</h3>
           <div id="p2pSessionsList"></div>
         </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h3 style="margin:0">Texting Volunteers</h3>
+            <button class="btn btn-sm btn-primary" onclick="showAddVolunteerForm()">+ Add Volunteer</button>
+          </div>
+          <div id="addVolForm" style="display:none;margin-bottom:16px;padding:14px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+            <div class="form-row" style="margin-bottom:8px">
+              <div class="form-group"><label>Name</label><input type="text" id="newVolName" placeholder="Volunteer name"></div>
+              <div class="form-group"><label>Phone (optional)</label><input type="text" id="newVolPhone" placeholder="956-xxx-xxxx"></div>
+            </div>
+            <button class="btn btn-sm btn-success" onclick="createTextingVolunteer()">Create</button>
+            <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="document.getElementById('addVolForm').style.display='none'">Cancel</button>
+          </div>
+          <div id="textingVolunteersList"></div>
+        </div>
       </div>
       <div id="p2p-session-view" style="display:none">
         <div class="back-btn" onclick="showP2pAdmin()">&#8592; Back to Sessions</div>
@@ -5994,6 +6009,7 @@ function showP2pAdmin() {
   document.getElementById('p2p-volunteer-view').style.display = 'none';
   if (p2pState.pollTimer) { clearInterval(p2pState.pollTimer); p2pState.pollTimer = null; }
   loadP2pSessions();
+  loadTextingVolunteers();
 }
 
 async function loadP2pContacts() {
@@ -6201,6 +6217,115 @@ async function deleteP2pSession(id) {
   if (!confirm('Permanently delete this session? All volunteer assignments and data will be removed. This cannot be undone.')) return;
   await apiDelete('/api/p2p/sessions/' + id);
   loadP2pSessions();
+}
+
+// ===================== TEXTING VOLUNTEERS MANAGEMENT =====================
+function showAddVolunteerForm() { document.getElementById('addVolForm').style.display = ''; document.getElementById('newVolName').focus(); }
+
+async function createTextingVolunteer() {
+  var name = document.getElementById('newVolName').value.trim();
+  var phone = document.getElementById('newVolPhone').value.trim();
+  if (!name) return alert('Name is required.');
+  try {
+    var data = await apiPost('/api/p2p/texting-volunteers', { name: name, phone: phone || null });
+    alert('Volunteer created! Code: ' + data.code + '\nShare portal link: ' + window.location.origin + '/texter?code=' + data.code);
+    document.getElementById('newVolName').value = '';
+    document.getElementById('newVolPhone').value = '';
+    document.getElementById('addVolForm').style.display = 'none';
+    loadTextingVolunteers();
+  } catch (e) { alert('Failed: ' + (e.message || 'Unknown error')); }
+}
+
+async function loadTextingVolunteers() {
+  try {
+    var data = await api('/api/p2p/texting-volunteers');
+    var el = document.getElementById('textingVolunteersList');
+    var vols = data.volunteers || [];
+    if (vols.length === 0) {
+      el.textContent = '';
+      var empty = document.createElement('p');
+      empty.style.cssText = 'color:#64748b;font-size:13px';
+      empty.textContent = 'No volunteers yet. Add one above.';
+      el.appendChild(empty);
+      return;
+    }
+    // Build table with DOM methods
+    el.textContent = '';
+    var table = document.createElement('table');
+    table.style.width = '100%';
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    ['Name', 'Code', 'Sessions', 'Texts Sent', 'Last Active', 'Share', ''].forEach(function(h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    vols.forEach(function(v) {
+      var tr = document.createElement('tr');
+      if (!v.is_active) tr.style.opacity = '0.5';
+      var tdName = document.createElement('td');
+      tdName.textContent = v.name;
+      tr.appendChild(tdName);
+      var tdCode = document.createElement('td');
+      var codeEl = document.createElement('code');
+      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px';
+      codeEl.textContent = v.code;
+      tdCode.appendChild(codeEl);
+      tr.appendChild(tdCode);
+      var tdSessions = document.createElement('td');
+      tdSessions.textContent = v.sessions_joined || 0;
+      tr.appendChild(tdSessions);
+      var tdSent = document.createElement('td');
+      tdSent.style.color = '#22c55e';
+      tdSent.textContent = v.total_sent || 0;
+      tr.appendChild(tdSent);
+      var tdActive = document.createElement('td');
+      tdActive.style.cssText = 'font-size:12px;color:#64748b';
+      tdActive.textContent = v.last_active ? utcToLocal(v.last_active).toLocaleDateString() : 'Never';
+      tr.appendChild(tdActive);
+      var tdShare = document.createElement('td');
+      var shareBtn = document.createElement('button');
+      shareBtn.className = 'btn btn-sm';
+      shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:4px 10px;font-size:11px;min-width:auto';
+      shareBtn.textContent = 'Send Info';
+      shareBtn.addEventListener('click', function() { sendVolunteerInfo(v); });
+      tdShare.appendChild(shareBtn);
+      tr.appendChild(tdShare);
+      var tdDel = document.createElement('td');
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger btn-xs';
+      delBtn.textContent = 'Del';
+      delBtn.addEventListener('click', function() { deleteTextingVolunteer(v.id, v.name); });
+      tdDel.appendChild(delBtn);
+      tr.appendChild(tdDel);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    var wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    wrap.appendChild(table);
+    el.appendChild(wrap);
+  } catch (e) { /* silent */ }
+}
+
+async function sendVolunteerInfo(vol) {
+  if (!state.credentials.connected) { alert('Set up messaging credentials first in Messaging Setup.'); return; }
+  var portalLink = window.location.origin + '/texter?code=' + vol.code;
+  var msg = 'Hi ' + vol.name + '! Your Campaign Text HQ volunteer code is: ' + vol.code + '\n\nOpen your portal here: ' + portalLink + '\n\nTo join a texting session, go to: ' + window.location.origin + '/volunteer';
+  if (!confirm('Send this info via SMS to ' + (vol.phone || 'no phone') + '?\n\n' + msg)) return;
+  if (!vol.phone) { alert('No phone number on file for this volunteer. Add one first.'); return; }
+  try {
+    await apiPost('/reply', { to: vol.phone, body: msg });
+    alert('Info sent to ' + vol.name + '!');
+  } catch (e) { alert('Failed to send: ' + (e.message || 'Unknown error')); }
+}
+
+async function deleteTextingVolunteer(id, name) {
+  if (!confirm('Delete volunteer "' + name + '"? This cannot be undone.')) return;
+  try { await apiDelete('/api/p2p/texting-volunteers/' + id); loadTextingVolunteers(); } catch (e) { alert('Failed: ' + e.message); }
 }
 
 function copyP2pCode() {

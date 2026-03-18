@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Texter Portal</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
+
+.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem}
+.login-card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:2rem;max-width:400px;width:100%;text-align:center}
+.login-card h2{font-size:1.4rem;margin-bottom:0.5rem;color:#818cf8}
+.login-card p{color:#94a3b8;font-size:0.85rem;margin-bottom:1.5rem}
+.form-group{margin-bottom:1rem;text-align:left}
+.form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px}
+.form-group input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;color:#e2e8f0;font-size:18px;text-align:center;outline:none;letter-spacing:4px;text-transform:uppercase}
+.form-group input:focus{border-color:#818cf8}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 24px;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;width:100%;text-decoration:none;color:#fff}
+.btn:hover{opacity:0.85}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn-primary{background:#818cf8}
+.btn-text{background:#22c55e;color:#fff}
+.btn-sm{padding:8px 16px;font-size:13px;width:auto}
+.error-msg{color:#ef4444;font-size:13px;margin-top:8px}
+
+.portal-header{background:#1e293b;border-bottom:1px solid #334155;padding:16px;display:flex;justify-content:space-between;align-items:center}
+.portal-header h2{font-size:18px;color:#818cf8}
+.portal-header .sub{font-size:12px;color:#94a3b8;margin-top:2px}
+.logout-btn{background:none;border:1px solid #475569;color:#94a3b8;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+.logout-btn:hover{border-color:#ef4444;color:#ef4444}
+
+.container{max-width:500px;margin:0 auto;padding:16px}
+
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
+.stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px;text-align:center}
+.stat-card .value{font-size:26px;font-weight:700;color:#e2e8f0}
+.stat-card .label{font-size:11px;color:#64748b;text-transform:uppercase;margin-top:2px}
+.stat-card.green .value{color:#4ade80}
+.stat-card.purple .value{color:#a78bfa}
+
+.section-title{font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;margin-top:20px}
+
+.leaderboard{background:#1e293b;border:1px solid #334155;border-radius:12px;overflow:hidden;margin-bottom:20px}
+.leaderboard table{width:100%;border-collapse:collapse}
+.leaderboard th{text-align:left;padding:10px 14px;font-size:11px;color:#64748b;text-transform:uppercase;border-bottom:1px solid #334155}
+.leaderboard td{padding:10px 14px;font-size:14px;border-bottom:1px solid #1e293b}
+.leaderboard tr.me{background:#1e1b4b}
+.leaderboard tr.me td{color:#818cf8;font-weight:600}
+.leaderboard .rank{color:#64748b;font-size:12px;width:30px}
+
+.session-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px}
+.session-card h4{font-size:16px;color:#e2e8f0;margin-bottom:4px}
+.session-card .session-stats{display:flex;gap:16px;margin-bottom:8px}
+.session-card .session-stat{font-size:12px;color:#64748b}
+.session-card .session-stat span{color:#e2e8f0;font-weight:600}
+
+.empty-state{text-align:center;color:#64748b;padding:40px 20px;font-size:14px}
+
+.share-box{margin-top:20px;padding:14px;background:#1a1a3e;border:1px solid #818cf8;border-radius:10px;text-align:center}
+.share-box .share-label{font-size:11px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.share-box .share-code{font-size:24px;font-weight:800;letter-spacing:4px;color:#818cf8;font-family:monospace}
+.share-box .share-link{font-size:12px;color:#22c55e;word-break:break-all;margin-top:8px}
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <h2>Texter Portal</h2>
+    <p>Enter your volunteer code to view your sessions and stats</p>
+    <div class="form-group">
+      <label>Volunteer Code</label>
+      <input type="text" id="codeInput" maxlength="6" placeholder="ABC123" autofocus>
+    </div>
+    <button class="btn btn-primary" id="loginBtn" onclick="login()">Sign In</button>
+    <div id="loginError" class="error-msg" style="display:none"></div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid #334155">
+      <p style="color:#64748b;font-size:12px">Don't have a code? Ask your campaign admin to create one for you, or join a session directly at <a href="/volunteer" style="color:#818cf8">/volunteer</a></p>
+    </div>
+  </div>
+</div>
+
+<!-- Portal Screen -->
+<div id="portalScreen" style="display:none">
+  <div class="portal-header">
+    <div>
+      <h2 id="volNameHeader">Volunteer</h2>
+      <div class="sub">Texting Volunteer Portal</div>
+    </div>
+    <button class="logout-btn" onclick="logout()">Log Out</button>
+  </div>
+
+  <div class="container">
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card purple"><div class="value" id="statSessions">0</div><div class="label">Sessions</div></div>
+      <div class="stat-card green"><div class="value" id="statSent">0</div><div class="label">Texts Sent</div></div>
+      <div class="stat-card"><div class="value" id="statChats">0</div><div class="label">Active Chats</div></div>
+    </div>
+
+    <!-- Leaderboard -->
+    <div class="section-title">Leaderboard</div>
+    <div class="leaderboard">
+      <table>
+        <thead><tr><th>#</th><th>Name</th><th>Texts Sent</th><th>Sessions</th></tr></thead>
+        <tbody id="leaderboardBody"><tr><td colspan="4" style="color:#64748b;text-align:center">No data yet</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Active Sessions -->
+    <div class="section-title">My Active Sessions</div>
+    <div id="sessionsList"></div>
+
+    <!-- Share Code -->
+    <div class="share-box">
+      <div class="share-label">Your Volunteer Code</div>
+      <div class="share-code" id="myCode">------</div>
+      <div style="margin-top:8px">
+        <button class="btn btn-sm btn-primary" onclick="copyMyCode()">Copy Code</button>
+        <button class="btn btn-sm" style="background:#22c55e" onclick="copyMyLink()">Copy Portal Link</button>
+      </div>
+      <div class="share-link" id="myLink"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var volunteerId = null;
+var volunteerCode = '';
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+document.getElementById('codeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') login();
+});
+
+// Check URL for code param
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var code = params.get('code');
+  if (code) {
+    document.getElementById('codeInput').value = code;
+    login();
+  }
+})();
+
+async function login() {
+  var code = document.getElementById('codeInput').value.trim();
+  if (!code) return;
+  var errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  document.getElementById('loginBtn').disabled = true;
+  try {
+    var resp = await fetch('/api/p2p/texting-volunteers/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Login failed');
+    volunteerId = data.volunteer.id;
+    volunteerCode = data.volunteer.code;
+    document.getElementById('volNameHeader').textContent = data.volunteer.name;
+    document.getElementById('myCode').textContent = volunteerCode;
+    var link = window.location.origin + '/texter?code=' + volunteerCode;
+    document.getElementById('myLink').textContent = link;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('portalScreen').style.display = 'block';
+    loadDashboard();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  }
+  document.getElementById('loginBtn').disabled = false;
+}
+
+function logout() {
+  volunteerId = null;
+  volunteerCode = '';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('portalScreen').style.display = 'none';
+  document.getElementById('codeInput').value = '';
+}
+
+function copyMyCode() {
+  navigator.clipboard.writeText(volunteerCode);
+}
+
+function copyMyLink() {
+  var link = window.location.origin + '/texter?code=' + volunteerCode;
+  navigator.clipboard.writeText(link);
+}
+
+async function loadDashboard() {
+  if (!volunteerId) return;
+  try {
+    var resp = await fetch('/api/p2p/texting-volunteers/' + volunteerId + '/dashboard');
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to load dashboard');
+
+    // Stats
+    var s = data.stats;
+    document.getElementById('statSessions').textContent = s.sessions_joined || 0;
+    document.getElementById('statSent').textContent = s.total_sent || 0;
+    document.getElementById('statChats').textContent = s.active_chats || 0;
+
+    // Leaderboard
+    var lb = data.leaderboard || [];
+    var tbody = document.getElementById('leaderboardBody');
+    tbody.textContent = '';
+    if (lb.length === 0) {
+      var emptyRow = document.createElement('tr');
+      var emptyCell = document.createElement('td');
+      emptyCell.colSpan = 4;
+      emptyCell.style.cssText = 'color:#64748b;text-align:center';
+      emptyCell.textContent = 'No data yet';
+      emptyRow.appendChild(emptyCell);
+      tbody.appendChild(emptyRow);
+    } else {
+      for (var i = 0; i < lb.length; i++) {
+        var v = lb[i];
+        var isMe = v.id === volunteerId;
+        var tr = document.createElement('tr');
+        if (isMe) tr.className = 'me';
+        var tdRank = document.createElement('td');
+        tdRank.className = 'rank';
+        tdRank.textContent = i + 1;
+        tr.appendChild(tdRank);
+        var tdName = document.createElement('td');
+        tdName.textContent = v.name + (isMe ? ' (you)' : '');
+        tr.appendChild(tdName);
+        var tdSent = document.createElement('td');
+        tdSent.textContent = v.total_sent || 0;
+        tr.appendChild(tdSent);
+        var tdSessions = document.createElement('td');
+        tdSessions.textContent = v.sessions || 0;
+        tr.appendChild(tdSessions);
+        tbody.appendChild(tr);
+      }
+    }
+
+    // Sessions
+    var sessions = data.sessions || [];
+    var container = document.getElementById('sessionsList');
+    container.textContent = '';
+    if (sessions.length === 0) {
+      var emptyDiv = document.createElement('div');
+      emptyDiv.className = 'empty-state';
+      emptyDiv.textContent = 'No active sessions. Ask your campaign admin for a session join code.';
+      container.appendChild(emptyDiv);
+    } else {
+      for (var j = 0; j < sessions.length; j++) {
+        var sess = sessions[j];
+        var card = document.createElement('div');
+        card.className = 'session-card';
+
+        var h4 = document.createElement('h4');
+        h4.textContent = sess.name;
+        card.appendChild(h4);
+
+        var statsDiv = document.createElement('div');
+        statsDiv.className = 'session-stats';
+        statsDiv.textContent = 'Code: ' + sess.join_code;
+        card.appendChild(statsDiv);
+
+        var link = document.createElement('a');
+        link.href = '/volunteer?code=' + sess.join_code;
+        link.className = 'btn btn-text btn-sm';
+        link.style.display = 'inline-block';
+        link.style.marginTop = '8px';
+        link.textContent = 'Start Texting';
+        card.appendChild(link);
+
+        container.appendChild(card);
+      }
+    }
+  } catch (e) {
+    var errDiv = document.createElement('div');
+    errDiv.className = 'empty-state';
+    errDiv.textContent = 'Error: ' + e.message;
+    document.getElementById('sessionsList').textContent = '';
+    document.getElementById('sessionsList').appendChild(errDiv);
+  }
+}
+</script>
+</body>
+</html>
