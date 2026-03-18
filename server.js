@@ -560,8 +560,9 @@ app.get('/api/messages/pending', (req, res) => {
   if (isVol && !isAdmin) {
     // Get all phones assigned to this volunteer across all sessions
     const assignedPhones = db.prepare(`
-      SELECT DISTINCT pa.phone FROM p2p_assignments pa
+      SELECT DISTINCT c.phone FROM p2p_assignments pa
       JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id
+      JOIN contacts c ON pa.contact_id = c.id
       WHERE pv.volunteer_id = ? AND pa.status IN ('sent','in_conversation','completed')
     `).all(volId).map(r => r.phone);
     // Also get normalized versions for matching
