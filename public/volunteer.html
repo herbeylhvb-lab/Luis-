@@ -399,18 +399,15 @@
     <div class="join-card">
       <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128241;</div>
       <h2>P2P Volunteer Texting</h2>
-      <p>Enter your name and the session code shared by your campaign manager.</p>
+      <p>Enter your volunteer code to sign in.</p>
       <div class="form-group">
-        <label>Your Name</label>
-        <input type="text" id="volName" placeholder="Maria Garcia" autocomplete="name">
+        <label>Volunteer Code</label>
+        <input type="text" id="volCode" class="code-input" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
       </div>
-      <div class="form-group">
-        <label>Session Code</label>
-        <input type="text" id="volCode" class="code-input" placeholder="0000" maxlength="4" inputmode="numeric">
-      </div>
-      <button class="btn btn-primary" id="btnJoin" onclick="joinSession()">Join Session</button>
+      <button class="btn btn-primary" id="btnJoin" onclick="joinWithCode()">Sign In</button>
       <div class="error-msg" id="joinError"></div>
       <div class="mode-divider">&mdash;</div>
+      <p style="color:#64748b;font-size:12px;margin-bottom:8px">Don't have a code? Ask your campaign admin.</p>
       <button class="btn btn-secondary btn-sm" onclick="backToRoles()">&#8592; Back to Role Selection</button>
     </div>
   </div>
@@ -593,6 +590,8 @@
     if (urlCode) {
       document.getElementById('volCode').value = urlCode;
       selectRole('p2p');
+      // Auto-login if code is provided in URL
+      setTimeout(function() { joinWithCode(); }, 100);
     }
 
     function selectRole(role) {
@@ -626,29 +625,53 @@
       return data;
     }
 
-    async function joinSession() {
-      var name = document.getElementById('volName').value.trim();
+    async function joinWithCode() {
       var code = document.getElementById('volCode').value.trim();
       var errEl = document.getElementById('joinError');
       errEl.textContent = '';
-      if (!name || !code) { errEl.textContent = 'Please enter your name and the session code.'; return; }
+      if (!code) { errEl.textContent = 'Please enter your volunteer code.'; return; }
 
       document.getElementById('btnJoin').disabled = true;
       try {
-        var data = await apiCall('/api/p2p/join', {
+        // Login with volunteer code (like walker login)
+        var loginData = await apiCall('/api/texting-volunteers/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, code: code })
+          body: JSON.stringify({ code: code })
         });
-        if (data.error) {
-          errEl.textContent = data.error;
+        if (loginData.error) {
+          errEl.textContent = loginData.error;
           document.getElementById('btnJoin').disabled = false;
           return;
         }
-        volState.volunteerId = data.volunteerId;
-        volState.sessionId = data.sessionId;
-        volState.sessionName = data.sessionName;
-        volState.sessionType = data.sessionType || 'campaign';
+
+        volState.volCode = code;
+        volState.volName = loginData.volunteer.name;
+        volState.volPersistentId = loginData.volunteer.id;
+
+        // Auto-join the first active session (or use existing session)
+        var sessions = loginData.sessions || [];
+        if (sessions.length > 0) {
+          // Already in a session — use it
+          var s = sessions[0];
+          volState.sessionId = s.session_id;
+          volState.sessionName = s.name;
+          volState.sessionType = 'campaign';
+          // Get volunteer ID in this session
+          var joinData = await apiCall('/api/p2p/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: loginData.volunteer.name, code: s.join_code })
+          });
+          if (joinData.volunteerId) volState.volunteerId = joinData.volunteerId;
+          else volState.volunteerId = s.session_id; // fallback
+        } else {
+          // No active sessions — still let them in for Needs Response
+          volState.sessionId = null;
+          volState.sessionName = 'No active session';
+          volState.sessionType = 'campaign';
+          volState.volunteerId = loginData.volunteer.id;
+        }
 
         document.getElementById('joinScreen').style.display = 'none';
         document.getElementById('textingScreen').style.display = 'block';
@@ -665,17 +688,25 @@
         bannerEl.textContent = tc.icon + '  ' + tc.bannerText;
         bannerEl.style.display = '';
 
-        document.getElementById('sessionInfo').textContent = data.sessionName + ' \u2022 ' + name;
+        document.getElementById('sessionInfo').textContent = (volState.sessionName || '') + ' \u2022 ' + loginData.volunteer.name;
 
-        loadQueue();
+        if (volState.sessionId) {
+          loadQueue();
+          if (volState.pollInterval) clearInterval(volState.pollInterval);
+          volState.pollInterval = setInterval(loadQueue, 5000);
+        } else {
+          // No session — hide queue card, show only Needs Response
+          document.getElementById('queueCard').style.display = 'none';
+        }
         startVolPendingRefresh();
-        if (volState.pollInterval) clearInterval(volState.pollInterval);
-        volState.pollInterval = setInterval(loadQueue, 5000);  // Poll every 5s for fast reply detection
       } catch (e) {
-        errEl.textContent = 'Network error. Please try again.';
+        errEl.textContent = e.message || 'Network error. Please try again.';
         document.getElementById('btnJoin').disabled = false;
       }
     }
+
+    // Keep old joinSession for backward compatibility (session code flow)
+    async function joinSession() { joinWithCode(); }
 
     async function loadQueue() {
       if (!volState.volunteerId) return;
