@@ -3175,7 +3175,12 @@ function buildPendingCard(m) {
       } else {
         aiBox.style.display = 'none';
       }
-    }).catch(function() { aiBox.style.display = 'none'; });
+    }).catch(function(err) {
+      aiLoading.style.display = 'none';
+      aiText.textContent = 'AI suggestion unavailable — write your own reply.';
+      aiText.style.color = '#94a3b8';
+      setTimeout(function() { aiBox.style.display = 'none'; }, 4000);
+    });
   }
 
   return card;
