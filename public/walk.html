@@ -1454,12 +1454,12 @@ function renderMap(addresses, walkerLocations, progress) {
     var marker = L.marker([addr.lat, addr.lng], { icon: icon })
       .bindPopup(popupContent);
 
-    // Clicking an unvisited marker opens the door panel (if it's in the walker's list)
+    // Clicking any marker opens the door panel for logging/updating responses
     (function(address) {
       marker.on('click', function() {
         var localAddrs = walkState.walk.addresses;
         for (var j = 0; j < localAddrs.length; j++) {
-          if (localAddrs[j].id === address.id && localAddrs[j].result === 'not_visited') {
+          if (localAddrs[j].id === address.id) {
             openDoor(j);
             break;
           }
