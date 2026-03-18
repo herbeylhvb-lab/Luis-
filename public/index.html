@@ -2196,6 +2196,9 @@ document.querySelectorAll('.nav-item').forEach(item => {
       var target = activeTab ? activeTab.dataset.textingtab : 'compose';
       var sp = document.querySelector('.texting-subpage[data-texting="' + target + '"]');
       if (sp) sp.classList.add('active');
+      // Always preload volunteers so they appear on any sub-tab
+      loadTextingVolunteers();
+      loadTextingVolunteers2();
     }
     if (page === 'blockwalk') {
       var activeTab = document.querySelector('#blockwalkSubTabs .sub-tab.active');
@@ -2963,6 +2966,7 @@ async function buildListFromInbox() {
   } catch (err) { alert('Failed to build list: ' + (err.message || 'Unknown error')); }
 }
 
+var adminAiCache = {};
 function buildPendingCard(m) {
   var card = document.createElement('div');
   card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-left:3px solid #f59e0b;border-radius:10px;padding:16px;margin-bottom:14px';
@@ -3124,8 +3128,21 @@ function buildPendingCard(m) {
   // Enter key sends
   input.addEventListener('keydown', function(e) { if (e.key === 'Enter') sendBtn.click(); });
 
-  // Fetch AI suggestion async
-  if (m.body) {
+  // Fetch AI suggestion async (cached to prevent re-fetch on refresh)
+  var adminCacheKey = 'msg_' + (m.id || m.phone);
+  if (m.body && adminAiCache[adminCacheKey]) {
+    var cData = adminAiCache[adminCacheKey];
+    aiBox.style.display = '';
+    aiLoading.style.display = 'none';
+    aiText.textContent = cData.suggestion;
+    aiBtns.style.display = 'flex';
+    var cBtnSend = document.createElement('button'); cBtnSend.className = 'btn btn-sm btn-success'; cBtnSend.textContent = 'Send As-Is';
+    cBtnSend.addEventListener('click', function() { doSend(cData.suggestion); }); aiBtns.appendChild(cBtnSend);
+    var cBtnEdit = document.createElement('button'); cBtnEdit.className = 'btn btn-sm btn-secondary'; cBtnEdit.textContent = 'Edit First';
+    cBtnEdit.addEventListener('click', function() { input.value = cData.suggestion; aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnEdit);
+    var cBtnOwn = document.createElement('button'); cBtnOwn.className = 'btn btn-sm btn-secondary'; cBtnOwn.textContent = 'Write My Own';
+    cBtnOwn.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnOwn);
+  } else if (m.body) {
     aiBox.style.display = '';
     apiPost('/api/p2p/suggest-reply', {
       voterMessage: m.body,
@@ -3134,6 +3151,7 @@ function buildPendingCard(m) {
     }).then(function(data) {
       aiLoading.style.display = 'none';
       if (data.suggestion) {
+        adminAiCache[adminCacheKey] = data;
         aiText.textContent = data.suggestion;
         aiBtns.style.display = 'flex';
         var btnSend = document.createElement('button');
@@ -6669,8 +6687,8 @@ async function loadTextingVolunteers2() {
       var shareBtn = document.createElement('button');
       shareBtn.className = 'btn btn-sm';
       shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:4px 10px;font-size:11px;min-width:auto';
-      shareBtn.textContent = 'Send Info';
-      shareBtn.addEventListener('click', function() { sendVolunteerInfo(v); });
+      shareBtn.textContent = 'Share';
+      shareBtn.addEventListener('click', function() { shareVolunteerInfo(v); });
       tdShare.appendChild(shareBtn);
       var copyBtn = document.createElement('button');
       copyBtn.className = 'btn btn-sm';
@@ -6771,8 +6789,8 @@ async function loadTextingVolunteers() {
       var shareBtn = document.createElement('button');
       shareBtn.className = 'btn btn-sm';
       shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:4px 10px;font-size:11px;min-width:auto';
-      shareBtn.textContent = 'Send Info';
-      shareBtn.addEventListener('click', function() { sendVolunteerInfo(v); });
+      shareBtn.textContent = 'Share';
+      shareBtn.addEventListener('click', function() { shareVolunteerInfo(v); });
       tdShare.appendChild(shareBtn);
       tr.appendChild(tdShare);
       var tdDel = document.createElement('td');
@@ -6792,12 +6810,23 @@ async function loadTextingVolunteers() {
   } catch (e) { /* silent */ }
 }
 
-async function sendVolunteerInfo(vol) {
+function shareVolunteerInfo(vol) {
+  var portalLink = window.location.origin + '/volunteer?code=' + vol.code;
+  var msg = 'Hi ' + vol.name + '! Your texting volunteer code is: ' + vol.code + '\n\nSign in here: ' + portalLink;
+  if (navigator.share) {
+    navigator.share({ title: 'Volunteer Code for ' + vol.name, text: msg }).catch(function(){});
+  } else {
+    var smsUrl = 'sms:' + (vol.phone || '') + '?&body=' + encodeURIComponent(msg);
+    window.open(smsUrl, '_blank');
+  }
+}
+
+async function sendVolunteerInfoViaCampaign(vol) {
   if (!state.credentials.connected) { alert('Set up messaging credentials first in Messaging Setup.'); return; }
   if (!vol.phone) { alert('No phone number on file for this volunteer. Add one first.'); return; }
-  var portalLink = window.location.origin + '/texter?code=' + vol.code;
-  var msg = 'Hi ' + vol.name + '! Your Campaign Text HQ volunteer code is: ' + vol.code + '\n\nOpen your portal here: ' + portalLink + '\n\nTo join a texting session, go to: ' + window.location.origin + '/volunteer';
-  if (!confirm('Send this info via SMS to ' + vol.phone + '?\n\n' + msg)) return;
+  var portalLink = window.location.origin + '/volunteer?code=' + vol.code;
+  var msg = 'Hi ' + vol.name + '! Your texting volunteer code is: ' + vol.code + '\n\nSign in here: ' + portalLink;
+  if (!confirm('Send via campaign SMS to ' + vol.phone + '?\n\n' + msg)) return;
   try {
     await apiPost('/reply', { to: vol.phone, body: msg });
     alert('Info sent to ' + vol.name + '!');

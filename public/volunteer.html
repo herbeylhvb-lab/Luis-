@@ -1444,6 +1444,7 @@
     }
     // ===================== NEEDS RESPONSE (shared inbox) =====================
     var volPendingTimer = null;
+    var aiSuggestionCache = {}; // Cache AI suggestions by message ID to avoid re-fetching
 
     async function loadVolPending() {
       // Skip refresh if user is typing in any reply input (prevents erasing their text)
@@ -1535,7 +1536,21 @@
       sendBtn.addEventListener('click', function() { doSend(input.value); });
       input.addEventListener('keydown', function(e) { if (e.key === 'Enter') doSend(input.value); });
       // Fetch AI suggestion
+      var msgCacheKey = 'msg_' + (m.id || m.phone);
       if (m.body) {
+        // Check cache first — don't re-fetch AI on every refresh
+        if (aiSuggestionCache[msgCacheKey]) {
+          var cached = aiSuggestionCache[msgCacheKey];
+          aiBox.style.display = '';
+          aiText.textContent = cached.suggestion;
+          aiBtns.style.display = 'flex';
+          var cBtnUse = document.createElement('button'); cBtnUse.className = 'btn btn-sm btn-success'; cBtnUse.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnUse.textContent = 'Send';
+          cBtnUse.addEventListener('click', function() { doSend(cached.suggestion); }); aiBtns.appendChild(cBtnUse);
+          var cBtnEdit = document.createElement('button'); cBtnEdit.className = 'btn btn-sm btn-secondary'; cBtnEdit.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnEdit.textContent = 'Edit';
+          cBtnEdit.addEventListener('click', function() { input.value = cached.suggestion; aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnEdit);
+          var cBtnOwn = document.createElement('button'); cBtnOwn.className = 'btn btn-sm btn-secondary'; cBtnOwn.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnOwn.textContent = 'Own';
+          cBtnOwn.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnOwn);
+        } else {
         aiBox.style.display = '';
         var loading = document.createElement('span');
         loading.style.cssText = 'font-size:11px;color:#64748b';
@@ -1545,6 +1560,7 @@
           .then(function(data) {
             loading.remove();
             if (data.suggestion) {
+              aiSuggestionCache[msgCacheKey] = data;
               aiText.textContent = data.suggestion;
               var btnUse = document.createElement('button');
               btnUse.className = 'btn btn-sm btn-success';
@@ -1566,6 +1582,7 @@
               aiBtns.appendChild(btnDismiss);
             } else { aiBox.style.display = 'none'; }
           }).catch(function() { aiBox.style.display = 'none'; });
+        } // end else (no cache)
       }
       return card;
     }
