@@ -2707,7 +2707,7 @@ function switchInboxTab(tab) {
   if (targetPage) { targetPage.style.display = ''; targetPage.classList.add('active'); }
   if (tab === 'needs-response') { loadPendingMessages(); }
   if (tab === 'all-messages') { loadInbox(); }
-  if (tab === 'opted-out') { loadInbox(); }
+  if (tab === 'opted-out') { loadOptedOut(); }
   if (tab === 'send') { loadAdminSessions(); }
 }
 document.getElementById('inboxSubTabs').addEventListener('click', function(e) {
@@ -2811,7 +2811,7 @@ async function loadAdminQueue() {
     skipBtn.textContent = 'Skip';
     skipBtn.style.padding = '12px 20px';
     skipBtn.addEventListener('click', function() {
-      apiPost('/api/p2p/assignments/' + a.id + '/skip', {}).then(function() { loadAdminQueue(); }).catch(function() { loadAdminQueue(); });
+      apiPatch('/api/p2p/assignments/' + a.id + '/skip', {}).then(function() { loadAdminQueue(); }).catch(function() { loadAdminQueue(); });
     });
     btnRow.appendChild(skipBtn);
     card.appendChild(btnRow);
@@ -3187,11 +3187,9 @@ async function loadPendingMessages() {
   }
 }
 
-async function loadInbox() {
+async function loadOptedOut() {
   try {
     var data = await api('/api/messages');
-    inboxData = data.messages || [];
-    renderInboxMessages(inboxData);
     var optEl = document.getElementById('optedOutList');
     if (!data.optedOut || data.optedOut.length === 0) { optEl.textContent = 'No opted-out numbers.'; }
     else {
@@ -3204,6 +3202,14 @@ async function loadInbox() {
         optEl.appendChild(b);
       });
     }
+  } catch (e) { /* silent */ }
+}
+
+async function loadInbox() {
+  try {
+    var data = await api('/api/messages');
+    inboxData = data.messages || [];
+    renderInboxMessages(inboxData);
   } catch (err) { console.error('Inbox load failed:', err); }
 }
 window.sendReply = async function(phone) {

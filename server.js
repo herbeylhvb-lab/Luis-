@@ -156,7 +156,6 @@ app.use((req, res, next) => {
       req.path === '/api/p2p/review-reply' ||
       req.path === '/api/texting-volunteers/login' ||
       req.path.match(/^\/api\/texting-volunteers\/\d+\/dashboard/) ||
-      req.path === '/api/messages/pending' ||
       req.path === '/reply') {
     return next();
   }
@@ -538,7 +537,12 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 
 // --- Messages & opt-outs ---
 // Pending messages: last inbound per phone with no outbound reply after it
+// Accessible by admin (session) or volunteers (X-Volunteer-Id header)
 app.get('/api/messages/pending', (req, res) => {
+  const isAdmin = req.session && req.session.userId;
+  const volId = req.headers['x-volunteer-id'];
+  const isVol = volId && db.prepare('SELECT id FROM p2p_volunteers WHERE id = ?').get(volId);
+  if (!isAdmin && !isVol) return res.status(401).json({ error: 'Authentication required.' });
   const pending = db.prepare(`
     SELECT m.*,
       COALESCE(

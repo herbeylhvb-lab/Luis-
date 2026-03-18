@@ -1128,6 +1128,7 @@
       if (!volState.volunteerId) return;
       if (volState.pollInterval) { clearInterval(volState.pollInterval); volState.pollInterval = null; }
       if (volState.convoRefreshInterval) { clearInterval(volState.convoRefreshInterval); volState.convoRefreshInterval = null; }
+      stopVolPendingRefresh();
       volState.lastConvoIds = [];
       await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/status', {
         method: 'PATCH',
@@ -1410,7 +1411,7 @@
 
     async function loadVolPending() {
       try {
-        var data = await apiCall('/api/messages/pending', {});
+        var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || '') } });
         var msgs = data.messages || [];
         document.getElementById('volPendingCount').textContent = msgs.length;
         var el = document.getElementById('volPendingList');
