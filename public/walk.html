@@ -921,29 +921,28 @@ function stopGps() {
 // ===================== LOAD WALK =====================
 
 async function loadWalk() {
-  var idInput = document.getElementById('walkIdInput');
-  var errEl = document.getElementById('loadError');
-  errEl.textContent = '';
-  var walkId = parseInt(idInput.value);
-  if (!walkId || walkId < 1) { errEl.textContent = 'Please enter a valid walk ID.'; return; }
+  var walkId = walkState.walkId;
+  if (!walkId || walkId < 1) return;
 
-  document.getElementById('btnLoadWalk').disabled = true;
   try {
     var res = await fetch('/api/walks/' + walkId + '/volunteer');
     var data = await res.json();
-    if (!res.ok || data.error) { errEl.textContent = data.error || 'Server error ' + res.status; return; }
+    if (!res.ok || data.error) {
+      alert(data.error || 'Failed to load walk.');
+      document.getElementById('walkSelectScreen').style.display = '';
+      return;
+    }
 
-    walkState.walkId = walkId;
     walkState.walk = data.walk;
     renderWalk();
     document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkSelectScreen').style.display = 'none';
     document.getElementById('walkScreen').style.display = '';
     startGps();
     loadWalkScript();
   } catch(e) {
-    errEl.textContent = 'Failed to load walk: ' + e.message;
-  } finally {
-    document.getElementById('btnLoadWalk').disabled = false;
+    alert('Failed to load walk: ' + e.message);
+    document.getElementById('walkSelectScreen').style.display = '';
   }
 }
 
