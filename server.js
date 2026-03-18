@@ -539,10 +539,11 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 app.get('/api/messages/pending', (req, res) => {
   const pending = db.prepare(`
     SELECT m.*,
-      COALESCE(v.first_name || ' ' || v.last_name, c.first_name || ' ' || c.last_name) as contact_name
+      COALESCE(
+        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE v.phone = m.phone AND v.phone != '' LIMIT 1),
+        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE c.phone = m.phone AND c.phone != '' LIMIT 1)
+      ) as contact_name
     FROM messages m
-    LEFT JOIN voters v ON m.phone = v.phone AND v.phone != '' AND v.phone IS NOT NULL
-    LEFT JOIN contacts c ON m.phone = c.phone AND c.phone != '' AND c.phone IS NOT NULL
     WHERE m.direction = 'inbound'
       AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE m2.phone = m.phone AND m2.direction = 'inbound')
       AND NOT EXISTS (
@@ -558,12 +559,12 @@ app.get('/api/messages/pending', (req, res) => {
 app.get('/api/messages', (req, res) => {
   const messages = db.prepare(`
     SELECT m.*,
-      COALESCE(v.first_name || ' ' || v.last_name, c.first_name || ' ' || c.last_name) as contact_name
+      COALESCE(
+        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE v.phone = m.phone AND v.phone != '' LIMIT 1),
+        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE c.phone = m.phone AND c.phone != '' LIMIT 1)
+      ) as contact_name
     FROM messages m
-    LEFT JOIN voters v ON m.phone = v.phone AND v.phone != '' AND v.phone IS NOT NULL
-    LEFT JOIN contacts c ON m.phone = c.phone AND c.phone != '' AND c.phone IS NOT NULL
     WHERE m.direction = 'inbound'
-    GROUP BY m.id
     ORDER BY m.id DESC LIMIT 200
   `).all();
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
