@@ -632,7 +632,7 @@ app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
   try {
     db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-7 days')`)
       .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
-  } catch (e) { /* table may not exist */ }
+  } catch (_e) { /* table may not exist */ }
   const p2pCount = phoneSet.size;
 
   db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-7 days')`)
@@ -691,7 +691,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   try {
     db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-30 days')`)
       .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
-  } catch (e) { /* table may not exist */ }
+  } catch (_e) { /* table may not exist */ }
 
   // PRIORITY 2: Active survey sends
   db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-30 days')`)
@@ -710,8 +710,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   if (sentPhones.length === 0) return res.json({ synced: 0, checked: 0, message: 'No outbound messages to check replies for.' });
 
   // Get the last sync timestamp
-  const lastSyncRow = db.prepare("SELECT value FROM settings WHERE key = 'last_inbound_sync'").get();
-  const lastSync = lastSyncRow ? lastSyncRow.value : null;
+  db.prepare("SELECT value FROM settings WHERE key = 'last_inbound_sync'").get();
 
   let totalSynced = 0;
   const errors = [];
