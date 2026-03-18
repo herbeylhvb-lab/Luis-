@@ -158,6 +158,8 @@ app.use((req, res, next) => {
       req.path === '/api/p2p/review-reply' ||
       req.path === '/api/texting-volunteers/login' ||
       req.path.match(/^\/api\/texting-volunteers\/\d+\/dashboard/) ||
+      req.path === '/api/volunteers/login' ||
+      req.path.match(/^\/api\/volunteers\/\d+\/dashboard/) ||
       req.path === '/reply') {
     return next();
   }
@@ -228,6 +230,7 @@ app.use('/api', require('./routes/events'));
 app.use('/api', require('./routes/knowledge'));
 app.use('/api', require('./routes/ai'));
 app.use('/api', require('./routes/p2p'));
+app.use('/api', require('./routes/volunteers'));
 app.use('/api', require('./routes/captains'));
 app.use('/api', require('./routes/candidates'));
 app.use('/api', require('./routes/email'));
@@ -545,7 +548,8 @@ app.get('/api/messages/pending', (req, res) => {
   const volId = req.headers['x-volunteer-id'];
   const isVol = volId && (
     db.prepare('SELECT id FROM p2p_volunteers WHERE id = ?').get(volId) ||
-    db.prepare('SELECT id FROM texting_volunteers WHERE id = ?').get(volId)
+    db.prepare('SELECT id FROM texting_volunteers WHERE id = ?').get(volId) ||
+    db.prepare('SELECT id FROM volunteers WHERE id = ?').get(volId)
   );
   if (!isAdmin && !isVol) return res.status(401).json({ error: 'Authentication required.' });
   const pending = db.prepare(`

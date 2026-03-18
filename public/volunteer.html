@@ -634,7 +634,7 @@
       document.getElementById('btnJoin').disabled = true;
       try {
         // Login with volunteer code (like walker login)
-        var loginData = await apiCall('/api/texting-volunteers/login', {
+        var loginData = await apiCall('/api/volunteers/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: code })
@@ -648,6 +648,13 @@
         volState.volCode = code;
         volState.volName = loginData.volunteer.name;
         volState.volPersistentId = loginData.volunteer.id;
+
+        // Check texting permission
+        if (!loginData.volunteer.can_text) {
+          errEl.textContent = 'Your code is for block walking only. Go to /walk to start walking.';
+          document.getElementById('btnJoin').disabled = false;
+          return;
+        }
 
         // Auto-join the first active session (or use existing session)
         var sessions = loginData.sessions || [];

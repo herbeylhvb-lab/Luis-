@@ -886,7 +886,7 @@ db.exec(`
 // --- Survey completion message ---
 addColumn("ALTER TABLE surveys ADD COLUMN completion_message TEXT DEFAULT ''");
 
-// --- Texting volunteers (persistent identity, mirrors walkers table) ---
+// --- Texting volunteers (legacy — kept for backward compat) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS texting_volunteers (
     id INTEGER PRIMARY KEY,
@@ -902,6 +902,43 @@ db.exec(`
 addColumn("ALTER TABLE p2p_volunteers ADD COLUMN volunteer_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE p2p_volunteers ADD COLUMN last_active TEXT DEFAULT NULL");
 addColumn("ALTER TABLE p2p_assignments ADD COLUMN volunteer_name TEXT DEFAULT NULL");
+
+// --- Unified volunteers table (replaces texting_volunteers + walkers) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS volunteers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT NULL,
+    code TEXT NOT NULL UNIQUE,
+    can_text INTEGER DEFAULT 1,
+    can_walk INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_volunteers_code ON volunteers(code);
+`);
+
+// Migrate existing texting_volunteers and walkers into unified table (one-time)
+try {
+  const volCount = (db.prepare('SELECT COUNT(*) as c FROM volunteers').get() || {}).c || 0;
+  if (volCount === 0) {
+    // Copy texting volunteers
+    const texters = db.prepare('SELECT name, phone, code, is_active, created_at FROM texting_volunteers').all();
+    const ins = db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk, is_active, created_at) VALUES (?, ?, ?, 1, 0, ?, ?)');
+    for (const t of texters) { ins.run(t.name, t.phone, t.code, t.is_active, t.created_at); }
+    // Copy walkers (give them walk access, check for same code/name overlap)
+    const walkerRows = db.prepare('SELECT name, phone, code, is_active, created_at FROM walkers').all();
+    const insWalk = db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk, is_active, created_at) VALUES (?, ?, ?, 0, 1, ?, ?)');
+    const updWalk = db.prepare('UPDATE volunteers SET can_walk = 1 WHERE code = ?');
+    for (const w of walkerRows) {
+      const existing = db.prepare('SELECT id FROM volunteers WHERE name = ? AND phone = ?').get(w.name, w.phone);
+      if (existing) { db.prepare('UPDATE volunteers SET can_walk = 1 WHERE id = ?').run(existing.id); }
+      else { insWalk.run(w.name, w.phone, w.code, w.is_active, w.created_at); }
+    }
+    const migrated = (db.prepare('SELECT COUNT(*) as c FROM volunteers').get() || {}).c || 0;
+    if (migrated > 0) console.log('[migration] Migrated ' + migrated + ' volunteers to unified table');
+  }
+} catch (e) { console.error('[migration] Volunteer migration error:', e.message); }
 
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

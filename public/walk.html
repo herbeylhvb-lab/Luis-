@@ -360,7 +360,7 @@ async function walkerLogin() {
 
   document.getElementById('btnWalkerLogin').disabled = true;
   try {
-    var resp = await fetch('/api/walkers/login', {
+    var resp = await fetch('/api/volunteers/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: code })
@@ -368,19 +368,19 @@ async function walkerLogin() {
     var data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Login failed');
 
-    walkState.walkerId = data.walker.id;
-    walkState.walkerName = data.walker.name;
+    if (!data.volunteer.can_walk) {
+      throw new Error('Your code is for P2P texting only. Go to /volunteer to start texting.');
+    }
+
+    walkState.walkerId = data.volunteer.id;
+    walkState.walkerName = data.volunteer.name;
     walkState.isGroupMode = true;
 
-    // Get walker's dashboard to find their walks
-    var dashResp = await fetch('/api/walkers/' + data.walker.id + '/dashboard');
-    var dashData = await dashResp.json();
-    if (!dashResp.ok) throw new Error(dashData.error || 'Failed to load walks');
-
-    var walks = dashData.walks || [];
+    // Walks are returned directly from the unified login
+    var walks = data.walks || [];
     document.getElementById('loadScreen').style.display = 'none';
     document.getElementById('walkSelectScreen').style.display = '';
-    document.getElementById('walkerGreeting').textContent = data.walker.name + "'s Walks";
+    document.getElementById('walkerGreeting').textContent = data.volunteer.name + "'s Walks";
     renderWalkList(walks);
   } catch (e) {
     errEl.textContent = e.message || 'Login failed. Check your code.';

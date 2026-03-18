@@ -174,6 +174,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item active" data-page="dashboard"><span class="icon">&#128202;</span><span>Dashboard</span></div>
     <div class="nav-item" data-page="texting"><span class="icon">&#128241;</span><span>Texting</span></div>
     <div class="nav-item" data-page="contacts"><span class="icon">&#128101;</span><span>Contacts</span></div>
+    <div class="nav-item" data-page="manage-volunteers"><span class="icon">&#9997;</span><span>Volunteers</span></div>
     <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
     <div class="sidebar-section">Field</div>
     <div class="nav-item" data-page="blockwalk"><span class="icon">&#128694;</span><span>Block Walking</span></div>
@@ -415,6 +416,30 @@ tr:hover td{background:#1e293b80}
         <h3>Opted Out Numbers</h3>
         <p style="color:#94a3b8;font-size:12px;margin-bottom:12px">Contacts who replied STOP. They are automatically excluded from all future messages.</p>
         <div id="optedOutList" style="color:#64748b;font-size:14px">No opted-out numbers.</div>
+      </div>
+    </div>
+
+    <!-- ==================== MANAGE VOLUNTEERS ==================== -->
+    <div class="page" id="page-manage-volunteers">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin:0">Volunteers</h3>
+          <button class="btn btn-sm btn-primary" onclick="showAddUnifiedVolForm()">+ Add Volunteer</button>
+        </div>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">One code per volunteer — works for both P2P texting and block walking. Choose their access below.</p>
+        <div id="addUnifiedVolForm" style="display:none;margin-bottom:16px;padding:14px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div class="form-row" style="margin-bottom:8px">
+            <div class="form-group"><label>Name</label><input type="text" id="uVolName" placeholder="Volunteer name"></div>
+            <div class="form-group"><label>Phone</label><input type="text" id="uVolPhone" placeholder="956-xxx-xxxx"></div>
+          </div>
+          <div style="display:flex;gap:16px;margin-bottom:12px">
+            <label style="font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="uVolCanText" checked style="width:18px;height:18px;accent-color:#818cf8"> P2P Texting</label>
+            <label style="font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="uVolCanWalk" checked style="width:18px;height:18px;accent-color:#f59e0b"> Block Walking</label>
+          </div>
+          <button class="btn btn-sm btn-success" onclick="createUnifiedVol()">Create</button>
+          <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="document.getElementById('addUnifiedVolForm').style.display='none'">Cancel</button>
+        </div>
+        <div id="unifiedVolList"></div>
       </div>
     </div>
 
@@ -2188,6 +2213,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
+    if (page === 'manage-volunteers') { loadUnifiedVols(); }
     if (page === 'candidates') { loadCandidates(); }
     if (page === 'surveys') { showSurveyList(); loadSurveys(); }
     if (page === 'users') loadUsers();
@@ -6645,6 +6671,123 @@ async function deleteP2pSession(id) {
 }
 
 // ===================== TEXTING VOLUNTEERS MANAGEMENT =====================
+// ===================== UNIFIED VOLUNTEER MANAGEMENT =====================
+function showAddUnifiedVolForm() { document.getElementById('addUnifiedVolForm').style.display = ''; document.getElementById('uVolName').focus(); }
+
+async function createUnifiedVol() {
+  var name = document.getElementById('uVolName').value.trim();
+  var phone = document.getElementById('uVolPhone').value.trim();
+  var canText = document.getElementById('uVolCanText').checked;
+  var canWalk = document.getElementById('uVolCanWalk').checked;
+  if (!name) return alert('Name is required.');
+  try {
+    var data = await apiPost('/api/volunteers', { name: name, phone: phone || null, can_text: canText, can_walk: canWalk });
+    alert('Volunteer created! Code: ' + data.code);
+    document.getElementById('uVolName').value = '';
+    document.getElementById('uVolPhone').value = '';
+    document.getElementById('addUnifiedVolForm').style.display = 'none';
+    loadUnifiedVols();
+  } catch (e) { alert('Failed: ' + (e.message || 'Error')); }
+}
+
+async function loadUnifiedVols() {
+  try {
+    var data = await api('/api/volunteers');
+    var el = document.getElementById('unifiedVolList');
+    var vols = data.volunteers || [];
+    if (vols.length === 0) {
+      el.textContent = '';
+      var p = document.createElement('p');
+      p.style.cssText = 'color:#64748b;font-size:13px';
+      p.textContent = 'No volunteers yet. Click "+ Add Volunteer" to create one.';
+      el.appendChild(p);
+      return;
+    }
+    el.textContent = '';
+    var table = document.createElement('table');
+    table.style.width = '100%';
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    ['Name', 'Code', 'Phone', 'Access', 'Texts', 'Doors', 'Last Active', 'Actions'].forEach(function(h) {
+      var th = document.createElement('th'); th.textContent = h; hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    vols.forEach(function(v) {
+      var tr = document.createElement('tr');
+      if (!v.is_active) tr.style.opacity = '0.5';
+      // Name
+      var td1 = document.createElement('td');
+      td1.style.fontWeight = '600';
+      td1.textContent = v.name;
+      tr.appendChild(td1);
+      // Code
+      var td2 = document.createElement('td');
+      var codeEl = document.createElement('code');
+      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;font-size:14px';
+      codeEl.textContent = v.code;
+      td2.appendChild(codeEl);
+      tr.appendChild(td2);
+      // Phone
+      var td3 = document.createElement('td');
+      td3.style.cssText = 'font-size:13px;color:#94a3b8';
+      td3.textContent = v.phone || '--';
+      tr.appendChild(td3);
+      // Access badges
+      var td4 = document.createElement('td');
+      if (v.can_text) { var b1 = document.createElement('span'); b1.className = 'badge badge-blue'; b1.style.marginRight = '4px'; b1.textContent = 'Texting'; td4.appendChild(b1); }
+      if (v.can_walk) { var b2 = document.createElement('span'); b2.className = 'badge'; b2.style.cssText = 'background:#422006;color:#fcd34d'; b2.textContent = 'Walking'; td4.appendChild(b2); }
+      tr.appendChild(td4);
+      // Texts sent
+      var td5 = document.createElement('td');
+      td5.style.color = '#22c55e';
+      td5.textContent = v.texts_sent || 0;
+      tr.appendChild(td5);
+      // Doors
+      var td6 = document.createElement('td');
+      td6.style.color = '#f59e0b';
+      td6.textContent = v.doors_knocked || 0;
+      tr.appendChild(td6);
+      // Last active
+      var td7 = document.createElement('td');
+      td7.style.cssText = 'font-size:12px;color:#64748b';
+      td7.textContent = v.last_active ? utcToLocal(v.last_active).toLocaleDateString() : 'Never';
+      tr.appendChild(td7);
+      // Actions
+      var td8 = document.createElement('td');
+      td8.style.cssText = 'display:flex;gap:4px';
+      var shareBtn = document.createElement('button');
+      shareBtn.className = 'btn btn-sm';
+      shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:3px 8px;font-size:11px;min-width:auto';
+      shareBtn.textContent = 'Share';
+      shareBtn.addEventListener('click', (function(vol) { return function() {
+        var link = window.location.origin + '/volunteer?code=' + vol.code;
+        var msg = 'Hi ' + vol.name + '! Your volunteer code is: ' + vol.code + '\n\nSign in here: ' + link;
+        if (navigator.share) { navigator.share({ title: 'Volunteer Code', text: msg }).catch(function(){}); }
+        else { window.open('sms:' + (vol.phone || '') + '?&body=' + encodeURIComponent(msg), '_blank'); }
+      }; })(v));
+      td8.appendChild(shareBtn);
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger btn-xs';
+      delBtn.textContent = 'Del';
+      delBtn.addEventListener('click', (function(vol) { return async function() {
+        if (!confirm('Delete ' + vol.name + '?')) return;
+        try { await apiDelete('/api/volunteers/' + vol.id); loadUnifiedVols(); } catch(e) { alert(e.message); }
+      }; })(v));
+      td8.appendChild(delBtn);
+      tr.appendChild(td8);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    var wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    wrap.appendChild(table);
+    el.appendChild(wrap);
+  } catch (e) { /* silent */ }
+}
+
+// ===================== LEGACY TEXTING VOLUNTEERS (kept for backward compat) =====================
 function showAddVolunteerForm() { document.getElementById('addVolForm').style.display = ''; document.getElementById('newVolName').focus(); }
 function showAddVolunteerForm2() { document.getElementById('addVolForm2').style.display = ''; document.getElementById('newVolName2').focus(); }
 
