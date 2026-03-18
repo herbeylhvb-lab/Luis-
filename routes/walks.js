@@ -190,10 +190,14 @@ router.get('/walks/:id', (req, res) => {
 
 // Update walk metadata
 router.put('/walks/:id', (req, res) => {
-  const { name, description, assigned_to, status } = req.body;
+  const { name, description, assigned_to, status, script_id } = req.body;
   const validStatuses = ['pending', 'in_progress', 'completed'];
   if (status && !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be: ' + validStatuses.join(', ') });
+  }
+  // Handle script_id separately since COALESCE can't set null
+  if (script_id !== undefined) {
+    db.prepare('UPDATE block_walks SET script_id = ? WHERE id = ?').run(script_id || null, req.params.id);
   }
   const result = db.prepare(
     'UPDATE block_walks SET name = COALESCE(?, name), description = COALESCE(?, description), assigned_to = COALESCE(?, assigned_to), status = COALESCE(?, status) WHERE id = ?'

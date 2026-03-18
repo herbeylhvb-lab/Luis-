@@ -753,24 +753,32 @@ tr:hover td{background:#1e293b80}
           <div class="form-group"><label>Walk Name (optional)</label><input type="text" id="precinctWalkName" placeholder="Auto-generated from precinct names"></div>
           <div class="form-group">
             <label>Select Precincts</label>
-            <div id="walkPrecinctList" style="max-height:180px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:4px"><span style="color:#64748b;font-size:13px">Loading precincts...</span></div>
-            <div style="margin-top:6px;display:flex;gap:8px">
-              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb').forEach(function(c){c.checked=true})">Select All</button>
+            <input type="text" id="walkPrecinctSearch" placeholder="Search precincts..." oninput="filterWalkPrecincts()" style="margin-bottom:6px">
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb:not([style*=none])').forEach(function(c){c.closest('.walk-precinct-item').style.display!=='none'&&(c.checked=true)})">Select All</button>
               <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb').forEach(function(c){c.checked=false})">Clear All</button>
+              <span id="walkPrecinctSelected" style="font-size:12px;color:#f59e0b;align-self:center;margin-left:auto">0 selected</span>
             </div>
+            <div id="walkPrecinctList" style="max-height:250px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:4px;margin-top:4px"><span style="color:#64748b;font-size:13px">Loading precincts...</span></div>
+          </div>
+          <h4 style="font-size:13px;color:#f59e0b;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">Voter Filters</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div class="form-group"><label>Party</label><select id="walkPrecinctParty"><option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
+            <div class="form-group"><label>Support Level</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <div class="form-group"><label>Filter by Party</label><select id="walkPrecinctParty"><option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option></select></div>
-            <div class="form-group"><label>Filter by Support</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
+            <div class="form-group"><label>Voted In Election</label><select id="walkPrecinctVotedIn" multiple size="3" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px;color:#e2e8f0;font-size:13px"><option value="">Any</option></select><div style="font-size:10px;color:#64748b;margin-top:2px">Hold Ctrl/Cmd to select multiple</div></div>
+            <div class="form-group"><label>Did NOT Vote In</label><select id="walkPrecinctDidNotVote" multiple size="3" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px;color:#e2e8f0;font-size:13px"><option value="">--</option></select><div style="font-size:10px;color:#64748b;margin-top:2px">Hold Ctrl/Cmd to select multiple</div></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-            <div class="form-group"><label>Voted In Election</label><select id="walkPrecinctVotedIn"><option value="">Any</option></select></div>
-            <div class="form-group"><label>Did NOT Vote In</label><select id="walkPrecinctDidNotVote"><option value="">--</option></select></div>
-            <div class="form-group"><label>Min Elections Voted</label><input type="number" id="walkPrecinctMinElections" placeholder="e.g. 2" min="0" max="20"></div>
+            <div class="form-group"><label>Min Elections</label><input type="number" id="walkPrecinctMinElections" placeholder="e.g. 2" min="0" max="20"></div>
+            <div class="form-group"><label>Min Age</label><input type="number" id="walkPrecinctMinAge" placeholder="e.g. 18" min="18" max="120"></div>
+            <div class="form-group"><label>Max Age</label><input type="number" id="walkPrecinctMaxAge" placeholder="e.g. 65" min="18" max="120"></div>
           </div>
           <div style="margin-bottom:12px">
-            <label style="font-size:13px;color:#94a3b8"><input type="checkbox" id="walkPrecinctHasVoted"> Only voters with voting history</label>
-            <label style="font-size:13px;color:#94a3b8;margin-left:16px"><input type="checkbox" id="walkPrecinctExcludeContacted"> Skip already contacted</label>
+            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctHasVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
+            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeContacted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
+            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeEarlyVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip early voters (already voted)</label>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary btn-sm" id="btnBuildPrecinctWalk">Create Precinct Walk</button>
@@ -791,7 +799,7 @@ tr:hover td{background:#1e293b80}
           <div class="form-row" style="margin-bottom:16px">
             <div><strong style="color:#94a3b8;font-size:13px">Assigned to:</strong> <span id="walkDetailAssign"></span></div>
             <div><strong style="color:#94a3b8;font-size:13px">Status:</strong> <select class="inline-select" id="walkDetailStatus" onchange="updateWalkStatus()"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
-            <div><strong style="color:#94a3b8;font-size:13px">Script:</strong> <select class="inline-select" id="walkDetailScript" onchange="updateWalkScript()"><option value="">None</option></select></div>
+            <div><strong style="color:#94a3b8;font-size:13px">Script:</strong> <select class="inline-select" id="walkDetailScript" onchange="updateWalkScript()"><option value="">None</option></select> <span id="walkScriptStatus" style="font-size:11px;color:#22c55e;display:none">Saved!</span></div>
           </div>
           <!-- Join codes removed — walkers use personal codes now -->
           <div id="walkGroupMembers" style="display:none;margin-bottom:12px"></div>
@@ -3819,6 +3827,10 @@ window.updateWalkStatus = async function() {
 window.updateWalkScript = async function() {
   var scriptId = document.getElementById('walkDetailScript').value;
   await apiPut('/api/walks/' + state.currentWalkId, { script_id: scriptId || null });
+  var status = document.getElementById('walkScriptStatus');
+  status.style.display = '';
+  status.textContent = scriptId ? 'Saved! Walkers will see this script.' : 'Removed.';
+  setTimeout(function() { status.style.display = 'none'; }, 3000);
 };
 window.deleteWalkAddr = async function(addrId) {
   await apiDelete('/api/walks/' + state.currentWalkId + '/addresses/' + addrId);
@@ -3844,17 +3856,60 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
       var data = await api('/api/voters-precincts');
       var el = document.getElementById('walkPrecinctList');
       if (data.precincts && data.precincts.length > 0) {
-        el.innerHTML = data.precincts.map(function(p) {
-          return '<div class="check-item"><input type="checkbox" class="walk-precinct-cb" value="' + escHtml(p) + '"> ' + escHtml(p) + '</div>';
-        }).join('');
+        // Get voter counts per precinct
+        var countData = {};
+        try {
+          var statsResp = await api('/api/voters-touchpoints/stats');
+          (statsResp.precincts || []).forEach(function(p) { countData[p.precinct] = p.total_voters || 0; });
+        } catch(e) {}
+        el.textContent = '';
+        data.precincts.forEach(function(p) {
+          var item = document.createElement('label');
+          item.className = 'walk-precinct-item';
+          item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;border-bottom:1px solid #1e293b;font-size:14px;transition:background 0.1s';
+          item.addEventListener('mouseenter', function() { item.style.background = '#1e293b'; });
+          item.addEventListener('mouseleave', function() { item.style.background = ''; });
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.className = 'walk-precinct-cb';
+          cb.value = p;
+          cb.style.cssText = 'width:18px;height:18px;accent-color:#f59e0b;flex-shrink:0';
+          cb.addEventListener('change', updateWalkPrecinctCount);
+          item.appendChild(cb);
+          var label = document.createElement('span');
+          label.style.cssText = 'flex:1;color:#e2e8f0;font-weight:500';
+          label.textContent = 'Precinct ' + p;
+          item.appendChild(label);
+          var count = document.createElement('span');
+          count.style.cssText = 'font-size:12px;color:#64748b';
+          count.textContent = (countData[p] || 0) + ' voters';
+          item.appendChild(count);
+          el.appendChild(item);
+        });
       } else {
-        el.innerHTML = '<span style="color:#f59e0b;font-size:13px">No precinct data yet. Import the county voter file to get precincts.</span>';
+        el.textContent = '';
+        var msg = document.createElement('span');
+        msg.style.cssText = 'color:#f59e0b;font-size:13px';
+        msg.textContent = 'No precinct data yet. Import the county voter file to get precincts.';
+        el.appendChild(msg);
       }
     } catch (e) {}
     // Load election dropdowns for voting history filters
     loadWalkElectionDropdowns();
   }
 });
+
+function filterWalkPrecincts() {
+  var search = (document.getElementById('walkPrecinctSearch').value || '').toLowerCase();
+  document.querySelectorAll('.walk-precinct-item').forEach(function(item) {
+    item.style.display = item.textContent.toLowerCase().includes(search) ? '' : 'none';
+  });
+}
+function updateWalkPrecinctCount() {
+  var count = document.querySelectorAll('.walk-precinct-cb:checked').length;
+  var el = document.getElementById('walkPrecinctSelected');
+  if (el) el.textContent = count + ' selected';
+}
 
 async function loadWalkElectionDropdowns() {
   try {
