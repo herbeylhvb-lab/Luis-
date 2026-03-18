@@ -1590,9 +1590,15 @@
         apiCall('/api/p2p/suggest-reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral' }) })
           .then(function(data) {
             loading.remove();
-            if (data.suggestion) {
+            if (data && data.suggestion) {
               aiSuggestionCache[msgCacheKey] = data;
               aiText.textContent = data.suggestion;
+              aiBtns.style.display = 'flex';
+              var srcBadge = document.createElement('span');
+              srcBadge.className = 'badge badge-blue';
+              srcBadge.style.cssText = 'font-size:9px;margin-left:4px';
+              srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
+              aiBox.querySelector('span').appendChild(srcBadge);
               var btnUse = document.createElement('button');
               btnUse.className = 'btn btn-sm btn-success';
               btnUse.style.cssText = 'padding:3px 8px;font-size:11px';
@@ -1611,12 +1617,17 @@
               btnDismiss.textContent = 'Own';
               btnDismiss.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); });
               aiBtns.appendChild(btnDismiss);
-            } else { aiBox.style.display = 'none'; }
-          }).catch(function() {
+            } else {
+              // No suggestion available — show helpful message instead of hiding
+              aiText.textContent = 'No AI suggestion available. Set your Anthropic API key in Settings → AI, or write your own reply.';
+              aiText.style.color = '#94a3b8';
+              aiText.style.fontSize = '12px';
+            }
+          }).catch(function(err) {
             loading.remove();
             aiText.textContent = 'AI unavailable — write your own reply.';
             aiText.style.color = '#94a3b8';
-            setTimeout(function() { aiBox.style.display = 'none'; }, 4000);
+            aiText.style.fontSize = '12px';
           });
         } // end else (no cache)
       }

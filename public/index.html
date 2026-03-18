@@ -3173,13 +3173,14 @@ function buildPendingCard(m) {
         srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
         aiLabel.appendChild(srcBadge);
       } else {
-        aiBox.style.display = 'none';
+        aiLoading.style.display = 'none';
+        aiText.textContent = 'No AI suggestion available. Set your Anthropic API key in Settings → AI, or write your own reply.';
+        aiText.style.color = '#94a3b8';
       }
     }).catch(function(err) {
       aiLoading.style.display = 'none';
-      aiText.textContent = 'AI suggestion unavailable — write your own reply.';
+      aiText.textContent = 'AI unavailable — write your own reply.';
       aiText.style.color = '#94a3b8';
-      setTimeout(function() { aiBox.style.display = 'none'; }, 4000);
     });
   }
 
