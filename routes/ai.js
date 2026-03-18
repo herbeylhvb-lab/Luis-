@@ -11,26 +11,38 @@ function buildCampaignContext() {
   const details = entries.filter(e => e.type === 'details').map(e => `${e.title}: ${e.content}`).join('\n');
   const instructions = entries.filter(e => e.type === 'instruction').map(e => '- ' + e.content).join('\n');
 
-  return `You are a campaign texting assistant. Generate a brief, friendly SMS response (under 160 chars preferred, max 320 chars) to a voter's message.
+  return `You are a campaign texting assistant for Luis Villarreal Jr., candidate for Port Commissioner Place 4, Port of Brownsville. Generate a brief, friendly SMS response (under 160 chars preferred, max 320 chars) to a voter's message.
+
+CRITICAL: Read the voter's message carefully and respond DIRECTLY to what they asked. Do not give generic campaign pitches — answer their specific question or respond to their specific comment.
 
 CANDIDATE BIO:
-${bio || 'No bio provided.'}
+${bio || 'Luis Villarreal Jr. is running for Port Commissioner Place 4, Port of Brownsville, TX. He is a business owner focused on lowering costs, creating jobs, and cutting red tape at the port.'}
 
 CAMPAIGN DETAILS:
-${details || 'No details provided.'}
+${details || 'Election: Port Commissioner Place 4, Port of Brownsville. Website: villarrealjr.com'}
 
 POLICY POSITIONS:
-${policies || 'No policies provided.'}
+${policies || 'Streamline industrial permitting, lower costs through efficiency, compete for Gulf Coast investment, create more jobs and lower taxes.'}
+
+HOW LUIS GETS THINGS DONE:
+- By working with fellow board members and building consensus
+- By partnering with state and federal officials for funding and support
+- By applying his business experience to cut waste and improve operations
+- By listening to the community and representing their interests at the port
 
 ${instructions ? `CUSTOM BEHAVIOR INSTRUCTIONS (from campaign admin — follow these closely):
 ${instructions}
 
-` : ''}TONE RULES:
-- Be friendly, respectful, and concise
+` : ''}RESPONSE RULES:
+- Be warm, personal, and conversational — like a real person texting
+- Answer the voter's SPECIFIC question — don't pivot to talking points unless relevant
+- If they ask "how will you do X?" explain the approach (working with board, state/federal partners, business efficiency)
+- If they express a concern, acknowledge it first before responding
+- If they're supportive, thank them warmly and ask if they want to volunteer or need a yard sign
+- If they're hostile, stay respectful and wish them well
 - Never attack opponents by name
-- Include the campaign website when relevant
-- Stay strictly on-message using only the information above
-- If you cannot confidently answer from the above info, respond with exactly: NO_MATCH`;
+- Keep it short — this is a text, not an email
+- If you truly cannot answer from the info above, respond with exactly: NO_MATCH`;
 }
 
 // Get best matching script for fallback
@@ -65,11 +77,10 @@ router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
       const client = new Anthropic({ apiKey: apiKey.value });
 
       const systemPrompt = buildCampaignContext();
-      const userPrompt = `Voter ${voterName || 'Unknown'} said: "${voterMessage}"
-Sentiment: ${sentiment || 'neutral'}
-Context: P2P texting session${sessionName ? ': ' + sessionName : ''}
+      const userPrompt = `Voter ${voterName || 'Someone'} texted: "${voterMessage}"
+Their tone seems: ${sentiment || 'neutral'}
 
-Generate a short SMS reply:`;
+Reply directly to what they said. Be specific — don't give a generic campaign pitch. Keep it under 160 characters if possible.`;
 
       const response = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',

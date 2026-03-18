@@ -1446,6 +1446,9 @@
     var volPendingTimer = null;
 
     async function loadVolPending() {
+      // Skip refresh if user is typing in any reply input (prevents erasing their text)
+      var activeInput = document.querySelector('#volPendingList input:focus');
+      if (activeInput && activeInput.value.trim()) return;
       try {
         var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || '') } });
         var msgs = data.messages || [];

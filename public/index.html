@@ -3166,6 +3166,9 @@ function buildPendingCard(m) {
 }
 
 async function loadPendingMessages() {
+  // Skip refresh if user is typing in any reply input
+  var activeInput = document.querySelector('#pendingMessages input:focus');
+  if (activeInput && activeInput.value.trim()) return;
   var el = document.getElementById('pendingMessages');
   try {
     var data = await api('/api/messages/pending');
