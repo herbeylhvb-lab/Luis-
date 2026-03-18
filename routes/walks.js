@@ -165,7 +165,14 @@ router.post('/walks', (req, res) => {
   const result = db.prepare(
     'INSERT INTO block_walks (name, description, assigned_to, join_code) VALUES (?, ?, ?, ?)'
   ).run(name, description || '', assigned_to || '', joinCode);
-  res.json({ success: true, id: result.lastInsertRowid, joinCode });
+  // Auto-assign all active walkers to the new walk
+  const walkId = result.lastInsertRowid;
+  const activeWalkers = db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1').all();
+  const insertMember = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
+  for (const w of activeWalkers) {
+    insertMember.run(walkId, w.name, w.id, w.phone || '');
+  }
+  res.json({ success: true, id: walkId, joinCode, autoAssigned: activeWalkers.length });
 });
 
 // Get walk detail with addresses

@@ -3919,7 +3919,7 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
       name: document.getElementById('precinctWalkName').value.trim() || undefined,
       filters: Object.keys(filters).length > 0 ? filters : undefined
     });
-    statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Walk created with ' + data.added + ' addresses from ' + precincts.length + ' precinct(s)! Join code: <strong>' + data.joinCode + '</strong></span>';
+    statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Walk created with ' + data.added + ' addresses from ' + precincts.length + ' precinct(s)!' + (data.autoAssigned ? ' Auto-assigned to ' + data.autoAssigned + ' walker(s).' : '') + '</span>';
     document.getElementById('precinctWalkName').value = '';
     loadWalks();
   } catch (e) {
@@ -8825,42 +8825,62 @@ async function showAssignWalkersModal(walkId) {
     }
   }
 
-  // Available walkers by candidate
+  // Available walkers — from all candidates
+  var allWalkers = [];
   var candidates = (candData.candidates || []).filter(function(c) { return c.is_active; });
   for (var ci = 0; ci < candidates.length; ci++) {
-    var cand = candidates[ci];
     try {
-      var wData = await api('/api/candidates/' + cand.id + '/walkers');
-      var available = (wData.walkers || []).filter(function(w) { return w.is_active && !assignedIds.has(w.id); });
-      if (available.length === 0) continue;
-
-      var candTitle = document.createElement('div');
-      candTitle.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:12px;margin-bottom:6px';
-      candTitle.textContent = cand.name + ' WALKERS';
-      box.appendChild(candTitle);
-
-      for (var wi = 0; wi < available.length; wi++) {
-        var wRow = document.createElement('div');
-        wRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;margin-bottom:4px';
-
-        var wName = document.createElement('span');
-        wName.style.cssText = 'font-size:13px';
-        wName.textContent = available[wi].name;
-        wRow.appendChild(wName);
-
-        var assignBtn = document.createElement('button');
-        assignBtn.className = 'btn btn-xs btn-primary';
-        assignBtn.textContent = 'Assign';
-        assignBtn.onclick = (function(wId) { return async function() {
-          try {
-            await apiPost('/api/walks/' + walkId + '/assign-walker', { walker_id: wId });
-            showAssignWalkersModal(walkId);
-          } catch(e) { alert(e.message); }
-        }; })(available[wi].id);
-        wRow.appendChild(assignBtn);
-        box.appendChild(wRow);
-      }
+      var wData = await api('/api/candidates/' + candidates[ci].id + '/walkers');
+      (wData.walkers || []).forEach(function(w) { if (w.is_active) allWalkers.push(w); });
     } catch(e) { /* skip */ }
+  }
+  var available = allWalkers.filter(function(w) { return !assignedIds.has(w.id); });
+
+  if (available.length > 0) {
+    var avTitle = document.createElement('div');
+    avTitle.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:12px;margin-bottom:6px';
+    avTitle.textContent = 'AVAILABLE WALKERS (' + available.length + ')';
+    box.appendChild(avTitle);
+
+    // Assign All button
+    var assignAllBtn = document.createElement('button');
+    assignAllBtn.className = 'btn btn-sm btn-success';
+    assignAllBtn.style.cssText = 'margin-bottom:8px;width:100%';
+    assignAllBtn.textContent = 'Assign All (' + available.length + ')';
+    assignAllBtn.onclick = async function() {
+      assignAllBtn.disabled = true;
+      assignAllBtn.textContent = 'Assigning...';
+      for (var i = 0; i < available.length; i++) {
+        try { await apiPost('/api/walks/' + walkId + '/assign-walker', { walker_id: available[i].id }); } catch(e) { /* skip full */ }
+      }
+      showAssignWalkersModal(walkId);
+    };
+    box.appendChild(assignAllBtn);
+
+    for (var wi = 0; wi < available.length; wi++) {
+      var wRow = document.createElement('div');
+      wRow.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0f172a;border-radius:8px;margin-bottom:4px';
+      var wName = document.createElement('span');
+      wName.style.cssText = 'font-size:13px';
+      wName.textContent = available[wi].name;
+      wRow.appendChild(wName);
+      var assignBtn = document.createElement('button');
+      assignBtn.className = 'btn btn-xs btn-primary';
+      assignBtn.textContent = 'Assign';
+      assignBtn.onclick = (function(wId) { return async function() {
+        try {
+          await apiPost('/api/walks/' + walkId + '/assign-walker', { walker_id: wId });
+          showAssignWalkersModal(walkId);
+        } catch(e) { alert(e.message); }
+      }; })(available[wi].id);
+      wRow.appendChild(assignBtn);
+      box.appendChild(wRow);
+    }
+  } else if (allWalkers.length === 0) {
+    var noWalkers = document.createElement('div');
+    noWalkers.style.cssText = 'color:#f59e0b;font-size:13px;padding:12px;text-align:center';
+    noWalkers.textContent = 'No walkers found. Create walkers under Candidates first.';
+    box.appendChild(noWalkers);
   }
 
   var closeBtn = document.createElement('button');
