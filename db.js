@@ -622,6 +622,8 @@ try {
 
     -- Composite indexes for common query patterns
     CREATE INDEX IF NOT EXISTS idx_messages_direction_id ON messages(direction, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_messages_phone_direction ON messages(phone, direction, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_messages_session_phone ON messages(session_id, phone);
     CREATE INDEX IF NOT EXISTS idx_p2p_assign_vol_status ON p2p_assignments(volunteer_id, status);
     CREATE INDEX IF NOT EXISTS idx_p2p_assign_session_status ON p2p_assignments(session_id, status);
     CREATE INDEX IF NOT EXISTS idx_survey_sends_survey_status ON survey_sends(survey_id, status);

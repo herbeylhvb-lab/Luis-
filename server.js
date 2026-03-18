@@ -743,8 +743,35 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   let totalSynced = 0;
   const errors = [];
 
-  // Process phones in parallel batches of 5 for speed
-  const BATCH_SIZE = 5;
+  // Pre-load P2P session map for fast lookups (avoids N+1 queries per message)
+  const p2pPhoneMap = {};
+  try {
+    db.prepare(`
+      SELECT c.phone, a.id as assignment_id, s.id as session_id FROM p2p_assignments a
+      JOIN p2p_sessions s ON a.session_id = s.id
+      JOIN contacts c ON a.contact_id = c.id
+      WHERE s.status = 'active' AND a.status IN ('sent', 'in_conversation')
+    `).all().forEach(r => {
+      const digits = phoneDigits(r.phone);
+      if (digits) p2pPhoneMap[digits] = { assignment_id: r.assignment_id, session_id: r.session_id };
+    });
+  } catch (e) { /* table may not exist */ }
+
+  // Pre-load active survey sends for fast matching
+  const surveyPhoneMap = {};
+  try {
+    db.prepare(`
+      SELECT ss.*, s.name as survey_name, s.completion_message FROM survey_sends ss
+      JOIN surveys s ON ss.survey_id = s.id
+      WHERE ss.status IN ('sent', 'in_progress') AND s.status = 'active'
+    `).all().forEach(r => {
+      const digits = phoneDigits(r.phone);
+      if (digits) surveyPhoneMap[digits] = r;
+    });
+  } catch (e) { /* table may not exist */ }
+
+  // Process phones in parallel batches of 15 for speed
+  const BATCH_SIZE = 15;
   for (let i = 0; i < sentPhones.length; i += BATCH_SIZE) {
     const batch = sentPhones.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(batch.map(async (phone) => {
@@ -804,15 +831,8 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           continue; // Don't route STOP messages to surveys or P2P
         }
 
-        // Find P2P session for this phone so we can tag the message with session_id
-        const p2pMatch = db.prepare(`
-          SELECT a.id as assignment_id, s.id as session_id FROM p2p_assignments a
-          JOIN p2p_sessions s ON a.session_id = s.id
-          JOIN contacts c ON a.contact_id = c.id
-          WHERE (c.phone = ? OR REPLACE(REPLACE(REPLACE(c.phone,'+1',''),'+',''),'-','') = ?)
-            AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
-          ORDER BY a.sent_at DESC LIMIT 1
-        `).get(msgPhone, msgPhone);
+        // Find P2P session for this phone using pre-loaded map (fast)
+        const p2pMatch = p2pPhoneMap[msgPhone] || p2pPhoneMap[msgPhone.slice(-10)] || null;
 
         // Insert the inbound message (with session_id if P2P match found)
         // Use fast keyword sentiment during sync (AI would be too slow for batch)
@@ -821,13 +841,8 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
 
-        // Route to survey if applicable
-        const activeSend = db.prepare(`
-          SELECT ss.*, s.name as survey_name, s.completion_message FROM survey_sends ss
-          JOIN surveys s ON ss.survey_id = s.id
-          WHERE ss.phone = ? AND ss.status IN ('sent', 'in_progress') AND s.status = 'active'
-          ORDER BY ss.sent_at DESC LIMIT 1
-        `).get(msgPhone);
+        // Route to survey if applicable (use pre-loaded map for speed)
+        const activeSend = surveyPhoneMap[msgPhone] || surveyPhoneMap[msgPhone.slice(-10)] || null;
 
         if (activeSend && activeSend.current_question_id) {
           const question = db.prepare('SELECT * FROM survey_questions WHERE id = ?').get(activeSend.current_question_id);
