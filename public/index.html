@@ -791,12 +791,9 @@ tr:hover td{background:#1e293b80}
           <div class="form-row" style="margin-bottom:16px">
             <div><strong style="color:#94a3b8;font-size:13px">Assigned to:</strong> <span id="walkDetailAssign"></span></div>
             <div><strong style="color:#94a3b8;font-size:13px">Status:</strong> <select class="inline-select" id="walkDetailStatus" onchange="updateWalkStatus()"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
+            <div><strong style="color:#94a3b8;font-size:13px">Script:</strong> <select class="inline-select" id="walkDetailScript" onchange="updateWalkScript()"><option value="">None</option></select></div>
           </div>
-          <div id="walkJoinCodeWrap" style="display:none;margin-bottom:16px;padding:12px;background:#422006;border:1px solid #f59e0b;border-radius:10px;text-align:center">
-            <div style="font-size:12px;color:#fcd34d;margin-bottom:4px">Group Walk Join Code</div>
-            <div id="walkJoinCode" style="font-size:28px;font-weight:800;letter-spacing:6px;color:#f59e0b;font-family:monospace"></div>
-            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Share this code with volunteers to join the walk group (max 4 walkers)</div>
-          </div>
+          <!-- Join codes removed — walkers use personal codes now -->
           <div id="walkGroupMembers" style="display:none;margin-bottom:12px"></div>
           <div class="stats-grid" id="walkResultStats"></div>
           <div class="progress-bar"><div class="progress-fill green" id="walkProgress" style="width:0%"></div></div>
@@ -3717,16 +3714,26 @@ async function loadWalkDetail(id) {
   document.getElementById('walkDetailName').textContent = w.name;
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
   document.getElementById('walkDetailStatus').value = w.status;
+  // Populate script dropdown
+  try {
+    var scriptData = await api('/api/walk-scripts');
+    var scriptSel = document.getElementById('walkDetailScript');
+    scriptSel.textContent = '';
+    var noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = 'None';
+    scriptSel.appendChild(noneOpt);
+    (scriptData.scripts || []).forEach(function(s) {
+      var opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      scriptSel.appendChild(opt);
+    });
+    scriptSel.value = w.script_id || '';
+  } catch(e) { /* silent */ }
   // Show refresh button if walk was created from precincts
   document.getElementById('btnRefreshTurf').style.display = w.source_precincts ? '' : 'none';
-  // Join code
-  const joinCodeWrap = document.getElementById('walkJoinCodeWrap');
-  if (w.join_code) {
-    joinCodeWrap.style.display = '';
-    document.getElementById('walkJoinCode').textContent = w.join_code;
-  } else {
-    joinCodeWrap.style.display = 'none';
-  }
+  // Join codes removed — walkers use personal codes now
   // Group members
   try {
     const gData = await api('/api/walks/' + id + '/group');
@@ -3808,6 +3815,10 @@ window.updateDoorNotes = async function(addrId, notes) {
 };
 window.updateWalkStatus = async function() {
   await apiPut('/api/walks/' + state.currentWalkId, { status: document.getElementById('walkDetailStatus').value });
+};
+window.updateWalkScript = async function() {
+  var scriptId = document.getElementById('walkDetailScript').value;
+  await apiPut('/api/walks/' + state.currentWalkId, { script_id: scriptId || null });
 };
 window.deleteWalkAddr = async function(addrId) {
   await apiDelete('/api/walks/' + state.currentWalkId + '/addresses/' + addrId);
@@ -4403,7 +4414,7 @@ window.createWalkFromSelected = async function() {
   var walkName = prompt('Walk name (leave blank for auto-name):') || '';
   try {
     var data = await apiPost('/api/walks/from-voters', { voter_ids: ids, name: walkName || undefined });
-    alert('Walk created with ' + data.added + ' addresses! Join code: ' + data.joinCode);
+    alert('Walk created with ' + data.added + ' addresses!' + (data.autoAssigned ? ' Auto-assigned to ' + data.autoAssigned + ' walker(s).' : ''));
     toggleAllVoters(false);
   } catch(e) {
     alert(e.message || 'Failed to create walk');
@@ -7651,11 +7662,11 @@ window.createWalkFromUniverse = async function(listId, splitByPrecinct) {
       // Split by precinct — multiple walks created
       var msg = data.total_walks + ' walks created:\n\n';
       data.walks.forEach(function(w) {
-        msg += w.precinct + ': ' + w.addresses + ' addresses (code: ' + w.join_code + ')\n';
+        msg += w.precinct + ': ' + w.addresses + ' addresses\n';
       });
       alert(msg);
     } else {
-      alert('Walk created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses + '\nJoin code: ' + data.join_code);
+      alert('Walk created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses);
     }
     document.querySelector('[data-page="page-walks"]').click();
   } catch(e) {
@@ -10110,7 +10121,7 @@ window.createWalkFromList = async function() {
       data.walks.forEach(function(w) { msg += w.precinct + ': ' + w.addresses + ' addresses (code: ' + w.join_code + ')\n'; });
       alert(msg);
     } else {
-      alert('Walk created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses + '\nJoin code: ' + data.join_code);
+      alert('Walk created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses);
     }
   } catch(e) {
     alert('Failed: ' + (e.message || 'Unknown error'));
