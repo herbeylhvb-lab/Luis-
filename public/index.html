@@ -573,11 +573,22 @@ tr:hover td{background:#1e293b80}
         <div class="back-btn" onclick="showP2pAdmin()">&#8592; Back to Sessions</div>
         <div class="card">
           <h3 id="p2pSessionTitle">Session</h3>
-          <div style="display:flex;gap:16px;margin-bottom:16px;font-size:14px;flex-wrap:wrap">
-            <span>Join Code: <strong id="p2pJoinCodeDisplay" style="color:#818cf8;font-size:18px">----</strong></span>
-            <span>Expires: <span id="p2pCodeExpires" style="color:#94a3b8"></span></span>
-            <span><a id="p2pVolunteerLink" href="#" target="_blank" style="color:#22c55e;font-size:12px;display:none">Share volunteer link</a></span>
-            <span>Mode: <select class="inline-select" id="p2pModeSelect" onchange="updateP2pMode()"></select></span>
+          <div id="p2pShareBox" style="margin-bottom:16px;padding:14px;background:#1a1a3e;border:1px solid #818cf8;border-radius:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+              <div>
+                <div style="font-size:11px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Volunteer Join Code</div>
+                <div id="p2pJoinCodeDisplay" style="font-size:28px;font-weight:800;letter-spacing:6px;color:#818cf8;font-family:monospace">----</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-sm" style="background:#818cf8;color:#fff" onclick="copyP2pCode()">Copy Code</button>
+                <button class="btn btn-sm" style="background:#22c55e;color:#fff" onclick="copyP2pLink()">Copy Share Link</button>
+              </div>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12px;color:#94a3b8">
+              <a id="p2pVolunteerLink" href="#" target="_blank" style="color:#22c55e;word-break:break-all"></a>
+              <span>Expires: <span id="p2pCodeExpires"></span></span>
+              <span>Mode: <select class="inline-select" id="p2pModeSelect" onchange="updateP2pMode()"></select></span>
+            </div>
           </div>
           <div class="stats-grid" style="margin-bottom:16px">
             <div class="stat-card" style="border:1px solid rgba(34,197,94,0.3)"><div class="label" style="display:flex;align-items:center;gap:6px"><span id="p2pOnlineDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#64748b"></span>Volunteers Online</div><div class="value" id="p2pStatOnline" style="color:#22c55e">0</div></div>
@@ -6138,7 +6149,6 @@ async function openP2pSession(id) {
       var link = window.location.origin + '/volunteer?code=' + s.join_code;
       volLinkEl.textContent = link;
       volLinkEl.href = link;
-      volLinkEl.style.display = '';
     }
     document.getElementById('p2pCodeExpires').textContent = s.code_expires_at ? new Date(s.code_expires_at).toLocaleDateString() : '';
     var onlineVols = (s.volunteers || []).filter(function(v) { return v.is_online; }).length;
@@ -6191,6 +6201,23 @@ async function deleteP2pSession(id) {
   if (!confirm('Permanently delete this session? All volunteer assignments and data will be removed. This cannot be undone.')) return;
   await apiDelete('/api/p2p/sessions/' + id);
   loadP2pSessions();
+}
+
+function copyP2pCode() {
+  var code = document.getElementById('p2pJoinCodeDisplay').textContent;
+  navigator.clipboard.writeText(code).then(function() {
+    var btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy Code'; }, 2000);
+  });
+}
+function copyP2pLink() {
+  var link = document.getElementById('p2pVolunteerLink').href;
+  navigator.clipboard.writeText(link).then(function() {
+    var btn = event.target;
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.textContent = 'Copy Share Link'; }, 2000);
+  });
 }
 
 async function updateP2pMode() {
