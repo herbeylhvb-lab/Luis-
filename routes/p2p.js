@@ -130,7 +130,7 @@ router.post('/p2p/sessions', (req, res) => {
         try {
           const r = insertContact.run(v.phone, v.first_name || '', v.last_name || '', v.city || '', v.email || '');
           ids.push(r.lastInsertRowid);
-        } catch (_e) {
+        } catch (e) {
           // Handle race condition: another request inserted this phone between our check and insert
           contact = findContact.get(v.phone);
           if (contact) ids.push(contact.id);
@@ -285,7 +285,7 @@ router.post('/p2p/join', (req, res) => {
   }
   let volunteer = db.prepare('SELECT * FROM p2p_volunteers WHERE session_id = ? AND name = ?').get(session.id, name);
   if (volunteer) {
-    db.prepare('UPDATE p2p_volunteers SET is_online = 1 WHERE id = ?').run(volunteer.id);
+    db.prepare("UPDATE p2p_volunteers SET is_online = 1, last_active = datetime('now') WHERE id = ?").run(volunteer.id);
     if (persistentVol && !volunteer.volunteer_id) db.prepare('UPDATE p2p_volunteers SET volunteer_id = ? WHERE id = ?').run(persistentVol.id, volunteer.id);
     snapBackConversations(session.id, volunteer.id);
     assignFreshBatch(session.id, volunteer.id);
@@ -449,6 +449,8 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
       }
     })();
+    // Update last_active timestamp
+    db.prepare("UPDATE p2p_volunteers SET last_active = datetime('now') WHERE id = ?").run(volunteerId);
 
     res.json({ success: true, smsSent: true });
   } catch (err) {
@@ -516,6 +518,8 @@ router.post('/texting-volunteers', (req, res) => {
     if (i === 9) return res.status(500).json({ error: 'Could not generate unique code. Try again.' });
   }
   const result = db.prepare('INSERT INTO texting_volunteers (name, phone, code) VALUES (?, ?, ?)').run(name.trim(), phone || null, code);
+  // Sync to unified volunteers table
+  db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk) VALUES (?, ?, ?, 1, 0)').run(name.trim(), phone || null, code);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Texting volunteer created: ' + name.trim() + ' (code: ' + code + ')');
   res.json({ success: true, id: result.lastInsertRowid, code });
 });

@@ -260,7 +260,7 @@ router.post('/rumbleup/push-list', asyncHandler(async (req, res) => {
         email: v.email || ''
       });
       synced++;
-    } catch (_err) {
+    } catch (err) {
       errors++;
     }
   }

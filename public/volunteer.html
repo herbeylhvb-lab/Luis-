@@ -621,7 +621,7 @@
     async function apiCall(path, opts) {
       var res = await fetch(path, opts);
       var data = await res.json();
-      if (!res.ok && data.error) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
       return data;
     }
 

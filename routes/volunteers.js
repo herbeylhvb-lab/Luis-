@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { randomBytes } = require('crypto');
 const db = require('../db');
-// asyncHandler available from utils if needed for async routes
+const { asyncHandler } = require('../utils');
 
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 
@@ -138,20 +138,20 @@ router.get('/volunteers/:id/dashboard', (req, res) => {
 
   // Find the corresponding walkers.id for walking stats
   const walker = db.prepare('SELECT id FROM walkers WHERE code = ?').get(vol.code);
-  const wId = walker ? walker.id : vol.id;
+  const wId = walker ? walker.id : null; // null = no walking stats (don't cross ID spaces)
 
   const stats = {
     sessions_joined: (db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE volunteer_id = ?').get(vol.id) || {}).c || 0,
     texts_sent: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = ? WHERE pa.status IN ('sent','in_conversation','completed')`).get(vol.id) || {}).c || 0,
-    doors_knocked: (db.prepare('SELECT COUNT(*) as c FROM walk_attempts WHERE walker_id = ?').get(wId) || {}).c || 0,
-    walks_participated: (db.prepare('SELECT COUNT(DISTINCT walk_id) as c FROM walk_attempts WHERE walker_id = ?').get(wId) || {}).c || 0
+    doors_knocked: wId ? (db.prepare('SELECT COUNT(*) as c FROM walk_attempts WHERE walker_id = ?').get(wId) || {}).c || 0 : 0,
+    walks_participated: wId ? (db.prepare('SELECT COUNT(DISTINCT walk_id) as c FROM walk_attempts WHERE walker_id = ?').get(wId) || {}).c || 0 : 0
   };
 
   // Leaderboard
   const leaderboard = db.prepare(`
     SELECT v.id, v.name,
       (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = v.id WHERE pa.status IN ('sent','in_conversation','completed')) as texts_sent,
-      (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = v.id) as doors_knocked
+      (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = COALESCE((SELECT w.id FROM walkers w WHERE w.code = v.code), -1)) as doors_knocked
     FROM volunteers v WHERE v.is_active = 1
     ORDER BY (texts_sent + doors_knocked) DESC LIMIT 15
   `).all();

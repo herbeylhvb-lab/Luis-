@@ -629,7 +629,7 @@ router.post('/candidates/:id/lists/:listId/bulk-upload', requireCandidateAuth, (
   if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
   const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ?');
   const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
-  let added = 0, duplicates = 0; const notFound = [];
+  let added = 0, duplicates = 0, notFound = [];
   const tx = db.transaction(() => {
     for (const ident of identifiers) {
       const voter = lookup.get(ident, ident, ident);
@@ -784,6 +784,8 @@ router.post('/candidates/:id/walkers', (req, res) => {
   }
 
   const result = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code) VALUES (?, ?, ?, ?)').run(req.params.id, name.trim(), phone || null, code);
+  // Sync to unified volunteers table
+  db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk) VALUES (?, ?, ?, 0, 1)').run(name.trim(), phone || null, code);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker created for ' + candidate.name + ': ' + name.trim() + ' (code: ' + code + ')');
   res.json({ success: true, id: result.lastInsertRowid, code });
 });

@@ -187,7 +187,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_rsvps_event ON event_rsvps(event_id);
 `);
 // Prevent duplicate RSVPs for same contact+event
-try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rsvps_event_phone ON event_rsvps(event_id, contact_phone)"); } catch (_e) { /* duplicates may exist */ }
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rsvps_event_phone ON event_rsvps(event_id, contact_phone)"); } catch (e) { /* duplicates may exist */ }
 
 // --- Phase 2 migrations ---
 
@@ -282,7 +282,7 @@ addColumn("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL");
 
 // Unique QR token per voter (short random string used in check-in URLs)
 addColumn("ALTER TABLE voters ADD COLUMN qr_token TEXT DEFAULT NULL");
-try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_voters_qr_token ON voters(qr_token)"); } catch (_e) { /* already exists */ }
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_voters_qr_token ON voters(qr_token)"); } catch (e) { /* already exists */ }
 
 // Track voter check-ins at events (separate from event_rsvps which is contact-based)
 db.exec(`
@@ -423,7 +423,7 @@ addColumn("ALTER TABLE voters ADD COLUMN early_voted INTEGER DEFAULT 0");
 addColumn("ALTER TABLE voters ADD COLUMN early_voted_date TEXT DEFAULT NULL");
 addColumn("ALTER TABLE voters ADD COLUMN early_voted_method TEXT DEFAULT NULL");
 addColumn("ALTER TABLE voters ADD COLUMN early_voted_ballot TEXT DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_early_voted ON voters(early_voted)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_early_voted ON voters(early_voted)"); } catch (e) { /* exists */ }
 
 // Additional voter fields for registered voter file imports
 addColumn("ALTER TABLE voters ADD COLUMN middle_name TEXT DEFAULT ''");
@@ -436,12 +436,12 @@ addColumn("ALTER TABLE voters ADD COLUMN vanid TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN suffix TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN zip4 TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN address_id TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_vanid ON voters(vanid)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_county_file_id ON voters(county_file_id)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_vanid ON voters(vanid)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_county_file_id ON voters(county_file_id)"); } catch (e) { /* exists */ }
 
 // State File ID (the voter's unique ID from the county/state voter file)
 addColumn("ALTER TABLE voters ADD COLUMN state_file_id TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(state_file_id)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(state_file_id)"); } catch (e) { /* exists */ }
 
 // --- Voter demographics & district assignments (from county voter file) ---
 addColumn("ALTER TABLE voters ADD COLUMN gender TEXT DEFAULT ''");
@@ -459,11 +459,11 @@ addColumn("ALTER TABLE voters ADD COLUMN hospital_district TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN navigation_port TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN port_authority TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_gender ON voters(gender)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_rep ON voters(state_rep)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_us_congress ON voters(us_congress)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_school_district ON voters(school_district)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_port_authority ON voters(port_authority)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_gender ON voters(gender)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_rep ON voters(state_rep)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_us_congress ON voters(us_congress)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_school_district ON voters(school_district)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_port_authority ON voters(port_authority)"); } catch (e) { /* exists */ }
 
 // --- Users table (authentication) ---
 db.exec(`
@@ -482,7 +482,7 @@ db.exec(`
 // better-sqlite3-session-store expects column "expire" — fix old schema if needed
 try {
   db.prepare("SELECT expire FROM sessions LIMIT 1").get();
-} catch (_e) {
+} catch (e) {
   // Drop and recreate with correct schema (sessions are ephemeral)
   db.exec("DROP TABLE IF EXISTS sessions");
 }
@@ -592,9 +592,9 @@ db.exec(`
 addColumn("ALTER TABLE election_votes ADD COLUMN party_voted TEXT DEFAULT ''");
 
 // Composite indexes for universe builder performance
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (_e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_party ON election_votes(voter_id, party_voted)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_party ON election_votes(voter_id, party_voted)"); } catch (e) { /* exists */ }
 
 // --- Performance indexes (added for query optimization) ---
 try {
@@ -638,7 +638,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_voters_registration ON voters(registration_number);
     CREATE INDEX IF NOT EXISTS idx_block_walks_join ON block_walks(join_code, status);
   `);
-} catch (_e) { /* indexes already exist */ }
+} catch (e) { /* indexes already exist */ }
 
 // --- Broadcast campaigns table ---
 db.exec(`
@@ -662,7 +662,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_broadcast_list ON broadcast_campaigns(list_id);
     CREATE INDEX IF NOT EXISTS idx_broadcast_created ON broadcast_campaigns(created_at);
   `);
-} catch (_e) { /* indexes already exist */ }
+} catch (e) { /* indexes already exist */ }
 
 // --- Channel tracking (SMS vs WhatsApp dual-send) ---
 addColumn("ALTER TABLE messages ADD COLUMN channel TEXT DEFAULT 'sms'");
@@ -672,7 +672,7 @@ addColumn("ALTER TABLE p2p_assignments ADD COLUMN wa_status TEXT DEFAULT NULL");
 
 // --- Captain hierarchy: team members become real captains ---
 addColumn("ALTER TABLE captains ADD COLUMN parent_captain_id INTEGER DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id)"); } catch (e) { /* exists */ }
 
 // --- Election definitions (so elections can exist before any voter is marked) ---
 db.exec(`
@@ -694,7 +694,7 @@ addColumn("ALTER TABLE users ADD COLUMN google_picture TEXT DEFAULT NULL");
 addColumn("ALTER TABLE users ADD COLUMN google_access_token TEXT DEFAULT NULL");
 addColumn("ALTER TABLE users ADD COLUMN google_refresh_token TEXT DEFAULT NULL");
 addColumn("ALTER TABLE users ADD COLUMN google_token_expiry TEXT DEFAULT NULL");
-try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (_e) { /* already exists */ }
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (e) { /* already exists */ }
 
 // --- Candidates table (multi-candidate support) ---
 db.exec(`
@@ -713,11 +713,11 @@ db.exec(`
 
 // Link captains to candidates (NULL = admin's direct captains, backward compatible)
 addColumn("ALTER TABLE captains ADD COLUMN candidate_id INTEGER DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_candidate ON captains(candidate_id)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_candidate ON captains(candidate_id)"); } catch (e) { /* exists */ }
 
 // Link admin lists to candidates (NULL = admin's direct lists, backward compatible)
 addColumn("ALTER TABLE admin_lists ADD COLUMN candidate_id INTEGER DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lists(candidate_id)"); } catch (_e) { /* exists */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lists(candidate_id)"); } catch (e) { /* exists */ }
 
 // Rename existing "My Voters" lists to the captain's actual name
 try {
@@ -729,7 +729,7 @@ try {
       AND EXISTS (SELECT 1 FROM captains c WHERE c.id = captain_lists.captain_id)
   `).run();
   if (renamed.changes > 0) console.log('[migration] Renamed ' + renamed.changes + ' "My Voters" lists to captain names');
-} catch (_e) { /* already migrated or no matching lists */ }
+} catch (e) { /* already migrated or no matching lists */ }
 
 // --- Populate election_cycle from election_name where missing ---
 try {
@@ -869,7 +869,7 @@ addColumn("ALTER TABLE walk_group_members ADD COLUMN walker_id INTEGER DEFAULT N
 // Track which walker knocked each door
 addColumn("ALTER TABLE walk_attempts ADD COLUMN walker_id INTEGER DEFAULT NULL");
 // Bump default max walkers to 10
-try { db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run(); } catch(_e) {}
+try { db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run(); } catch(e) {}
 
 // --- Groups table (code-based login, block walk only, max 10) ---
 db.exec(`
@@ -926,12 +926,14 @@ try {
     const texters = db.prepare('SELECT name, phone, code, is_active, created_at FROM texting_volunteers').all();
     const ins = db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk, is_active, created_at) VALUES (?, ?, ?, 1, 0, ?, ?)');
     for (const t of texters) { ins.run(t.name, t.phone, t.code, t.is_active, t.created_at); }
-    // Copy walkers (give them walk access, check for same code/name overlap)
+    // Copy walkers (give them walk access, handle NULL phone dedup)
     const walkerRows = db.prepare('SELECT name, phone, code, is_active, created_at FROM walkers').all();
     const insWalk = db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk, is_active, created_at) VALUES (?, ?, ?, 0, 1, ?, ?)');
-    // updWalk not needed — overlap handled by checking existing volunteer by name+phone below
     for (const w of walkerRows) {
-      const existing = db.prepare('SELECT id FROM volunteers WHERE name = ? AND phone = ?').get(w.name, w.phone);
+      // Match by name, handling NULL phone correctly
+      const existing = w.phone
+        ? db.prepare('SELECT id FROM volunteers WHERE name = ? AND phone = ?').get(w.name, w.phone)
+        : db.prepare('SELECT id FROM volunteers WHERE name = ? AND phone IS NULL').get(w.name);
       if (existing) { db.prepare('UPDATE volunteers SET can_walk = 1 WHERE id = ?').run(existing.id); }
       else { insWalk.run(w.name, w.phone, w.code, w.is_active, w.created_at); }
     }
