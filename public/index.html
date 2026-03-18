@@ -313,6 +313,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab active" data-textingtab="compose">Compose & Send</div>
         <div class="sub-tab" data-textingtab="p2p">P2P Texting</div>
         <div class="sub-tab" data-textingtab="broadcast">Broadcast SMS</div>
+        <div class="sub-tab" data-textingtab="volunteers">Volunteers</div>
       </div>
     </div>
 
@@ -1694,6 +1695,26 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
+    <!-- ==================== VOLUNTEERS ==================== -->
+    <div class="page texting-subpage" id="page-volunteers" data-texting="volunteers">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0">Texting Volunteers</h3>
+          <button class="btn btn-sm btn-primary" onclick="showAddVolunteerForm2()">+ Add Volunteer</button>
+        </div>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Create persistent volunteer accounts. Each volunteer gets a unique code and portal at <strong style="color:#818cf8">/texter</strong> where they can see their stats, leaderboard, and active sessions.</p>
+        <div id="addVolForm2" style="display:none;margin-bottom:16px;padding:14px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div class="form-row" style="margin-bottom:8px">
+            <div class="form-group"><label>Name</label><input type="text" id="newVolName2" placeholder="Volunteer name"></div>
+            <div class="form-group"><label>Phone (optional)</label><input type="text" id="newVolPhone2" placeholder="956-xxx-xxxx"></div>
+          </div>
+          <button class="btn btn-sm btn-success" onclick="createTextingVolunteer2()">Create</button>
+          <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="document.getElementById('addVolForm2').style.display='none'">Cancel</button>
+        </div>
+        <div id="textingVolunteersList2"></div>
+      </div>
+    </div>
+
     <!-- ==================== GOTV CHASE ==================== -->
     <div class="page" id="page-gotv">
       <div class="stats-grid" id="gotvStats">
@@ -2170,6 +2191,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
       var tn = tt ? tt.textingtab : 'compose';
       if (tn === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
       if (tn === 'broadcast') { loadBroadcastPage(); }
+      if (tn === 'volunteers') { loadTextingVolunteers2(); }
     }
     if (page === 'blockwalk') {
       var bt = (document.querySelector('#blockwalkSubTabs .sub-tab.active') || {}).dataset;
@@ -6213,6 +6235,114 @@ async function deleteP2pSession(id) {
 
 // ===================== TEXTING VOLUNTEERS MANAGEMENT =====================
 function showAddVolunteerForm() { document.getElementById('addVolForm').style.display = ''; document.getElementById('newVolName').focus(); }
+function showAddVolunteerForm2() { document.getElementById('addVolForm2').style.display = ''; document.getElementById('newVolName2').focus(); }
+
+async function createTextingVolunteer2() {
+  var name = document.getElementById('newVolName2').value.trim();
+  var phone = document.getElementById('newVolPhone2').value.trim();
+  if (!name) return alert('Name is required.');
+  try {
+    var data = await apiPost('/api/texting-volunteers', { name: name, phone: phone || null });
+    alert('Volunteer created! Code: ' + data.code + '\nPortal: ' + window.location.origin + '/texter?code=' + data.code);
+    document.getElementById('newVolName2').value = '';
+    document.getElementById('newVolPhone2').value = '';
+    document.getElementById('addVolForm2').style.display = 'none';
+    loadTextingVolunteers(); loadTextingVolunteers2();
+  } catch (e) { alert('Failed: ' + (e.message || 'Unknown error')); }
+}
+
+async function loadTextingVolunteers2() {
+  try {
+    var data = await api('/api/texting-volunteers');
+    var el = document.getElementById('textingVolunteersList2');
+    var vols = data.volunteers || [];
+    if (vols.length === 0) {
+      el.textContent = '';
+      var empty = document.createElement('p');
+      empty.style.cssText = 'color:#64748b;font-size:13px';
+      empty.textContent = 'No volunteers yet. Click "+ Add Volunteer" to create one.';
+      el.appendChild(empty);
+      return;
+    }
+    el.textContent = '';
+    var table = document.createElement('table');
+    table.style.width = '100%';
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    ['Name', 'Code', 'Phone', 'Sessions', 'Texts Sent', 'Last Active', 'Share', ''].forEach(function(h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    vols.forEach(function(v) {
+      var tr = document.createElement('tr');
+      if (!v.is_active) tr.style.opacity = '0.5';
+      var tdName = document.createElement('td');
+      tdName.style.fontWeight = '600';
+      tdName.textContent = v.name;
+      tr.appendChild(tdName);
+      var tdCode = document.createElement('td');
+      var codeEl = document.createElement('code');
+      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;font-size:14px';
+      codeEl.textContent = v.code;
+      tdCode.appendChild(codeEl);
+      tr.appendChild(tdCode);
+      var tdPhone = document.createElement('td');
+      tdPhone.style.cssText = 'font-size:13px;color:#94a3b8';
+      tdPhone.textContent = v.phone || '--';
+      tr.appendChild(tdPhone);
+      var tdSessions = document.createElement('td');
+      tdSessions.textContent = v.sessions_joined || 0;
+      tr.appendChild(tdSessions);
+      var tdSent = document.createElement('td');
+      tdSent.style.color = '#22c55e';
+      tdSent.style.fontWeight = '600';
+      tdSent.textContent = v.total_sent || 0;
+      tr.appendChild(tdSent);
+      var tdActive = document.createElement('td');
+      tdActive.style.cssText = 'font-size:12px;color:#64748b';
+      tdActive.textContent = v.last_active ? utcToLocal(v.last_active).toLocaleDateString() : 'Never';
+      tr.appendChild(tdActive);
+      var tdShare = document.createElement('td');
+      var shareBtn = document.createElement('button');
+      shareBtn.className = 'btn btn-sm';
+      shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:4px 10px;font-size:11px;min-width:auto';
+      shareBtn.textContent = 'Send Info';
+      shareBtn.addEventListener('click', function() { sendVolunteerInfo(v); });
+      tdShare.appendChild(shareBtn);
+      var copyBtn = document.createElement('button');
+      copyBtn.className = 'btn btn-sm';
+      copyBtn.style.cssText = 'background:#818cf8;color:#fff;padding:4px 10px;font-size:11px;min-width:auto;margin-left:4px';
+      copyBtn.textContent = 'Copy Link';
+      copyBtn.addEventListener('click', function() {
+        navigator.clipboard.writeText(window.location.origin + '/texter?code=' + v.code);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(function() { copyBtn.textContent = 'Copy Link'; }, 2000);
+      });
+      tdShare.appendChild(copyBtn);
+      tr.appendChild(tdShare);
+      var tdDel = document.createElement('td');
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger btn-xs';
+      delBtn.textContent = 'Del';
+      delBtn.addEventListener('click', function() {
+        deleteTextingVolunteer(v.id, v.name);
+        setTimeout(function() { loadTextingVolunteers2(); }, 500);
+      });
+      tdDel.appendChild(delBtn);
+      tr.appendChild(tdDel);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    var wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    wrap.appendChild(table);
+    el.appendChild(wrap);
+  } catch (e) { /* silent */ }
+}
 
 async function createTextingVolunteer() {
   var name = document.getElementById('newVolName').value.trim();
