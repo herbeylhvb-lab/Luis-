@@ -1013,35 +1013,46 @@
 
     async function fetchAiSuggestion(voterMessage, voterName, sentiment, assignmentId) {
       var el = document.getElementById('aiSuggestion');
+      if (!el) return;
       el.style.display = '';
-      document.getElementById('aiLoading').style.display = '';
-      document.getElementById('aiSuggestionText').textContent = '';
+      var loadingEl = document.getElementById('aiLoading');
+      var textEl = document.getElementById('aiSuggestionText');
+      var sourceEl = document.getElementById('aiSource');
+      if (loadingEl) loadingEl.style.display = '';
+      if (textEl) { textEl.textContent = ''; textEl.style.color = '#e2e8f0'; }
       currentAiSuggestion = '';
+      if (!voterMessage || !voterMessage.trim()) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (textEl) { textEl.textContent = 'No message to analyze.'; textEl.style.color = '#94a3b8'; }
+        return;
+      }
       try {
-        var data = await apiCall('/api/p2p/suggest-reply', {
+        var res = await fetch('/api/p2p/suggest-reply', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             voterMessage: voterMessage,
             voterName: voterName || 'Voter',
             sentiment: sentiment || 'neutral',
-            sessionName: volState.sessionName
+            sessionName: volState.sessionName || ''
           })
         });
-        document.getElementById('aiLoading').style.display = 'none';
+        var data = {};
+        try { data = await res.json(); } catch (jsonErr) { data = {}; }
+        if (loadingEl) loadingEl.style.display = 'none';
         if (data.suggestion) {
           currentAiSuggestion = data.suggestion;
-          document.getElementById('aiSuggestionText').textContent = data.suggestion;
-          document.getElementById('aiSource').textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
+          if (textEl) textEl.textContent = data.suggestion;
+          if (sourceEl) sourceEl.textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
+          // Show action buttons
+          var btnsEl = document.getElementById('aiSuggestionBtns');
+          if (btnsEl) btnsEl.style.display = 'flex';
         } else {
-          document.getElementById('aiSuggestionText').textContent = 'No suggestion available — write your own reply.';
-          document.getElementById('aiSuggestionText').style.color = '#94a3b8';
+          if (textEl) { textEl.textContent = 'No AI suggestion for this message.'; textEl.style.color = '#94a3b8'; }
         }
       } catch (e) {
-        document.getElementById('aiLoading').style.display = 'none';
-        console.error('[AI Suggestion Error]', e);
-        document.getElementById('aiSuggestionText').textContent = 'AI error: ' + (e.message || 'Unknown') + ' — try refreshing the page';
-        document.getElementById('aiSuggestionText').style.color = '#ef4444';
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (textEl) { textEl.textContent = 'Could not reach AI: ' + (e.message || 'network error'); textEl.style.color = '#ef4444'; }
       }
     }
 
@@ -1591,7 +1602,11 @@
         loading.textContent = 'AI thinking...';
         loading.className = 'ai-loading-indicator';
         aiBox.insertBefore(loading, aiText);
-        apiCall('/api/p2p/suggest-reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral' }) })
+        fetch('/api/p2p/suggest-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral' })
+        }).then(function(res) { return res.json(); })
           .then(function(data) {
             loading.remove();
             if (data && data.suggestion) {
@@ -1622,17 +1637,15 @@
               btnDismiss.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); });
               aiBtns.appendChild(btnDismiss);
             } else {
-              // No suggestion available — show helpful message instead of hiding
-              aiText.textContent = 'No AI suggestion available. Set your Anthropic API key in Settings → AI, or write your own reply.';
+              aiText.textContent = (data && data.error) ? ('AI error: ' + data.error) : 'No AI suggestion for this message.';
               aiText.style.color = '#94a3b8';
               aiText.style.fontSize = '12px';
             }
           }).catch(function(err) {
             loading.remove();
-            aiText.textContent = 'AI error: ' + (err.message || 'Unknown error');
+            aiText.textContent = 'AI network error: ' + (err.message || 'check connection');
             aiText.style.color = '#ef4444';
             aiText.style.fontSize = '12px';
-            console.error('[AI Pending Card Error]', err);
           });
         } // end else (no cache)
       }
