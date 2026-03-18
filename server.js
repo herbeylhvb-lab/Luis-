@@ -541,7 +541,10 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 app.get('/api/messages/pending', (req, res) => {
   const isAdmin = req.session && req.session.userId;
   const volId = req.headers['x-volunteer-id'];
-  const isVol = volId && db.prepare('SELECT id FROM p2p_volunteers WHERE id = ?').get(volId);
+  const isVol = volId && (
+    db.prepare('SELECT id FROM p2p_volunteers WHERE id = ?').get(volId) ||
+    db.prepare('SELECT id FROM texting_volunteers WHERE id = ?').get(volId)
+  );
   if (!isAdmin && !isVol) return res.status(401).json({ error: 'Authentication required.' });
   const pending = db.prepare(`
     SELECT m.*,

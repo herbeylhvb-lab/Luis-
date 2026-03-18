@@ -361,7 +361,7 @@ tr:hover td{background:#1e293b80}
     </div>
 
     <!-- Inbox sub-tab: Needs Response -->
-    <div class="page inbox-subpage" id="inbox-needs-response" data-inbox="needs-response">
+    <div class="page inbox-subpage" id="inbox-needs-response" data-inbox="needs-response" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <div style="display:flex;gap:8px;align-items:center">
           <button class="btn btn-sm btn-secondary" onclick="loadPendingMessages()">Refresh</button>
@@ -2759,11 +2759,13 @@ async function loadAdminQueue() {
   var el = document.getElementById('adminQueueContent');
   if (!sessionId) { el.textContent = ''; var p = document.createElement('div'); p.style.cssText = 'color:#64748b;font-size:13px'; p.textContent = 'Select a session above to start sending.'; el.appendChild(p); return; }
   try {
-    // Get first volunteer in the session to use their queue
+    // Join session as admin to get a volunteer slot
     var sData = await api('/api/p2p/sessions/' + sessionId);
-    var vols = sData.session.volunteers || [];
-    if (vols.length === 0) { el.textContent = ''; var nv = document.createElement('div'); nv.style.cssText = 'color:#f59e0b;font-size:13px'; nv.textContent = 'No volunteers in this session. Join as a volunteer first at /volunteer.'; el.appendChild(nv); return; }
-    var volId = vols[0].id;
+    var joinCode = sData.session.join_code;
+    var adminName = state.user ? state.user.displayName : 'Admin';
+    var joinResult = await apiPost('/api/p2p/join', { name: adminName, code: joinCode });
+    var volId = joinResult.volunteerId;
+    if (!volId) { el.textContent = ''; var nv = document.createElement('div'); nv.style.cssText = 'color:#ef4444;font-size:13px'; nv.textContent = 'Failed to join session.'; el.appendChild(nv); return; }
     var qData = await api('/api/p2p/volunteers/' + volId + '/queue');
     el.textContent = '';
     if (!qData.assignment) {

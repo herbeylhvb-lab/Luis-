@@ -661,10 +661,10 @@
           var joinData = await apiCall('/api/p2p/join', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: loginData.volunteer.name, code: s.join_code })
+            body: JSON.stringify({ name: loginData.volunteer.name, code: s.join_code, textingVolunteerId: loginData.volunteer.id })
           });
           if (joinData.volunteerId) volState.volunteerId = joinData.volunteerId;
-          else volState.volunteerId = s.session_id; // fallback
+          else volState.volunteerId = loginData.volunteer.id; // use persistent ID as fallback
         } else {
           // No active sessions — still let them in for Needs Response
           volState.sessionId = null;
