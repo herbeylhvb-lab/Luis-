@@ -1002,7 +1002,7 @@ async function analyzeSentimentAI(text) {
     const Anthropic = require('@anthropic-ai/sdk').default;
     const client = new Anthropic({ apiKey: apiKey.value });
     const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 10,
       system: 'You analyze text messages sent to a political campaign. Classify the sentiment as exactly one word: positive, negative, or neutral. Positive = supportive, interested, friendly, willing to help. Negative = opposed, hostile, annoyed, wants to be left alone. Neutral = questions, unclear intent, or informational. Reply with ONLY one word.',
       messages: [{ role: 'user', content: text }]
