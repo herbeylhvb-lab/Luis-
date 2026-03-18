@@ -941,10 +941,11 @@ router.get('/voters/:id/touchpoints', (req, res) => {
   }
 
   // 2. Text messages (outbound + inbound by phone)
-  if (voter.phone) {
+  const voterPhoneNorm = phoneDigits(voter.phone);
+  if (voterPhoneNorm) {
     const texts = db.prepare(
       "SELECT direction, body, timestamp as date FROM messages WHERE phone = ? ORDER BY timestamp DESC LIMIT 50"
-    ).all(voter.phone);
+    ).all(voterPhoneNorm);
     for (const t of texts) {
       touchpoints.push({
         channel: t.direction === 'outbound' ? 'Text Sent' : 'Text Received',
@@ -973,7 +974,7 @@ router.get('/voters/:id/touchpoints', (req, res) => {
   }
 
   // 4. Survey responses (matched by phone)
-  if (voter.phone) {
+  if (voterPhoneNorm) {
     const surveyData = db.prepare(`
       SELECT s.name as survey_name, ss.status, ss.sent_at, ss.completed_at,
         GROUP_CONCAT(sq.question_text || ': ' || sr.response_text, '; ') as responses
@@ -984,7 +985,7 @@ router.get('/voters/:id/touchpoints', (req, res) => {
       WHERE ss.phone = ?
       GROUP BY ss.id
       ORDER BY ss.sent_at DESC
-    `).all(voter.phone);
+    `).all(voterPhoneNorm);
     for (const sv of surveyData) {
       touchpoints.push({
         channel: 'Survey',

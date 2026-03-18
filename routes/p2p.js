@@ -487,7 +487,7 @@ router.get('/texting-volunteers', (req, res) => {
   const volunteers = db.prepare(`
     SELECT tv.*,
       (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = tv.id) as sessions_joined,
-      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = tv.id WHERE pa.status IN ('sent','in_conversation','completed')) as total_sent,
+      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = tv.id WHERE pa.status IN ('sent','in_conversation','completed')) as total_sent,
       (SELECT MAX(pv.last_active) FROM p2p_volunteers pv WHERE pv.volunteer_id = tv.id) as last_active
     FROM texting_volunteers tv ORDER BY tv.created_at DESC
   `).all();
@@ -542,8 +542,8 @@ router.post('/texting-volunteers/login', (req, res) => {
   // Get their session history
   const sessions = db.prepare(`
     SELECT pv.session_id, s.name, s.status, s.join_code,
-      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_name = pv.name AND pa.status IN ('sent','in_conversation','completed')) as sent,
-      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_name = pv.name AND pa.status = 'in_conversation') as active_chats
+      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_id = pv.id AND pa.status IN ('sent','in_conversation','completed')) as sent,
+      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_id = pv.id AND pa.status = 'in_conversation') as active_chats
     FROM p2p_volunteers pv
     JOIN p2p_sessions s ON pv.session_id = s.id
     WHERE pv.volunteer_id = ? AND s.status = 'active'
@@ -552,8 +552,8 @@ router.post('/texting-volunteers/login', (req, res) => {
   const stats = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = ?) as sessions_joined,
-      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = ? WHERE pa.volunteer_name = (SELECT name FROM texting_volunteers WHERE id = ?) AND pa.status IN ('sent','in_conversation','completed')) as total_sent
-  `).get(vol.id, vol.id, vol.id);
+      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = ? WHERE pa.status IN ('sent','in_conversation','completed')) as total_sent
+  `).get(vol.id, vol.id);
   res.json({ success: true, volunteer: { id: vol.id, name: vol.name, code: vol.code }, sessions, stats });
 });
 
@@ -563,13 +563,13 @@ router.get('/texting-volunteers/:id/dashboard', (req, res) => {
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
   const stats = {
     sessions_joined: (db.prepare('SELECT COUNT(*) as c FROM p2p_volunteers WHERE volunteer_id = ?').get(vol.id) || {}).c || 0,
-    total_sent: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = ? WHERE pa.volunteer_name = ? AND pa.status IN ('sent','in_conversation','completed')`).get(vol.id, vol.name) || {}).c || 0,
-    active_chats: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = ? WHERE pa.volunteer_name = ? AND pa.status = 'in_conversation'`).get(vol.id, vol.name) || {}).c || 0
+    total_sent: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = ? WHERE pa.status IN ('sent','in_conversation','completed')`).get(vol.id) || {}).c || 0,
+    active_chats: (db.prepare(`SELECT COUNT(*) as c FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = ? WHERE pa.status = 'in_conversation'`).get(vol.id) || {}).c || 0
   };
   // Leaderboard of all active texting volunteers
   const leaderboard = db.prepare(`
     SELECT tv.id, tv.name,
-      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pv.volunteer_id = tv.id WHERE pa.volunteer_name = tv.name AND pa.status IN ('sent','in_conversation','completed')) as total_sent,
+      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = tv.id WHERE pa.status IN ('sent','in_conversation','completed')) as total_sent,
       (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = tv.id) as sessions
     FROM texting_volunteers tv WHERE tv.is_active = 1
     ORDER BY total_sent DESC LIMIT 15

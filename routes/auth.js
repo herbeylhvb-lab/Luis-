@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { asyncHandler } = require('../utils');
+
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
 
 // Check if any users exist (for first-time setup)
 router.get('/auth/status', (req, res) => {
@@ -59,7 +62,7 @@ router.post('/auth/setup', asyncHandler(async (req, res) => {
 }));
 
 // Login
-router.post('/auth/login', asyncHandler(async (req, res) => {
+router.post('/auth/login', loginLimiter, asyncHandler(async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
 
