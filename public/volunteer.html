@@ -1549,11 +1549,15 @@
       // AI suggestion (loads async)
       var aiBox = document.createElement('div');
       aiBox.style.cssText = 'background:#1a1a3e;border:1px solid #818cf8;border-radius:6px;padding:8px;margin-bottom:8px;display:none';
+      var aiLabel = document.createElement('div');
+      aiLabel.style.cssText = 'font-size:11px;font-weight:600;color:#818cf8;margin-bottom:4px';
+      aiLabel.textContent = 'AI Suggested Reply';
+      aiBox.appendChild(aiLabel);
       var aiText = document.createElement('div');
       aiText.style.cssText = 'color:#e2e8f0;font-size:12px;line-height:1.4;margin-bottom:6px';
       aiBox.appendChild(aiText);
       var aiBtns = document.createElement('div');
-      aiBtns.style.cssText = 'display:flex;gap:4px';
+      aiBtns.style.cssText = 'display:none;gap:4px';
       aiBox.appendChild(aiBtns);
       card.appendChild(aiBox);
       // Reply input
@@ -1588,7 +1592,7 @@
           var cached = aiSuggestionCache[msgCacheKey];
           aiBox.style.display = '';
           aiText.textContent = cached.suggestion;
-          aiBtns.style.display = 'flex';
+          aiBtns.style.cssText = 'display:flex;gap:4px';
           var cBtnUse = document.createElement('button'); cBtnUse.className = 'btn btn-sm btn-success'; cBtnUse.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnUse.textContent = 'Send';
           cBtnUse.addEventListener('click', function() { doSend(cached.suggestion); }); aiBtns.appendChild(cBtnUse);
           var cBtnEdit = document.createElement('button'); cBtnEdit.className = 'btn btn-sm btn-secondary'; cBtnEdit.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnEdit.textContent = 'Edit';
@@ -1612,13 +1616,12 @@
             if (data && data.suggestion) {
               aiSuggestionCache[msgCacheKey] = data;
               aiText.textContent = data.suggestion;
-              aiBtns.style.display = 'flex';
+              aiBtns.style.cssText = 'display:flex;gap:4px';
               var srcBadge = document.createElement('span');
               srcBadge.className = 'badge badge-blue';
               srcBadge.style.cssText = 'font-size:9px;margin-left:4px';
               srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
-              var labelSpan = aiBox.querySelector('span');
-              if (labelSpan) labelSpan.appendChild(srcBadge); else aiBox.prepend(srcBadge);
+              aiLabel.appendChild(srcBadge);
               var btnUse = document.createElement('button');
               btnUse.className = 'btn btn-sm btn-success';
               btnUse.style.cssText = 'padding:3px 8px;font-size:11px';
