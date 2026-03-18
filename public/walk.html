@@ -161,60 +161,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="load-card">
     <div style="font-size:2.5rem;margin-bottom:0.5rem">&#x1F6B6;</div>
     <h2>Block Walk</h2>
-    <p>Load a walk by ID or join a group walk with a code.</p>
-
-    <div class="mode-tabs">
-      <button class="mode-tab active" onclick="setLoadMode('id')">Walk ID</button>
-      <button class="mode-tab" onclick="setLoadMode('join')">Join Group</button>
-      <button class="mode-tab" onclick="setLoadMode('distributed')">Canvass</button>
+    <p>Enter your walker code to sign in.</p>
+    <div class="form-group">
+      <label>Walker Code</label>
+      <input type="text" id="walkerCodeInput" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
     </div>
-
-    <!-- Walk ID mode -->
-    <div class="mode-panel active" id="modeId">
-      <div class="form-group">
-        <label>Walk ID</label>
-        <input type="number" id="walkIdInput" placeholder="e.g. 1" inputmode="numeric">
-      </div>
-      <button class="btn btn-walk" id="btnLoadWalk" onclick="loadWalk()">Load Walk</button>
-    </div>
-
-    <!-- Join group mode -->
-    <div class="mode-panel" id="modeJoin">
-      <div class="form-group">
-        <label>Join Code</label>
-        <input type="text" id="joinCodeInput" placeholder="e.g. AB3K" maxlength="4" style="text-transform:uppercase;letter-spacing:4px;font-size:24px">
-      </div>
-      <div class="form-group">
-        <label>Your Name</label>
-        <input type="text" id="joinNameInput" placeholder="e.g. Maria">
-      </div>
-      <div class="form-group">
-        <label>Your Phone</label>
-        <input type="tel" id="joinPhoneInput" placeholder="e.g. 555-123-4567" inputmode="tel">
-      </div>
-      <button class="btn btn-walk" id="btnJoinWalk" onclick="joinWalk()">Join Group Walk</button>
-    </div>
-
-    <!-- Distributed canvassing mode -->
-    <div class="mode-panel" id="modeDistributed">
-      <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">Enter the canvass code from your organizer. We'll auto-assign the nearest doors to you.</div>
-      <div class="form-group">
-        <label>Canvass Code</label>
-        <input type="text" id="distCodeInput" placeholder="e.g. ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-size:20px">
-      </div>
-      <div class="form-group">
-        <label>Your Name</label>
-        <input type="text" id="distNameInput" placeholder="e.g. Maria">
-      </div>
-      <div class="form-group">
-        <label>Your Phone</label>
-        <input type="tel" id="distPhoneInput" placeholder="e.g. 555-123-4567" inputmode="tel">
-      </div>
-      <div id="distGpsStatus" style="font-size:12px;color:#64748b;margin-bottom:8px">Getting your location...</div>
-      <button class="btn btn-walk" id="btnDistClaim" onclick="claimDistributedTurf()">Get My Doors</button>
-    </div>
-
+    <button class="btn btn-walk" id="btnWalkerLogin" onclick="walkerLogin()">Sign In</button>
     <div class="error-msg" id="loadError"></div>
+    <p style="color:#64748b;font-size:12px;margin-top:12px">Don't have a code? Ask your campaign admin.</p>
     <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
   </div>
 </div>
@@ -360,7 +314,72 @@ var walkState = {
   distGpsLng: null
 };
 
-// ===================== LOAD MODE TOGGLE =====================
+// ===================== WALKER CODE LOGIN =====================
+
+document.getElementById('walkerCodeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') walkerLogin();
+});
+
+// Auto-login from URL param
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var code = params.get('code');
+  if (code) {
+    document.getElementById('walkerCodeInput').value = code;
+    setTimeout(walkerLogin, 100);
+  }
+  // Legacy: support walkId param
+  var wid = params.get('walkId');
+  if (wid && !code) {
+    walkState.walkId = parseInt(wid);
+    var wkrId = params.get('walkerId');
+    if (wkrId) walkState.walkerId = parseInt(wkrId);
+    loadWalk();
+  }
+})();
+
+async function walkerLogin() {
+  var code = document.getElementById('walkerCodeInput').value.trim();
+  var errEl = document.getElementById('loadError');
+  errEl.textContent = '';
+  if (!code) { errEl.textContent = 'Please enter your walker code.'; return; }
+
+  document.getElementById('btnWalkerLogin').disabled = true;
+  try {
+    var resp = await fetch('/api/walkers/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Login failed');
+
+    walkState.walkerId = data.walker.id;
+    walkState.walkerName = data.walker.name;
+    walkState.isGroupMode = true;
+
+    // Get walker's dashboard to find their walks
+    var dashResp = await fetch('/api/walkers/' + data.walker.id + '/dashboard');
+    var dashData = await dashResp.json();
+    if (!dashResp.ok) throw new Error(dashData.error || 'Failed to load walks');
+
+    var walks = dashData.walks || [];
+    if (walks.length > 0) {
+      // Load the first active walk
+      var activeWalk = walks.find(function(w) { return w.status !== 'completed'; }) || walks[0];
+      walkState.walkId = activeWalk.id;
+      loadWalk();
+    } else {
+      errEl.textContent = 'No walks assigned yet. Ask your campaign admin to assign you.';
+      document.getElementById('btnWalkerLogin').disabled = false;
+    }
+  } catch (e) {
+    errEl.textContent = e.message || 'Login failed. Check your code.';
+    document.getElementById('btnWalkerLogin').disabled = false;
+  }
+}
+
+// ===================== LOAD MODE TOGGLE (legacy) =====================
 
 function setLoadMode(mode) {
   var tabs = document.querySelectorAll('.mode-tab');
