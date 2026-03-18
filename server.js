@@ -552,6 +552,32 @@ app.get('/api/messages/pending', (req, res) => {
     db.prepare('SELECT id FROM volunteers WHERE id = ?').get(volId)
   );
   if (!isAdmin && !isVol) return res.status(401).json({ error: 'Authentication required.' });
+
+  // For volunteers: only show messages for phones in their assignments
+  // For admin: show all pending messages
+  let volPhoneFilter = '';
+  let volPhoneParams = [];
+  if (isVol && !isAdmin) {
+    // Get all phones assigned to this volunteer across all sessions
+    const assignedPhones = db.prepare(`
+      SELECT DISTINCT pa.phone FROM p2p_assignments pa
+      JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id
+      WHERE pv.volunteer_id = ? AND pa.status IN ('sent','in_conversation','completed')
+    `).all(volId).map(r => r.phone);
+    // Also get normalized versions for matching
+    const allPhones = new Set();
+    for (const p of assignedPhones) {
+      allPhones.add(p);
+      const digits = (p || '').replace(/\D/g, '');
+      if (digits.length === 10) allPhones.add(digits);
+      if (digits.length === 10) allPhones.add('1' + digits);
+      if (digits.length === 11 && digits.startsWith('1')) allPhones.add(digits.slice(1));
+    }
+    if (allPhones.size === 0) return res.json({ messages: [] });
+    volPhoneFilter = ' AND m.phone IN (' + [...allPhones].map(() => '?').join(',') + ')';
+    volPhoneParams = [...allPhones];
+  }
+
   const pending = db.prepare(`
     SELECT m.*,
       COALESCE(
@@ -566,8 +592,9 @@ app.get('/api/messages/pending', (req, res) => {
         WHERE out_msg.phone = m.phone AND out_msg.direction = 'outbound' AND out_msg.id > m.id
       )
       AND m.phone NOT IN (SELECT phone FROM opt_outs)
+      ${volPhoneFilter}
     ORDER BY m.id DESC LIMIT 100
-  `).all();
+  `).all(...volPhoneParams);
   // Batch-load conversation history for all pending phones in one query
   if (pending.length > 0) {
     const phones = pending.map(m => m.phone);
