@@ -718,7 +718,6 @@ tr:hover td{background:#1e293b80}
     <div class="page" id="page-blockwalk">
       <div class="sub-tabs" id="blockwalkSubTabs">
         <div class="sub-tab active" data-bwtab="walks">Block Walks</div>
-        <div class="sub-tab" data-bwtab="walkers">Block Walkers</div>
       </div>
     </div>
 
@@ -1988,38 +1987,7 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
-    <!-- Block Walkers Page -->
-    <div class="page bw-subpage" id="page-groups" data-bw="walkers">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h3 style="margin-bottom:0">Block Walkers <span style="font-size:13px;color:#64748b">(max 10 per walk)</span></h3>
-          <button class="btn btn-sm btn-primary" onclick="showAddGroupForm()">+ Add Block Walker</button>
-        </div>
-
-        <div id="addGroupForm" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
-          <div style="display:flex;gap:12px;align-items:flex-end">
-            <div class="form-group" style="flex:1;margin-bottom:0"><label>Walker Name *</label><input type="text" id="newGroupName" placeholder="e.g. John Smith"></div>
-            <button class="btn btn-sm btn-success" onclick="createGroup()">Create</button>
-            <button class="btn btn-sm btn-secondary" onclick="hideAddGroupForm()">Cancel</button>
-          </div>
-        </div>
-
-        <table class="table" id="groupsTable">
-          <thead><tr><th>Name</th><th>Code</th><th>Portal Link</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
-          <tbody id="groupsTableBody"><tr><td colspan="6" style="text-align:center;color:#64748b">Loading...</td></tr></tbody>
-        </table>
-      </div>
-
-      <div class="card" style="margin-top:16px">
-        <h3>How Block Walkers Work</h3>
-        <div style="color:#94a3b8;font-size:14px;line-height:1.6">
-          <p>1. Add individual block walkers (each gets a unique login code)</p>
-          <p>2. Share the code or portal link with the walker</p>
-          <p>3. Walkers log in and join active block walks (up to 10 per walk)</p>
-          <p>4. Walkers can only access their assigned walks &mdash; no admin features</p>
-        </div>
-      </div>
-    </div>
+    <!-- Block Walkers removed — walkers are managed under Candidates -->
 
   </div>
 </div>
