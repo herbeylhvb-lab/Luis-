@@ -791,8 +791,8 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Support Level</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <div class="form-group"><label>Voted In Election</label><select id="walkPrecinctVotedIn" multiple size="3" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px;color:#e2e8f0;font-size:13px"><option value="">Any</option></select><div style="font-size:10px;color:#64748b;margin-top:2px">Hold Ctrl/Cmd to select multiple</div></div>
-            <div class="form-group"><label>Did NOT Vote In</label><select id="walkPrecinctDidNotVote" multiple size="3" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px;color:#e2e8f0;font-size:13px"><option value="">--</option></select><div style="font-size:10px;color:#64748b;margin-top:2px">Hold Ctrl/Cmd to select multiple</div></div>
+            <div class="form-group"><label>Voted In Election</label><div id="walkPrecinctVotedIn" style="max-height:120px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:6px;background:#0f172a"><span style="color:#64748b;font-size:12px">Loading elections...</span></div></div>
+            <div class="form-group"><label>Did NOT Vote In</label><div id="walkPrecinctDidNotVote" style="max-height:120px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:6px;background:#0f172a"><span style="color:#64748b;font-size:12px">Loading elections...</span></div></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
             <div class="form-group"><label>Min Elections</label><input type="number" id="walkPrecinctMinElections" placeholder="e.g. 2" min="0" max="20"></div>
@@ -3940,13 +3940,35 @@ async function loadWalkElectionDropdowns() {
   try {
     var data = await api('/api/walk-elections');
     if (!data.elections || data.elections.length === 0) return;
-    var opts = data.elections.map(function(e) {
+    var elections = data.elections || [];
+    // Precinct walk — checkbox lists
+    ['walkPrecinctVotedIn', 'walkPrecinctDidNotVote'].forEach(function(containerId) {
+      var el = document.getElementById(containerId);
+      el.textContent = '';
+      if (elections.length === 0) { el.textContent = 'No election data yet.'; return; }
+      elections.forEach(function(e) {
+        var label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer;font-size:13px;color:#e2e8f0;border-bottom:1px solid #1e293b';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = containerId + '-cb';
+        cb.value = e.election_name;
+        cb.style.cssText = 'width:16px;height:16px;accent-color:#f59e0b;flex-shrink:0';
+        label.appendChild(cb);
+        var text = document.createElement('span');
+        text.textContent = e.election_name;
+        label.appendChild(text);
+        var count = document.createElement('span');
+        count.style.cssText = 'margin-left:auto;font-size:11px;color:#64748b';
+        count.textContent = (e.voter_count || 0) + ' voters';
+        label.appendChild(count);
+        el.appendChild(label);
+      });
+    });
+    // Universe dropdowns (keep as select for backward compat)
+    var opts = elections.map(function(e) {
       return '<option value="' + escHtml(e.election_name) + '">' + escHtml(e.election_name) + ' (' + (e.voter_count || 0) + ' voters)</option>';
     }).join('');
-    // Precinct walk dropdowns
-    document.getElementById('walkPrecinctVotedIn').innerHTML = '<option value="">Any</option>' + opts;
-    document.getElementById('walkPrecinctDidNotVote').innerHTML = '<option value="">--</option>' + opts;
-    // Universe dropdowns
     document.getElementById('newUnivVotedIn').innerHTML = '<option value="">Any</option>' + opts;
     document.getElementById('newUnivDidNotVote').innerHTML = '<option value="">--</option>' + opts;
   } catch (e) { /* no election data yet */ }
@@ -3966,11 +3988,11 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (support) filters.support_level = support;
     if (document.getElementById('walkPrecinctExcludeContacted').checked) filters.exclude_contacted = true;
     // Voting history filters
-    var votedIn = document.getElementById('walkPrecinctVotedIn').value;
-    var didNotVote = document.getElementById('walkPrecinctDidNotVote').value;
+    var votedIn = Array.from(document.querySelectorAll('.walkPrecinctVotedIn-cb:checked')).map(function(cb) { return cb.value; });
+    var didNotVote = Array.from(document.querySelectorAll('.walkPrecinctDidNotVote-cb:checked')).map(function(cb) { return cb.value; });
     var minElections = document.getElementById('walkPrecinctMinElections').value;
-    if (votedIn) filters.voted_in_election = votedIn;
-    if (didNotVote) filters.did_not_vote_in = didNotVote;
+    if (votedIn.length > 0) filters.voted_in_election = votedIn.join(',');
+    if (didNotVote.length > 0) filters.did_not_vote_in = didNotVote.join(',');
     if (minElections && parseInt(minElections) > 0) filters.min_elections = parseInt(minElections);
     if (document.getElementById('walkPrecinctHasVoted').checked) filters.has_voted = true;
     var data = await apiPost('/api/walks/from-precinct', {
