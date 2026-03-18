@@ -273,13 +273,16 @@ router.post('/p2p/join', (req, res) => {
   if (!session) return res.status(404).json({ error: 'Invalid or expired code.' });
   if (new Date(session.code_expires_at) < new Date()) return res.status(410).json({ error: 'Join code has expired.' });
 
+  // Check if this volunteer name matches a texting_volunteer (persistent identity)
+  const persistentVol = db.prepare('SELECT id FROM texting_volunteers WHERE name = ? AND is_active = 1').get(name);
   let volunteer = db.prepare('SELECT * FROM p2p_volunteers WHERE session_id = ? AND name = ?').get(session.id, name);
   if (volunteer) {
     db.prepare('UPDATE p2p_volunteers SET is_online = 1 WHERE id = ?').run(volunteer.id);
+    if (persistentVol && !volunteer.volunteer_id) db.prepare('UPDATE p2p_volunteers SET volunteer_id = ? WHERE id = ?').run(persistentVol.id, volunteer.id);
     snapBackConversations(session.id, volunteer.id);
     assignFreshBatch(session.id, volunteer.id);
   } else {
-    const result = db.prepare('INSERT INTO p2p_volunteers (session_id, name) VALUES (?, ?)').run(session.id, name);
+    const result = db.prepare('INSERT INTO p2p_volunteers (session_id, name, volunteer_id) VALUES (?, ?, ?)').run(session.id, name, persistentVol ? persistentVol.id : null);
     volunteer = { id: result.lastInsertRowid, session_id: session.id, name, is_online: 1 };
 
     if (session.assignment_mode === 'auto_split') {
@@ -539,16 +542,14 @@ router.post('/texting-volunteers/login', (req, res) => {
   const vol = db.prepare('SELECT * FROM texting_volunteers WHERE code = ?').get(code.trim().toUpperCase());
   if (!vol) return res.status(404).json({ error: 'Invalid volunteer code.' });
   if (!vol.is_active) return res.status(403).json({ error: 'This volunteer has been deactivated. Contact your campaign admin.' });
-  // Get their session history
+  // Get ALL active sessions (not just ones they've joined) so they can auto-join
   const sessions = db.prepare(`
-    SELECT pv.session_id, s.name, s.status, s.join_code,
-      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_id = pv.id AND pa.status IN ('sent','in_conversation','completed')) as sent,
-      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.volunteer_id = pv.id AND pa.status = 'in_conversation') as active_chats
-    FROM p2p_volunteers pv
-    JOIN p2p_sessions s ON pv.session_id = s.id
-    WHERE pv.volunteer_id = ? AND s.status = 'active'
-    ORDER BY pv.joined_at DESC
-  `).all(vol.id);
+    SELECT s.id as session_id, s.name, s.status, s.join_code,
+      (SELECT COUNT(*) FROM p2p_assignments pa WHERE pa.session_id = s.id AND pa.status = 'pending') as remaining
+    FROM p2p_sessions s
+    WHERE s.status = 'active'
+    ORDER BY s.created_at DESC
+  `).all();
   const stats = db.prepare(`
     SELECT
       (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = ?) as sessions_joined,
