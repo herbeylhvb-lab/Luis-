@@ -8640,11 +8640,34 @@ async function loadCandidateWalkers(candidateId, container) {
       }
       card.appendChild(stats);
 
-      // Walker portal link
+      // Walker portal link + share buttons
       var portalLink = document.createElement('div');
       portalLink.style.cssText = 'font-size:11px;color:#475569;margin-top:4px';
-      portalLink.textContent = 'Portal: ' + window.location.origin + '/walker?code=' + w.code;
+      portalLink.textContent = 'Code: ' + w.code + '  |  ' + window.location.origin + '/walk?code=' + w.code;
       card.appendChild(portalLink);
+      var shareBtns = document.createElement('div');
+      shareBtns.style.cssText = 'display:flex;gap:4px;margin-top:6px';
+      var shareBtn = document.createElement('button');
+      shareBtn.className = 'btn btn-sm';
+      shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:3px 8px;font-size:11px;min-width:auto';
+      shareBtn.textContent = 'Share';
+      shareBtn.addEventListener('click', (function(walker) { return function() {
+        var link = window.location.origin + '/walk?code=' + walker.code;
+        var msg = 'Hi ' + walker.name + '! Your block walking code is: ' + walker.code + '\n\nSign in here: ' + link;
+        if (navigator.share) { navigator.share({ title: 'Walker Code', text: msg }).catch(function(){}); }
+        else { window.open('sms:' + (walker.phone || '') + '?&body=' + encodeURIComponent(msg), '_blank'); }
+      }; })(w));
+      shareBtns.appendChild(shareBtn);
+      var copyBtn = document.createElement('button');
+      copyBtn.className = 'btn btn-sm';
+      copyBtn.style.cssText = 'background:#818cf8;color:#fff;padding:3px 8px;font-size:11px;min-width:auto';
+      copyBtn.textContent = 'Copy Link';
+      copyBtn.addEventListener('click', (function(walker, btn) { return function() {
+        navigator.clipboard.writeText(window.location.origin + '/walk?code=' + walker.code);
+        btn.textContent = 'Copied!'; setTimeout(function() { btn.textContent = 'Copy Link'; }, 2000);
+      }; })(w, copyBtn));
+      shareBtns.appendChild(copyBtn);
+      card.appendChild(shareBtns);
 
       container.appendChild(card);
     }

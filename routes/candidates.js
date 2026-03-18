@@ -855,6 +855,19 @@ router.get('/walkers/:id/dashboard', (req, res) => {
     ORDER BY total_doors DESC
   `).all(walker.candidate_id);
 
+  // Auto-assign walker to any active walks they're not yet in
+  const unassigned = db.prepare(`
+    SELECT bw.id FROM block_walks bw
+    WHERE bw.status != 'completed'
+      AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)
+  `).all(walker.id);
+  if (unassigned.length > 0) {
+    const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
+    for (const w of unassigned) {
+      ins.run(w.id, walker.name, walker.id, walker.phone || '');
+    }
+  }
+
   const walks = db.prepare(`
     SELECT bw.id, bw.name, bw.description, bw.status, bw.join_code,
       (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
