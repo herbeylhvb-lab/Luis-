@@ -157,7 +157,7 @@ router.get('/walks', (req, res) => {
   res.json({ walks });
 });
 
-// Create a walk (generates join code for group walking)
+// Create a walk
 router.post('/walks', (req, res) => {
   const { name, description, assigned_to } = req.body;
   if (!name) return res.status(400).json({ error: 'Walk name is required.' });
@@ -172,7 +172,7 @@ router.post('/walks', (req, res) => {
   for (const w of activeWalkers) {
     insertMember.run(walkId, w.name, w.id, w.phone || '');
   }
-  res.json({ success: true, id: walkId, joinCode, autoAssigned: activeWalkers.length });
+  res.json({ success: true, id: walkId, autoAssigned: activeWalkers.length });
 });
 
 // Get walk detail with addresses
@@ -675,7 +675,7 @@ router.post('/walks/from-precinct', (req, res) => {
   );
 
   geocodeWalkAddresses(walkId);
-  res.json({ success: true, id: walkId, joinCode, added, precincts });
+  res.json({ success: true, id: walkId, added, precincts });
 });
 
 // ===================== CREATE WALK FROM VOTER LIST =====================
@@ -720,7 +720,7 @@ router.post('/walks/from-voters', (req, res) => {
   );
 
   geocodeWalkAddresses(walkId);
-  res.json({ success: true, id: walkId, joinCode, added });
+  res.json({ success: true, id: walkId, added });
 });
 
 // ===================== PER-WALKER LIVE ROUTE =====================
@@ -1207,10 +1207,10 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
         "SELECT bw.id, bw.name, bw.join_code FROM block_walks bw JOIN walk_addresses wa ON wa.walk_id = bw.id WHERE wa.universe_id = ? AND bw.id IN (SELECT walk_id FROM walk_group_members WHERE phone = ?) LIMIT 1"
       ).get(universe0.id, normPhone);
       if (existingByPhone) {
-        return res.json({ success: true, walkId: existingByPhone.id, joinCode: existingByPhone.join_code, added: 0, walkName: existingByPhone.name, alreadyClaimed: true });
+        return res.json({ success: true, walkId: existingByPhone.id, added: 0, walkName: existingByPhone.name, alreadyClaimed: true });
       }
     } else {
-      return res.json({ success: true, walkId: existingWalk.id, joinCode: existingWalk.join_code, added: 0, walkName: existingWalk.name, alreadyClaimed: true });
+      return res.json({ success: true, walkId: existingWalk.id, added: 0, walkName: existingWalk.name, alreadyClaimed: true });
     }
   }
 
@@ -1272,7 +1272,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   const walkName = universe.name + ' - ' + walkerName;
   const walkResult = db.prepare(
     'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
+  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, universe.script_id, precincts.join(','), universe.filters_json);
   const walkId = walkResult.lastInsertRowid;
 
   // Track walker with phone for dedup across claims
@@ -1301,7 +1301,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   );
 
   geocodeWalkAddresses(walkId);
-  res.json({ success: true, walkId, joinCode, added, walkName });
+  res.json({ success: true, walkId, added, walkName });
 });
 
 // Delete/close a universe
