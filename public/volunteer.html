@@ -1457,6 +1457,9 @@
       // Skip refresh if user is typing in any reply input (prevents erasing their text)
       var activeInput = document.querySelector('#volPendingList input:focus');
       if (activeInput && activeInput.value.trim()) return;
+      // Skip refresh if AI suggestion is loading (prevents the flicker/disappear bug)
+      var aiLoading = document.querySelector('#volPendingList .ai-loading-indicator');
+      if (aiLoading) return;
       try {
         var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || '') } });
         var msgs = data.messages || [];
@@ -1562,6 +1565,7 @@
         var loading = document.createElement('span');
         loading.style.cssText = 'font-size:11px;color:#64748b';
         loading.textContent = 'AI thinking...';
+        loading.className = 'ai-loading-indicator';
         aiBox.insertBefore(loading, aiText);
         apiCall('/api/p2p/suggest-reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral' }) })
           .then(function(data) {
@@ -1588,7 +1592,12 @@
               btnDismiss.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); });
               aiBtns.appendChild(btnDismiss);
             } else { aiBox.style.display = 'none'; }
-          }).catch(function() { aiBox.style.display = 'none'; });
+          }).catch(function() {
+            loading.remove();
+            aiText.textContent = 'AI unavailable — write your own reply.';
+            aiText.style.color = '#94a3b8';
+            setTimeout(function() { aiBox.style.display = 'none'; }, 4000);
+          });
         } // end else (no cache)
       }
       return card;
