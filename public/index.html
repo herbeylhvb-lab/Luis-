@@ -3148,7 +3148,8 @@ function buildPendingCard(m) {
     apiPost('/api/p2p/suggest-reply', {
       voterMessage: m.body,
       voterName: (m.contact_name || '').trim() || 'Voter',
-      sentiment: m.sentiment || 'neutral'
+      sentiment: m.sentiment || 'neutral',
+      conversationHistory: (m.conversation || []).map(function(c) { return { body: c.body, direction: c.direction }; })
     }).then(function(data) {
       aiLoading.style.display = 'none';
       if (data.suggestion) {

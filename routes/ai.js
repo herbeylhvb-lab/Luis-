@@ -65,8 +65,8 @@ function findBestScript(voterMessage, sentiment) {
 
 // POST /api/p2p/suggest-reply
 router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
-  const { voterMessage, voterName, sentiment, sessionName } = req.body;
-  console.log('[suggest-reply] Request:', { voterMessage: (voterMessage || '').substring(0, 50), voterName, sentiment, hasBody: !!req.body, bodyKeys: Object.keys(req.body || {}) });
+  const { voterMessage, voterName, sentiment, sessionName, conversationHistory } = req.body;
+  console.log('[suggest-reply] Request:', { voterMessage: (voterMessage || '').substring(0, 50), voterName, sentiment, historyLen: (conversationHistory || []).length });
   if (!voterMessage) return res.status(400).json({ error: 'voterMessage required.' });
   if (voterMessage.length > 2000) return res.status(400).json({ error: 'Voter message too long (max 2000 chars).' });
 
@@ -78,10 +78,34 @@ router.post('/p2p/suggest-reply', asyncHandler(async (req, res) => {
       const client = new Anthropic({ apiKey: apiKey.value });
 
       const systemPrompt = buildCampaignContext();
-      const userPrompt = `Voter ${voterName || 'Someone'} texted: "${voterMessage}"
+
+      // Build conversation context if multiple messages exist
+      let convoContext = '';
+      if (conversationHistory && conversationHistory.length > 0) {
+        convoContext = 'Full conversation so far:\n' + conversationHistory.map(m =>
+          (m.direction === 'outbound' ? 'Us: ' : (voterName || 'Voter') + ': ') + (m.body || '')
+        ).join('\n') + '\n\n';
+      }
+
+      // Find unanswered voter messages (messages after our last reply)
+      let unansweredMsgs = voterMessage;
+      if (conversationHistory && conversationHistory.length > 1) {
+        const reversed = [...conversationHistory].reverse();
+        const unanswered = [];
+        for (const m of reversed) {
+          if (m.direction === 'outbound') break; // stop at our last reply
+          if (m.direction === 'inbound' && m.body) unanswered.unshift(m.body);
+        }
+        if (unanswered.length > 1) {
+          unansweredMsgs = unanswered.join('\n');
+        }
+      }
+
+      const userPrompt = `${convoContext}Voter ${voterName || 'Someone'} sent these unanswered messages:
+"${unansweredMsgs}"
 Their tone seems: ${sentiment || 'neutral'}
 
-Reply directly to what they said. Be specific — don't give a generic campaign pitch. Keep it under 160 characters if possible.`;
+Address ALL of their unanswered messages in one reply. Be specific — don't give a generic campaign pitch. Keep it under 300 characters if possible.`;
 
       const response = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',

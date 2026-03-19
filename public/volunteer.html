@@ -1006,8 +1006,10 @@
       }
 
       // Get AI suggestion only when first opening a conversation (not on auto-refresh)
+      // Pass full conversation history so AI can address ALL unanswered messages
       var lastInbound = (data.messages || []).filter(function(m) { return m.direction === 'inbound'; }).pop();
       if (lastInbound && isFirstOpen) {
+        volState._currentConvoHistory = data.messages || [];
         fetchAiSuggestion(lastInbound.body, data.assignment.first_name, lastInbound.sentiment, assignmentId);
       }
 
@@ -1046,7 +1048,8 @@
             voterMessage: voterMessage,
             voterName: voterName || 'Voter',
             sentiment: sentiment || 'neutral',
-            sessionName: volState.sessionName || ''
+            sessionName: volState.sessionName || '',
+            conversationHistory: (volState._currentConvoHistory || []).map(function(m) { return { body: m.body, direction: m.direction }; })
           })
         });
         var data = {};
@@ -1621,7 +1624,7 @@
         fetch('/api/p2p/suggest-reply', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral' })
+          body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral', conversationHistory: (m.conversation || []).map(function(c) { return { body: c.body, direction: c.direction }; }) })
         }).then(function(res) { return res.json(); })
           .then(function(data) {
             loading.remove();
