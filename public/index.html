@@ -11014,7 +11014,8 @@ window.sendSurvey = async function() {
   }
   const result = await apiPost('/api/surveys/' + currentSurveyId + '/send', body);
   if (result.success) {
-    alert('Survey sent to ' + result.queued + ' contacts via P2P session. Join code: ' + result.joinCode);
+    var volMsg = result.volunteersOnline > 0 ? ' (' + result.volunteersOnline + ' volunteers online)' : ' (waiting for volunteers to join)';
+    alert('Survey queued for ' + result.queued + ' contacts!' + volMsg);
     loadSurveyDetail(currentSurveyId);
     loadSurveyResults(currentSurveyId);
   } else {
