@@ -2663,11 +2663,9 @@ document.getElementById('btnSendCampaign').addEventListener('click', async () =>
       if (sendData.success) {
         el.textContent = '';
         var ok = document.createElement('div'); ok.className = 'alert alert-success';
-        ok.innerHTML = 'P2P session created! <strong>Join code: ' + escHtml(sendData.joinCode) + '</strong><br><br>' +
-          'Share this code with volunteers. They go to <strong>/volunteer</strong> and enter the code to start texting.<br>' +
-          'Each volunteer will see contacts one at a time and click send individually.<br><br>' +
-          '<a href="/volunteer" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">Open Volunteer View</a> ' +
-          '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + escHtml(sendData.joinCode) + '\');this.textContent=\'Copied!\'">Copy Join Code</button>';
+        ok.innerHTML = 'P2P session created! Contacts are automatically assigned to volunteers when they log in.<br><br>' +
+          'Volunteers use their personal code at <strong>/volunteer</strong> to see their queue.<br><br>' +
+          '<a href="/volunteer" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">Open Volunteer View</a>';
         el.appendChild(ok);
         document.getElementById('sendResultCard').style.display = 'block';
         document.getElementById('sendResults').innerHTML = '<div style="font-size:14px;color:#94a3b8">' + countLabel + ' contacts queued. Volunteers send each message individually (P2P compliant).</div>';
@@ -10926,13 +10924,14 @@ async function loadSurveySession(id) {
       card.style.display = '';
       const s = data.session;
       const isActive = s.status === 'active';
+      const volCount = s.online_volunteers || 0;
       el.innerHTML = '<div style="padding:14px;border-radius:8px;border:1px solid ' + (isActive ? '#10b981' : '#334155') + ';background:' + (isActive ? '#064e3b' : '#0f172a') + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
-        '<div><div style="font-size:13px;color:#94a3b8;margin-bottom:4px">Join Code</div><div style="font-size:28px;font-weight:bold;letter-spacing:4px;color:#f1f5f9">' + escHtml(s.join_code) + '</div></div>' +
-        '<div style="text-align:right"><div style="font-size:12px;color:#64748b">Status: <span class="badge ' + (isActive ? 'badge-green' : 'badge-gray') + '">' + s.status + '</span></div>' +
-        '<div style="margin-top:8px"><a href="/volunteer" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">Open Volunteer View</a> ' +
-        '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + escHtml(s.join_code) + '\');this.textContent=\'Copied!\'">Copy Code</button></div></div></div>' +
-        '<div style="margin-top:10px;font-size:13px;color:#94a3b8">Share this code with volunteers. They go to <strong>/volunteer</strong>, enter the code, and send each survey text individually.</div>' +
+        '<div><div style="font-size:13px;color:#94a3b8;margin-bottom:4px">Volunteer Session</div>' +
+        '<div style="font-size:14px;color:#f1f5f9">' + (volCount > 0 ? '🟢 ' + volCount + ' volunteer(s) online' : '⏳ Waiting for volunteers') + '</div></div>' +
+        '<div style="text-align:right"><span class="badge ' + (isActive ? 'badge-green' : 'badge-gray') + '">' + s.status + '</span>' +
+        '<div style="margin-top:8px"><a href="/volunteer" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">Open Volunteer View</a></div></div></div>' +
+        '<div style="margin-top:10px;font-size:13px;color:#94a3b8">Volunteers log in with their personal code. Survey contacts are automatically assigned to their queue.</div>' +
         '</div>';
     } else {
       card.style.display = 'none';
@@ -10949,13 +10948,14 @@ async function loadEventSession(eventId) {
       card.style.display = '';
       const s = data.session;
       const isActive = s.status === 'active';
+      const volCount = s.online_volunteers || 0;
       el.innerHTML = '<div style="padding:14px;border-radius:8px;border:1px solid ' + (isActive ? '#10b981' : '#334155') + ';background:' + (isActive ? '#064e3b' : '#0f172a') + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
-        '<div><div style="font-size:13px;color:#94a3b8;margin-bottom:4px">Join Code</div><div style="font-size:28px;font-weight:bold;letter-spacing:4px;color:#f1f5f9">' + escHtml(s.join_code) + '</div></div>' +
-        '<div style="text-align:right"><div style="font-size:12px;color:#64748b">Status: <span class="badge ' + (isActive ? 'badge-green' : 'badge-gray') + '">' + s.status + '</span></div>' +
-        '<div style="margin-top:8px"><a href="/volunteer" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">Open Volunteer View</a> ' +
-        '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + escHtml(s.join_code) + '\');this.textContent=\'Copied!\'">Copy Code</button></div></div></div>' +
-        '<div style="margin-top:10px;font-size:13px;color:#94a3b8">Share this code with volunteers. They go to <strong>/volunteer</strong>, enter the code, and send each invite text individually.</div>' +
+        '<div><div style="font-size:13px;color:#94a3b8;margin-bottom:4px">Volunteer Session</div>' +
+        '<div style="font-size:14px;color:#f1f5f9">' + (volCount > 0 ? '🟢 ' + volCount + ' volunteer(s) online' : '⏳ Waiting for volunteers') + '</div></div>' +
+        '<div style="text-align:right"><span class="badge ' + (isActive ? 'badge-green' : 'badge-gray') + '">' + s.status + '</span>' +
+        '<div style="margin-top:8px"><a href="/volunteer" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">Open Volunteer View</a></div></div></div>' +
+        '<div style="margin-top:10px;font-size:13px;color:#94a3b8">Volunteers log in with their personal code. Event invites are automatically assigned to their queue.</div>' +
         '</div>';
     } else {
       card.style.display = 'none';
