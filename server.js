@@ -408,7 +408,14 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
     return res.type(replyType).send(provider.buildReply("You've been removed from our list. -- Campaign HQ"));
   }
 
-  const sentiment = await analyzeSentimentAI(Body);
+  // Use fast keyword sentiment in webhook path (AI is too slow, risks timeout)
+  const sentiment = analyzeSentimentKeywords(Body);
+  // Fire-and-forget AI sentiment update in background
+  analyzeSentimentAI(Body).then(aiSentiment => {
+    if (aiSentiment !== sentiment) {
+      db.prepare("UPDATE messages SET sentiment = ? WHERE phone = ? AND body = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1").run(aiSentiment, fromNormalized, Body);
+    }
+  }).catch(() => {});
 
   // Check if this is a survey response (only when the survey is actively running)
   const activeSend = db.prepare(`
@@ -514,10 +521,10 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
     SELECT a.*, s.id as sid FROM p2p_assignments a
     JOIN p2p_sessions s ON a.session_id = s.id
     JOIN contacts c ON a.contact_id = c.id
-    WHERE (c.phone = ? OR REPLACE(REPLACE(REPLACE(c.phone,'+1',''),'+',''),'-','') = ?)
+    WHERE c.phone = ?
       AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
     ORDER BY a.sent_at DESC LIMIT 1
-  `).get(fromNormalized, fromNormalized);
+  `).get(fromNormalized);
 
   if (p2pAssignment) {
     db.transaction(() => {
@@ -565,18 +572,27 @@ app.get('/api/messages/pending', (req, res) => {
       JOIN contacts c ON pa.contact_id = c.id
       WHERE pv.volunteer_id = ? AND pa.status IN ('sent','in_conversation','completed')
     `).all(volId).map(r => r.phone);
-    // Also get normalized versions for matching
+    // Normalize and batch to avoid SQLite 999 variable limit
     const allPhones = new Set();
     for (const p of assignedPhones) {
-      allPhones.add(p);
-      const digits = (p || '').replace(/\D/g, '');
-      if (digits.length === 10) allPhones.add(digits);
-      if (digits.length === 10) allPhones.add('1' + digits);
-      if (digits.length === 11 && digits.startsWith('1')) allPhones.add(digits.slice(1));
+      const digits = phoneDigits(p);
+      if (digits) allPhones.add(digits);
     }
     if (allPhones.size === 0) return res.json({ messages: [] });
-    volPhoneFilter = ' AND m.phone IN (' + [...allPhones].map(() => '?').join(',') + ')';
-    volPhoneParams = [...allPhones];
+    // Use temp table for large sets to avoid variable limit
+    const phonesArr = [...allPhones];
+    if (phonesArr.length > 500) {
+      db.prepare('CREATE TEMP TABLE IF NOT EXISTS tmp_vol_phones (phone TEXT PRIMARY KEY)').run();
+      db.prepare('DELETE FROM tmp_vol_phones').run();
+      const insTemp = db.prepare('INSERT OR IGNORE INTO tmp_vol_phones VALUES (?)');
+      const insertBatch = db.transaction((phones) => { for (const p of phones) insTemp.run(p); });
+      insertBatch(phonesArr);
+      volPhoneFilter = ' AND m.phone IN (SELECT phone FROM tmp_vol_phones)';
+      volPhoneParams = [];
+    } else {
+      volPhoneFilter = ' AND m.phone IN (' + phonesArr.map(() => '?').join(',') + ')';
+      volPhoneParams = phonesArr;
+    }
   }
 
   const pending = db.prepare(`
@@ -965,10 +981,11 @@ app.post('/api/events/:id/invite', (req, res) => {
     }
     contacts = db.prepare(listSql).all(...listParams);
   } else if (contactIds && contactIds.length > 0) {
-    const getC = db.prepare('SELECT * FROM contacts WHERE id = ?');
-    for (const cid of contactIds) {
-      const c = getC.get(cid);
-      if (c) contacts.push(c);
+    // Batch fetch contacts instead of N+1
+    for (let i = 0; i < contactIds.length; i += 900) {
+      const batch = contactIds.slice(i, i + 900);
+      const ph = batch.map(() => '?').join(',');
+      contacts.push(...db.prepare(`SELECT * FROM contacts WHERE id IN (${ph})`).all(...batch));
     }
   }
   if (contacts.length === 0) return res.status(400).json({ error: 'No contacts with phone numbers found.' });
