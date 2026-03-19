@@ -1178,6 +1178,7 @@ function generateAutoReply(msg) {
 // --- Global error handler ---
 app.use((err, req, res, _next) => {
   console.error('Unhandled error:', err);
+  if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error.' });
 });
 
