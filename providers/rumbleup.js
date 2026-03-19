@@ -280,7 +280,6 @@ async function sendSms(to, body, mediaUrl, options = {}) {
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
 
-  // Use MMS project action ID if provided (media is attached at project level)
   const actionId = options.mmsActionId || creds.actionId;
   const payload = {
     phone,
@@ -288,7 +287,12 @@ async function sendSms(to, body, mediaUrl, options = {}) {
     text: body
   };
 
-  if (options.mmsActionId) {
+  // MMS: try sending file URL directly on /message/send (may be undocumented but supported)
+  // Falls back to project-level MMS if this doesn't attach the image
+  if (mediaUrl) {
+    payload.file = mediaUrl;
+    console.log('[rumbleup] Sending MMS to ' + phone + ' file=' + mediaUrl);
+  } else if (options.mmsActionId) {
     console.log('[rumbleup] Sending MMS via project ' + actionId + ' to ' + phone);
   }
 
