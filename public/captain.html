@@ -156,6 +156,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 
+/* Drag-and-drop styles */
+.voter-card[draggable="true"]{cursor:grab}
+.voter-card[draggable="true"]:active{cursor:grabbing}
+.voter-card.dragging{opacity:0.4;transform:scale(0.97)}
+.list-item.drag-over,.team-member-row.drag-over{background:#2d3b4f;border-left-color:#f59e0b;box-shadow:inset 0 0 0 2px rgba(245,158,11,0.3)}
+.team-member-lists .list-item.drag-over{background:#1a2a3a;box-shadow:inset 0 0 0 2px rgba(245,158,11,0.4)}
+.drag-hint{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;background:#422006;color:#fcd34d;border:1px solid #f59e0b;border-radius:10px;font-size:13px;font-weight:600;z-index:200;pointer-events:none;animation:fadeIn 0.3s ease;white-space:nowrap}
+
 /* CSV Import Modal */
 .csv-modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;box-sizing:border-box}
 @media(max-width:600px){.csv-modal-box{padding:16px;max-width:100%;width:100%;border-radius:10px}}
@@ -594,6 +602,8 @@ async function refreshSidebar() {
             return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
           })(ml));
         }
+        // Drop target: drag voters directly into this list
+        setupListDropTarget(item, ml);
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -718,6 +728,8 @@ function makeListItem(l) {
   count.textContent = l.voter_count || 0;
   item.appendChild(count);
   item.addEventListener('click', function() { selectList(l.id, l.name); });
+  // Drop target: drag voters directly into this list
+  setupListDropTarget(item, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
   return item;
 }
 
@@ -1113,6 +1125,20 @@ async function searchVoters() {
   voters.forEach(function(v) {
     var card = document.createElement('div');
     card.className = 'voter-card';
+    card.draggable = true;
+    card.dataset.voterId = v.id;
+    card.dataset.voterName = (v.first_name || '') + ' ' + (v.last_name || '');
+    card.addEventListener('dragstart', function(e) {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ voter_id: v.id, voter_name: (v.first_name || '') + ' ' + (v.last_name || '') }));
+      e.dataTransfer.effectAllowed = 'copy';
+      card.classList.add('dragging');
+      showDragHint(true);
+    });
+    card.addEventListener('dragend', function() {
+      card.classList.remove('dragging');
+      showDragHint(false);
+      clearAllDragOver();
+    });
 
     // Top row: name + add button
     var top = document.createElement('div');
@@ -1699,8 +1725,30 @@ async function submitAddVoter(voterId) {
     showToast('All selected voters are already on this list.', 'warn');
   }
 
-  // On mobile, switch to My List tab so user sees the voter they just added
-  if (window.innerWidth <= 900) switchMobileTab('list');
+  // Reset search so user can keep adding voters
+  document.getElementById('voterSearch').value = '';
+  var phoneFilter = document.getElementById('capPhoneFilter');
+  var vanidFilter = document.getElementById('capVanidFilter');
+  var zipFilter = document.getElementById('capZipFilter');
+  var precinctFilter = document.getElementById('capPrecinctFilter');
+  var addressFilter = document.getElementById('capAddressFilter');
+  if (phoneFilter) phoneFilter.value = '';
+  if (vanidFilter) vanidFilter.value = '';
+  if (zipFilter) zipFilter.value = '';
+  if (precinctFilter) precinctFilter.value = '';
+  if (addressFilter) addressFilter.value = '';
+  var searchEl = document.getElementById('searchResults');
+  searchEl.textContent = '';
+  var emptyDiv = document.createElement('div');
+  emptyDiv.className = 'empty-state';
+  var icon = document.createElement('div');
+  icon.className = 'icon';
+  icon.textContent = '\uD83D\uDD0D';
+  emptyDiv.appendChild(icon);
+  var p = document.createElement('p');
+  p.textContent = 'Search for voters to add them to your lists.';
+  emptyDiv.appendChild(p);
+  searchEl.appendChild(emptyDiv);
 
   await loadListVoters();
   refreshSidebar();
@@ -2344,6 +2392,83 @@ async function addTeamMember() {
     overlay.appendChild(box);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
+  }
+}
+
+// ===================== DRAG & DROP VOTERS INTO LISTS =====================
+
+var _dragHintEl = null;
+
+function showDragHint(show) {
+  if (show && !_dragHintEl) {
+    _dragHintEl = document.createElement('div');
+    _dragHintEl.className = 'drag-hint';
+    _dragHintEl.textContent = 'Drop on a list in the sidebar to add voter';
+    document.body.appendChild(_dragHintEl);
+  } else if (!show && _dragHintEl) {
+    _dragHintEl.remove();
+    _dragHintEl = null;
+  }
+}
+
+function clearAllDragOver() {
+  document.querySelectorAll('.drag-over').forEach(function(el) {
+    el.classList.remove('drag-over');
+  });
+}
+
+function setupListDropTarget(item, listInfo) {
+  item.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    item.classList.add('drag-over');
+  });
+  item.addEventListener('dragleave', function(e) {
+    if (!item.contains(e.relatedTarget)) {
+      item.classList.remove('drag-over');
+    }
+  });
+  item.addEventListener('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    item.classList.remove('drag-over');
+    showDragHint(false);
+    clearAllDragOver();
+    try {
+      var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (data && data.voter_id) {
+        dropVoterOnList(data.voter_id, data.voter_name, listInfo);
+      }
+    } catch(err) { console.warn('Drop parse error:', err); }
+  });
+}
+
+async function dropVoterOnList(voterId, voterName, listInfo) {
+  var cid = captainState.captain.id;
+  var apiUrl;
+  if (listInfo.type === 'subcaptain' && listInfo.sub_captain_id) {
+    apiUrl = '/api/captains/' + listInfo.sub_captain_id + '/lists/' + listInfo.id + '/voters';
+  } else {
+    apiUrl = '/api/captains/' + cid + '/lists/' + listInfo.id + '/voters';
+  }
+  try {
+    var data = await api(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voter_id: voterId })
+    });
+    if (data.already) {
+      showToast((voterName || 'Voter') + ' is already on ' + listInfo.name, 'warn');
+    } else {
+      showToast((voterName || 'Voter') + ' added to ' + listInfo.name, 'success');
+    }
+    // Refresh list if we're viewing the target list
+    if (captainState.selectedListId === listInfo.id) {
+      await loadListVoters();
+    }
+    refreshSidebar();
+  } catch(err) {
+    showToast('Failed to add voter: ' + (err.message || 'Unknown error'), 'warn');
   }
 }
 
