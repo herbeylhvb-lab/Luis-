@@ -60,7 +60,10 @@ function hasCredentials() {
 
 // --- HTTP helpers ---
 
-function authHeader(key, secret) {
+function authHeader(key, secret, useBearer) {
+  if (useBearer) {
+    return 'Bearer ' + key + ':' + secret;
+  }
   const encoded = Buffer.from(key + ':' + secret).toString('base64');
   return 'Basic ' + encoded;
 }
@@ -77,7 +80,7 @@ async function apiRequest(path, body, creds, options = {}) {
 
   const fetchOpts = {
     method,
-    headers: { 'Authorization': authHeader(key, secret) },
+    headers: { 'Authorization': authHeader(key, secret, options.useBearer) },
     signal: controller.signal
   };
 
@@ -115,7 +118,7 @@ async function apiRequest(path, body, creds, options = {}) {
     if (resp.status === 401) {
       throw new Error('RumbleUp authentication failed. Check your API key and secret.' + (detail ? ' (' + detail + ')' : ''));
     }
-    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check account balance or permissions.'));
+    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check API key/secret and account permissions.'));
   }
   if (resp.status === 429) {
     const retry = resp.headers.get('Retry-After') || '5';
@@ -280,7 +283,7 @@ async function sendSms(to, body, mediaUrl) {
       const proxy = creds.phoneNumber.replace(/\D/g, '');
       console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' proxy=' + proxy + ' file=' + mediaUrl);
       try {
-        const result = await apiPost('/proxy/send', { phone, proxy, text: body, file: mediaUrl });
+        const result = await apiPost('/proxy/send', { phone, proxy, text: body, file: mediaUrl }, null, { useBearer: true });
         console.log('[rumbleup] MMS success:', JSON.stringify(result).substring(0, 300));
         return result;
       } catch (proxyErr) {
