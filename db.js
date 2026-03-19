@@ -274,6 +274,7 @@ addColumn("ALTER TABLE events ADD COLUMN event_end_time TEXT DEFAULT ''");
 // Session type for P2P sessions (campaign, event, survey)
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN session_type TEXT DEFAULT 'campaign'");
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN media_url TEXT DEFAULT NULL");
+addColumn("ALTER TABLE p2p_sessions ADD COLUMN rumbleup_action_id TEXT DEFAULT NULL");
 
 // P2P columns on messages
 addColumn("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL");

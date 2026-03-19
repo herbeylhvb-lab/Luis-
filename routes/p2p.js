@@ -425,7 +425,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
 // ========== MESSAGING ==========
 
 router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
-  const { volunteerId, assignmentId, message, isReply } = req.body;
+  let { volunteerId, assignmentId, message, isReply } = req.body;
   if (!volunteerId || !assignmentId || !message) return res.status(400).json({ error: 'volunteerId, assignmentId, and message required.' });
 
   const provider = getProvider();
@@ -470,18 +470,74 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         city: assignment.city || ''
       });
     }
-    // Include MMS image if session has a media_url (e.g., event flyer) — only on initial send
-    const session = db.prepare('SELECT media_url, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    let mediaUrl = (!isReply && session && session.media_url) ? session.media_url : undefined;
-    // Ensure https:// prefix (fix for old sessions stored without protocol)
-    if (mediaUrl && !mediaUrl.startsWith('http')) mediaUrl = 'https://' + mediaUrl;
-    // For event invites with flyers: use per-voter composite URL (flyer + unique QR code)
-    if (mediaUrl && session.session_type === 'event' && assignment.qr_token) {
-      const baseUrl = mediaUrl.replace(/\/flyer$/, '');
-      mediaUrl = baseUrl + '/flyer/' + assignment.qr_token + '.jpg';
+    // MMS: try per-message file param first (unique flyer per voter), with project-level fallback
+    const session = db.prepare('SELECT media_url, session_type, name, rumbleup_action_id FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
+    let mediaUrl;
+    let sendOptions = {};
+
+    if (!isReply && session && session.media_url && session.session_type === 'event') {
+      // Build per-voter flyer URL (compressed JPEG with QR code overlay, <750KB)
+      let baseMediaUrl = session.media_url;
+      if (baseMediaUrl && !baseMediaUrl.startsWith('http')) baseMediaUrl = 'https://' + baseMediaUrl;
+      if (assignment.qr_token) {
+        const baseUrl = baseMediaUrl.replace(/\/flyer$/, '');
+        mediaUrl = baseUrl + '/flyer/' + assignment.qr_token + '.jpg';
+      } else {
+        mediaUrl = baseMediaUrl;
+      }
+      console.log('[p2p-send] MMS mediaUrl:', mediaUrl);
+
+      // Also prepare MMS project fallback (in case per-message file param doesn't work)
+      let mmsActionId = session.rumbleup_action_id;
+      if (!mmsActionId && provider.createProject) {
+        const eventIdMatch = session.media_url.match(/\/events\/(\d+)\/flyer/);
+        if (eventIdMatch) {
+          const event = db.prepare('SELECT flyer_image FROM events WHERE id = ?').get(eventIdMatch[1]);
+          if (event && event.flyer_image) {
+            const base64Data = event.flyer_image.replace(/^data:image\/\w+;base64,/, '');
+            const rawBuffer = Buffer.from(base64Data, 'base64');
+            const { Jimp } = require('jimp');
+            const flyer = await Jimp.fromBuffer(rawBuffer);
+            let imageBuffer = await flyer.getBuffer('image/jpeg', { quality: 80 });
+            if (imageBuffer.length > 750 * 1024) {
+              imageBuffer = await flyer.getBuffer('image/jpeg', { quality: 50 });
+            }
+            if (imageBuffer.length > 750 * 1024) {
+              flyer.resize({ w: Math.round(flyer.width * 0.6) });
+              imageBuffer = await flyer.getBuffer('image/jpeg', { quality: 50 });
+            }
+            console.log('[p2p-send] Creating MMS project fallback (' + (imageBuffer.length / 1024).toFixed(0) + 'KB)');
+            try {
+              const project = await provider.createProject({
+                name: session.name + ' (MMS)',
+                message: session.name,
+                type: 'MMS',
+                media: imageBuffer
+              });
+              mmsActionId = project.action || project.id || project.actionId;
+              if (mmsActionId) {
+                db.prepare('UPDATE p2p_sessions SET rumbleup_action_id = ? WHERE id = ?').run(String(mmsActionId), assignment.session_id);
+                console.log('[p2p-send] Created MMS project ' + mmsActionId);
+              }
+            } catch (err) {
+              console.error('[p2p-send] MMS project creation failed:', err.message);
+            }
+          }
+        }
+      }
+      if (mmsActionId) {
+        sendOptions.mmsActionId = String(mmsActionId);
+      }
+
+      // Add check-in link as text too (backup in case image doesn't render on all devices)
+      if (assignment.qr_token) {
+        let hostUrl = session.media_url.replace(/\/api\/events\/.*/, '');
+        if (!hostUrl.startsWith('http')) hostUrl = 'https://' + hostUrl;
+        message = message + '\n\nCheck in here: ' + hostUrl + '/v/' + assignment.qr_token;
+      }
     }
-    if (mediaUrl) console.log('[p2p-send] MMS mediaUrl:', mediaUrl);
-    await provider.sendMessage(assignment.phone, message, 'sms', mediaUrl);
+
+    await provider.sendMessage(assignment.phone, message, 'sms', mediaUrl, sendOptions);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")

@@ -178,6 +178,18 @@ async function listAccounts(params) {
 // --- Projects (Actions) ---
 
 async function createProject({ name, message, group, campaignId, proxy, media, type }) {
+  // If media is a Buffer, upload as multipart form (required for MMS)
+  if (media && Buffer.isBuffer(media)) {
+    const form = new FormData();
+    form.append('name', name);
+    form.append('message', message);
+    if (group) form.append('group', group);
+    if (campaignId) form.append('campaignId', campaignId);
+    if (proxy) form.append('proxy', proxy);
+    if (type) form.append('type', type);
+    form.append('media', new Blob([media], { type: 'image/jpeg' }), 'flyer.jpg');
+    return apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
+  }
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;
@@ -257,28 +269,31 @@ async function getGroup(groupId) {
 
 // --- Messaging ---
 
-async function sendSms(to, body, mediaUrl) {
+async function sendSms(to, body, mediaUrl, options = {}) {
   const creds = getCredentials();
   if (!creds.apiKey || !creds.apiSecret) {
     throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
   }
-  if (!creds.actionId && !mediaUrl) {
+  if (!creds.actionId && !options.mmsActionId) {
     throw new Error('RumbleUp credentials not configured. Set them in Messaging Setup.');
   }
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
 
+  const actionId = options.mmsActionId || creds.actionId;
   const payload = {
     phone,
-    action: creds.actionId,
+    action: actionId,
     text: body
   };
 
-  // MMS: attach media via the 'file' parameter (RumbleUp documented field for MMS attachments)
-  // Note: media files must be under 750KB (.png, .jpg, .gif, .mov, .mp4)
+  // MMS: try sending file URL directly on /message/send (may be undocumented but supported)
+  // Falls back to project-level MMS if this doesn't attach the image
   if (mediaUrl) {
     payload.file = mediaUrl;
-    console.log('[rumbleup] Sending MMS via /message/send to ' + phone + ' file=' + mediaUrl);
+    console.log('[rumbleup] Sending MMS to ' + phone + ' file=' + mediaUrl);
+  } else if (options.mmsActionId) {
+    console.log('[rumbleup] Sending MMS via project ' + actionId + ' to ' + phone);
   }
 
   return apiPost('/message/send', payload);
@@ -296,9 +311,9 @@ async function sendWhatsApp(_to, _body) {
   throw new Error('RumbleUp does not support WhatsApp messaging.');
 }
 
-async function sendMessage(to, body, channel, mediaUrl) {
+async function sendMessage(to, body, channel, mediaUrl, options = {}) {
   if (channel === 'whatsapp') return sendWhatsApp(to, body);
-  return sendSms(to, body, mediaUrl);
+  return sendSms(to, body, mediaUrl, options);
 }
 
 async function getNextContact(actionId) {
