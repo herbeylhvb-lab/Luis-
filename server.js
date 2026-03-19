@@ -573,7 +573,7 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 
   } catch (err) {
     console.error('Webhook processing error:', err.message);
-    res.type(replyType).send(provider.buildEmptyReply());
+    if (!res.headersSent) res.type(replyType).send(provider.buildEmptyReply());
   }
 });
 
@@ -600,8 +600,8 @@ app.get('/api/messages/pending', (req, res) => {
       SELECT DISTINCT c.phone FROM p2p_assignments pa
       JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id
       JOIN contacts c ON pa.contact_id = c.id
-      WHERE pv.volunteer_id = ? AND pa.status IN ('sent','in_conversation','completed')
-    `).all(volId).map(r => r.phone);
+      WHERE (pv.volunteer_id = ? OR pv.id = ?) AND pa.status IN ('sent','in_conversation','completed')
+    `).all(volId, volId).map(r => r.phone);
     // Normalize and batch to avoid SQLite 999 variable limit
     const allPhones = new Set();
     for (const p of assignedPhones) {
@@ -688,7 +688,15 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   }
   try {
     await provider.sendMessage(to, body, channel);
-    db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(phoneDigits(to) || to, body);
+    // Find active P2P session for this phone so reply appears in conversation view
+    const replySessionMatch = db.prepare(`
+      SELECT a.session_id FROM p2p_assignments a
+      JOIN p2p_sessions s ON a.session_id = s.id
+      JOIN contacts c ON a.contact_id = c.id
+      WHERE c.phone = ? AND s.status = 'active' AND a.status IN ('sent','in_conversation')
+      ORDER BY a.sent_at DESC LIMIT 1
+    `).get(toDigits);
+    db.prepare("INSERT INTO messages (phone, body, direction, session_id) VALUES (?, ?, 'outbound', ?)").run(toDigits || to, body, replySessionMatch ? replySessionMatch.session_id : null);
     res.json({ success: true });
   } catch (err) {
     console.error('Reply send error:', err.message);
@@ -865,9 +873,12 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         // This prevents dropping repeated common messages like "Yes", "Ok", "Thanks"
         let existing;
         if (msgTime) {
+          // Try exact timestamp match first, then fuzzy (±5 min) to catch webhook-inserted copies
           existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp = ? LIMIT 1").get(msgPhone, msgBody, msgTime);
+          if (!existing) {
+            existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-5 minutes') LIMIT 1").get(msgPhone, msgBody);
+          }
         } else {
-          // Without timestamp, only dedup against messages from the last 24 hours
           existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-1 day') LIMIT 1").get(msgPhone, msgBody);
         }
         if (existing) continue;
@@ -1120,12 +1131,15 @@ function analyzeSentiment(text) {
 }
 
 function generateAutoReply(msg) {
-  // Check registration FIRST so "register to vote" matches registration, not polling
+  // Use word-boundary matching to avoid false positives (e.g., "sometime" matching "time")
+  const words = new Set(msg.split(/\s+/));
+  const hasWord = (keywords) => keywords.some(k => words.has(k));
+  // Don't auto-reply if there's an active P2P assignment (volunteer should handle it)
   if (['register','registration'].some(k => msg.includes(k)))
     return "Register or check your status at vote.org. Don't miss the deadline! -- Campaign HQ";
-  if (['poll','polling','vote','where','location'].some(k => msg.includes(k)))
+  if (hasWord(['poll','polling','precinct','location']) || (words.has('where') && words.has('vote')))
     return "Find your polling location at vote.gov. Polls open 7am-7pm on Election Day! -- Campaign HQ";
-  if (['time','open','close','hours','when'].some(k => msg.includes(k)))
+  if (hasWord(['hours']) || (words.has('when') && (words.has('vote') || words.has('polls') || words.has('open'))))
     return "Polls are open 7:00 AM - 7:00 PM on Election Day. Check vote.gov for early voting! -- Campaign HQ";
   return null;
 }

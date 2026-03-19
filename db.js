@@ -627,6 +627,7 @@ try {
     CREATE INDEX IF NOT EXISTS idx_p2p_assign_vol_status ON p2p_assignments(volunteer_id, status);
     CREATE INDEX IF NOT EXISTS idx_p2p_assign_session_status ON p2p_assignments(session_id, status);
     CREATE INDEX IF NOT EXISTS idx_survey_sends_survey_status ON survey_sends(survey_id, status);
+    CREATE INDEX IF NOT EXISTS idx_messages_phone_dir_ts ON messages(phone, direction, timestamp);
     CREATE INDEX IF NOT EXISTS idx_survey_sends_phone_status ON survey_sends(phone, status);
     CREATE INDEX IF NOT EXISTS idx_voter_contacts_contacted ON voter_contacts(voter_id, contacted_at DESC);
     CREATE INDEX IF NOT EXISTS idx_captain_list_voters_voter ON captain_list_voters(voter_id, list_id);
