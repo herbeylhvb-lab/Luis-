@@ -386,7 +386,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
         ROW_NUMBER() OVER (PARTITION BY phone ORDER BY COALESCE(timestamp, datetime('now')) DESC, id DESC) as rn
       FROM messages
       WHERE phone IN (${phPlaceholders})
-        AND (session_id IN (${sessPlaceholders || "''"}) OR (session_id IS NULL AND direction = 'inbound'))
+        AND (direction = 'inbound' OR session_id IN (${sessPlaceholders || "''"}) OR session_id IS NULL)
     `).all(...phones, ...sessionIds);
     const msgMap = {};
     for (const msg of allMsgs) {
@@ -498,7 +498,7 @@ router.get('/p2p/conversations/:assignmentId', (req, res) => {
   const messages = db.prepare(`
     SELECT * FROM messages
     WHERE phone = ?
-      AND (session_id = ? OR (session_id IS NULL AND direction = 'inbound'))
+      AND (direction = 'inbound' OR session_id = ? OR session_id IS NULL)
     ORDER BY COALESCE(timestamp, datetime('now')) ASC, id ASC
   `).all(normalizedPhone, assignment.session_id);
 
