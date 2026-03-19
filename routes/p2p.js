@@ -470,29 +470,22 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         city: assignment.city || ''
       });
     }
-    // MMS: send flyer image with event invites
+    // MMS: create RumbleUp MMS project with flyer (image is set at project level)
     const session = db.prepare('SELECT media_url, session_type, name, rumbleup_action_id FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    let mediaUrl;
     let sendOptions = {};
 
     if (!isReply && session && session.media_url && session.session_type === 'event') {
-      // Build per-voter flyer URL (JPEG with QR code, <750KB)
       let baseMediaUrl = session.media_url;
       if (baseMediaUrl && !baseMediaUrl.startsWith('http')) baseMediaUrl = 'https://' + baseMediaUrl;
-      if (assignment.qr_token) {
-        mediaUrl = baseMediaUrl.replace(/\/flyer$/, '') + '/flyer/' + assignment.qr_token + '.jpg';
-      } else {
-        mediaUrl = baseMediaUrl;
-      }
 
-      // Create an MMS project with the flyer URL if we haven't yet
+      // Create an MMS project with the flyer if we haven't yet
       let mmsActionId = session.rumbleup_action_id;
       if (!mmsActionId && provider.createProject) {
         try {
           console.log('[p2p-send] Creating MMS project with media URL:', baseMediaUrl);
           const project = await provider.createProject({
             name: session.name + ' (MMS)',
-            message: 'Event invite',
+            message: 'Event invite\nReply STOP to opt out.',
             type: 'MMS',
             media: baseMediaUrl
           });
@@ -508,20 +501,11 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
 
       if (mmsActionId) {
         sendOptions.mmsActionId = String(mmsActionId);
-        console.log('[p2p-send] Using MMS project action=' + mmsActionId);
-      }
-
-      console.log('[p2p-send] MMS mediaUrl:', mediaUrl);
-
-      // Add check-in link as text
-      if (assignment.qr_token) {
-        let hostUrl = session.media_url.replace(/\/api\/events\/.*/, '');
-        if (!hostUrl.startsWith('http')) hostUrl = 'https://' + hostUrl;
-        message = message + '\n\nCheck in here: ' + hostUrl + '/v/' + assignment.qr_token;
+        console.log('[p2p-send] Sending via MMS project action=' + mmsActionId);
       }
     }
 
-    await provider.sendMessage(assignment.phone, message, 'sms', mediaUrl, sendOptions);
+    await provider.sendMessage(assignment.phone, message, 'sms', undefined, sendOptions);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
