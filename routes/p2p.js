@@ -478,7 +478,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     // For event invites with flyers: use per-voter composite URL (flyer + unique QR code)
     if (mediaUrl && session.session_type === 'event' && assignment.qr_token) {
       const baseUrl = mediaUrl.replace(/\/flyer$/, '');
-      mediaUrl = baseUrl + '/flyer/' + assignment.qr_token;
+      mediaUrl = baseUrl + '/flyer/' + assignment.qr_token + '.jpg';
     }
     if (mediaUrl) console.log('[p2p-send] MMS mediaUrl:', mediaUrl);
     await provider.sendMessage(assignment.phone, message, 'sms', mediaUrl);

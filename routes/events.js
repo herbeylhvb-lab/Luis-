@@ -152,12 +152,15 @@ router.get('/events/:id/flyer', (req, res) => {
 });
 
 // --- Composite flyer with voter QR code overlay ---
+// Support both /flyer/:token and /flyer/:token.jpg so MMS providers recognize the image URL
 router.get('/events/:eventId/flyer/:voterToken', asyncHandler(async (req, res) => {
   try {
     const event = db.prepare('SELECT flyer_image, title FROM events WHERE id = ?').get(req.params.eventId);
     if (!event || !event.flyer_image) return res.status(404).send('No flyer');
 
-    const voter = db.prepare("SELECT id FROM voters WHERE qr_token = ?").get(req.params.voterToken);
+    // Strip .jpg extension if present (added for MMS provider compatibility)
+    const token = req.params.voterToken.replace(/\.jpg$/, '');
+    const voter = db.prepare("SELECT id FROM voters WHERE qr_token = ?").get(token);
     if (!voter) return res.status(404).send('Invalid voter token');
 
     // Build the check-in URL that the QR code will encode
@@ -201,9 +204,19 @@ router.get('/events/:eventId/flyer/:voterToken', asyncHandler(async (req, res) =
     const margin = 12;
     flyer.composite(whiteBg, flyerWidth - bgSize - margin, flyerHeight - bgSize - margin);
 
-    const outputBuffer = await flyer.getBuffer('image/png');
+    // Output as JPEG to stay under RumbleUp's 750KB MMS limit
+    let outputBuffer = await flyer.getBuffer('image/jpeg', { quality: 85 });
+    // If still over 750KB, reduce quality further
+    if (outputBuffer.length > 750 * 1024) {
+      outputBuffer = await flyer.getBuffer('image/jpeg', { quality: 60 });
+    }
+    if (outputBuffer.length > 750 * 1024) {
+      // Last resort: resize down
+      flyer.resize({ w: Math.round(flyer.width * 0.7) });
+      outputBuffer = await flyer.getBuffer('image/jpeg', { quality: 60 });
+    }
 
-    res.set('Content-Type', 'image/png');
+    res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(outputBuffer);
   } catch (err) {
