@@ -64,7 +64,20 @@ router.put('/surveys/:id', (req, res) => {
 router.delete('/surveys/:id', (req, res) => {
   const survey = db.prepare('SELECT name FROM surveys WHERE id = ?').get(req.params.id);
   if (!survey) return res.status(404).json({ error: 'Survey not found.' });
-  db.prepare('DELETE FROM surveys WHERE id = ?').run(req.params.id);
+  // Cascade: clean up associated P2P sessions, assignments, sends
+  db.transaction(() => {
+    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE name = ?").all('Survey: ' + survey.name);
+    for (const s of sessions) {
+      db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+    }
+    db.prepare('DELETE FROM survey_sends WHERE survey_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM survey_responses WHERE survey_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM survey_options WHERE question_id IN (SELECT id FROM survey_questions WHERE survey_id = ?)').run(req.params.id);
+    db.prepare('DELETE FROM survey_questions WHERE survey_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM surveys WHERE id = ?').run(req.params.id);
+  })();
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Survey deleted: ' + survey.name);
   res.json({ success: true });
 });

@@ -83,8 +83,19 @@ router.put('/events/:id', (req, res) => {
 
 // Delete event
 router.delete('/events/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
+  const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+  // Cascade: clean up associated P2P sessions, assignments, and RSVPs
+  db.transaction(() => {
+    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE name = ?").all('Event Invite: ' + event.title);
+    for (const s of sessions) {
+      db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+    }
+    db.prepare('DELETE FROM event_rsvps WHERE event_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+  })();
   res.json({ success: true });
 });
 
@@ -92,10 +103,21 @@ router.delete('/events/:id', (req, res) => {
 router.post('/events/bulk-delete', bulkDeleteLimiter, (req, res) => {
   const { ids } = req.body;
   if (!ids || !ids.length) return res.status(400).json({ error: 'No event IDs provided.' });
-  const del = db.prepare('DELETE FROM events WHERE id = ?');
   const bulkDel = db.transaction((list) => {
     let removed = 0;
-    for (const id of list) { if (del.run(id).changes > 0) removed++; }
+    for (const id of list) {
+      const event = db.prepare('SELECT title FROM events WHERE id = ?').get(id);
+      if (!event) continue;
+      // Cascade: clean up associated sessions
+      const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE name = ?").all('Event Invite: ' + event.title);
+      for (const s of sessions) {
+        db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+      }
+      db.prepare('DELETE FROM event_rsvps WHERE event_id = ?').run(id);
+      if (db.prepare('DELETE FROM events WHERE id = ?').run(id).changes > 0) removed++;
+    }
     return removed;
   });
   const removed = bulkDel(ids);

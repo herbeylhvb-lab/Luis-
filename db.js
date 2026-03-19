@@ -965,5 +965,20 @@ try {
   }
 } catch (e) { console.error('[migration] Phone normalization error:', e.message); }
 
+// Cleanup: remove orphaned P2P sessions from deleted events/surveys
+try {
+  const orphanedEvent = db.prepare("SELECT id, name FROM p2p_sessions WHERE session_type = 'event' AND name LIKE 'Event Invite:%' AND name NOT IN (SELECT 'Event Invite: ' || title FROM events)").all();
+  const orphanedSurvey = db.prepare("SELECT id, name FROM p2p_sessions WHERE session_type = 'survey' AND name LIKE 'Survey:%' AND name NOT IN (SELECT 'Survey: ' || name FROM surveys)").all();
+  const orphaned = [...orphanedEvent, ...orphanedSurvey];
+  if (orphaned.length > 0) {
+    for (const s of orphaned) {
+      db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+    }
+    console.log('[cleanup] Removed ' + orphaned.length + ' orphaned P2P sessions from deleted events/surveys');
+  }
+} catch (e) { /* cleanup is best-effort */ }
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;
