@@ -534,6 +534,13 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
     ORDER BY a.sent_at DESC LIMIT 1
   `).get(fromNormalized);
 
+  // Dedup: skip if this exact message was already stored (webhook + sync can both fire)
+  const alreadyExists = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-2 minutes') LIMIT 1").get(fromNormalized, Body);
+  if (alreadyExists) {
+    console.log('[webhook] Skipping duplicate message from ' + fromNormalized);
+    return res.type(replyType).send(provider.buildEmptyReply());
+  }
+
   if (p2pAssignment) {
     const txResult = db.transaction(() => {
       db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
@@ -639,7 +646,7 @@ app.get('/api/messages/pending', (req, res) => {
   if (pending.length > 0) {
     const phones = pending.map(m => m.phone);
     const placeholders = phones.map(() => '?').join(',');
-    const allConvos = db.prepare(`SELECT phone, body, direction, timestamp, ROW_NUMBER() OVER (PARTITION BY phone ORDER BY id DESC) as rn FROM messages WHERE phone IN (${placeholders})`).all(...phones);
+    const allConvos = db.prepare(`SELECT phone, body, direction, timestamp, ROW_NUMBER() OVER (PARTITION BY phone ORDER BY COALESCE(timestamp, datetime('now')) DESC, id DESC) as rn FROM messages WHERE phone IN (${placeholders})`).all(...phones);
     const convoMap = {};
     for (const c of allConvos) {
       if (c.rn > 5) continue; // limit 5 per phone
