@@ -1067,19 +1067,20 @@ app.post('/api/events/:id/invite', (req, res) => {
   let queued = 0;
   const inviteTx = db.transaction(() => {
     for (const c of contacts) {
-      if (optedOutSet.has(phoneDigits(c.phone))) continue;
-      // Ensure contact exists in contacts table for P2P assignment
+      const normalizedPhone = phoneDigits(c.phone) || c.phone;
+      if (optedOutSet.has(normalizedPhone)) continue;
+      // Ensure contact exists in contacts table for P2P assignment (use normalized phone)
       let contactId = c.id;
       if (list_id) {
-        const existing = findContact.get(c.phone);
+        const existing = findContact.get(normalizedPhone);
         if (existing) { contactId = existing.id; }
         else {
-          const r = insertContact.run(c.phone, c.first_name || '', c.last_name || '', c.city || '');
+          const r = insertContact.run(normalizedPhone, c.first_name || '', c.last_name || '', c.city || '');
           contactId = r.lastInsertRowid;
         }
       }
       try { insertAssign.run(sessionId, contactId); } catch (e) { if (!e.message.includes('UNIQUE')) throw e; }
-      rsvpInsert.run(req.params.id, c.phone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim());
+      rsvpInsert.run(req.params.id, normalizedPhone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim());
       queued++;
     }
   });
