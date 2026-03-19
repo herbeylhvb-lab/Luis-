@@ -551,26 +551,35 @@ async function refreshSidebar() {
         rightDiv.appendChild(shareBtn);
       }
       row.appendChild(rightDiv);
-      row.addEventListener('click', (function(person) {
-        return function() {
-          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
-          refreshSidebar();
-        };
-      })(sc));
-      // Make team member row a drop target — drops voter into their first list
-      (function(scNode, memberListsRef, legacyListsRef) {
-        var firstList = null;
+      // Click team member name → directly open their first list (or expand if multiple)
+      (function(scNode) {
         var mls = subCaptainLists.filter(function(l) { return l.sub_captain_id === scNode.id; });
         var lls = teamLists.filter(function(l) { return l.team_member_name === scNode.name; });
-        if (mls.length > 0) {
-          firstList = { id: mls[0].id, name: mls[0].name, type: 'subcaptain', sub_captain_id: mls[0].sub_captain_id || scNode.id };
-        } else if (lls.length > 0) {
-          firstList = { id: lls[0].id, name: lls[0].name, type: 'captain', sub_captain_id: null };
+        var allLists = [];
+        mls.forEach(function(l) { allLists.push({ id: l.id, name: l.name, type: 'subcaptain', sub_captain_id: l.sub_captain_id || scNode.id }); });
+        lls.forEach(function(l) { allLists.push({ id: l.id, name: l.name, type: 'captain' }); });
+
+        row.addEventListener('click', function() {
+          if (allLists.length === 1) {
+            // Single list — go straight to it
+            var theList = allLists[0];
+            if (theList.type === 'subcaptain') {
+              selectSubCaptainList(theList.id, theList.name, theList.sub_captain_id);
+            } else {
+              selectList(theList.id, theList.name);
+            }
+          } else {
+            // Multiple lists or none — toggle expand to show them
+            captainState.expandedTeamMember = captainState.expandedTeamMember === scNode.name ? null : scNode.name;
+            refreshSidebar();
+          }
+        });
+
+        // Drop target for drag-and-drop
+        if (allLists.length > 0) {
+          setupListDropTarget(row, allLists[0]);
         }
-        if (firstList) {
-          setupListDropTarget(row, firstList);
-        }
-      })(sc, memberLists, legacyLists);
+      })(sc);
       teamContainer.appendChild(row);
 
       // Expandable lists container
@@ -653,12 +662,17 @@ async function refreshSidebar() {
       nameSpan.textContent = tm.name;
       leftDiv.appendChild(nameSpan);
       row.appendChild(leftDiv);
-      row.addEventListener('click', (function(person) {
-        return function() {
-          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
-          refreshSidebar();
-        };
-      })(tm));
+      // Click legacy team member → directly open their first list (or expand if multiple)
+      (function(person, pLists) {
+        row.addEventListener('click', function() {
+          if (pLists.length === 1) {
+            selectList(pLists[0].id, pLists[0].name);
+          } else {
+            captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+            refreshSidebar();
+          }
+        });
+      })(tm, legacyLists);
       teamContainer.appendChild(row);
 
       var listsDiv = document.createElement('div');
