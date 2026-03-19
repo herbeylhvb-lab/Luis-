@@ -178,25 +178,16 @@ async function listAccounts(params) {
 // --- Projects (Actions) ---
 
 async function createProject({ name, message, group, campaignId, proxy, media, type }) {
-  // If media is a Buffer, upload as multipart form (required for MMS)
-  if (media && Buffer.isBuffer(media)) {
-    const form = new FormData();
-    form.append('name', name);
-    form.append('message', message);
-    if (group) form.append('group', group);
-    if (campaignId) form.append('campaignId', campaignId);
-    if (proxy) form.append('proxy', proxy);
-    if (type) form.append('type', type);
-    form.append('media', new Blob([media], { type: 'image/jpeg' }), 'flyer.jpg');
-    return apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
-  }
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;
   if (proxy) body.proxy = proxy;
   if (type) body.type = type; // SMS, MMS, or EVT
   if (media) body.media = media;
-  return apiPost('/project/create', body);
+  console.log('[rumbleup] Creating project:', JSON.stringify({ name, type, hasMedia: !!media, mediaType: typeof media }));
+  const result = await apiPost('/project/create', body);
+  console.log('[rumbleup] Project created:', JSON.stringify(result));
+  return result;
 }
 
 async function getProject(projectId) {
@@ -287,16 +278,15 @@ async function sendSms(to, body, mediaUrl, options = {}) {
     text: body
   };
 
-  // MMS: try sending file URL directly on /message/send (may be undocumented but supported)
-  // Falls back to project-level MMS if this doesn't attach the image
+  // MMS: try sending file URL directly on /message/send
   if (mediaUrl) {
     payload.file = mediaUrl;
-    console.log('[rumbleup] Sending MMS to ' + phone + ' file=' + mediaUrl);
-  } else if (options.mmsActionId) {
-    console.log('[rumbleup] Sending MMS via project ' + actionId + ' to ' + phone);
   }
 
-  return apiPost('/message/send', payload);
+  console.log('[rumbleup] Sending message to ' + phone + ' action=' + actionId + (mediaUrl ? ' file=' + mediaUrl : ''));
+  const result = await apiPost('/message/send', payload);
+  console.log('[rumbleup] Send response:', JSON.stringify(result));
+  return result;
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
