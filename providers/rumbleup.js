@@ -262,24 +262,28 @@ async function sendSms(to, body, mediaUrl) {
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
 
-  // MMS: use /proxy/send which supports the 'file' parameter for image attachments
-  if (mediaUrl && creds.phoneNumber) {
-    const proxy = creds.phoneNumber.replace(/\D/g, '');
-    console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' with image: ' + mediaUrl);
-    return apiPost('/proxy/send', {
-      phone,
-      proxy,
-      text: body,
-      file: mediaUrl
-    });
-  }
-
-  // Regular SMS via /message/send
-  return apiPost('/message/send', {
+  const payload = {
     phone,
     action: creds.actionId,
     text: body
-  });
+  };
+
+  // MMS: try /proxy/send first (supports 'file' param), fall back to /message/send with link
+  if (mediaUrl) {
+    if (creds.phoneNumber) {
+      try {
+        const proxy = creds.phoneNumber.replace(/\D/g, '');
+        console.log('[rumbleup] Trying MMS via /proxy/send to ' + phone);
+        return await apiPost('/proxy/send', { phone, proxy, text: body, file: mediaUrl });
+      } catch (proxyErr) {
+        console.warn('[rumbleup] /proxy/send failed (' + proxyErr.message + '), falling back to SMS with link');
+      }
+    }
+    // Fallback: include flyer as clickable link in message
+    payload.text = body + '\n\n📋 View your event flyer: ' + mediaUrl;
+  }
+
+  return apiPost('/message/send', payload);
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
