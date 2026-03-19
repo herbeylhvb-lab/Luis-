@@ -945,5 +945,23 @@ try {
   }
 } catch (e) { console.error('[migration] Volunteer migration error:', e.message); }
 
+// One-time: normalize all contact phone numbers to 10-digit format for consistent matching
+try {
+  const rawContacts = db.prepare("SELECT id, phone FROM contacts WHERE phone IS NOT NULL AND phone != '' AND phone GLOB '*[^0-9]*'").all();
+  if (rawContacts.length > 0) {
+    const upd = db.prepare('UPDATE contacts SET phone = ? WHERE id = ?');
+    const normalize = db.transaction(() => {
+      let fixed = 0;
+      for (const c of rawContacts) {
+        const digits = (c.phone || '').replace(/\D/g, '');
+        const clean = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+        if (clean && clean !== c.phone) { upd.run(clean, c.id); fixed++; }
+      }
+      if (fixed > 0) console.log('[migration] Normalized ' + fixed + ' contact phone numbers');
+    });
+    normalize();
+  }
+} catch (e) { console.error('[migration] Phone normalization error:', e.message); }
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

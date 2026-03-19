@@ -373,7 +373,14 @@ app.post('/test-connection', asyncHandler(async (req, res) => {
 
 // --- Incoming webhook (messaging provider) ---
 app.post('/incoming', webhookLimiter, async (req, res) => {
-  console.log('[webhook /incoming] Received webhook:', JSON.stringify(req.body).substring(0, 500));
+  const webhookType = (req.body && req.body.type) || 'unknown';
+  console.log('[webhook /incoming] type=' + webhookType + ' payload:', JSON.stringify(req.body).substring(0, 500));
+
+  // Skip non-message events (DELIVERY_RECEIPT, CONTACT_UPDATED, etc.)
+  if (webhookType !== 'MESSAGE_RECEIVED' && webhookType !== 'unknown') {
+    return res.type('application/json').send('{"ok":true}');
+  }
+
   let provider;
   try {
     provider = getProvider();
@@ -394,8 +401,10 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
   const Body = webhook.body;
   const channel = webhook.channel || 'sms';
   if (!From) {
+    console.warn('[webhook] No phone in payload, skipping');
     return res.type(replyType).send(provider.buildEmptyReply());
   }
+  console.log('[webhook] Processing message from ' + From + ': ' + (Body || '').substring(0, 100));
 
   // Normalize phone to 10-digit for matching against stored contacts
   const fromNormalized = phoneDigits(From);
@@ -517,6 +526,7 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
   }
 
   // Check if this is a reply to an active P2P session
+  // Contacts are now stored with normalized phones (10-digit), matching webhook format
   const p2pAssignment = db.prepare(`
     SELECT a.*, s.id as sid FROM p2p_assignments a
     JOIN p2p_sessions s ON a.session_id = s.id
