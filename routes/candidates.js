@@ -458,7 +458,7 @@ router.put('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (
 
 // Delete a captain from the candidate portal
 router.delete('/candidates/:id/portal/captains/:captainId', requireCandidateAuth, (req, res) => {
-  const captain = db.prepare('SELECT id, name FROM captains WHERE id = ? AND candidate_id = ?').get(req.params.captainId, req.params.id);
+  const captain = db.prepare('SELECT id, name, parent_captain_id FROM captains WHERE id = ? AND candidate_id = ?').get(req.params.captainId, req.params.id);
   if (!captain) return res.status(404).json({ error: 'Captain not found under this candidate.' });
   // Check if captain is shared with other candidates — if so, just unlink from this candidate instead of hard deleting
   const shares = db.prepare('SELECT COUNT(*) as n FROM captain_candidates WHERE captain_id = ?').get(req.params.captainId);

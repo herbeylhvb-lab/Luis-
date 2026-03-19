@@ -106,9 +106,11 @@ router.post('/volunteers/login', (req, res) => {
     walkerId = walker ? walker.id : null;
 
     if (walkerId) {
-      // Auto-assign to walks they're not in
+      // Auto-assign to walks for the walker's candidate only (not all walks system-wide)
+      const walkerRecord = db.prepare('SELECT candidate_id FROM walkers WHERE id = ?').get(walkerId);
+      const candFilter = walkerRecord && walkerRecord.candidate_id ? ' AND bw.candidate_id = ' + walkerRecord.candidate_id : '';
       const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
-        WHERE bw.status != 'completed'
+        WHERE bw.status != 'completed'${candFilter}
         AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`).all(walkerId);
       if (unassigned.length > 0) {
         const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');

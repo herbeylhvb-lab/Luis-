@@ -6,7 +6,7 @@ const { Jimp } = require('jimp');
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 const QRCode = require('qrcode');
-const { asyncHandler } = require('../utils');
+const { asyncHandler, phoneDigits } = require('../utils');
 
 // List all events (includes has_flyer flag, excludes full base64) — single query with RSVP stats
 router.get('/events', (req, res) => {
@@ -62,20 +62,20 @@ router.put('/events/:id', (req, res) => {
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      flyer_image = ?, latitude = ?, longitude = ?, checkin_radius = ? WHERE id = ?`
+      flyer_image = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status, flyer_image,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
-      checkin_radius || 500, req.params.id);
+      checkin_radius || null, req.params.id);
   } else {
     result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      latitude = ?, longitude = ?, checkin_radius = ? WHERE id = ?`
+      latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
-      checkin_radius || 500, req.params.id);
+      checkin_radius || null, req.params.id);
   }
   if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
   res.json({ success: true });
@@ -267,7 +267,8 @@ router.put('/events/:id/rsvps/:rsvpId', (req, res) => {
 
 // QR Code check-in (public endpoint, no auth needed)
 router.post('/events/:id/checkin', (req, res) => {
-  const { name, phone } = req.body;
+  const { name } = req.body;
+  const phone = phoneDigits(req.body.phone);
   if (!name || !phone) return res.status(400).json({ error: 'Name and phone are required.' });
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });

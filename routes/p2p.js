@@ -582,9 +582,14 @@ router.put('/texting-volunteers/:id', (req, res) => {
 
 // Delete texting volunteer
 router.delete('/texting-volunteers/:id', (req, res) => {
-  const vol = db.prepare('SELECT name FROM texting_volunteers WHERE id = ?').get(req.params.id);
+  const vol = db.prepare('SELECT id, name, code FROM texting_volunteers WHERE id = ?').get(req.params.id);
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
-  db.prepare('UPDATE p2p_volunteers SET volunteer_id = NULL WHERE volunteer_id = ?').run(req.params.id);
+  // Find matching unified volunteer ID (p2p_volunteers.volunteer_id references volunteers table)
+  const unifiedVol = db.prepare('SELECT id FROM volunteers WHERE code = ?').get(vol.code);
+  if (unifiedVol) {
+    db.prepare('UPDATE p2p_volunteers SET volunteer_id = NULL WHERE volunteer_id = ?').run(unifiedVol.id);
+    db.prepare('DELETE FROM volunteers WHERE id = ?').run(unifiedVol.id);
+  }
   db.prepare('DELETE FROM texting_volunteers WHERE id = ?').run(req.params.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Texting volunteer deleted: ' + vol.name);
   res.json({ success: true });
