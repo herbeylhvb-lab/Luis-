@@ -1048,28 +1048,45 @@ app.post('/api/events/:id/invite', (req, res) => {
     + '{checkin_link}'
     + '\nReply STOP to opt out.';
 
-  // Create a P2P session for the invites (include flyer URL for MMS if event has flyer)
-  const joinCode = generateJoinCode();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Create/reuse a P2P session for event invites
   const flyerUrl = event.flyer_image ? (process.env.RAILWAY_PUBLIC_DOMAIN || process.env.BASE_URL || 'https://campaigntext-production.up.railway.app') + '/api/events/' + event.id + '/flyer' : null;
-  const sessionResult = db.prepare(
-    'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl);
-  const sessionId = sessionResult.lastInsertRowid;
+
+  // Check for existing active event session first (don't create duplicates)
+  let sessionId;
+  const existingSession = db.prepare("SELECT id, join_code FROM p2p_sessions WHERE name = ? AND status = 'active' LIMIT 1")
+    .get('Event Invite: ' + event.title);
+  let joinCode;
+  if (existingSession) {
+    sessionId = existingSession.id;
+    joinCode = existingSession.join_code;
+    // Update media_url in case flyer was added/changed
+    if (flyerUrl) db.prepare('UPDATE p2p_sessions SET media_url = ? WHERE id = ?').run(flyerUrl, sessionId);
+  } else {
+    joinCode = generateJoinCode();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const sessionResult = db.prepare(
+      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl);
+    sessionId = sessionResult.lastInsertRowid;
+  }
 
   // Queue contacts as P2P assignments + record RSVPs
   const insertAssign = db.prepare('INSERT INTO p2p_assignments (session_id, contact_id) VALUES (?, ?)');
   const rsvpInsert = db.prepare("INSERT OR IGNORE INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, 'invited')");
   const optedOutSet = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
-  // For list-based invites, ensure contacts table entries exist for P2P assignments
   const findContact = db.prepare('SELECT id FROM contacts WHERE phone = ?');
   const insertContact = db.prepare('INSERT INTO contacts (phone, first_name, last_name, city) VALUES (?, ?, ?, ?)');
+
+  // Find online volunteers to auto-assign contacts to
+  const onlineVols = db.prepare("SELECT id FROM p2p_volunteers WHERE session_id = ? AND is_online = 1").all(sessionId);
+  let volIndex = 0;
+
   let queued = 0;
   const inviteTx = db.transaction(() => {
     for (const c of contacts) {
       const normalizedPhone = phoneDigits(c.phone) || c.phone;
       if (optedOutSet.has(normalizedPhone)) continue;
-      // Ensure contact exists in contacts table for P2P assignment (use normalized phone)
+      // Ensure contact exists in contacts table
       let contactId = c.id;
       if (list_id) {
         const existing = findContact.get(normalizedPhone);
@@ -1079,15 +1096,23 @@ app.post('/api/events/:id/invite', (req, res) => {
           contactId = r.lastInsertRowid;
         }
       }
-      try { insertAssign.run(sessionId, contactId); } catch (e) { if (!e.message.includes('UNIQUE')) throw e; }
+      // Skip if already assigned in this session
+      const alreadyAssigned = db.prepare('SELECT id FROM p2p_assignments WHERE session_id = ? AND contact_id = ?').get(sessionId, contactId);
+      if (alreadyAssigned) continue;
+
+      // Auto-assign to online volunteers round-robin, or leave unassigned for next volunteer
+      const volId = onlineVols.length > 0 ? onlineVols[volIndex % onlineVols.length].id : null;
+      if (volId) volIndex++;
+
+      db.prepare('INSERT INTO p2p_assignments (session_id, contact_id, volunteer_id) VALUES (?, ?, ?)').run(sessionId, contactId, volId);
       rsvpInsert.run(req.params.id, normalizedPhone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim());
       queued++;
     }
   });
   inviteTx();
 
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Event invite P2P session created for ' + event.title + ': ' + queued + ' contacts queued.');
-  res.json({ success: true, sent: queued, joinCode, sessionId, p2p: true });
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Event invites queued for ' + event.title + ': ' + queued + ' contacts' + (onlineVols.length > 0 ? ' (assigned to ' + onlineVols.length + ' volunteers)' : ' (waiting for volunteers)'));
+  res.json({ success: true, sent: queued, joinCode, sessionId, p2p: true, volunteersOnline: onlineVols.length });
 });
 
 // --- Sentiment analysis ---
