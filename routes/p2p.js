@@ -435,8 +435,11 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
 
   const assignment = db.prepare(`
-    SELECT a.*, c.phone, c.first_name, c.last_name, c.city FROM p2p_assignments a
-    JOIN contacts c ON a.contact_id = c.id WHERE a.id = ?
+    SELECT a.*, c.phone, c.first_name, c.last_name, c.city, v.qr_token
+    FROM p2p_assignments a
+    JOIN contacts c ON a.contact_id = c.id
+    LEFT JOIN voters v ON v.phone = c.phone AND v.phone != ''
+    WHERE a.id = ?
   `).get(assignmentId);
   if (!assignment) return res.status(404).json({ error: 'Assignment not found.' });
 
@@ -468,8 +471,14 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
       });
     }
     // Include MMS image if session has a media_url (e.g., event flyer) — only on initial send
-    const session = db.prepare('SELECT media_url FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    const mediaUrl = (!isReply && session && session.media_url) ? session.media_url : undefined;
+    const session = db.prepare('SELECT media_url, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
+    let mediaUrl = (!isReply && session && session.media_url) ? session.media_url : undefined;
+    // For event invites with flyers: use per-voter composite URL (flyer + unique QR code)
+    if (mediaUrl && session.session_type === 'event' && assignment.qr_token) {
+      // Replace plain flyer URL with composite URL: /api/events/:id/flyer/:voterToken
+      const baseUrl = mediaUrl.replace(/\/flyer$/, '');
+      mediaUrl = baseUrl + '/flyer/' + assignment.qr_token;
+    }
     await provider.sendMessage(assignment.phone, message, 'sms', mediaUrl);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
