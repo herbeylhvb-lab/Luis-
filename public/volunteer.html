@@ -724,8 +724,12 @@
       if (!volState.volunteerId) return;
       // Don't overwrite UI while viewing a conversation
       if (document.getElementById('convoViewCard').style.display !== 'none') return;
-      // Auto-sync inbound messages from RumbleUp on each poll
-      fetch('/api/sync-inbound', { method: 'POST' }).catch(function() {});
+      // Auto-sync inbound messages from RumbleUp (throttled to once per 60s)
+      var now = Date.now();
+      if (!window._lastVolSync || now - window._lastVolSync > 60000) {
+        window._lastVolSync = now;
+        fetch('/api/sync-inbound', { method: 'POST' }).catch(function() {});
+      }
       try {
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
       // Keep session type in sync
@@ -912,8 +916,10 @@
     }
 
     async function skipContact(assignmentId) {
-      await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
-      loadQueue();
+      try {
+        await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
+        loadQueue();
+      } catch (e) { alert('Failed to skip: ' + (e.message || 'Error')); }
     }
 
     var convoMessageCount = 0; // Track message count to detect new messages
@@ -930,6 +936,7 @@
     function advancePipeline() {
       if (pipelineIndex < 0) { closeConvo(); return; }
       pipelineIndex++;
+      convoMessageCount = 0; // Reset so next convo renders fresh
       if (pipelineIndex < replyPipeline.length) {
         openConvo(replyPipeline[pipelineIndex]);
       } else {
@@ -940,7 +947,11 @@
       }
     }
 
+    var _openConvoLoading = false;
     async function openConvo(assignmentId) {
+      if (_openConvoLoading) return; // Prevent concurrent calls
+      _openConvoLoading = true;
+      try {
       var isFirstOpen = volState.viewingConvoId !== assignmentId;
       volState.viewingConvoId = assignmentId;
       document.getElementById('queueCard').style.display = 'none';
@@ -1007,6 +1018,7 @@
           openConvo(assignmentId);
         }
       }, 5000);
+      } finally { _openConvoLoading = false; }
     }
 
     var currentAiSuggestion = '';

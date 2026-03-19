@@ -690,7 +690,7 @@ tr:hover td{background:#1e293b80}
         </div>
         <div class="card" id="p2pQueueCard">
           <div id="p2pContactInfo" style="margin-bottom:16px"></div>
-          <div class="form-group"><label>Message</label><textarea id="p2pMessage" rows="4"></textarea></div>
+          <div class="form-group"><label>Message</label><textarea id="p2pMessage" rows="4" oninput="this.dataset.userEdited='1'"></textarea></div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-success" id="btnP2pSend">&#9654; Send</button>
             <button class="btn btn-secondary" id="btnP2pSkip">&#9197; Skip</button>
@@ -7126,7 +7126,15 @@ async function loadVolunteerQueue() {
         <div style="font-size:16px;color:#e2e8f0;margin-bottom:4px"><strong>${escHtml(d.assignment.first_name)} ${escHtml(d.assignment.last_name)}</strong></div>
         <div style="font-size:13px;color:#94a3b8">${escHtml(d.assignment.phone)}${d.assignment.city ? ' · ' + escHtml(d.assignment.city) : ''}</div>
       `;
-      document.getElementById('p2pMessage').value = d.resolvedMessage || '';
+      // Only set message if user hasn't edited it (prevent overwrite during polling)
+      var msgEl = document.getElementById('p2pMessage');
+      if (!msgEl.dataset.userEdited) {
+        msgEl.value = d.resolvedMessage || '';
+      } else if (p2pState.currentAssignment && d.assignment && p2pState.currentAssignment.id !== d.assignment.id) {
+        // New contact — reset the edited flag and update message
+        msgEl.dataset.userEdited = '';
+        msgEl.value = d.resolvedMessage || '';
+      }
     } else {
       qCard.style.display = 'none';
       p2pState.currentAssignment = null;
