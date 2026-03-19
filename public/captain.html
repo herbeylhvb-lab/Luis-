@@ -163,6 +163,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .list-item.drag-over,.team-member-row.drag-over{background:#2d3b4f;border-left-color:#f59e0b;box-shadow:inset 0 0 0 2px rgba(245,158,11,0.3)}
 .team-member-lists .list-item.drag-over{background:#1a2a3a;box-shadow:inset 0 0 0 2px rgba(245,158,11,0.4)}
 .drag-hint{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;background:#422006;color:#fcd34d;border:1px solid #f59e0b;border-radius:10px;font-size:13px;font-weight:600;z-index:200;pointer-events:none;animation:fadeIn 0.3s ease;white-space:nowrap}
+.add-list-dropdown{position:absolute;right:0;top:100%;z-index:150;background:#1e293b;border:1px solid #475569;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);min-width:200px;max-height:300px;overflow-y:auto;padding:4px 0;margin-top:4px}
+.add-list-dropdown .drop-section{padding:4px 12px 2px;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
+.add-list-dropdown .drop-item{display:block;width:100%;padding:8px 12px;border:none;background:none;color:#e2e8f0;font-size:13px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.add-list-dropdown .drop-item:hover{background:#334155;color:#f59e0b}
 
 /* CSV Import Modal */
 .csv-modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;box-sizing:border-box}
@@ -402,6 +406,7 @@ async function refreshSidebar() {
   var assignedLists = data.assigned_lists || [];
   captainState.captain.lists = lists;
   captainState.captain.assigned_lists = assignedLists;
+  captainState._cachedSubCaptainLists = subCaptainLists;
   if (data.team_members) captainState.captain.team_members = data.team_members;
   if (data.sub_captains) captainState.captain.sub_captains = data.sub_captains;
 
@@ -552,6 +557,20 @@ async function refreshSidebar() {
           refreshSidebar();
         };
       })(sc));
+      // Make team member row a drop target — drops voter into their first list
+      (function(scNode, memberListsRef, legacyListsRef) {
+        var firstList = null;
+        var mls = subCaptainLists.filter(function(l) { return l.sub_captain_id === scNode.id; });
+        var lls = teamLists.filter(function(l) { return l.team_member_name === scNode.name; });
+        if (mls.length > 0) {
+          firstList = { id: mls[0].id, name: mls[0].name, type: 'subcaptain', sub_captain_id: mls[0].sub_captain_id || scNode.id };
+        } else if (lls.length > 0) {
+          firstList = { id: lls[0].id, name: lls[0].name, type: 'captain', sub_captain_id: null };
+        }
+        if (firstList) {
+          setupListDropTarget(row, firstList);
+        }
+      })(sc, memberLists, legacyLists);
       teamContainer.appendChild(row);
 
       // Expandable lists container
@@ -1173,6 +1192,8 @@ async function searchVoters() {
     nameDiv.appendChild(addrEl);
     top.appendChild(nameDiv);
 
+    var addWrap = document.createElement('div');
+    addWrap.style.cssText = 'display:flex;gap:2px;flex-shrink:0';
     var addBtn = document.createElement('button');
     addBtn.className = 'btn btn-xs btn-captain';
     addBtn.textContent = '+ Add';
@@ -1180,7 +1201,20 @@ async function searchVoters() {
       if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
       showAddVoterModal(voter);
     }; })(v));
-    top.appendChild(addBtn);
+    addWrap.appendChild(addBtn);
+    // Dropdown arrow to pick which list to add to
+    var dropBtn = document.createElement('button');
+    dropBtn.className = 'btn btn-xs btn-captain';
+    dropBtn.style.cssText = 'padding:10px 6px;border-left:1px solid rgba(0,0,0,0.2);border-radius:0 6px 6px 0;min-width:28px';
+    addBtn.style.borderRadius = '6px 0 0 6px';
+    dropBtn.textContent = '\u25BC';
+    dropBtn.title = 'Add to a specific list';
+    dropBtn.addEventListener('click', (function(voter, wrapper) { return function(e) {
+      e.stopPropagation();
+      showAddToListDropdown(voter, wrapper);
+    }; })(v, addWrap));
+    addWrap.appendChild(dropBtn);
+    top.appendChild(addWrap);
     card.appendChild(top);
 
     // Meta badges
@@ -2398,12 +2432,13 @@ async function addTeamMember() {
 // ===================== DRAG & DROP VOTERS INTO LISTS =====================
 
 var _dragHintEl = null;
+var _dragExpandTimeout = null;
 
 function showDragHint(show) {
   if (show && !_dragHintEl) {
     _dragHintEl = document.createElement('div');
     _dragHintEl.className = 'drag-hint';
-    _dragHintEl.textContent = 'Drop on a list in the sidebar to add voter';
+    _dragHintEl.textContent = 'Drop on a team member or list in the sidebar';
     document.body.appendChild(_dragHintEl);
   } else if (!show && _dragHintEl) {
     _dragHintEl.remove();
@@ -2415,6 +2450,10 @@ function clearAllDragOver() {
   document.querySelectorAll('.drag-over').forEach(function(el) {
     el.classList.remove('drag-over');
   });
+  if (_dragExpandTimeout) {
+    clearTimeout(_dragExpandTimeout);
+    _dragExpandTimeout = null;
+  }
 }
 
 function setupListDropTarget(item, listInfo) {
@@ -2441,6 +2480,96 @@ function setupListDropTarget(item, listInfo) {
       }
     } catch(err) { console.warn('Drop parse error:', err); }
   });
+}
+
+function showAddToListDropdown(voter, anchorEl) {
+  // Close any existing dropdown
+  var old = document.querySelector('.add-list-dropdown');
+  if (old) old.remove();
+
+  var dropdown = document.createElement('div');
+  dropdown.className = 'add-list-dropdown';
+
+  // My lists
+  var myLists = (captainState.captain.lists || []).filter(function(l) { return !l.team_member_name; });
+  if (myLists.length > 0) {
+    var sec = document.createElement('div');
+    sec.className = 'drop-section';
+    sec.textContent = 'My Lists';
+    dropdown.appendChild(sec);
+    myLists.forEach(function(l) {
+      var btn = document.createElement('button');
+      btn.className = 'drop-item';
+      btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+      btn.addEventListener('click', function() {
+        dropdown.remove();
+        quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+      });
+      dropdown.appendChild(btn);
+    });
+  }
+
+  // Sub-captain lists
+  var subCaptains = captainState.captain.sub_captains || [];
+  if (subCaptains.length > 0) {
+    // Get fresh sub_captain_lists from the last sidebar refresh
+    var subCaptainLists = [];
+    var teamLists = (captainState.captain.lists || []).filter(function(l) { return l.team_member_name; });
+    // We need to fetch sub-captain lists — they're stored during refreshSidebar
+    // Use the cached data from the API response
+    if (captainState._cachedSubCaptainLists) {
+      subCaptainLists = captainState._cachedSubCaptainLists;
+    }
+
+    subCaptains.forEach(function(sc) {
+      var scLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
+      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
+      if (scLists.length > 0 || legacyLists.length > 0) {
+        var sec = document.createElement('div');
+        sec.className = 'drop-section';
+        sec.textContent = sc.name;
+        dropdown.appendChild(sec);
+        scLists.forEach(function(l) {
+          var btn = document.createElement('button');
+          btn.className = 'drop-item';
+          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+          btn.addEventListener('click', function() {
+            dropdown.remove();
+            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'subcaptain', sub_captain_id: l.sub_captain_id || sc.id });
+          });
+          dropdown.appendChild(btn);
+        });
+        legacyLists.forEach(function(l) {
+          var btn = document.createElement('button');
+          btn.className = 'drop-item';
+          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+          btn.addEventListener('click', function() {
+            dropdown.remove();
+            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+          });
+          dropdown.appendChild(btn);
+        });
+      }
+    });
+  }
+
+  // Position relative to anchor
+  anchorEl.style.position = 'relative';
+  anchorEl.appendChild(dropdown);
+
+  // Close on click outside
+  function closeDropdown(e) {
+    if (!dropdown.contains(e.target) && !anchorEl.contains(e.target)) {
+      dropdown.remove();
+      document.removeEventListener('click', closeDropdown);
+    }
+  }
+  setTimeout(function() { document.addEventListener('click', closeDropdown); }, 10);
+}
+
+async function quickAddVoterToList(voter, listInfo) {
+  var voterName = (voter.first_name || '') + ' ' + (voter.last_name || '');
+  await dropVoterOnList(voter.id, voterName, listInfo);
 }
 
 async function dropVoterOnList(voterId, voterName, listInfo) {
