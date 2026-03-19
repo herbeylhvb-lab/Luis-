@@ -54,7 +54,8 @@ function getPublicCredentials() {
 
 function hasCredentials() {
   const creds = getCredentials();
-  return !!(creds.apiKey && creds.apiSecret && creds.actionId);
+  // Only require key+secret — actionId and phone are optional for some operations
+  return !!(creds.apiKey && creds.apiSecret);
 }
 
 // --- HTTP helpers ---
@@ -176,11 +177,13 @@ async function listAccounts(params) {
 
 // --- Projects (Actions) ---
 
-async function createProject({ name, message, group, campaignId, proxy, media }) {
+async function createProject({ name, message, group, campaignId, proxy, media, type }) {
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;
   if (proxy) body.proxy = proxy;
+  if (type) body.type = type; // SMS, MMS, or EVT
+  if (media) body.media = media;
   return apiPost('/project/create', body);
 }
 
@@ -256,7 +259,10 @@ async function getGroup(groupId) {
 
 async function sendSms(to, body, mediaUrl) {
   const creds = getCredentials();
-  if (!creds.apiKey || !creds.apiSecret || !creds.actionId) {
+  if (!creds.apiKey || !creds.apiSecret) {
+    throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
+  }
+  if (!creds.actionId && !mediaUrl) {
     throw new Error('RumbleUp credentials not configured. Set them in Messaging Setup.');
   }
   const phone = to.replace(/\D/g, '');
@@ -280,7 +286,7 @@ async function sendSms(to, body, mediaUrl) {
       }
     }
     // Fallback: include flyer as clickable link in message
-    payload.text = body + '\n\n📋 View your event flyer: ' + mediaUrl;
+    payload.text = body + '\n\nView your event flyer: ' + mediaUrl;
   }
 
   return apiPost('/message/send', payload);
@@ -304,7 +310,7 @@ async function sendMessage(to, body, channel, mediaUrl) {
 }
 
 async function getNextContact(actionId) {
-  return apiPost('/message/next', { action: String(actionId) });
+  return apiGet('/message/next', { action: String(actionId) });
 }
 
 async function getMessageLog(params) {

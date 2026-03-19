@@ -849,7 +849,14 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           console.log('[sync-inbound] Raw API response (first 500 chars):', JSON.stringify(result).substring(0, 500));
         }
 
-        const messages = result.messages || result.data || result || [];
+        // RumbleUp may return messages under different keys depending on API version
+        let messages = result.messages || result.data || result.logs || result || [];
+        // If result is an object with a single array value, use that
+        if (!Array.isArray(messages) && typeof messages === 'object' && messages !== null) {
+          const keys = Object.keys(messages);
+          const arrKey = keys.find(k => Array.isArray(messages[k]));
+          if (arrKey) messages = messages[arrKey];
+        }
         if (!Array.isArray(messages)) {
           console.log('[sync-inbound] Messages not an array for phone', phone, '| type:', typeof messages, '| keys:', Object.keys(messages || {}));
           return;
