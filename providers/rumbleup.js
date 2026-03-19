@@ -274,15 +274,11 @@ async function sendSms(to, body, mediaUrl) {
     text: body
   };
 
-  // MMS: include media URL in the message/send payload
+  // MMS: attach media via the 'file' parameter (RumbleUp documented field for MMS attachments)
+  // Note: media files must be under 750KB (.png, .jpg, .gif, .mov, .mp4)
   if (mediaUrl) {
-    payload.media = mediaUrl;
     payload.file = mediaUrl;
-    payload.type = 'MMS';
-    if (creds.phoneNumber) {
-      payload.proxy = creds.phoneNumber.replace(/\D/g, '');
-    }
-    console.log('[rumbleup] Sending MMS via /message/send to ' + phone + ' media=' + mediaUrl + (payload.proxy ? ' proxy=' + payload.proxy : ''));
+    console.log('[rumbleup] Sending MMS via /message/send to ' + phone + ' file=' + mediaUrl);
   }
 
   return apiPost('/message/send', payload);
