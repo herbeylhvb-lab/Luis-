@@ -274,13 +274,15 @@ async function sendSms(to, body, mediaUrl) {
     text: body
   };
 
-  // MMS: include media file in the message/send payload
+  // MMS: include media URL in the message/send payload
   if (mediaUrl) {
+    payload.media = mediaUrl;
     payload.file = mediaUrl;
+    payload.type = 'MMS';
     if (creds.phoneNumber) {
       payload.proxy = creds.phoneNumber.replace(/\D/g, '');
     }
-    console.log('[rumbleup] Sending MMS via /message/send to ' + phone + ' file=' + mediaUrl + (payload.proxy ? ' proxy=' + payload.proxy : ''));
+    console.log('[rumbleup] Sending MMS via /message/send to ' + phone + ' media=' + mediaUrl + (payload.proxy ? ' proxy=' + payload.proxy : ''));
   }
 
   return apiPost('/message/send', payload);
