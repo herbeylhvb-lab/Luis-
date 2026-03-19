@@ -261,17 +261,25 @@ async function sendSms(to, body, mediaUrl) {
   }
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
-  const payload = {
+
+  // MMS: use /proxy/send which supports the 'file' parameter for image attachments
+  if (mediaUrl && creds.phoneNumber) {
+    const proxy = creds.phoneNumber.replace(/\D/g, '');
+    console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' with image: ' + mediaUrl);
+    return apiPost('/proxy/send', {
+      phone,
+      proxy,
+      text: body,
+      file: mediaUrl
+    });
+  }
+
+  // Regular SMS via /message/send
+  return apiPost('/message/send', {
     phone,
     action: creds.actionId,
     text: body
-  };
-  // Note: RumbleUp /message/send does NOT support MMS/file attachments directly
-  // MMS requires project-based sending. For now, mediaUrl is appended as a link in the text.
-  if (mediaUrl) {
-    payload.text = body + '\n\nView flyer: ' + mediaUrl;
-  }
-  return apiPost('/message/send', payload);
+  });
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
