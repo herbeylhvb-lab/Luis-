@@ -278,12 +278,7 @@ async function sendSms(to, body, mediaUrl, options = {}) {
     text: body
   };
 
-  // MMS: try sending file URL directly on /message/send
-  if (mediaUrl) {
-    payload.file = mediaUrl;
-  }
-
-  console.log('[rumbleup] Sending message to ' + phone + ' action=' + actionId + (mediaUrl ? ' file=' + mediaUrl : ''));
+  console.log('[rumbleup] Sending message to ' + phone + ' action=' + actionId);
   const result = await apiPost('/message/send', payload);
   console.log('[rumbleup] Send response:', JSON.stringify(result));
   return result;
