@@ -672,6 +672,10 @@ async function refreshSidebar() {
             refreshSidebar();
           }
         });
+        // Drop target for drag-and-drop
+        if (pLists.length > 0) {
+          setupListDropTarget(row, { id: pLists[0].id, name: pLists[0].name, type: 'captain', sub_captain_id: null });
+        }
       })(tm, legacyLists);
       teamContainer.appendChild(row);
 
@@ -704,6 +708,8 @@ async function refreshSidebar() {
         item.addEventListener('click', (function(listItem) {
           return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
         })(l));
+        // Drop target: drag voters into legacy list
+        setupListDropTarget(item, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -2448,6 +2454,20 @@ async function addTeamMember() {
 var _dragHintEl = null;
 var _dragExpandTimeout = null;
 
+// Enable the sidebar as a drag-over zone so drops work inside scrollable containers
+(function() {
+  var sidebar = document.querySelector('.sidebar');
+  if (sidebar) {
+    sidebar.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    sidebar.addEventListener('dragenter', function(e) {
+      e.preventDefault();
+    });
+  }
+})();
+
 function showDragHint(show) {
   if (show && !_dragHintEl) {
     _dragHintEl = document.createElement('div');
@@ -2471,13 +2491,22 @@ function clearAllDragOver() {
 }
 
 function setupListDropTarget(item, listInfo) {
+  item.addEventListener('dragenter', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    item.classList.add('drag-over');
+  });
   item.addEventListener('dragover', function(e) {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
     item.classList.add('drag-over');
   });
   item.addEventListener('dragleave', function(e) {
-    if (!item.contains(e.relatedTarget)) {
+    e.preventDefault();
+    // Only remove if we actually left this element (not entering a child)
+    var rect = item.getBoundingClientRect();
+    if (e.clientX <= rect.left || e.clientX >= rect.right || e.clientY <= rect.top || e.clientY >= rect.bottom) {
       item.classList.remove('drag-over');
     }
   });
