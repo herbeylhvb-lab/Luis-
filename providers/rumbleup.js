@@ -60,10 +60,7 @@ function hasCredentials() {
 
 // --- HTTP helpers ---
 
-function authHeader(key, secret, useBearer) {
-  if (useBearer) {
-    return 'Bearer ' + key + ':' + secret;
-  }
+function authHeader(key, secret) {
   const encoded = Buffer.from(key + ':' + secret).toString('base64');
   return 'Basic ' + encoded;
 }
@@ -80,7 +77,7 @@ async function apiRequest(path, body, creds, options = {}) {
 
   const fetchOpts = {
     method,
-    headers: { 'Authorization': authHeader(key, secret, options.useBearer) },
+    headers: { 'Authorization': authHeader(key, secret) },
     signal: controller.signal
   };
 
@@ -118,7 +115,7 @@ async function apiRequest(path, body, creds, options = {}) {
     if (resp.status === 401) {
       throw new Error('RumbleUp authentication failed. Check your API key and secret.' + (detail ? ' (' + detail + ')' : ''));
     }
-    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check API key/secret and account permissions.'));
+    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check account permissions.'));
   }
   if (resp.status === 429) {
     const retry = resp.headers.get('Retry-After') || '5';
@@ -277,24 +274,13 @@ async function sendSms(to, body, mediaUrl) {
     text: body
   };
 
-  // MMS: use /proxy/send which supports the 'file' parameter for image attachments
+  // MMS: include media file in the message/send payload
   if (mediaUrl) {
+    payload.file = mediaUrl;
     if (creds.phoneNumber) {
-      const proxy = creds.phoneNumber.replace(/\D/g, '');
-      console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' proxy=' + proxy + ' file=' + mediaUrl);
-      try {
-        const result = await apiPost('/proxy/send', { phone, proxy, text: body, file: mediaUrl }, null, { useBearer: true });
-        console.log('[rumbleup] MMS success:', JSON.stringify(result).substring(0, 300));
-        return result;
-      } catch (proxyErr) {
-        console.error('[rumbleup] MMS /proxy/send FAILED:', proxyErr.message, proxyErr.stack);
-        // Always throw — don't silently fall back. Let the user see the error.
-        throw new Error('MMS send failed: ' + proxyErr.message + '. Check RumbleUp proxy/send access.');
-      }
-    } else {
-      console.warn('[rumbleup] No proxy phone number configured — cannot send MMS, using SMS with link');
-      payload.text = body + '\n\nView your event flyer: ' + mediaUrl;
+      payload.proxy = creds.phoneNumber.replace(/\D/g, '');
     }
+    console.log('[rumbleup] Sending MMS via /message/send to ' + phone + ' file=' + mediaUrl + (payload.proxy ? ' proxy=' + payload.proxy : ''));
   }
 
   return apiPost('/message/send', payload);
