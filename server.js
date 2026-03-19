@@ -1048,12 +1048,13 @@ app.post('/api/events/:id/invite', (req, res) => {
     + '{checkin_link}'
     + '\nReply STOP to opt out.';
 
-  // Create a P2P session for the invites
+  // Create a P2P session for the invites (include flyer URL for MMS if event has flyer)
   const joinCode = generateJoinCode();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const flyerUrl = event.flyer_image ? (process.env.RAILWAY_PUBLIC_DOMAIN || process.env.BASE_URL || 'https://campaigntext-production.up.railway.app') + '/api/events/' + event.id + '/flyer' : null;
   const sessionResult = db.prepare(
-    'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event');
+    'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl);
   const sessionId = sessionResult.lastInsertRowid;
 
   // Queue contacts as P2P assignments + record RSVPs
