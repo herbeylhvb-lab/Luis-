@@ -206,6 +206,10 @@ app.use((req, res, next) => {
   if (req.path === '/' || req.path.startsWith('/site')) return next();
   // Allow /app (handles its own auth redirect)
   if (req.path === '/app') return next();
+  // Allow event flyer images (needed for MMS — RumbleUp fetches these URLs)
+  if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
+  // Allow voter check-in links (QR code destinations)
+  if (req.path.startsWith('/v/')) return next();
   // Debug sync-status requires admin auth (contains phone numbers)
   // Everything else requires auth
   requireAuth(req, res, next);
