@@ -7,6 +7,9 @@ const { getProvider } = require('../providers');
 
 const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 'Too many send requests, slow down.' } });
 
+// Track sessions where MMS project creation failed to avoid hammering the API
+const p2pMmsProjectFailed = new Set();
+
 // ========== HELPERS ==========
 
 function getOnlineVolunteers(sessionId) {
@@ -480,12 +483,12 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
 
       // Create an MMS project with the flyer if we haven't yet
       let mmsActionId = session.rumbleup_action_id;
-      if (!mmsActionId && provider.createProject) {
+      if (!mmsActionId && provider.createProject && !p2pMmsProjectFailed.has(assignment.session_id)) {
         try {
           console.log('[p2p-send] Creating MMS project with media URL:', baseMediaUrl);
           const project = await provider.createProject({
             name: session.name + ' (MMS)',
-            message: 'Event invite\nReply STOP to opt out.',
+            message: message + '\nReply STOP to opt out.',
             type: 'MMS',
             media: baseMediaUrl
           });
@@ -496,6 +499,9 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
           }
         } catch (err) {
           console.error('[p2p-send] MMS project creation failed:', err.message);
+          // Cache the failure so we don't retry for every single message
+          p2pMmsProjectFailed.add(assignment.session_id);
+          console.log('[p2p-send] Will skip MMS project creation for remaining messages in this session');
         }
       }
 
@@ -503,9 +509,18 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         sendOptions.mmsActionId = String(mmsActionId);
         console.log('[p2p-send] Sending via MMS project action=' + mmsActionId);
       }
+
+      // Pass flyer image URL for MMS attachment
+      const qrToken = assignment.qr_token;
+      if (qrToken && baseMediaUrl) {
+        sendOptions.mediaUrl = baseMediaUrl + '/' + qrToken + '.jpg';
+      } else {
+        sendOptions.mediaUrl = baseMediaUrl;
+      }
+      console.log('[p2p-send] MMS mediaUrl:', sendOptions.mediaUrl);
     }
 
-    await provider.sendMessage(assignment.phone, message, 'sms', undefined, sendOptions);
+    await provider.sendMessage(assignment.phone, message, 'sms', sendOptions.mediaUrl, sendOptions);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")

@@ -959,6 +959,19 @@ function renderListVoters() {
   filtered.forEach(function(v) {
     var row = document.createElement('div');
     row.className = 'right-voter';
+    row.draggable = true;
+    row.style.cursor = 'grab';
+    row.addEventListener('dragstart', (function(voter) { return function(e) {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ voter_id: voter.id, voter_name: (voter.first_name || '') + ' ' + (voter.last_name || '') }));
+      e.dataTransfer.effectAllowed = 'copy';
+      row.style.opacity = '0.4';
+      showDragHint(true);
+    }; })(v));
+    row.addEventListener('dragend', function() {
+      row.style.opacity = '1';
+      showDragHint(false);
+      clearAllDragOver();
+    });
 
     var info = document.createElement('div');
     info.style.cursor = 'pointer';
