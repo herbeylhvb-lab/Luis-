@@ -1060,7 +1060,10 @@ app.post('/api/events/:id/invite', (req, res) => {
     + '\nReply STOP to opt out.';
 
   // Create/reuse a P2P session for event invites
-  const flyerUrl = event.flyer_image ? (process.env.RAILWAY_PUBLIC_DOMAIN || process.env.BASE_URL || 'https://campaigntext-production.up.railway.app') + '/api/events/' + event.id + '/flyer' : null;
+  // Build public flyer URL — ensure https:// prefix
+  let baseUrl = process.env.BASE_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'campaigntext-production.up.railway.app';
+  if (baseUrl && !baseUrl.startsWith('http')) baseUrl = 'https://' + baseUrl;
+  const flyerUrl = event.flyer_image ? baseUrl + '/api/events/' + event.id + '/flyer' : null;
 
   // Check for existing active event session first (don't create duplicates)
   let sessionId;
