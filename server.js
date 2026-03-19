@@ -780,7 +780,11 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
       WHERE s.status = 'active' AND a.status IN ('sent', 'in_conversation')
     `).all().forEach(r => {
       const digits = phoneDigits(r.phone);
-      if (digits) p2pPhoneMap[digits] = { assignment_id: r.assignment_id, session_id: r.session_id };
+      if (digits) {
+        // Store ALL assignments per phone (not just last) to handle multi-session contacts
+        if (!p2pPhoneMap[digits]) p2pPhoneMap[digits] = [];
+        p2pPhoneMap[digits].push({ assignment_id: r.assignment_id, session_id: r.session_id });
+      }
     });
   } catch (e) { /* table may not exist */ }
 
@@ -837,13 +841,15 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
 
         if (!msgBody.trim()) continue;
 
-        // Check for duplicate by phone + body (use timestamp when available to allow repeated messages)
-        const dedupQuery = msgTime
-          ? "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp = ? LIMIT 1"
-          : "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' LIMIT 1";
-        const existing = msgTime
-          ? db.prepare(dedupQuery).get(msgPhone, msgBody, msgTime)
-          : db.prepare(dedupQuery).get(msgPhone, msgBody);
+        // Check for duplicate — use timestamp when available, otherwise check recent (last 24h) only
+        // This prevents dropping repeated common messages like "Yes", "Ok", "Thanks"
+        let existing;
+        if (msgTime) {
+          existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp = ? LIMIT 1").get(msgPhone, msgBody, msgTime);
+        } else {
+          // Without timestamp, only dedup against messages from the last 24 hours
+          existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-1 day') LIMIT 1").get(msgPhone, msgBody);
+        }
         if (existing) continue;
 
         // Check STOP keywords FIRST (before any routing)
@@ -858,15 +864,20 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           continue; // Don't route STOP messages to surveys or P2P
         }
 
-        // Find P2P session for this phone using pre-loaded map (fast)
-        const p2pMatch = p2pPhoneMap[msgPhone] || p2pPhoneMap[msgPhone.slice(-10)] || null;
+        // Find P2P sessions for this phone using pre-loaded map (supports multi-session)
+        const p2pMatches = p2pPhoneMap[msgPhone] || p2pPhoneMap[msgPhone.slice(-10)] || [];
+        const p2pMatch = p2pMatches.length > 0 ? p2pMatches[0] : null;
 
-        // Insert the inbound message (with session_id if P2P match found)
-        // Use fast keyword sentiment during sync (AI would be too slow for batch)
+        // Insert the inbound message (with first session_id if P2P match found)
         const sentiment = analyzeSentiment(msgBody);
         db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
           .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
+
+        // Update ALL matching P2P assignments to in_conversation (not just first)
+        for (const match of p2pMatches) {
+          db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ? AND status IN ('sent','in_conversation')").run(match.assignment_id);
+        }
 
         // Route to survey if applicable (use pre-loaded map for speed)
         const activeSend = surveyPhoneMap[msgPhone] || surveyPhoneMap[msgPhone.slice(-10)] || null;
@@ -915,10 +926,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           }
         }
 
-        // Route to P2P if applicable — only if not already handled by survey
-        if (p2pMatch && !(activeSend && activeSend.current_question_id)) {
-          db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pMatch.assignment_id);
-        }
+        // P2P assignment status already updated above (all matching sessions)
       }
     } catch (err) {
       errors.push({ phone, error: err.message });
