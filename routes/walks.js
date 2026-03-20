@@ -1633,12 +1633,36 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
     addr.knocked_by_me = myKnocks.has(addr.id);
   }
 
-  // Household members
-  const householdStmt = db.prepare(
-    'SELECT first_name, last_name, age FROM voters WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name'
-  );
+  // Household members — batched to avoid N+1 queries (same pattern as /volunteer endpoint)
+  const addrWithVoters = addresses.filter(a => a.voter_id && a.address);
+  const householdMap = {};
+  if (addrWithVoters.length > 0) {
+    const excludeIds = new Set(addrWithVoters.map(a => a.voter_id));
+    const addrKeys = new Set(addrWithVoters.map(a => `${a.address}\0${a.city || ''}`));
+    const uniqueAddrs = [...addrKeys].map(k => { const [address, city] = k.split('\0'); return { address, city }; });
+
+    const CHUNK = 400;
+    for (let i = 0; i < uniqueAddrs.length; i += CHUNK) {
+      const chunk = uniqueAddrs.slice(i, i + CHUNK);
+      const params = [];
+      chunk.forEach(a => { params.push(a.address, a.city); });
+      const rows = db.prepare(
+        `SELECT id, first_name, last_name, age, address, city FROM voters
+         WHERE (${chunk.map(() => '(address = ? AND city = ?)').join(' OR ')})
+         ORDER BY last_name, first_name`
+      ).all(...params);
+
+      for (const v of rows) {
+        if (excludeIds.has(v.id)) continue;
+        const key = `${v.address}\0${v.city || ''}`;
+        if (!householdMap[key]) householdMap[key] = [];
+        householdMap[key].push({ first_name: v.first_name, last_name: v.last_name, age: v.age });
+      }
+    }
+  }
   for (const addr of addresses) {
-    addr.household = (addr.voter_id && addr.address) ? householdStmt.all(addr.address, addr.city || '', addr.voter_id) : [];
+    const key = `${addr.address}\0${addr.city || ''}`;
+    addr.household = householdMap[key] || [];
   }
 
   // Attempt counts

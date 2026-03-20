@@ -567,12 +567,10 @@ document.getElementById('walkerCodeInput').addEventListener('keydown', function(
     document.getElementById('walkerCodeInput').value = code;
     setTimeout(walkerLogin, 100);
   }
-  // Legacy: support walkId param
+  // Legacy: support walkId param (skip if walkerId is also present — handled by auto-load IIFE below)
   var wid = params.get('walkId');
-  if (wid && !code) {
+  if (wid && !code && !params.get('walkerId')) {
     walkState.walkId = parseInt(wid);
-    var wkrId = params.get('walkerId');
-    if (wkrId) walkState.walkerId = parseInt(wkrId);
     loadWalk();
   }
 })();
