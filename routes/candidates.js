@@ -268,23 +268,42 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
   const captains = ownCaptains.concat(sharedCaptainsLogin);
 
   for (const c of captains) {
-    c.lists = db.prepare(`
-      SELECT cl.*, COUNT(clv.id) as voter_count
+    // Captain-created lists + admin-assigned lists (same as portal endpoint)
+    const capLists = db.prepare(`
+      SELECT cl.id, cl.name, cl.description, 'captain' as source, COUNT(clv.id) as voter_count
       FROM captain_lists cl
       LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
       WHERE cl.captain_id = ?
       GROUP BY cl.id ORDER BY cl.created_at DESC
     `).all(c.id);
+    const asnLists = db.prepare(`
+      SELECT al.id, al.name, al.description, 'assigned' as source, COUNT(alv.id) as voter_count
+      FROM admin_lists al
+      LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+      WHERE al.assigned_captain_id = ?
+      GROUP BY al.id ORDER BY al.created_at DESC
+    `).all(c.id);
+    c.lists = capLists.concat(asnLists);
     c.total_voters = (db.prepare(`
-      SELECT COUNT(DISTINCT voter_id) as n FROM captain_list_voters
-      WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
-    `).get(c.id) || { n: 0 }).n;
+      SELECT COUNT(DISTINCT voter_id) as n FROM (
+        SELECT voter_id FROM captain_list_voters WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
+        UNION
+        SELECT voter_id FROM admin_list_voters WHERE list_id IN (SELECT id FROM admin_lists WHERE assigned_captain_id = ?)
+      )
+    `).get(c.id, c.id) || { n: 0 }).n;
     c.voted_count = (db.prepare(`
-      SELECT COUNT(DISTINCT clv.voter_id) as n FROM captain_list_voters clv
-      JOIN captain_lists cl ON clv.list_id = cl.id
-      JOIN voters v ON clv.voter_id = v.id
-      WHERE cl.captain_id = ? AND v.early_voted = 1
-    `).get(c.id) || { n: 0 }).n;
+      SELECT COUNT(DISTINCT voter_id) as n FROM (
+        SELECT clv.voter_id FROM captain_list_voters clv
+        JOIN captain_lists cl ON clv.list_id = cl.id
+        JOIN voters v ON clv.voter_id = v.id
+        WHERE cl.captain_id = ? AND v.early_voted = 1
+        UNION
+        SELECT alv.voter_id FROM admin_list_voters alv
+        JOIN admin_lists al ON alv.list_id = al.id
+        JOIN voters v ON alv.voter_id = v.id
+        WHERE al.assigned_captain_id = ? AND v.early_voted = 1
+      )
+    `).get(c.id, c.id) || { n: 0 }).n;
   }
 
   const lists = db.prepare(`
@@ -380,11 +399,18 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
       )
     `).get(c.id, c.id) || { n: 0 }).n;
     c.voted_count = (db.prepare(`
-      SELECT COUNT(DISTINCT clv.voter_id) as n FROM captain_list_voters clv
-      JOIN captain_lists cl ON clv.list_id = cl.id
-      JOIN voters v ON clv.voter_id = v.id
-      WHERE cl.captain_id = ? AND v.early_voted = 1
-    `).get(c.id) || { n: 0 }).n;
+      SELECT COUNT(DISTINCT voter_id) as n FROM (
+        SELECT clv.voter_id FROM captain_list_voters clv
+        JOIN captain_lists cl ON clv.list_id = cl.id
+        JOIN voters v ON clv.voter_id = v.id
+        WHERE cl.captain_id = ? AND v.early_voted = 1
+        UNION
+        SELECT alv.voter_id FROM admin_list_voters alv
+        JOIN admin_lists al ON alv.list_id = al.id
+        JOIN voters v ON alv.voter_id = v.id
+        WHERE al.assigned_captain_id = ? AND v.early_voted = 1
+      )
+    `).get(c.id, c.id) || { n: 0 }).n;
   }
 
   const lists = db.prepare(`
@@ -664,18 +690,35 @@ router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateA
 
 // View voters on a captain's list (read-only for candidate)
 router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth, (req, res) => {
-  // Verify list belongs to a captain under this candidate
-  const list = db.prepare(`
-    SELECT cl.*, c.name as captain_name FROM captain_lists cl
+  const listId = req.params.listId;
+  const candidateId = req.params.id;
+  // Try captain_lists first
+  let list = db.prepare(`
+    SELECT cl.*, c.name as captain_name, 'captain' as source FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
     WHERE cl.id = ? AND c.candidate_id = ?
-  `).get(req.params.listId, req.params.id);
-  if (!list) return res.status(404).json({ error: 'Captain list not found.' });
-  const voters = db.prepare(`
-    SELECT v.*, clv.added_at FROM captain_list_voters clv
-    JOIN voters v ON clv.voter_id = v.id
-    WHERE clv.list_id = ? ORDER BY clv.added_at DESC
-  `).all(req.params.listId);
+  `).get(listId, candidateId);
+  let voters;
+  if (list) {
+    voters = db.prepare(`
+      SELECT v.*, clv.added_at FROM captain_list_voters clv
+      JOIN voters v ON clv.voter_id = v.id
+      WHERE clv.list_id = ? ORDER BY clv.added_at DESC
+    `).all(listId);
+  } else {
+    // Try admin_lists (assigned to a captain under this candidate)
+    list = db.prepare(`
+      SELECT al.*, c.name as captain_name, 'assigned' as source FROM admin_lists al
+      JOIN captains c ON al.assigned_captain_id = c.id
+      WHERE al.id = ? AND (al.candidate_id = ? OR c.candidate_id = ?)
+    `).get(listId, candidateId, candidateId);
+    if (!list) return res.status(404).json({ error: 'List not found.' });
+    voters = db.prepare(`
+      SELECT v.*, alv.added_at FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? ORDER BY alv.added_at DESC
+    `).all(listId);
+  }
   attachElectionVotes(voters);
   res.json({ list, voters });
 });
