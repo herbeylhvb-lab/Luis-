@@ -40,7 +40,7 @@ async function geocodeAddress(address, city, zip) {
   // Strategy 2: Free-text query (catches addresses Nominatim can't parse structurally)
   await new Promise(r => setTimeout(r, 1100)); // respect rate limit
   try {
-    var q = address.trim();
+    let q = address.trim();
     if (city) q += ', ' + city.trim();
     if (zip) q += ' ' + zip.trim();
     if (GEOCODE_STATE) q += ', ' + GEOCODE_STATE;
@@ -1512,18 +1512,18 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
       insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
     }
 
-    return { walkId, walkName, added: i };
+    return { walkId, walkName, added: i, joinCode };
   })();
 
   if (claimResult.error) return res.status(400).json({ error: claimResult.error });
-  const { walkId, walkName: claimedWalkName, added } = claimResult;
+  const { walkId, walkName: claimedWalkName, added, joinCode: claimedJoinCode } = claimResult;
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Distributed canvass: ' + walkerName + ' claimed ' + added + ' doors from ' + universe.name
   );
 
   geocodeWalkAddresses(walkId);
-  res.json({ success: true, walkId, added, walkName: claimedWalkName });
+  res.json({ success: true, walkId, added, walkName: claimedWalkName, joinCode: claimedJoinCode });
 });
 
 // Delete/close a universe
