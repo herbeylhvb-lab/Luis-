@@ -151,10 +151,14 @@ router.post('/volunteers/login', (req, res) => {
     walkerId = walker ? walker.id : null;
 
     if (walkerId) {
+      // Backfill walker_id on any existing walk_group_members rows that match by name but have NULL walker_id
+      db.prepare(`UPDATE walk_group_members SET walker_id = ?, phone = COALESCE(NULLIF(phone, ''), ?)
+        WHERE walker_name = ? AND (walker_id IS NULL OR walker_id != ?)`).run(walkerId, vol.phone || '', vol.name, walkerId);
+
       // Auto-assign to all non-completed walks the walker isn't already in
       const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
         WHERE bw.status != 'completed'
-        AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`).all(walkerId);
+        AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ? OR walker_name = ?)`).all(walkerId, vol.name);
       if (unassigned.length > 0) {
         const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
         for (const w of unassigned) { ins.run(w.id, vol.name, walkerId, vol.phone || ''); }
@@ -163,8 +167,8 @@ router.post('/volunteers/login', (req, res) => {
         (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
         (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses
         FROM block_walks bw
-        JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND wgm.walker_id = ?
-        WHERE bw.status != 'completed' ORDER BY bw.created_at DESC`).all(walkerId);
+        JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND (wgm.walker_id = ? OR wgm.walker_name = ?)
+        WHERE bw.status != 'completed' ORDER BY bw.created_at DESC`).all(walkerId, vol.name);
     }
   }
 
