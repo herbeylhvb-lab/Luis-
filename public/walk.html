@@ -1357,7 +1357,7 @@ function renderAddressList() {
       var hh = document.createElement('div');
       hh.className = 'addr-household';
       hh.innerHTML = '<small style="color:#64748b">' + a.household.map(function(m) {
-        return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' <span style="color:#94a3b8">('+m.age+')</span>' : '');
+        return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' <span style="color:#94a3b8">('+escHtml(String(m.age))+')</span>' : '');
       }).join(', ') + '</small>';
       card.appendChild(hh);
     }
@@ -1575,7 +1575,7 @@ function renderMemberList() {
     el.dataset.idx = i;
 
     var nameHtml = '<div><span class="hh-name">' + escHtml(m.name) + '</span>';
-    if (m.age) nameHtml += '<span class="hh-age">(age ' + m.age + ')</span>';
+    if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
     nameHtml += '</div>';
 
@@ -2186,7 +2186,7 @@ function renderMap(addresses, walkerLocations, progress) {
       for (var h = 0; h < addr.household.length; h++) {
         var m = addr.household[h];
         popupContent += '<br><span style="color:#888;font-size:11px">&nbsp;&bull; ' + escHtml(m.first_name + ' ' + m.last_name);
-        if (m.age) popupContent += ' (' + m.age + ')';
+        if (m.age) popupContent += ' (' + escHtml(String(m.age)) + ')';
         popupContent += '</span>';
       }
     }

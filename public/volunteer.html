@@ -1054,9 +1054,6 @@
           currentAiSuggestion = data.suggestion;
           if (textEl) textEl.textContent = data.suggestion;
           if (sourceEl) sourceEl.textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
-          // Show action buttons
-          var btnsEl = document.getElementById('aiSuggestionBtns');
-          if (btnsEl) btnsEl.style.display = 'flex';
         } else {
           if (textEl) { textEl.textContent = 'No AI suggestion for this message.'; textEl.style.color = '#94a3b8'; }
         }
