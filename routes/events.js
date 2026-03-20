@@ -39,7 +39,7 @@ router.post('/events', (req, res) => {
   ).run(title, description || '', location || '', event_date, event_time || '', event_end_time || '',
     flyer_image || null,
     latitude != null ? latitude : null, longitude != null ? longitude : null,
-    checkin_radius || 500);
+    checkin_radius != null ? checkin_radius : 500);
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
@@ -65,7 +65,7 @@ router.put('/events/:id', (req, res) => {
       flyer_image = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status, flyer_image,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
-      checkin_radius || null, req.params.id);
+      checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   } else {
     result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
@@ -75,7 +75,7 @@ router.put('/events/:id', (req, res) => {
       latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
-      checkin_radius || null, req.params.id);
+      checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   }
   if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
   res.json({ success: true });
@@ -85,9 +85,9 @@ router.put('/events/:id', (req, res) => {
 router.delete('/events/:id', (req, res) => {
   const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
-  // Cascade: clean up associated P2P sessions, assignments, and RSVPs
+  // Cascade: clean up associated P2P sessions (by source_id first, fallback to name match)
   db.transaction(() => {
-    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE name = ?").all('Event Invite: ' + event.title);
+    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE (source_id = ? AND session_type = 'event') OR name = ?").all(req.params.id, 'Event Invite: ' + event.title);
     for (const s of sessions) {
       db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
       db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
@@ -109,7 +109,7 @@ router.post('/events/bulk-delete', bulkDeleteLimiter, (req, res) => {
       const event = db.prepare('SELECT title FROM events WHERE id = ?').get(id);
       if (!event) continue;
       // Cascade: clean up associated sessions
-      const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE name = ?").all('Event Invite: ' + event.title);
+      const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE (source_id = ? AND session_type = 'event') OR name = ?").all(id, 'Event Invite: ' + event.title);
       for (const s of sessions) {
         db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
         db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
@@ -343,8 +343,8 @@ router.post('/events/:id/checkin', (req, res) => {
 router.get('/events/:id/session', (req, res) => {
   const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
-  const session = db.prepare("SELECT id, name, join_code, status, code_expires_at FROM p2p_sessions WHERE name = ? ORDER BY id DESC LIMIT 1")
-    .get('Event Invite: ' + event.title);
+  const session = db.prepare("SELECT id, name, join_code, status, code_expires_at FROM p2p_sessions WHERE (source_id = ? AND session_type = 'event') OR name = ? ORDER BY id DESC LIMIT 1")
+    .get(req.params.id, 'Event Invite: ' + event.title);
   res.json({ session: session || null });
 });
 

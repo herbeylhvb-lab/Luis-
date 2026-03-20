@@ -90,8 +90,8 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
         if (errors.length < 5) errors.push(r.phone + ': ' + (err.message || 'Unknown error'));
       }
 
-      // Small delay to avoid rate limits (100ms between sends)
-      if (sent % 10 === 0) await new Promise(resolve => setTimeout(resolve, 100));
+      // Small delay to avoid rate limits (100ms every 10 messages, regardless of success/failure)
+      if ((sent + failed) % 10 === 0) await new Promise(resolve => setTimeout(resolve, 100));
     }
   } finally {
     // Always update campaign record, even if an unexpected error aborts the loop

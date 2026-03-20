@@ -38,9 +38,9 @@ function getCredentials() {
 
 function saveCredentials({ apiKey, apiSecret, phoneNumber, actionId, campaignId }) {
   const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?');
-  if (apiKey) upsert.run('rumbleup_api_key', apiKey, apiKey);
-  if (apiSecret) upsert.run('rumbleup_api_secret', apiSecret, apiSecret);
-  if (phoneNumber) upsert.run('rumbleup_phone_number', phoneNumber, phoneNumber);
+  if (apiKey !== undefined) upsert.run('rumbleup_api_key', apiKey || '', apiKey || '');
+  if (apiSecret !== undefined) upsert.run('rumbleup_api_secret', apiSecret || '', apiSecret || '');
+  if (phoneNumber !== undefined) upsert.run('rumbleup_phone_number', phoneNumber || '', phoneNumber || '');
   if (actionId !== undefined) upsert.run('rumbleup_action_id', actionId || '', actionId || '');
   if (campaignId !== undefined) upsert.run('rumbleup_campaign_id', campaignId || '', campaignId || '');
 }
@@ -342,6 +342,7 @@ function buildEmptyReply() {
 }
 
 function getWebhookData(req) {
+  if (!req.body) return { from: '', body: '' };
   const data = req.body.data || req.body;
   return {
     from: data.phone || data.from || data.From || '',

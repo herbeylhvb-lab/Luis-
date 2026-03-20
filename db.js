@@ -275,6 +275,7 @@ addColumn("ALTER TABLE events ADD COLUMN event_end_time TEXT DEFAULT ''");
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN session_type TEXT DEFAULT 'campaign'");
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN media_url TEXT DEFAULT NULL");
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN rumbleup_action_id TEXT DEFAULT NULL");
+addColumn("ALTER TABLE p2p_sessions ADD COLUMN source_id INTEGER DEFAULT NULL");
 
 // P2P columns on messages
 addColumn("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL");
@@ -644,15 +645,16 @@ try {
     CREATE INDEX IF NOT EXISTS idx_voters_address_city ON voters(address, city);
     CREATE INDEX IF NOT EXISTS idx_block_walks_join ON block_walks(join_code, status);
 
-    -- Walk infrastructure indexes (previously missing)
-    CREATE INDEX IF NOT EXISTS idx_walk_addresses_voter_id ON walk_addresses(voter_id);
-    CREATE INDEX IF NOT EXISTS idx_walk_addresses_universe_id ON walk_addresses(universe_id);
-    CREATE INDEX IF NOT EXISTS idx_walk_group_members_phone ON walk_group_members(phone);
-    CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_id ON walk_attempts(walker_id);
-    CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_walk ON walk_attempts(walker_id, walk_id);
-    CREATE INDEX IF NOT EXISTS idx_walk_universes_status ON walk_universes(status);
   `);
 } catch (e) { /* indexes already exist */ }
+
+// Walk infrastructure indexes — created individually so one failure doesn't abort others
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_voter_id ON walk_addresses(voter_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_universe_id ON walk_addresses(universe_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_group_members_phone ON walk_group_members(phone)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_id ON walk_attempts(walker_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_walk ON walk_attempts(walker_id, walk_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_universes_status ON walk_universes(status)"); } catch (e) {}
 
 // --- Broadcast campaigns table ---
 db.exec(`
@@ -883,8 +885,14 @@ db.exec(`
 addColumn("ALTER TABLE walk_group_members ADD COLUMN walker_id INTEGER DEFAULT NULL");
 // Track which walker knocked each door
 addColumn("ALTER TABLE walk_attempts ADD COLUMN walker_id INTEGER DEFAULT NULL");
-// Bump default max walkers to 10
-try { db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run(); } catch(e) {}
+// One-time migration: bump default max walkers from 4 to 10 (guarded by settings flag)
+try {
+  const migrated = db.prepare("SELECT value FROM settings WHERE key = 'max_walkers_migrated'").get();
+  if (!migrated) {
+    db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('max_walkers_migrated', '1')").run();
+  }
+} catch(e) {}
 
 // --- Groups table (code-based login, block walk only, max 10) ---
 db.exec(`
@@ -975,17 +983,20 @@ try {
   }
 } catch (e) { console.error('[migration] Phone normalization error:', e.message); }
 
-// Cleanup: remove orphaned P2P sessions from deleted events/surveys
+// Cleanup: remove orphaned P2P sessions from deleted events/surveys (transactional)
 try {
   const orphanedEvent = db.prepare("SELECT id, name FROM p2p_sessions WHERE session_type = 'event' AND name LIKE 'Event Invite:%' AND name NOT IN (SELECT 'Event Invite: ' || title FROM events)").all();
   const orphanedSurvey = db.prepare("SELECT id, name FROM p2p_sessions WHERE session_type = 'survey' AND name LIKE 'Survey:%' AND name NOT IN (SELECT 'Survey: ' || name FROM surveys)").all();
   const orphaned = [...orphanedEvent, ...orphanedSurvey];
   if (orphaned.length > 0) {
-    for (const s of orphaned) {
-      db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
-      db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
-      db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
-    }
+    const cleanupOrphans = db.transaction(() => {
+      for (const s of orphaned) {
+        db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+      }
+    });
+    cleanupOrphans();
     console.log('[cleanup] Removed ' + orphaned.length + ' orphaned P2P sessions from deleted events/surveys');
   }
 } catch (e) { /* cleanup is best-effort */ }

@@ -66,7 +66,7 @@ router.delete('/surveys/:id', (req, res) => {
   if (!survey) return res.status(404).json({ error: 'Survey not found.' });
   // Cascade: clean up associated P2P sessions, assignments, sends
   db.transaction(() => {
-    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE name = ?").all('Survey: ' + survey.name);
+    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE (source_id = ? AND session_type = 'survey') OR name = ?").all(req.params.id, 'Survey: ' + survey.name);
     for (const s of sessions) {
       db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
       db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
@@ -188,8 +188,8 @@ router.post('/surveys/:id/send', (req, res) => {
     joinCode = generateJoinCode();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const sessionResult = db.prepare(
-      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run('Survey: ' + survey.name, msgTemplate, 'auto_split', joinCode, expiresAt, 'survey');
+      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, source_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run('Survey: ' + survey.name, msgTemplate, 'auto_split', joinCode, expiresAt, 'survey', req.params.id);
     sessionId = sessionResult.lastInsertRowid;
   }
 

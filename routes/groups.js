@@ -102,7 +102,7 @@ router.get('/groups/:id/walks', (req, res) => {
       (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = block_walks.id) as total_addresses,
       (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = block_walks.id AND result != 'not_visited') as completed_addresses
     FROM block_walks
-    WHERE status = 'active'
+    WHERE status IN ('pending', 'in_progress')
     ORDER BY created_at DESC
   `).all();
   res.json({ walks });

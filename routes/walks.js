@@ -251,7 +251,13 @@ router.put('/walks/:id', (req, res) => {
 router.delete('/walks/:id', (req, res) => {
   const walk = db.prepare('SELECT name FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
-  db.prepare('DELETE FROM block_walks WHERE id = ?').run(req.params.id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM walk_addresses WHERE walk_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM walk_attempts WHERE walk_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM walk_group_members WHERE walk_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM walker_locations WHERE walk_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM block_walks WHERE id = ?').run(req.params.id);
+  })();
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Block walk deleted: ' + (walk.name || req.params.id));
   res.json({ success: true });
 });
@@ -260,10 +266,17 @@ router.delete('/walks/:id', (req, res) => {
 router.post('/walks/bulk-delete', bulkDeleteLimiter, (req, res) => {
   const { ids } = req.body;
   if (!ids || !ids.length) return res.status(400).json({ error: 'No walk IDs provided.' });
+  const delAddrs = db.prepare('DELETE FROM walk_addresses WHERE walk_id = ?');
+  const delAttempts = db.prepare('DELETE FROM walk_attempts WHERE walk_id = ?');
+  const delMembers = db.prepare('DELETE FROM walk_group_members WHERE walk_id = ?');
+  const delLocations = db.prepare('DELETE FROM walker_locations WHERE walk_id = ?');
   const del = db.prepare('DELETE FROM block_walks WHERE id = ?');
   const bulkDel = db.transaction((list) => {
     let removed = 0;
-    for (const id of list) { if (del.run(id).changes > 0) removed++; }
+    for (const id of list) {
+      delAddrs.run(id); delAttempts.run(id); delMembers.run(id); delLocations.run(id);
+      if (del.run(id).changes > 0) removed++;
+    }
     return removed;
   });
   const removed = bulkDel(ids);

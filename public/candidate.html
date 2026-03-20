@@ -642,8 +642,9 @@ function showDropConfirmDialog(voterIds, targetName, listItem) {
   // Find the list ID from the sidebar item
   // We encode it via data attributes set during rendering
   var targetListId = listItem.getAttribute('data-list-id');
-  if (!targetListId) { alert('Could not determine target list.'); return; }
+  if (!targetListId) { alert('This captain has no lists. Create a list first before transferring voters.'); return; }
   targetListId = parseInt(targetListId, 10);
+  if (isNaN(targetListId)) { alert('Invalid target list.'); return; }
 
   var overlay = document.createElement('div');
   overlay.className = 'drop-confirm-overlay';

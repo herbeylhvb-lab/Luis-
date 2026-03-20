@@ -613,20 +613,10 @@ app.get('/api/messages/pending', (req, res) => {
       if (digits) allPhones.add(digits);
     }
     if (allPhones.size === 0) return res.json({ messages: [] });
-    // Use temp table for large sets to avoid variable limit
+    // Build phone filter using batched placeholders (safe for any size, no temp table race)
     const phonesArr = [...allPhones];
-    if (phonesArr.length > 500) {
-      db.prepare('CREATE TEMP TABLE IF NOT EXISTS tmp_vol_phones (phone TEXT PRIMARY KEY)').run();
-      db.prepare('DELETE FROM tmp_vol_phones').run();
-      const insTemp = db.prepare('INSERT OR IGNORE INTO tmp_vol_phones VALUES (?)');
-      const insertBatch = db.transaction((phones) => { for (const p of phones) insTemp.run(p); });
-      insertBatch(phonesArr);
-      volPhoneFilter = ' AND m.phone IN (SELECT phone FROM tmp_vol_phones)';
-      volPhoneParams = [];
-    } else {
-      volPhoneFilter = ' AND m.phone IN (' + phonesArr.map(() => '?').join(',') + ')';
-      volPhoneParams = phonesArr;
-    }
+    volPhoneFilter = ' AND m.phone IN (' + phonesArr.map(() => '?').join(',') + ')';
+    volPhoneParams = phonesArr;
   }
 
   const pending = db.prepare(`
@@ -681,6 +671,10 @@ app.get('/api/messages', (req, res) => {
 
 // --- Reply (SMS or WhatsApp) ---
 app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
+  // Require admin session or volunteer ID to prevent unauthenticated sends
+  const hasAdminSession = req.session && req.session.user;
+  const hasVolunteer = req.body && req.body.volunteerId;
+  if (!hasAdminSession && !hasVolunteer) return res.status(401).json({ error: 'Authentication required.' });
   const provider = getProvider();
   const { to, body, channel } = req.body;
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
@@ -915,6 +909,12 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
           .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
         totalSynced++;
+        // Fire-and-forget AI sentiment upgrade (same as webhook path)
+        analyzeSentimentAI(msgBody).then(aiSentiment => {
+          if (aiSentiment !== sentiment) {
+            try { db.prepare("UPDATE messages SET sentiment = ? WHERE phone = ? AND body = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1").run(aiSentiment, msgPhone, msgBody); } catch(e) {}
+          }
+        }).catch(() => {});
 
         // Update ALL matching P2P assignments to in_conversation (not just first)
         for (const match of p2pMatches) {
@@ -1079,8 +1079,8 @@ app.post('/api/events/:id/invite', (req, res) => {
     joinCode = generateJoinCode();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const sessionResult = db.prepare(
-      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl);
+      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url, source_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl, req.params.id);
     sessionId = sessionResult.lastInsertRowid;
   }
 
@@ -1135,9 +1135,12 @@ function analyzeSentimentKeywords(text) {
   const msg = (text || '').toLowerCase();
   const positiveWords = ['yes', 'sure', 'support', 'agree', 'thanks', 'thank', 'great', 'love', 'count me in', 'absolutely', 'interested', 'definitely', 'of course', 'wonderful', 'awesome', 'perfect', 'good', 'ok', 'okay', 'yep', 'yea', 'yeah'];
   const negativeWords = ['no', 'stop', 'disagree', 'oppose', 'hate', 'unsubscribe', 'leave me alone', 'not interested', 'remove', 'never', 'terrible', 'awful', 'worst', 'don\'t', 'wont', 'refuse', 'against', 'bad'];
+  // Use word-boundary matching to avoid false positives ("no" matching "know", "ok" matching "broke")
+  const words = new Set(msg.split(/\s+/));
+  const hasPhrase = (phrase) => msg.includes(phrase);
   let score = 0;
-  for (const word of positiveWords) { if (msg.includes(word)) score++; }
-  for (const word of negativeWords) { if (msg.includes(word)) score--; }
+  for (const word of positiveWords) { if (word.includes(' ') ? hasPhrase(word) : words.has(word)) score++; }
+  for (const word of negativeWords) { if (word.includes(' ') ? hasPhrase(word) : words.has(word)) score--; }
   if (score > 0) return 'positive';
   if (score < 0) return 'negative';
   return 'neutral';
