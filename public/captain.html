@@ -657,12 +657,21 @@ async function refreshSidebar() {
       nameSpan.textContent = tm.name;
       leftDiv.appendChild(nameSpan);
       row.appendChild(leftDiv);
-      row.addEventListener('click', (function(person) {
-        return function() {
-          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
-          refreshSidebar();
-        };
-      })(tm));
+      // Click legacy team member → directly open their first list (or expand if multiple)
+      (function(person, pLists) {
+        row.addEventListener('click', function() {
+          if (pLists.length === 1) {
+            selectList(pLists[0].id, pLists[0].name);
+          } else {
+            captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+            refreshSidebar();
+          }
+        });
+        // Drop target for drag-and-drop
+        if (pLists.length > 0) {
+          setupListDropTarget(row, { id: pLists[0].id, name: pLists[0].name, type: 'captain', sub_captain_id: null });
+        }
+      })(tm, legacyLists);
       teamContainer.appendChild(row);
 
       var listsDiv = document.createElement('div');
@@ -694,8 +703,8 @@ async function refreshSidebar() {
         item.addEventListener('click', (function(listItem) {
           return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
         })(l));
-        // Drop target for drag-and-drop voter transfer
-        setupDropTarget(item, l.id, l.name);
+        // Drop target: drag voters into legacy list
+        setupListDropTarget(item, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -2687,6 +2696,201 @@ async function addTeamMember() {
     overlay.appendChild(box);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
+  }
+}
+
+// ===================== DRAG & DROP VOTERS INTO LISTS =====================
+
+var _dragHintEl = null;
+var _dragExpandTimeout = null;
+
+// Enable the sidebar as a drag-over zone so drops work inside scrollable containers
+(function() {
+  var sidebar = document.querySelector('.sidebar');
+  if (sidebar) {
+    sidebar.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    sidebar.addEventListener('dragenter', function(e) {
+      e.preventDefault();
+    });
+  }
+})();
+
+function showDragHint(show) {
+  if (show && !_dragHintEl) {
+    _dragHintEl = document.createElement('div');
+    _dragHintEl.className = 'drag-hint';
+    _dragHintEl.textContent = 'Drop on a team member or list in the sidebar';
+    document.body.appendChild(_dragHintEl);
+  } else if (!show && _dragHintEl) {
+    _dragHintEl.remove();
+    _dragHintEl = null;
+  }
+}
+
+function clearAllDragOver() {
+  document.querySelectorAll('.drag-over').forEach(function(el) {
+    el.classList.remove('drag-over');
+  });
+  if (_dragExpandTimeout) {
+    clearTimeout(_dragExpandTimeout);
+    _dragExpandTimeout = null;
+  }
+}
+
+function setupListDropTarget(item, listInfo) {
+  item.addEventListener('dragenter', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    item.classList.add('drag-over');
+  });
+  item.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    item.classList.add('drag-over');
+  });
+  item.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    // Only remove if we actually left this element (not entering a child)
+    var rect = item.getBoundingClientRect();
+    if (e.clientX <= rect.left || e.clientX >= rect.right || e.clientY <= rect.top || e.clientY >= rect.bottom) {
+      item.classList.remove('drag-over');
+    }
+  });
+  item.addEventListener('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    item.classList.remove('drag-over');
+    showDragHint(false);
+    clearAllDragOver();
+    try {
+      var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (data && data.voter_id) {
+        dropVoterOnList(data.voter_id, data.voter_name, listInfo);
+      }
+    } catch(err) { console.warn('Drop parse error:', err); }
+  });
+}
+
+function showAddToListDropdown(voter, anchorEl) {
+  // Close any existing dropdown
+  var old = document.querySelector('.add-list-dropdown');
+  if (old) old.remove();
+
+  var dropdown = document.createElement('div');
+  dropdown.className = 'add-list-dropdown';
+
+  // My lists
+  var myLists = (captainState.captain.lists || []).filter(function(l) { return !l.team_member_name; });
+  if (myLists.length > 0) {
+    var sec = document.createElement('div');
+    sec.className = 'drop-section';
+    sec.textContent = 'My Lists';
+    dropdown.appendChild(sec);
+    myLists.forEach(function(l) {
+      var btn = document.createElement('button');
+      btn.className = 'drop-item';
+      btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+      btn.addEventListener('click', function() {
+        dropdown.remove();
+        quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+      });
+      dropdown.appendChild(btn);
+    });
+  }
+
+  // Sub-captain lists
+  var subCaptains = captainState.captain.sub_captains || [];
+  if (subCaptains.length > 0) {
+    // Get fresh sub_captain_lists from the last sidebar refresh
+    var subCaptainLists = [];
+    var teamLists = (captainState.captain.lists || []).filter(function(l) { return l.team_member_name; });
+    // We need to fetch sub-captain lists — they're stored during refreshSidebar
+    // Use the cached data from the API response
+    if (captainState._cachedSubCaptainLists) {
+      subCaptainLists = captainState._cachedSubCaptainLists;
+    }
+
+    subCaptains.forEach(function(sc) {
+      var scLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
+      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
+      if (scLists.length > 0 || legacyLists.length > 0) {
+        var sec = document.createElement('div');
+        sec.className = 'drop-section';
+        sec.textContent = sc.name;
+        dropdown.appendChild(sec);
+        scLists.forEach(function(l) {
+          var btn = document.createElement('button');
+          btn.className = 'drop-item';
+          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+          btn.addEventListener('click', function() {
+            dropdown.remove();
+            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'subcaptain', sub_captain_id: l.sub_captain_id || sc.id });
+          });
+          dropdown.appendChild(btn);
+        });
+        legacyLists.forEach(function(l) {
+          var btn = document.createElement('button');
+          btn.className = 'drop-item';
+          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+          btn.addEventListener('click', function() {
+            dropdown.remove();
+            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+          });
+          dropdown.appendChild(btn);
+        });
+      }
+    });
+  }
+
+  // Position relative to anchor
+  anchorEl.style.position = 'relative';
+  anchorEl.appendChild(dropdown);
+
+  // Close on click outside
+  function closeDropdown(e) {
+    if (!dropdown.contains(e.target) && !anchorEl.contains(e.target)) {
+      dropdown.remove();
+      document.removeEventListener('click', closeDropdown);
+    }
+  }
+  setTimeout(function() { document.addEventListener('click', closeDropdown); }, 10);
+}
+
+async function quickAddVoterToList(voter, listInfo) {
+  var voterName = (voter.first_name || '') + ' ' + (voter.last_name || '');
+  await dropVoterOnList(voter.id, voterName, listInfo);
+}
+
+async function dropVoterOnList(voterId, voterName, listInfo) {
+  var cid = captainState.captain.id;
+  var apiUrl;
+  if (listInfo.type === 'subcaptain' && listInfo.sub_captain_id) {
+    apiUrl = '/api/captains/' + listInfo.sub_captain_id + '/lists/' + listInfo.id + '/voters';
+  } else {
+    apiUrl = '/api/captains/' + cid + '/lists/' + listInfo.id + '/voters';
+  }
+  try {
+    var data = await api(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voter_id: voterId })
+    });
+    if (data.already) {
+      showToast((voterName || 'Voter') + ' is already on ' + listInfo.name, 'warn');
+    } else {
+      showToast((voterName || 'Voter') + ' added to ' + listInfo.name, 'success');
+    }
+    // Refresh list if we're viewing the target list
+    if (captainState.selectedListId === listInfo.id) {
+      await loadListVoters();
+    }
+    refreshSidebar();
+  } catch(err) {
+    showToast('Failed to add voter: ' + (err.message || 'Unknown error'), 'warn');
   }
 }
 
