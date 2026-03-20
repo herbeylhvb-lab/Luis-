@@ -144,7 +144,10 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/route/) ||
       req.path.match(/^\/api\/walks\/\d+\/location/) ||
       req.path.match(/^\/api\/walks\/\d+\/script/) ||
-      req.path.match(/^\/api\/walks\/\d+\/walkers/)) {
+      req.path.match(/^\/api\/walks\/\d+\/walkers/) ||
+      req.path.match(/^\/api\/walks\/\d+\/map-data/) ||
+      req.path.match(/^\/api\/walks\/\d+\/live-status/) ||
+      req.path.match(/^\/api\/walks\/\d+\/geocode/)) {
     return next();
   }
   // Allow P2P volunteer endpoints (used by volunteer.html without admin auth)
