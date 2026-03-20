@@ -249,11 +249,6 @@ app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
 app.use('/api', require('./routes/rumbleup'));
 
-// --- TCPA: Bulk SMS endpoint removed ---
-app.post('/send', (req, res) => {
-  res.status(410).json({ error: 'Bulk SMS sending has been disabled for TCPA compliance. Use P2P sessions instead.' });
-});
-
 // --- Core endpoints ---
 
 app.get('/health', (req, res) => {

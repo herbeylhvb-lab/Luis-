@@ -458,25 +458,25 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
     // Update walker performance metrics
     if (walker_id) {
-      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(result);
+      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(result) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
-          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          contacts_made = contacts_made + ?,
           first_knock_at = COALESCE(first_knock_at, ?),
           last_knock_at = ?
         WHERE walk_id = ? AND walker_id = ?
-      `).run(knocked_at, knocked_at, req.params.walkId, walker_id);
+      `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_id);
     } else if (walker_name) {
-      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(result);
+      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(result) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
-          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          contacts_made = contacts_made + ?,
           first_knock_at = COALESCE(first_knock_at, ?),
           last_knock_at = ?
         WHERE walk_id = ? AND walker_name = ?
-      `).run(knocked_at, knocked_at, req.params.walkId, walker_name);
+      `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_name);
     }
 
     // Auto-log voter contact if voter_id is linked
@@ -573,25 +573,25 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
 
     // Update walker performance
     if (walker_id) {
-      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult);
+      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
-          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          contacts_made = contacts_made + ?,
           first_knock_at = COALESCE(first_knock_at, ?),
           last_knock_at = ?
         WHERE walk_id = ? AND walker_id = ?
-      `).run(knocked_at, knocked_at, req.params.walkId, walker_id);
+      `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_id);
     } else if (walker_name) {
-      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult);
+      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
-          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          contacts_made = contacts_made + ?,
           first_knock_at = COALESCE(first_knock_at, ?),
           last_knock_at = ?
         WHERE walk_id = ? AND walker_name = ?
-      `).run(knocked_at, knocked_at, req.params.walkId, walker_name);
+      `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_name);
     }
 
     // Log individual voter contacts for each member
@@ -663,18 +663,23 @@ router.post('/walks/join', (req, res) => {
     return res.json({ success: true, walkId: walk.id, walkName: walk.name, walkerName: existing.walker_name });
   }
 
-  // Check member count
-  const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
-  if (members.c >= (walk.max_walkers || 4)) return res.status(400).json({ error: 'Group is full (max ' + (walk.max_walkers || 4) + ' walkers).' });
+  // Check member count + add member atomically to prevent race condition
+  const maxWalkers = walk.max_walkers || 4;
+  const joinResult = db.transaction(() => {
+    const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
+    if (members.c >= maxWalkers) return { full: true };
+    try {
+      db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
+    } catch (e) {
+      if (e.message.includes('UNIQUE constraint')) {
+        return { duplicate: true };
+      }
+      throw e;
+    }
+    return { success: true };
+  })();
 
-  // Add member with phone
-  try {
-    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
-  } catch (e) {
-    if (e.message.includes('UNIQUE constraint')) {
-      // Already a member by name
-    } else throw e;
-  }
+  if (joinResult.full) return res.status(400).json({ error: 'Group is full (max ' + maxWalkers + ' walkers).' });
 
   // Auto-split addresses among group members
   splitAddresses(walk.id);
