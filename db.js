@@ -73,13 +73,6 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS campaigns (
-    id INTEGER PRIMARY KEY,
-    message_template TEXT,
-    sent_count INTEGER DEFAULT 0,
-    failed_count INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
 `);
 
 // --- Block Walk tables ---

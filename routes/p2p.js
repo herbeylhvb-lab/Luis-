@@ -47,12 +47,33 @@ const _redistributeContacts = db.transaction((sessionId, fromVolunteerId, online
       .run(target.id, fromVolunteerId, pending[i].id);
   }
 
-  // Route active conversations to least-loaded
-  for (const conv of conversations) {
-    const target = getLeastLoadedVolunteer(sessionId, fromVolunteerId);
-    if (target) {
-      db.prepare('UPDATE p2p_assignments SET volunteer_id = ?, original_volunteer_id = COALESCE(original_volunteer_id, ?) WHERE id = ?')
-        .run(target.id, fromVolunteerId, conv.id);
+  // Route active conversations to least-loaded (track in-memory to avoid stale reads)
+  const vols = onlineVols.filter(v => v.id !== fromVolunteerId);
+  if (vols.length > 0) {
+    const volIds = vols.map(v => v.id);
+    const counts = db.prepare(
+      "SELECT volunteer_id, COUNT(*) as c FROM p2p_assignments WHERE volunteer_id IN (" +
+      volIds.map(() => '?').join(',') +
+      ") AND status IN ('pending', 'sent', 'in_conversation') GROUP BY volunteer_id"
+    ).all(...volIds);
+    const loadMap = {};
+    for (const v of vols) loadMap[v.id] = 0;
+    for (const r of counts) loadMap[r.volunteer_id] = r.c;
+    // Account for pending redistribution above
+    for (let i = 0; i < pending.length; i++) {
+      const tid = onlineVols[i % onlineVols.length].id;
+      if (loadMap[tid] !== undefined) loadMap[tid]++;
+    }
+    for (const conv of conversations) {
+      let bestId = null, bestCount = Infinity;
+      for (const v of vols) {
+        if ((loadMap[v.id] || 0) < bestCount) { bestCount = loadMap[v.id] || 0; bestId = v.id; }
+      }
+      if (bestId) {
+        db.prepare('UPDATE p2p_assignments SET volunteer_id = ?, original_volunteer_id = COALESCE(original_volunteer_id, ?) WHERE id = ?')
+          .run(bestId, fromVolunteerId, conv.id);
+        loadMap[bestId] = (loadMap[bestId] || 0) + 1;
+      }
     }
   }
 });

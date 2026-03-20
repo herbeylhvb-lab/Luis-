@@ -321,14 +321,13 @@ tr:hover td{background:#1e293b80}
     <div class="page texting-subpage" id="page-compose" data-texting="compose">
       <div class="card">
         <div class="alert alert-info" style="margin-bottom:16px;border-left:4px solid #818cf8" id="complianceBanner">
-          <strong>P2P Compliant (TCPA)</strong> &mdash; SMS messages are sent individually by volunteers via P2P sessions. Each text requires a human to click send. WhatsApp and Email use their own compliance frameworks.
+          <strong>P2P Compliant (TCPA)</strong> &mdash; SMS messages are sent individually by volunteers via P2P sessions. Each text requires a human to click send.
         </div>
         <h3>Compose Campaign Message</h3>
         <div id="composeAlert"></div>
         <div style="display:flex;gap:8px;margin-bottom:16px;">
           <button class="btn btn-primary btn-sm channel-btn active" data-channel="sms" onclick="setChannel('sms')">&#128241; SMS (P2P)</button>
-          <button class="btn btn-secondary btn-sm channel-btn" data-channel="whatsapp" onclick="setChannel('whatsapp')">&#128172; WhatsApp</button>
-          <button class="btn btn-secondary btn-sm channel-btn" data-channel="email" onclick="setChannel('email')">&#9993; Email</button>
+<button class="btn btn-secondary btn-sm channel-btn" data-channel="email" onclick="setChannel('email')">&#9993; Email</button>
         </div>
         <div class="form-group" id="p2pSessionNameWrap"><label>Session Name</label><input type="text" id="p2pSessionName" placeholder="GOTV Push - Feb 22"></div>
         <div class="alert alert-info">Use <strong>{firstName}</strong>, <strong>{lastName}</strong>, <strong>{city}</strong> as merge tags.</div>
@@ -2575,7 +2574,7 @@ function setChannel(ch) {
   document.getElementById('smsFooterWrap').style.display = ch === 'email' ? 'none' : '';
   document.getElementById('p2pSessionNameWrap').style.display = ch === 'sms' ? '' : 'none';
   document.getElementById('msgLabel').textContent = ch === 'email' ? 'Email Body (HTML or plain text)' : 'Message Template';
-  document.getElementById('btnSendCampaign').textContent = ch === 'sms' ? 'Create P2P Session' : (ch === 'email' ? 'Send Email Campaign' : 'Send WhatsApp Campaign');
+  document.getElementById('btnSendCampaign').textContent = ch === 'sms' ? 'Create P2P Session' : 'Send Email Campaign';
   updateSendCount();
 }
 function updateSendCount() {
@@ -2675,27 +2674,6 @@ document.getElementById('btnSendCampaign').addEventListener('click', async () =>
     } catch (err) { el.textContent = ''; var errD = document.createElement('div'); errD.className = 'alert alert-error'; errD.textContent = err.message; el.appendChild(errD); }
     document.getElementById('btnSendCampaign').disabled = false;
 
-  } else if (currentChannel === 'whatsapp') {
-    // ── WhatsApp: Uses Meta Business API compliance (templates + opt-in) ──
-    if (!confirm('Send WhatsApp to ' + state.contacts.length + ' contacts?\n\nWhatsApp uses Meta Business API compliance (separate from TCPA).')) return;
-    el.textContent = ''; var ws = document.createElement('div'); ws.className = 'alert alert-info'; ws.textContent = 'Sending via WhatsApp...'; el.appendChild(ws);
-    document.getElementById('btnSendCampaign').disabled = true;
-    try {
-      const sendData = await apiPost('/api/whatsapp/send', {
-        contacts: state.contacts,
-        messageTemplate: msg,
-        optOutFooter: footer
-      });
-      if (sendData.success) {
-        el.textContent = '';
-        var wok = document.createElement('div'); wok.className = 'alert alert-success';
-        wok.textContent = 'WhatsApp sent! ' + sendData.sent + ' delivered, ' + sendData.failed + ' failed.';
-        el.appendChild(wok);
-      } else {
-        el.textContent = ''; var wf = document.createElement('div'); wf.className = 'alert alert-error'; wf.textContent = sendData.error || 'Failed.'; el.appendChild(wf);
-      }
-    } catch (err) { el.textContent = ''; var we = document.createElement('div'); we.className = 'alert alert-error'; we.textContent = err.message; el.appendChild(we); }
-    document.getElementById('btnSendCampaign').disabled = false;
   }
 });
 

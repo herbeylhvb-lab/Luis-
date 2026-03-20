@@ -672,7 +672,7 @@ app.get('/api/messages', (req, res) => {
 // --- Reply (SMS or WhatsApp) ---
 app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   // Require admin session or volunteer ID to prevent unauthenticated sends
-  const hasAdminSession = req.session && req.session.user;
+  const hasAdminSession = req.session && req.session.userId;
   const hasVolunteer = req.body && req.body.volunteerId;
   if (!hasAdminSession && !hasVolunteer) return res.status(401).json({ error: 'Authentication required.' });
   const provider = getProvider();
@@ -980,43 +980,6 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   db.prepare("INSERT INTO settings (key, value) VALUES ('last_inbound_sync', datetime('now')) ON CONFLICT(key) DO UPDATE SET value = datetime('now')").run();
 
   res.json({ synced: totalSynced, checked: sentPhones.length, errors: errors.length > 0 ? errors : undefined });
-}));
-
-// --- WhatsApp bulk send (stub — provider does not yet support WhatsApp) ---
-app.post('/api/whatsapp/send', asyncHandler(async (req, res) => {
-  const provider = getProvider();
-  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
-
-  const { contacts, messageTemplate, optOutFooter } = req.body;
-  if (!contacts || !contacts.length) return res.status(400).json({ error: 'No contacts provided.' });
-  if (!messageTemplate) return res.status(400).json({ error: 'Message template is required.' });
-
-  const fullMsg = messageTemplate + (optOutFooter ? '\n' + optOutFooter : '');
-
-  // Filter opted-out contacts
-  const optedOut = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
-  const eligible = contacts.filter(c => {
-    const d = phoneDigits(c.phone);
-    return d && !optedOut.has(d);
-  });
-
-  if (eligible.length === 0) return res.status(400).json({ error: 'All contacts have opted out.' });
-
-  let sent = 0, failed = 0;
-  const errors = [];
-  for (const c of eligible) {
-    const personalMsg = personalizeTemplate(fullMsg, c);
-    try {
-      await provider.sendMessage(c.phone, personalMsg, 'whatsapp');
-      db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'whatsapp')").run(phoneDigits(c.phone), personalMsg);
-      sent++;
-    } catch (err) {
-      failed++;
-      if (errors.length < 5) errors.push(c.phone + ': ' + (err.message || 'Unknown error'));
-    }
-  }
-
-  res.json({ success: true, sent, failed, total: eligible.length, errors });
 }));
 
 // --- Send event invites via P2P session (TCPA compliant) ---
