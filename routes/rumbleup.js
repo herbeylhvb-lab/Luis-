@@ -11,6 +11,14 @@ function getRumbleUp() {
   return provider;
 }
 
+// ========== PROXY ==========
+
+router.get('/rumbleup/proxies', asyncHandler(async (req, res) => {
+  const ru = getRumbleUp();
+  const proxies = await ru.getProxies();
+  res.json(proxies);
+}));
+
 // ========== ACCOUNT ==========
 
 router.get('/rumbleup/account', asyncHandler(async (req, res) => {

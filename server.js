@@ -367,7 +367,7 @@ app.post('/test-connection', asyncHandler(async (req, res) => {
     }
     if (!apiKey || !apiSecret) return res.status(400).json({ error: 'Missing API key or secret.' });
     const result = await p.testConnection(apiKey, apiSecret);
-    p.saveCredentials({ apiKey, apiSecret, phoneNumber: req.body.phoneNumber, actionId: req.body.actionId });
+    p.saveCredentials({ apiKey, apiSecret, phoneNumber: req.body.phoneNumber, actionId: req.body.actionId, campaignId: req.body.campaignId });
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('Connection test failed:', err.message);

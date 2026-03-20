@@ -26,20 +26,23 @@ function getCredentials() {
   const apiSecret = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_api_secret'").get();
   const phone = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_phone_number'").get();
   const actionId = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_action_id'").get();
+  const campaignId = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_campaign_id'").get();
   return {
     apiKey: apiKey?.value || '',
     apiSecret: apiSecret?.value || '',
     phoneNumber: phone?.value || '',
-    actionId: actionId?.value || ''
+    actionId: actionId?.value || '',
+    campaignId: campaignId?.value || ''
   };
 }
 
-function saveCredentials({ apiKey, apiSecret, phoneNumber, actionId }) {
+function saveCredentials({ apiKey, apiSecret, phoneNumber, actionId, campaignId }) {
   const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?');
   if (apiKey) upsert.run('rumbleup_api_key', apiKey, apiKey);
   if (apiSecret) upsert.run('rumbleup_api_secret', apiSecret, apiSecret);
   if (phoneNumber) upsert.run('rumbleup_phone_number', phoneNumber, phoneNumber);
   if (actionId !== undefined) upsert.run('rumbleup_action_id', actionId || '', actionId || '');
+  if (campaignId !== undefined) upsert.run('rumbleup_campaign_id', campaignId || '', campaignId || '');
 }
 
 function getPublicCredentials() {
@@ -48,7 +51,8 @@ function getPublicCredentials() {
     hasApiKey: !!creds.apiKey,
     hasApiSecret: !!creds.apiSecret,
     phoneNumber: creds.phoneNumber,
-    actionId: creds.actionId
+    actionId: creds.actionId,
+    campaignId: creds.campaignId
   };
 }
 
@@ -115,7 +119,7 @@ async function apiRequest(path, body, creds, options = {}) {
     if (resp.status === 401) {
       throw new Error('RumbleUp authentication failed. Check your API key and secret.' + (detail ? ' (' + detail + ')' : ''));
     }
-    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check account permissions.'));
+    throw new Error('RumbleUp forbidden (' + resp.status + '): ' + (detail || 'Access denied. Check account balance or permissions.'));
   }
   if (resp.status === 429) {
     const retry = resp.headers.get('Retry-After') || '5';
@@ -156,6 +160,12 @@ function apiPost(path, body, creds, options = {}) {
   return apiRequest(path, body, creds, { ...options, method: 'POST' });
 }
 
+// --- Proxy Management ---
+
+async function getProxies() {
+  return apiGet('/proxy/get', {});
+}
+
 // --- Account ---
 
 async function testConnection(apiKey, apiSecret) {
@@ -184,10 +194,7 @@ async function createProject({ name, message, group, campaignId, proxy, media, t
   if (proxy) body.proxy = proxy;
   if (type) body.type = type; // SMS, MMS, or EVT
   if (media) body.media = media;
-  console.log('[rumbleup] Creating project:', JSON.stringify({ name, type, hasMedia: !!media, mediaType: typeof media }));
-  const result = await apiPost('/project/create', body);
-  console.log('[rumbleup] Project created:', JSON.stringify(result));
-  return result;
+  return apiPost('/project/create', body);
 }
 
 async function getProject(projectId) {
@@ -260,29 +267,47 @@ async function getGroup(groupId) {
 
 // --- Messaging ---
 
-async function sendSms(to, body, mediaUrl, options = {}) {
+async function sendSms(to, body, mediaUrl) {
   const creds = getCredentials();
   if (!creds.apiKey || !creds.apiSecret) {
     throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
   }
-  if (!creds.actionId && !options.mmsActionId) {
+  if (!creds.actionId && !mediaUrl) {
     throw new Error('RumbleUp credentials not configured. Set them in Messaging Setup.');
   }
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
 
-  const actionId = options.mmsActionId || creds.actionId;
   const payload = {
     phone,
-    action: actionId,
+    action: creds.actionId,
     text: body
   };
-  if (mediaUrl) payload.file = mediaUrl;
 
-  console.log('[rumbleup] Sending message to ' + phone + ' action=' + actionId + (mediaUrl ? ' file=' + mediaUrl : ''));
-  const result = await apiPost('/message/send', payload);
-  console.log('[rumbleup] Send response:', JSON.stringify(result));
-  return result;
+  // MMS: use /proxy/send which supports the 'file' parameter for image attachments
+  if (mediaUrl) {
+    if (creds.phoneNumber) {
+      const proxy = creds.phoneNumber.replace(/\D/g, '');
+      const mmsPayload = { phone, proxy, text: body, file: mediaUrl };
+      // Include campaignId if available (may be required for TCR compliance)
+      if (creds.campaignId) mmsPayload.campaignId = creds.campaignId;
+      console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' proxy=' + proxy + ' file=' + mediaUrl + ' campaignId=' + (creds.campaignId || 'none'));
+      try {
+        const result = await apiPost('/proxy/send', mmsPayload);
+        console.log('[rumbleup] MMS success:', JSON.stringify(result).substring(0, 300));
+        return result;
+      } catch (proxyErr) {
+        console.error('[rumbleup] MMS /proxy/send FAILED:', proxyErr.message, proxyErr.stack);
+        // Always throw — don't silently fall back. Let the user see the error.
+        throw new Error('MMS send failed: ' + proxyErr.message + '. Check RumbleUp proxy/send access.');
+      }
+    } else {
+      console.warn('[rumbleup] No proxy phone number configured — cannot send MMS, using SMS with link');
+      payload.text = body + '\n\nView your event flyer: ' + mediaUrl;
+    }
+  }
+
+  return apiPost('/message/send', payload);
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
@@ -297,9 +322,9 @@ async function sendWhatsApp(_to, _body) {
   throw new Error('RumbleUp does not support WhatsApp messaging.');
 }
 
-async function sendMessage(to, body, channel, mediaUrl, options = {}) {
+async function sendMessage(to, body, channel, mediaUrl) {
   if (channel === 'whatsapp') return sendWhatsApp(to, body);
-  return sendSms(to, body, mediaUrl, options);
+  return sendSms(to, body, mediaUrl);
 }
 
 async function getNextContact(actionId) {
@@ -366,6 +391,8 @@ module.exports = {
   importContacts,
   downloadContacts,
   getGroup,
+  // Proxy
+  getProxies,
   // Messaging
   sendSms,
   sendToProject,
@@ -384,6 +411,7 @@ module.exports = {
     { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your RumbleUp API key' },
     { key: 'apiSecret', label: 'API Secret', type: 'password', placeholder: 'Your RumbleUp API secret' },
     { key: 'actionId', label: 'Action / Project ID', type: 'text', placeholder: 'e.g. 125', hint: 'The project ID for sending messages. Find it in your RumbleUp dashboard.' },
-    { key: 'phoneNumber', label: 'From Number (display only)', type: 'text', placeholder: '+1234567890', hint: 'RumbleUp assigns proxy numbers automatically. This is for your reference.' }
+    { key: 'phoneNumber', label: 'Proxy Phone Number', type: 'text', placeholder: '+1234567890', hint: 'Your RumbleUp proxy number — required for MMS. Check /api/rumbleup/proxies to see available numbers.' },
+    { key: 'campaignId', label: 'TCR Campaign ID (for MMS)', type: 'text', placeholder: 'e.g. CSDF123', hint: 'Optional — your TCR campaign ID. May be required for MMS via /proxy/send.' }
   ]
 };
