@@ -92,6 +92,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .disp-btn.dec{border-color:#1e293b}.disp-btn.dec.selected{background:#0f172a;border-color:#64748b;color:#94a3b8}
 .disp-btn.other{border-color:#334155}.disp-btn.other.selected{background:#1e293b;border-color:#64748b;color:#94a3b8}
 
+/* Household member selection */
+.hh-member{display:flex;align-items:center;justify-content:space-between;padding:12px;border:2px solid #334155;border-radius:10px;background:#0f172a;margin-bottom:8px;cursor:pointer;transition:all 0.15s}
+.hh-member:active{transform:scale(0.98)}
+.hh-member.talked{border-color:#22c55e;background:#052e16}
+.hh-member.not-home{border-color:#64748b;background:#1e293b;opacity:0.6}
+.hh-member .hh-name{font-size:14px;font-weight:600;color:#e2e8f0}
+.hh-member .hh-age{font-size:12px;color:#94a3b8;margin-left:6px}
+.hh-member .hh-status{font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap}
+.hh-member .hh-status.talked{background:#052e16;color:#4ade80}
+.hh-member .hh-status.not-home{background:#1e293b;color:#94a3b8}
+.hh-nobody-btn{width:100%;padding:14px;border:2px solid #64748b;border-radius:10px;background:#1e293b;color:#e2e8f0;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px;transition:all 0.15s}
+.hh-nobody-btn:active{transform:scale(0.97)}
+.hh-nobody-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
+.hh-step{display:none}
+.hh-step.active{display:block}
+.hh-step-title{font-size:13px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600}
+
 .notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:0}
 .notes-area:focus{border-color:#f59e0b}
 .notes-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}
@@ -350,29 +367,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <a class="door-gmaps" id="doorGmapsLink" href="#" target="_blank" rel="noopener">&#x1F4CD; Open in Google Maps</a>
-    <div class="door-voter" id="doorVoter"></div>
-    <div id="doorHousehold" style="font-size:13px;color:#94a3b8;margin-bottom:8px;padding:6px 8px;background:rgba(255,255,255,0.05);border-radius:6px"></div>
     <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
 
-    <!-- Script talking points & survey questions (injected dynamically) -->
-    <div id="doorScriptSection" style="display:none"></div>
-
-    <div class="disp-grid" id="dispGrid">
-      <button class="disp-btn sup" data-result="support" onclick="selectDisp(this)">&#x1F44D; Support</button>
-      <button class="disp-btn lean-sup" data-result="lean_support" onclick="selectDisp(this)">&#x1F44C; Lean Support</button>
-      <button class="disp-btn und" data-result="undecided" onclick="selectDisp(this)">&#x1F914; Undecided</button>
-      <button class="disp-btn lean-opp" data-result="lean_oppose" onclick="selectDisp(this)">&#x1F44E; Lean Oppose</button>
-      <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
-      <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
-      <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
-      <button class="disp-btn mov" data-result="moved" onclick="selectDisp(this)">&#x1F4E6; Moved</button>
-      <button class="disp-btn dec" data-result="deceased" onclick="selectDisp(this)">&#x1F54A; Deceased</button>
-      <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
+    <!-- STEP 1: Who lives here — select who you talked to -->
+    <div class="hh-step active" id="doorStep1">
+      <div class="hh-step-title">Who lives here?</div>
+      <button class="hh-nobody-btn" id="btnNobodyHome" onclick="markAllNotHome()">&#x1F3E0; Nobody Home</button>
+      <div id="doorMemberList"></div>
     </div>
 
-    <!-- Quick "I Couldn't Reach This Person" shortcut like VAN -->
-    <div style="text-align:center;margin-bottom:12px">
-      <button class="btn btn-sm btn-secondary" onclick="quickNotHome()" style="font-size:12px;padding:6px 14px;color:#94a3b8">I Couldn't Reach This Person</button>
+    <!-- STEP 2: Support level for the person you talked to -->
+    <div class="hh-step" id="doorStep2">
+      <div class="hh-step-title" id="step2Title">Support level</div>
+
+      <!-- Script talking points & survey questions (injected dynamically) -->
+      <div id="doorScriptSection" style="display:none"></div>
+
+      <div class="disp-grid" id="dispGrid">
+        <button class="disp-btn sup" data-result="support" onclick="selectDisp(this)">&#x1F44D; Support</button>
+        <button class="disp-btn lean-sup" data-result="lean_support" onclick="selectDisp(this)">&#x1F44C; Lean Support</button>
+        <button class="disp-btn und" data-result="undecided" onclick="selectDisp(this)">&#x1F914; Undecided</button>
+        <button class="disp-btn lean-opp" data-result="lean_oppose" onclick="selectDisp(this)">&#x1F44E; Lean Oppose</button>
+        <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
+        <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
+        <button class="disp-btn mov" data-result="moved" onclick="selectDisp(this)">&#x1F4E6; Moved</button>
+        <button class="disp-btn dec" data-result="deceased" onclick="selectDisp(this)">&#x1F54A; Deceased</button>
+        <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
+      </div>
+
+      <div style="text-align:center;margin-bottom:8px">
+        <button class="btn btn-sm btn-secondary" onclick="goBackToStep1()" style="font-size:12px;padding:6px 14px;color:#94a3b8">&#x2190; Back to household</button>
+      </div>
     </div>
 
     <div class="notes-row">
@@ -1168,18 +1193,7 @@ function renderScriptInDoor() {
   section.appendChild(container);
 }
 
-// Quick "I Couldn't Reach This Person" — VAN-style shortcut
-function quickNotHome() {
-  // Select Not Home disposition and immediately log
-  walkState.selectedResult = 'not_home';
-  var btns = document.querySelectorAll('.disp-btn');
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].classList.remove('selected');
-    if (btns[i].dataset.result === 'not_home') btns[i].classList.add('selected');
-  }
-  document.getElementById('btnLogDoor').disabled = false;
-  logDoor();
-}
+// Quick "Nobody Home" — replaced by markAllNotHome() in the new household flow
 
 // Print walk list
 function printWalkList() {
@@ -1592,6 +1606,13 @@ function formatResult(result) {
 
 // ===================== DOOR PANEL =====================
 
+// Household tracking state per door
+var doorState = {
+  allMembers: [],      // [{voter_id, name, age, isPrimary, status: 'pending'|'talked'|'not_home', result: null}]
+  activeMemberIdx: -1, // which member is being rated right now
+  step: 1              // 1 = who lives here, 2 = support level for selected person
+};
+
 function openDoor(idx) {
   var a = walkState.walk.addresses[idx];
   walkState.currentAddrIdx = idx;
@@ -1601,26 +1622,6 @@ function openDoor(idx) {
   document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
   document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
   document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
-  var voterEl = document.getElementById('doorVoter');
-  if (a.voter_name) {
-    voterEl.innerHTML = 'Voter: ' + escHtml(a.voter_name) + (a.voter_age ? ' <span style="color:#94a3b8">(age ' + a.voter_age + ')</span>' : '');
-  } else {
-    voterEl.textContent = '';
-  }
-  // Household members in door panel
-  var hhEl = document.getElementById('doorHousehold');
-  if (a.household && a.household.length > 0) {
-    hhEl.innerHTML = '&#x1F3E0; Also at address: ' + a.household.map(function(m) {
-      return '<b>' + escHtml(m.first_name + ' ' + m.last_name) + '</b>' + (m.age ? ' (age ' + m.age + ')' : '');
-    }).join(', ');
-    hhEl.style.display = '';
-  } else {
-    hhEl.style.display = 'none';
-  }
-  stopRecording();
-  document.getElementById('doorNotes').value = a.notes || '';
-  document.getElementById('recordStatus').textContent = '';
-  document.getElementById('btnLogDoor').disabled = true;
 
   // Show attempt info
   var attemptInfo = document.getElementById('doorAttemptInfo');
@@ -1629,6 +1630,49 @@ function openDoor(idx) {
     attemptInfo.style.display = '';
   } else {
     attemptInfo.style.display = 'none';
+  }
+
+  stopRecording();
+  document.getElementById('doorNotes').value = a.notes || '';
+  document.getElementById('recordStatus').textContent = '';
+  document.getElementById('btnLogDoor').disabled = true;
+
+  // Build household members list: primary voter + household members
+  doorState.allMembers = [];
+  doorState.activeMemberIdx = -1;
+  doorState.step = 1;
+
+  if (a.voter_name) {
+    doorState.allMembers.push({
+      voter_id: a.voter_id || null,
+      name: a.voter_name,
+      age: a.voter_age || null,
+      isPrimary: true,
+      status: 'pending',
+      result: null
+    });
+  }
+  if (a.household && a.household.length > 0) {
+    for (var h = 0; h < a.household.length; h++) {
+      var m = a.household[h];
+      doorState.allMembers.push({
+        voter_id: m.voter_id || null,
+        name: m.first_name + ' ' + m.last_name,
+        age: m.age || null,
+        isPrimary: false,
+        status: 'pending',
+        result: null
+      });
+    }
+  }
+
+  // If no members (no voter data), skip household step — go straight to disposition
+  if (doorState.allMembers.length === 0) {
+    showDoorStep(2);
+    document.getElementById('step2Title').textContent = 'What happened?';
+  } else {
+    showDoorStep(1);
+    renderMemberList();
   }
 
   // Render script section
@@ -1648,9 +1692,164 @@ function openDoor(idx) {
       }
     }
     document.getElementById('btnLogDoor').disabled = false;
+    // Already visited — show step 2 directly
+    showDoorStep(2);
+    document.getElementById('step2Title').textContent = 'Update result';
   }
 
   document.getElementById('doorOverlay').classList.add('open');
+}
+
+function showDoorStep(step) {
+  doorState.step = step;
+  document.getElementById('doorStep1').className = 'hh-step' + (step === 1 ? ' active' : '');
+  document.getElementById('doorStep2').className = 'hh-step' + (step === 2 ? ' active' : '');
+}
+
+function renderMemberList() {
+  var list = document.getElementById('doorMemberList');
+  list.innerHTML = '';
+
+  // Reset nobody home button
+  document.getElementById('btnNobodyHome').classList.remove('selected');
+
+  for (var i = 0; i < doorState.allMembers.length; i++) {
+    var m = doorState.allMembers[i];
+    var el = document.createElement('div');
+    el.className = 'hh-member' + (m.status === 'talked' ? ' talked' : m.status === 'not_home' ? ' not-home' : '');
+    el.dataset.idx = i;
+
+    var nameHtml = '<div><span class="hh-name">' + escHtml(m.name) + '</span>';
+    if (m.age) nameHtml += '<span class="hh-age">(age ' + m.age + ')</span>';
+    if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
+    nameHtml += '</div>';
+
+    var statusHtml = '';
+    if (m.status === 'talked') {
+      statusHtml = '<span class="hh-status talked">' + formatResult(m.result) + '</span>';
+    } else if (m.status === 'not_home') {
+      statusHtml = '<span class="hh-status not-home">Not Home</span>';
+    } else {
+      statusHtml = '<span class="hh-status" style="color:#60a5fa">Tap to log &#x27A4;</span>';
+    }
+
+    el.innerHTML = nameHtml + statusHtml;
+
+    (function(index) {
+      el.addEventListener('click', function() {
+        selectMember(index);
+      });
+    })(i);
+
+    list.appendChild(el);
+  }
+
+  updateLogButton();
+}
+
+function selectMember(idx) {
+  var m = doorState.allMembers[idx];
+
+  // If already marked not_home, un-mark it
+  if (m.status === 'not_home') {
+    m.status = 'pending';
+    m.result = null;
+    renderMemberList();
+    return;
+  }
+
+  // If already talked, tap again to change their result
+  doorState.activeMemberIdx = idx;
+  document.getElementById('step2Title').textContent = 'How does ' + m.name + ' feel?';
+
+  // Clear previous selection
+  var btns = document.querySelectorAll('.disp-btn');
+  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
+
+  // Pre-select if this member already has a result
+  if (m.result) {
+    for (var i = 0; i < btns.length; i++) {
+      if (btns[i].dataset.result === m.result) {
+        btns[i].classList.add('selected');
+        break;
+      }
+    }
+  }
+
+  showDoorStep(2);
+}
+
+function markAllNotHome() {
+  // Mark every member as not home and log immediately
+  for (var i = 0; i < doorState.allMembers.length; i++) {
+    doorState.allMembers[i].status = 'not_home';
+    doorState.allMembers[i].result = 'not_home';
+  }
+  walkState.selectedResult = 'not_home';
+  document.getElementById('btnLogDoor').disabled = false;
+  logDoor();
+}
+
+function goBackToStep1() {
+  // If a disposition was selected in step 2, apply it to the active member
+  var btns = document.querySelectorAll('.disp-btn');
+  var selected = null;
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].classList.contains('selected')) { selected = btns[i].dataset.result; break; }
+  }
+
+  if (selected && doorState.activeMemberIdx >= 0) {
+    var m = doorState.allMembers[doorState.activeMemberIdx];
+    m.result = selected;
+    m.status = 'talked';
+  }
+
+  showDoorStep(1);
+  renderMemberList();
+}
+
+function selectDisp(el) {
+  var btns = document.querySelectorAll('.disp-btn');
+  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
+  el.classList.add('selected');
+  walkState.selectedResult = el.dataset.result;
+
+  // If we're in household mode and have an active member, apply the result
+  if (doorState.allMembers.length > 0 && doorState.activeMemberIdx >= 0) {
+    var m = doorState.allMembers[doorState.activeMemberIdx];
+    m.result = el.dataset.result;
+    m.status = 'talked';
+
+    // Mark all other pending members as not_home automatically
+    for (var i = 0; i < doorState.allMembers.length; i++) {
+      if (doorState.allMembers[i].status === 'pending') {
+        doorState.allMembers[i].status = 'not_home';
+        doorState.allMembers[i].result = 'not_home';
+      }
+    }
+
+    // Auto-go back to step 1 to show the updated list, then enable log
+    setTimeout(function() {
+      showDoorStep(1);
+      renderMemberList();
+    }, 200);
+  }
+
+  document.getElementById('btnLogDoor').disabled = false;
+}
+
+function updateLogButton() {
+  // Enable log button if at least one member has a status (talked or not_home)
+  var anyLogged = false;
+  for (var i = 0; i < doorState.allMembers.length; i++) {
+    if (doorState.allMembers[i].status !== 'pending') { anyLogged = true; break; }
+  }
+  // In no-member mode, rely on selectedResult
+  if (doorState.allMembers.length === 0) {
+    document.getElementById('btnLogDoor').disabled = !walkState.selectedResult;
+  } else {
+    document.getElementById('btnLogDoor').disabled = !anyLogged;
+  }
 }
 
 function closeDoor() {
@@ -1663,17 +1862,7 @@ document.getElementById('doorOverlay').addEventListener('click', function(e) {
   if (e.target === this) closeDoor();
 });
 
-function selectDisp(el) {
-  var btns = document.querySelectorAll('.disp-btn');
-  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
-  el.classList.add('selected');
-  walkState.selectedResult = el.dataset.result;
-  document.getElementById('btnLogDoor').disabled = false;
-}
-
 async function logDoor() {
-  if (!walkState.selectedResult) return;
-
   var addr = walkState.walk.addresses[walkState.currentAddrIdx];
   var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
@@ -1683,25 +1872,63 @@ async function logDoor() {
   btn.textContent = 'Logging...';
 
   try {
-    var res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        result: walkState.selectedResult,
-        notes: notes,
-        gps_lat: walkState.gpsLat,
-        gps_lng: walkState.gpsLng,
-        gps_accuracy: walkState.gpsAccuracy,
-        walker_name: walkerName,
-        walker_id: walkState.walkerId || undefined,
-        survey_responses: Object.keys(walkState.surveyResponses).length > 0 ? walkState.surveyResponses : undefined
-      })
-    });
-    var data = await res.json();
-    if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+    var res;
+    var data;
 
-    // Update local state
-    addr.result = walkState.selectedResult;
+    if (doorState.allMembers.length > 0) {
+      // Household mode: use the new endpoint
+      var members = [];
+      for (var i = 0; i < doorState.allMembers.length; i++) {
+        var m = doorState.allMembers[i];
+        members.push({
+          voter_id: m.voter_id,
+          name: m.name,
+          result: m.result || 'not_home'
+        });
+      }
+
+      res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log-household', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          members: members,
+          notes: notes,
+          gps_lat: walkState.gpsLat,
+          gps_lng: walkState.gpsLng,
+          gps_accuracy: walkState.gpsAccuracy,
+          walker_name: walkerName,
+          walker_id: walkState.walkerId || undefined
+        })
+      });
+      data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+
+      // Update local state with overall result
+      addr.result = data.result || walkState.selectedResult || 'not_home';
+    } else {
+      // No household members — use original endpoint
+      if (!walkState.selectedResult) return;
+
+      res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          result: walkState.selectedResult,
+          notes: notes,
+          gps_lat: walkState.gpsLat,
+          gps_lng: walkState.gpsLng,
+          gps_accuracy: walkState.gpsAccuracy,
+          walker_name: walkerName,
+          walker_id: walkState.walkerId || undefined,
+          survey_responses: Object.keys(walkState.surveyResponses).length > 0 ? walkState.surveyResponses : undefined
+        })
+      });
+      data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+
+      addr.result = walkState.selectedResult;
+    }
+
     addr.notes = notes;
     addr.gps_verified = data.gps_verified || 0;
 
@@ -1712,9 +1939,24 @@ async function logDoor() {
 
     closeDoor();
     renderWalk();
-    showToast('\u2705 ' + formatResult(walkState.selectedResult) + ' — Logged!');
 
-    // Auto-refresh route in group mode (completed doors disappear from map)
+    // Build toast message
+    var toastMsg = '';
+    if (doorState.allMembers.length > 0) {
+      var talked = doorState.allMembers.filter(function(m) { return m.status === 'talked'; });
+      var notHome = doorState.allMembers.filter(function(m) { return m.status === 'not_home'; });
+      if (talked.length > 0) {
+        toastMsg = '\u2705 ' + talked.map(function(m) { return m.name.split(' ')[0]; }).join(', ') + ' logged';
+        if (notHome.length > 0) toastMsg += ' | ' + notHome.length + ' not home';
+      } else {
+        toastMsg = '\u2705 Nobody Home — Logged!';
+      }
+    } else {
+      toastMsg = '\u2705 ' + formatResult(walkState.selectedResult) + ' — Logged!';
+    }
+    showToast(toastMsg);
+
+    // Auto-refresh route in group mode
     if (walkState.isGroupMode && walkState.routeActive) {
       refreshLiveRoute();
     }
