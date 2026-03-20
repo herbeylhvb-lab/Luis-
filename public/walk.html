@@ -92,8 +92,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .disp-btn.dec{border-color:#1e293b}.disp-btn.dec.selected{background:#0f172a;border-color:#64748b;color:#94a3b8}
 .disp-btn.other{border-color:#334155}.disp-btn.other.selected{background:#1e293b;border-color:#64748b;color:#94a3b8}
 
-.notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:12px}
+.notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:0}
 .notes-area:focus{border-color:#f59e0b}
+.notes-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}
+.notes-row .notes-area{flex:1;margin-bottom:0}
+.record-btn{width:44px;height:44px;min-width:44px;border-radius:50%;border:2px solid #334155;background:#0f172a;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;margin-top:2px}
+.record-btn:hover{border-color:#f59e0b;color:#f59e0b}
+.record-btn.recording{border-color:#ef4444;background:#450a0a;color:#ef4444;animation:pulse-rec 1.2s ease-in-out infinite}
+@keyframes pulse-rec{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.4)}50%{box-shadow:0 0 0 8px rgba(239,68,68,0)}}
+.record-status{font-size:11px;color:#94a3b8;text-align:right;margin-bottom:8px;min-height:16px}
 
 .door-actions{display:flex;gap:8px}
 .door-actions .btn{flex:1}
@@ -293,7 +300,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <button class="btn btn-sm btn-secondary" onclick="quickNotHome()" style="font-size:12px;padding:6px 14px;color:#94a3b8">I Couldn't Reach This Person</button>
     </div>
 
-    <textarea class="notes-area" id="doorNotes" placeholder="Notes (optional)..."></textarea>
+    <div class="notes-row">
+      <textarea class="notes-area" id="doorNotes" placeholder="Notes (optional)..."></textarea>
+      <button class="record-btn" id="btnRecord" onclick="toggleRecording()" title="Record &amp; transcribe conversation">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+    </div>
+    <div class="record-status" id="recordStatus"></div>
 
     <div class="door-actions">
       <button class="btn btn-walk" id="btnLogDoor" onclick="logDoor()" disabled>Log & Next &#x27A1;</button>
@@ -327,6 +340,115 @@ var walkState = {
   distGpsLat: null,
   distGpsLng: null
 };
+
+// ===================== VOICE RECORDING & TRANSCRIPTION =====================
+
+var recordState = {
+  recognition: null,
+  isRecording: false,
+  finalTranscript: ''
+};
+
+function initSpeechRecognition() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  var recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = function(event) {
+    var interim = '';
+    var finalChunk = '';
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      var transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalChunk += transcript;
+      } else {
+        interim = transcript;
+      }
+    }
+    if (finalChunk) {
+      recordState.finalTranscript += (recordState.finalTranscript ? ' ' : '') + finalChunk.trim();
+    }
+    // Update the notes textarea with transcribed text
+    var notes = document.getElementById('doorNotes');
+    var existing = notes.value.replace(/\n\n\[Recording\].*$/, '').trim();
+    var display = recordState.finalTranscript + (interim ? ' ' + interim : '');
+    if (existing) {
+      notes.value = existing + '\n\n[Recording] ' + display;
+    } else {
+      notes.value = '[Recording] ' + display;
+    }
+    notes.scrollTop = notes.scrollHeight;
+  };
+
+  recognition.onerror = function(event) {
+    if (event.error === 'no-speech') return; // ignore silence
+    console.error('Speech recognition error:', event.error);
+    document.getElementById('recordStatus').textContent = 'Mic error: ' + event.error;
+    if (event.error === 'not-allowed') {
+      stopRecording();
+      document.getElementById('recordStatus').textContent = 'Microphone access denied. Please allow mic access and try again.';
+    }
+  };
+
+  recognition.onend = function() {
+    // Auto-restart if still supposed to be recording (browser may stop after silence)
+    if (recordState.isRecording) {
+      try { recognition.start(); } catch(e) {}
+    }
+  };
+
+  return recognition;
+}
+
+function toggleRecording() {
+  if (recordState.isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+function startRecording() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert('Voice recording is not supported in this browser. Please use Chrome, Edge, or Safari.');
+    return;
+  }
+  recordState.recognition = initSpeechRecognition();
+  recordState.finalTranscript = '';
+  recordState.isRecording = true;
+
+  var btn = document.getElementById('btnRecord');
+  btn.classList.add('recording');
+  document.getElementById('recordStatus').textContent = 'Listening... tap mic to stop';
+
+  try {
+    recordState.recognition.start();
+  } catch(e) {
+    console.error('Failed to start recording:', e);
+    stopRecording();
+  }
+}
+
+function stopRecording() {
+  recordState.isRecording = false;
+  if (recordState.recognition) {
+    try { recordState.recognition.stop(); } catch(e) {}
+    recordState.recognition = null;
+  }
+  var btn = document.getElementById('btnRecord');
+  btn.classList.remove('recording');
+  var status = document.getElementById('recordStatus');
+  if (recordState.finalTranscript) {
+    status.textContent = 'Transcription saved to notes';
+    setTimeout(function() { status.textContent = ''; }, 3000);
+  } else {
+    status.textContent = '';
+  }
+}
 
 // ===================== WALKER CODE LOGIN =====================
 
@@ -1155,7 +1277,9 @@ function openDoor(idx) {
   } else {
     hhEl.style.display = 'none';
   }
+  stopRecording();
   document.getElementById('doorNotes').value = a.notes || '';
+  document.getElementById('recordStatus').textContent = '';
   document.getElementById('btnLogDoor').disabled = true;
 
   // Show attempt info
@@ -1190,6 +1314,7 @@ function openDoor(idx) {
 }
 
 function closeDoor() {
+  stopRecording();
   document.getElementById('doorOverlay').classList.remove('open');
 }
 
