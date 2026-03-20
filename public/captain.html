@@ -570,6 +570,11 @@ async function refreshSidebar() {
           refreshSidebar();
         };
       })(sc));
+      // Make the captain row itself a drop target (uses their first list, or shows message)
+      var firstListForDrop = (memberLists.length > 0) ? memberLists[0] : (legacyLists.length > 0 ? legacyLists[0] : null);
+      if (firstListForDrop) {
+        setupDropTarget(row, firstListForDrop.id, sc.name + ' → ' + firstListForDrop.name);
+      }
       teamContainer.appendChild(row);
 
       // Expandable lists container
@@ -999,9 +1004,10 @@ function onVoterDragStart(e, voterId) {
   var ghost = document.createElement('div');
   ghost.style.cssText = 'position:absolute;top:-1000px;background:#f59e0b;color:#000;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700';
   ghost.textContent = count + ' voter' + (count !== 1 ? 's' : '');
+  ghost.id = '_dragGhost';
   document.body.appendChild(ghost);
   e.dataTransfer.setDragImage(ghost, 0, 0);
-  setTimeout(function() { ghost.remove(); }, 0);
+  setTimeout(function() { ghost.remove(); }, 100);
 }
 
 function onVoterDragEnd(e, voterId) {

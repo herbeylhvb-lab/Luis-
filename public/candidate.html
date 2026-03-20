@@ -610,7 +610,7 @@ function onVoterDragStart(e, voterId) {
     badge.style.cssText = 'position:absolute;top:-1000px;background:#818cf8;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600';
     document.body.appendChild(badge);
     e.dataTransfer.setDragImage(badge, 40, 16);
-    setTimeout(function() { badge.remove(); }, 0);
+    setTimeout(function() { badge.remove(); }, 100);
   }
 }
 
