@@ -411,7 +411,7 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
     // Update walker performance metrics
     if (walker_id) {
-      const isContact = !['not_home', 'moved', 'refused'].includes(result);
+      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(result);
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
@@ -421,7 +421,7 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
         WHERE walk_id = ? AND walker_id = ?
       `).run(knocked_at, knocked_at, req.params.walkId, walker_id);
     } else if (walker_name) {
-      const isContact = !['not_home', 'moved', 'refused'].includes(result);
+      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(result);
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
@@ -438,7 +438,7 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
         'support': 'Strong Support', 'lean_support': 'Lean Support',
         'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
         'oppose': 'Strong Oppose', 'not_home': 'Not Home',
-        'refused': 'Refused', 'moved': 'Moved', 'come_back': 'Come Back'
+        'refused': 'Refused', 'moved': 'Moved', 'deceased': 'Deceased', 'come_back': 'Come Back'
       }[result] || result;
 
       db.prepare(
@@ -1296,7 +1296,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   const walkName = universe.name + ' - ' + walkerName;
   const walkResult = db.prepare(
     'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, universe.script_id, precincts.join(','), universe.filters_json);
+  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
   const walkId = walkResult.lastInsertRowid;
 
   // Track walker with phone for dedup across claims

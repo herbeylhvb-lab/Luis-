@@ -159,6 +159,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .map-legend-item:last-child{margin-bottom:0}
 .map-legend-dot{width:12px;height:12px;border-radius:50%;border:2px solid #fff;flex-shrink:0}
 .map-refresh-indicator{position:absolute;top:10px;right:10px;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:6px 10px;z-index:1000;font-size:11px;color:#94a3b8}
+
+/* Success toast */
+.success-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:#052e16;border:1px solid #22c55e;color:#4ade80;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;z-index:200;transition:transform 0.3s ease;pointer-events:none}
+.success-toast.show{transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -319,6 +323,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <!-- Address list -->
   <div class="addr-list" id="addrList"></div>
 </div>
+
+<!-- Success toast -->
+<div class="success-toast" id="successToast"></div>
 
 <!-- DOOR PANEL (slide-up overlay) -->
 <div class="door-overlay" id="doorOverlay">
@@ -957,6 +964,13 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function showToast(message) {
+  var toast = document.getElementById('successToast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 2000);
+}
+
 // ===================== DISTRIBUTED CANVASSING =====================
 
 function startDistributedGps() {
@@ -1212,15 +1226,46 @@ async function loadWalk() {
   if (!walkId || walkId < 1) return;
 
   try {
-    var res = await fetch('/api/walks/' + walkId + '/volunteer');
-    var data = await res.json();
-    if (!res.ok || data.error) {
-      alert(data.error || 'Failed to load walk.');
-      document.getElementById('walkSelectScreen').style.display = '';
-      return;
+    var res, data;
+    // If logged in as a walker, load walker-specific addresses (only their assigned doors)
+    if (walkState.walkerId) {
+      res = await fetch('/api/walks/' + walkId + '/walker-by-id/' + walkState.walkerId);
+      data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Failed to load walk.');
+        document.getElementById('walkSelectScreen').style.display = '';
+        return;
+      }
+      walkState.walk = data.walk;
+      walkState.walk.addresses = data.addresses;
+      walkState.walk.progress = data.progress;
+      walkState.isGroupMode = true;
+
+      // Load group members for the group bar
+      var gRes = await fetch('/api/walks/' + walkId + '/walkers');
+      var gData = await gRes.json();
+      var members = (gData.members || []);
+      walkState.groupMembers = members.map(function(m) { return { walker_name: m.walker_name }; });
+      // Ensure walker name is set from members list if not already
+      if (!walkState.walkerName) {
+        for (var i = 0; i < members.length; i++) {
+          if (members[i].walker_id === walkState.walkerId) {
+            walkState.walkerName = members[i].walker_name;
+            break;
+          }
+        }
+      }
+    } else {
+      res = await fetch('/api/walks/' + walkId + '/volunteer');
+      data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Failed to load walk.');
+        document.getElementById('walkSelectScreen').style.display = '';
+        return;
+      }
+      walkState.walk = data.walk;
     }
 
-    walkState.walk = data.walk;
     renderWalk();
     document.getElementById('loadScreen').style.display = 'none';
     document.getElementById('walkSelectScreen').style.display = 'none';
@@ -1243,6 +1288,11 @@ function exitWalk() {
   mapState.walkerMarker = null;
   mapState.currentView = 'list';
 
+  // Preserve walker identity if logged in (walkerId stays set)
+  var wasLoggedIn = !!walkState.walkerId;
+  var savedWalkerId = walkState.walkerId;
+  var savedWalkerName = walkState.walkerName;
+
   walkState.walkId = null;
   walkState.walk = null;
   walkState.isGroupMode = false;
@@ -1255,12 +1305,27 @@ function exitWalk() {
   document.getElementById('walkScreen').style.display = 'none';
   document.getElementById('liveStatusBar').style.display = 'none';
   document.getElementById('btnLiveRoute').style.display = 'none';
-  document.getElementById('loadScreen').style.display = '';
   document.getElementById('mapsLink').style.display = 'none';
   document.getElementById('mapContainer').style.display = 'none';
   document.getElementById('addrList').style.display = '';
   document.getElementById('btnListView').className = 'view-toggle-btn active';
   document.getElementById('btnMapView').className = 'view-toggle-btn';
+
+  // If walker was logged in, go back to walk selection instead of login screen
+  if (wasLoggedIn) {
+    walkState.walkerId = savedWalkerId;
+    walkState.walkerName = savedWalkerName;
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkSelectScreen').style.display = '';
+    document.getElementById('walkerGreeting').textContent = savedWalkerName + "'s Walks";
+    // Re-login to refresh walk list (code is still in the input)
+    var code = document.getElementById('walkerCodeInput').value.trim();
+    if (code) {
+      walkerLogin();
+    }
+  } else {
+    document.getElementById('loadScreen').style.display = '';
+  }
 }
 
 // ===================== RENDER WALK =====================
@@ -1481,6 +1546,11 @@ function closeDoor() {
   document.getElementById('doorOverlay').classList.remove('open');
 }
 
+// Tap outside the door panel (on the overlay background) to close
+document.getElementById('doorOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeDoor();
+});
+
 function selectDisp(el) {
   var btns = document.querySelectorAll('.disp-btn');
   for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
@@ -1530,6 +1600,7 @@ async function logDoor() {
 
     closeDoor();
     renderWalk();
+    showToast('\u2705 ' + formatResult(walkState.selectedResult) + ' — Logged!');
 
     // Auto-refresh route in group mode (completed doors disappear from map)
     if (walkState.isGroupMode && walkState.routeActive) {
