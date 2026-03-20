@@ -68,7 +68,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .badge-gps{font-size:10px;padding:1px 6px}
 
 /* Door panel (slide up) */
-.door-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:100;display:none;align-items:flex-end;justify-content:center}
+.door-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:none;align-items:flex-end;justify-content:center}
 .door-overlay.open{display:flex}
 .door-panel{background:#1e293b;border-top:2px solid #f59e0b;border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;animation:slideUp 0.25s ease}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
@@ -161,7 +161,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .map-refresh-indicator{position:absolute;top:10px;right:10px;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:6px 10px;z-index:1000;font-size:11px;color:#94a3b8}
 
 /* Success toast */
-.success-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:#052e16;border:1px solid #22c55e;color:#4ade80;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;z-index:200;transition:transform 0.3s ease;pointer-events:none}
+.success-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:#052e16;border:1px solid #22c55e;color:#4ade80;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;z-index:10100;transition:transform 0.3s ease;pointer-events:none}
+.gmaps-link{display:inline-flex;align-items:center;gap:4px;color:#60a5fa;font-size:12px;text-decoration:none;margin-top:4px}
+.gmaps-link:hover{color:#93c5fd}
+.door-gmaps{display:inline-flex;align-items:center;gap:4px;color:#60a5fa;font-size:13px;text-decoration:none;margin-bottom:12px}
+.door-gmaps:hover{color:#93c5fd}
+.locate-me-btn{position:absolute;bottom:70px;right:10px;z-index:1000;width:40px;height:40px;border-radius:50%;background:rgba(30,41,59,0.95);border:1px solid #334155;color:#3b82f6;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
+.locate-me-btn:hover{background:#1e293b;border-color:#3b82f6}
 .success-toast.show{transform:translateX(-50%) translateY(0)}
 </style>
 </head>
@@ -317,6 +323,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="map-legend-item"><div class="map-legend-dot" style="background:#64748b"></div> Other walkers</div>
       <div class="map-legend-item"><div class="map-legend-dot" style="background:#3b82f6"></div> Your location</div>
     </div>
+    <button class="locate-me-btn" onclick="centerOnMe()" title="Center on my location">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+    </button>
     <div class="map-refresh-indicator" id="mapRefreshIndicator" style="display:none">Updating...</div>
   </div>
 
@@ -332,6 +341,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="door-panel">
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
+    <a class="door-gmaps" id="doorGmapsLink" href="#" target="_blank" rel="noopener">&#x1F4CD; Open in Google Maps</a>
     <div class="door-voter" id="doorVoter"></div>
     <div id="doorHousehold" style="font-size:13px;color:#94a3b8;margin-bottom:8px;padding:6px 8px;background:rgba(255,255,255,0.05);border-radius:6px"></div>
     <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
@@ -568,17 +578,22 @@ document.getElementById('walkerCodeInput').addEventListener('keydown', function(
   if (e.key === 'Enter') walkerLogin();
 });
 
-// Auto-login from URL param
+// Auto-login from URL param or saved session
 (function() {
   var params = new URLSearchParams(window.location.search);
   var code = params.get('code');
+  // Try URL param first, then localStorage
+  if (!code) {
+    code = localStorage.getItem('walkerCode');
+  }
   if (code) {
     document.getElementById('walkerCodeInput').value = code;
     setTimeout(walkerLogin, 100);
+    return;
   }
   // Legacy: support walkId param (skip if walkerId is also present — handled by auto-load IIFE below)
   var wid = params.get('walkId');
-  if (wid && !code && !params.get('walkerId')) {
+  if (wid && !params.get('walkerId')) {
     walkState.walkId = parseInt(wid);
     loadWalk();
   }
@@ -607,6 +622,9 @@ async function walkerLogin() {
     walkState.walkerId = data.volunteer.walkerId || data.volunteer.id;
     walkState.walkerName = data.volunteer.name;
     walkState.isGroupMode = true;
+
+    // Save code to localStorage so the walker stays logged in across refreshes
+    localStorage.setItem('walkerCode', code.toUpperCase());
 
     // Walks are returned directly from the unified login
     var walks = data.walks || [];
@@ -741,6 +759,7 @@ async function createWalk() {
 function walkerLogout() {
   walkState.walkerId = null;
   walkState.walkerName = '';
+  localStorage.removeItem('walkerCode');
   document.getElementById('walkSelectScreen').style.display = 'none';
   document.getElementById('loadScreen').style.display = 'flex';
   document.getElementById('walkerCodeInput').value = '';
@@ -1190,6 +1209,9 @@ function startGps() {
         dot.className = 'gps-dot poor';
         text.textContent = 'GPS: Weak (' + acc + 'm)';
       }
+
+      // Update the walker marker on the map in real-time (no full refresh needed)
+      updateWalkerMarkerPosition();
     },
     function(err) {
       document.getElementById('gpsText').textContent = 'GPS: ' + err.message;
@@ -1341,6 +1363,7 @@ function exitWalk() {
   mapState.otherWalkerMarkers = [];
   mapState.walkerMarker = null;
   mapState.currentView = 'list';
+  mapState.hasFittedBounds = false;
 
   // Preserve walker identity if logged in (walkerId stays set)
   var wasLoggedIn = !!walkState.walkerId;
@@ -1513,6 +1536,16 @@ function renderAddressList() {
       card.appendChild(reknock);
     }
 
+    // Google Maps link on each address card
+    var gmLink = document.createElement('a');
+    gmLink.className = 'gmaps-link';
+    gmLink.href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
+    gmLink.target = '_blank';
+    gmLink.rel = 'noopener';
+    gmLink.innerHTML = '&#x1F4CD; Maps';
+    gmLink.addEventListener('click', function(e) { e.stopPropagation(); });
+    card.appendChild(gmLink);
+
     card.addEventListener('click', function() { openDoor(idx); });
     el.appendChild(card);
   });
@@ -1559,6 +1592,7 @@ function openDoor(idx) {
 
   document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
   document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+  document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
   var voterEl = document.getElementById('doorVoter');
   if (a.voter_name) {
     voterEl.innerHTML = 'Voter: ' + escHtml(a.voter_name) + (a.voter_age ? ' <span style="color:#94a3b8">(age ' + a.voter_age + ')</span>' : '');
@@ -1701,6 +1735,42 @@ async function logDoor() {
   }
 }
 
+// ===================== LIVE GPS ON MAP =====================
+
+// Move the "You" marker on the map whenever GPS updates — no full re-render needed
+function updateWalkerMarkerPosition() {
+  if (!mapState.map || mapState.currentView !== 'map') return;
+  if (walkState.gpsLat == null || walkState.gpsLng == null) return;
+
+  var myName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'You');
+  var latlng = [walkState.gpsLat, walkState.gpsLng];
+
+  if (mapState.walkerMarker) {
+    mapState.walkerMarker.setLatLng(latlng);
+  } else {
+    var meIcon = createWalkerIcon('#3b82f6', myName);
+    mapState.walkerMarker = L.marker(latlng, { icon: meIcon, zIndexOffset: 2000 })
+      .bindPopup('<strong>' + escHtml(myName) + '</strong><br>Your current position');
+    mapState.walkerMarker.addTo(mapState.map);
+  }
+}
+
+function centerOnMe() {
+  if (!mapState.map) return;
+  if (walkState.gpsLat == null || walkState.gpsLng == null) {
+    showToast('GPS location not available yet');
+    return;
+  }
+  mapState.map.setView([walkState.gpsLat, walkState.gpsLng], 17);
+}
+
+function buildGoogleMapsUrl(address, city, zip) {
+  var q = address;
+  if (city) q += ', ' + city;
+  if (zip) q += ' ' + zip;
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+}
+
 // ===================== MAP VIEW =====================
 
 var mapState = {
@@ -1710,7 +1780,8 @@ var mapState = {
   otherWalkerMarkers: [],
   refreshInterval: null,
   currentView: 'list',
-  initialized: false
+  initialized: false,
+  hasFittedBounds: false
 };
 
 function setView(view) {
@@ -1880,6 +1951,7 @@ function renderMap(addresses, walkerLocations, progress) {
       popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
       if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
     }
+    popupContent += '<br><a href="' + buildGoogleMapsUrl(addr.address + (addr.unit ? ' ' + addr.unit : ''), addr.city, addr.zip) + '" target="_blank" rel="noopener" style="color:#60a5fa;font-size:12px">&#x1F4CD; Google Maps</a>';
     popupContent += '</div>';
 
     var marker = L.marker([addr.lat, addr.lng], { icon: icon })
@@ -1929,9 +2001,10 @@ function renderMap(addresses, walkerLocations, progress) {
     bounds.push([walkState.gpsLat, walkState.gpsLng]);
   }
 
-  // Fit map to show all markers
-  if (bounds.length > 0) {
+  // Only fit bounds on first load — don't reset the user's zoom/pan on refreshes
+  if (bounds.length > 0 && !mapState.hasFittedBounds) {
     mapState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+    mapState.hasFittedBounds = true;
   }
 
   // Show geocode notice if addresses exist but none have coordinates
