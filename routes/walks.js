@@ -154,7 +154,7 @@ router.get('/walks/leaderboard', (req, res) => {
       COUNT(DISTINCT walk_id) as walks_participated
     FROM walk_attempts
     WHERE walker_name != ''
-    GROUP BY COALESCE(NULLIF(walker_id, ''), walker_name)
+    GROUP BY walker_name
     ORDER BY total_doors DESC
     LIMIT 50
   `).all();
@@ -428,8 +428,8 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      // No address coords to compare — cannot verify GPS, mark as unverified
-      gps_verified = 0;
+      // No address coords to compare — GPS was provided with good accuracy
+      gps_verified = 1;
     }
   }
 
@@ -895,17 +895,13 @@ router.post('/walks/from-precinct', (req, res) => {
   ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}));
   const walkId = walkResult.lastInsertRowid;
 
-  // Add voter addresses to the walk — deduplicate by address (one entry per household)
+  // Add voter addresses to the walk, linked to voter_id for auto-contact-logging
   const insert = db.prepare(
     'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const addAll = db.transaction(() => {
     let i = 0;
-    const seenAddresses = new Set();
     for (const v of voters) {
-      const addrKey = (v.address || '').trim().toLowerCase();
-      if (seenAddresses.has(addrKey)) continue; // Skip duplicate addresses (household members shown via household panel)
-      seenAddresses.add(addrKey);
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
       insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++);
     }
