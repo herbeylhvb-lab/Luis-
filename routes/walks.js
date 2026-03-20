@@ -1634,3 +1634,4 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
 });
 
 module.exports = router;
+module.exports.geocodeWalkAddresses = geocodeWalkAddresses;

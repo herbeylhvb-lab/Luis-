@@ -3,6 +3,7 @@ const router = express.Router();
 const { randomBytes } = require('crypto');
 const db = require('../db');
 const { asyncHandler, generateAlphaCode } = require('../utils');
+const { geocodeWalkAddresses } = require('./walks');
 
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 
@@ -211,6 +212,9 @@ router.post('/volunteers/create-walk', (req, res) => {
   }
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walk created by walker: ' + walkName.trim() + ' (' + order + ' addresses)');
+
+  // Geocode addresses in background so they appear on the map
+  geocodeWalkAddresses(walkId);
 
   res.json({ success: true, walkId, joinCode, addressCount: order });
 });
