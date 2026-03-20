@@ -11,7 +11,9 @@ const { generateAlphaCode, normalizePhone } = require('../utils');
 async function geocodeAddress(address, city, zip) {
   if (!address || !address.trim()) return null;
 
-  // Structured query gives Nominatim much better accuracy than free-text
+  const headers = { 'User-Agent': 'CampaignTextBlockWalker/1.0' };
+
+  // Strategy 1: Structured query (most accurate when Nominatim knows the address)
   const params = {
     street: address.trim(),
     format: 'json',
@@ -23,19 +25,53 @@ async function geocodeAddress(address, city, zip) {
   if (zip) params.postalcode = zip.trim();
   params.state = 'Texas';
 
-  const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
-
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'CampaignTextBlockWalker/1.0' }
-    });
-    const data = await res.json();
-    if (data && data.length > 0) {
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    const url1 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
+    const res1 = await fetch(url1, { headers });
+    const data1 = await res1.json();
+    if (data1 && data1.length > 0) {
+      return { lat: parseFloat(data1[0].lat), lng: parseFloat(data1[0].lon) };
     }
-  } catch (e) {
-    // Geocoding failure is non-fatal — address just won't appear on the map
+  } catch (e) { /* fall through to next strategy */ }
+
+  // Strategy 2: Free-text query (catches addresses Nominatim can't parse structurally)
+  await new Promise(r => setTimeout(r, 1100)); // respect rate limit
+  try {
+    var q = address.trim();
+    if (city) q += ', ' + city.trim();
+    if (zip) q += ' ' + zip.trim();
+    q += ', Texas, USA';
+    const url2 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+      q: q,
+      format: 'json',
+      limit: '1',
+      countrycodes: 'us',
+      addressdetails: '1'
+    });
+    const res2 = await fetch(url2, { headers });
+    const data2 = await res2.json();
+    if (data2 && data2.length > 0) {
+      return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
+    }
+  } catch (e) { /* fall through */ }
+
+  // Strategy 3: Try without unit/apt numbers (e.g. "123 Main St Apt 4" → "123 Main St")
+  const stripped = address.trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
+  if (stripped !== address.trim()) {
+    await new Promise(r => setTimeout(r, 1100));
+    try {
+      const params3 = { street: stripped, format: 'json', limit: '1', countrycodes: 'us', state: 'Texas' };
+      if (city) params3.city = city.trim();
+      if (zip) params3.postalcode = zip.trim();
+      const url3 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params3);
+      const res3 = await fetch(url3, { headers });
+      const data3 = await res3.json();
+      if (data3 && data3.length > 0) {
+        return { lat: parseFloat(data3[0].lat), lng: parseFloat(data3[0].lon) };
+      }
+    } catch (e) { /* geocoding failure is non-fatal */ }
   }
+
   return null;
 }
 
