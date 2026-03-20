@@ -715,9 +715,6 @@
       }
     }
 
-    // Keep old joinSession for backward compatibility (session code flow)
-    async function joinSession() { joinWithCode(); }
-
     async function loadQueue() {
       if (!volState.volunteerId) return;
       // Don't overwrite UI while viewing a conversation

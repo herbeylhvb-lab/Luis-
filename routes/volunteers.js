@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { randomBytes } = require('crypto');
 const db = require('../db');
-const { asyncHandler, generateAlphaCode } = require('../utils');
+const { generateAlphaCode } = require('../utils');
 const { geocodeWalkAddresses } = require('./walks');
 
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
