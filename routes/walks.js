@@ -285,17 +285,37 @@ router.get('/walks/:id/volunteer', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
-  // Build household members for each address (other voters at same address+city)
-  const householdStmt = db.prepare(
-    `SELECT first_name, last_name, age FROM voters
-     WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name`
-  );
-  for (const addr of walk.addresses) {
-    if (addr.voter_id && addr.address) {
-      addr.household = householdStmt.all(addr.address, addr.city || '', addr.voter_id);
-    } else {
-      addr.household = [];
+  // Build household members for all addresses in batched queries (avoids N+1 problem)
+  const addrWithVoters = walk.addresses.filter(a => a.voter_id && a.address);
+  const householdMap = {};
+  if (addrWithVoters.length > 0) {
+    const excludeIds = new Set(addrWithVoters.map(a => a.voter_id));
+    const addrKeys = new Set(addrWithVoters.map(a => `${a.address}\0${a.city || ''}`));
+    const uniqueAddrs = [...addrKeys].map(k => { const [address, city] = k.split('\0'); return { address, city }; });
+
+    // Process in chunks of 400 to stay under SQLite's 999 parameter limit (2 params each)
+    const CHUNK = 400;
+    for (let i = 0; i < uniqueAddrs.length; i += CHUNK) {
+      const chunk = uniqueAddrs.slice(i, i + CHUNK);
+      const params = [];
+      chunk.forEach(a => { params.push(a.address, a.city); });
+      const rows = db.prepare(
+        `SELECT id, first_name, last_name, age, address, city FROM voters
+         WHERE (${chunk.map(() => '(address = ? AND city = ?)').join(' OR ')})
+         ORDER BY last_name, first_name`
+      ).all(...params);
+
+      for (const v of rows) {
+        if (excludeIds.has(v.id)) continue;
+        const key = `${v.address}\0${v.city || ''}`;
+        if (!householdMap[key]) householdMap[key] = [];
+        householdMap[key].push({ first_name: v.first_name, last_name: v.last_name, age: v.age });
+      }
     }
+  }
+  for (const addr of walk.addresses) {
+    const key = `${addr.address}\0${addr.city || ''}`;
+    addr.household = householdMap[key] || [];
   }
 
   // Add attempt counts per address
