@@ -72,6 +72,50 @@ router.delete('/volunteers/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Volunteer self-registration (public — for block walkers to sign up without admin)
+router.post('/volunteers/register', (req, res) => {
+  const { name, phone } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
+
+  const trimmedName = name.trim();
+
+  // Check if a volunteer with this name already exists
+  const existing = db.prepare('SELECT code FROM volunteers WHERE LOWER(name) = LOWER(?)').get(trimmedName);
+  if (existing) {
+    return res.status(409).json({ error: 'A volunteer with that name already exists. Try signing in with your code, or use a different name.' });
+  }
+
+  // Ensure at least one candidate exists (auto-create a default if not)
+  let candidate = db.prepare('SELECT id FROM candidates WHERE is_active = 1 LIMIT 1').get();
+  if (!candidate) {
+    const candCode = randomBytes(3).toString('hex').toUpperCase().slice(0, 6);
+    const result = db.prepare('INSERT INTO candidates (name, office, code) VALUES (?, ?, ?)').run('My Campaign', '', candCode);
+    candidate = { id: result.lastInsertRowid };
+  }
+
+  // Generate unique volunteer code
+  let code;
+  for (let i = 0; i < 10; i++) {
+    code = generateVolCode();
+    if (!db.prepare('SELECT id FROM volunteers WHERE code = ?').get(code)) break;
+    if (i === 9) return res.status(500).json({ error: 'Could not generate unique code. Try again.' });
+  }
+
+  // Create the volunteer (walk-only by default for self-registration)
+  const result = db.prepare('INSERT INTO volunteers (name, phone, code, can_text, can_walk) VALUES (?, ?, ?, 0, 1)').run(
+    trimmedName, phone || null, code
+  );
+
+  // Also create the walkers record so they can be assigned to walks
+  const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(
+    candidate.id, trimmedName, phone || '', code
+  );
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker self-registered: ' + trimmedName + ' (code: ' + code + ')');
+
+  res.json({ success: true, code, name: trimmedName, volunteerId: result.lastInsertRowid, walkerId: wResult.lastInsertRowid });
+});
+
 // Volunteer login (public — code-based)
 router.post('/volunteers/login', (req, res) => {
   const { code } = req.body;
@@ -106,11 +150,9 @@ router.post('/volunteers/login', (req, res) => {
     walkerId = walker ? walker.id : null;
 
     if (walkerId) {
-      // Auto-assign to walks for the walker's candidate only (not all walks system-wide)
-      const walkerRecord = db.prepare('SELECT candidate_id FROM walkers WHERE id = ?').get(walkerId);
-      const candFilter = walkerRecord && walkerRecord.candidate_id ? ' AND bw.candidate_id = ' + walkerRecord.candidate_id : '';
+      // Auto-assign to all non-completed walks the walker isn't already in
       const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
-        WHERE bw.status != 'completed'${candFilter}
+        WHERE bw.status != 'completed'
         AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`).all(walkerId);
       if (unassigned.length > 0) {
         const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');

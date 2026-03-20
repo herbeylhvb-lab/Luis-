@@ -168,14 +168,40 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="load-card">
     <div style="font-size:2.5rem;margin-bottom:0.5rem">&#x1F6B6;</div>
     <h2>Block Walk</h2>
-    <p>Enter your walker code to sign in.</p>
-    <div class="form-group">
-      <label>Walker Code</label>
-      <input type="text" id="walkerCodeInput" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
+
+    <!-- Sign In Form -->
+    <div id="loginForm">
+      <p>Enter your walker code to sign in.</p>
+      <div class="form-group">
+        <label>Walker Code</label>
+        <input type="text" id="walkerCodeInput" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
+      </div>
+      <button class="btn btn-walk" id="btnWalkerLogin" onclick="walkerLogin()">Sign In</button>
+      <div class="error-msg" id="loadError"></div>
+      <p style="color:#64748b;font-size:12px;margin-top:12px">Don't have a code? <a href="#" onclick="showRegister();return false" style="color:#f59e0b;text-decoration:underline">Sign up here</a></p>
     </div>
-    <button class="btn btn-walk" id="btnWalkerLogin" onclick="walkerLogin()">Sign In</button>
-    <div class="error-msg" id="loadError"></div>
-    <p style="color:#64748b;font-size:12px;margin-top:12px">Don't have a code? Ask your campaign admin.</p>
+
+    <!-- Registration Form -->
+    <div id="registerForm" style="display:none">
+      <p>Sign up as a new block walker.</p>
+      <div class="form-group">
+        <label>Your Name</label>
+        <input type="text" id="regName" placeholder="First Last" maxlength="100">
+      </div>
+      <div class="form-group">
+        <label>Phone (optional)</label>
+        <input type="tel" id="regPhone" placeholder="555-123-4567" maxlength="20">
+      </div>
+      <button class="btn btn-walk" id="btnRegister" onclick="registerWalker()">Sign Up</button>
+      <div class="error-msg" id="regError"></div>
+      <div id="regSuccess" style="display:none;background:#052e16;border:1px solid #16a34a;border-radius:8px;padding:12px;margin-top:12px;text-align:center">
+        <div style="color:#86efac;font-size:14px;margin-bottom:4px">You're registered!</div>
+        <div style="color:#e2e8f0;font-size:20px;letter-spacing:4px;font-weight:bold" id="regCode"></div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:4px">Save this code to sign in next time</div>
+      </div>
+      <p style="color:#64748b;font-size:12px;margin-top:12px">Already have a code? <a href="#" onclick="showLogin();return false" style="color:#f59e0b;text-decoration:underline">Sign in here</a></p>
+    </div>
+
     <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
   </div>
 </div>
@@ -447,6 +473,59 @@ function stopRecording() {
     setTimeout(function() { status.textContent = ''; }, 3000);
   } else {
     status.textContent = '';
+  }
+}
+
+// ===================== WALKER REGISTRATION =====================
+
+function showRegister() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = '';
+  document.getElementById('regError').textContent = '';
+  document.getElementById('regSuccess').style.display = 'none';
+}
+
+function showLogin() {
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = '';
+  document.getElementById('loadError').textContent = '';
+}
+
+async function registerWalker() {
+  var name = document.getElementById('regName').value.trim();
+  var phone = document.getElementById('regPhone').value.trim();
+  var errEl = document.getElementById('regError');
+  errEl.textContent = '';
+  if (!name) { errEl.textContent = 'Please enter your name.'; return; }
+
+  var btn = document.getElementById('btnRegister');
+  btn.disabled = true;
+  btn.textContent = 'Signing up...';
+
+  try {
+    var resp = await fetch('/api/volunteers/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, phone: phone || undefined })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Registration failed');
+
+    // Show the code to the user
+    document.getElementById('regCode').textContent = data.code;
+    document.getElementById('regSuccess').style.display = '';
+    btn.textContent = 'Signed Up!';
+
+    // Auto-login after a short delay so they can see their code
+    setTimeout(function() {
+      document.getElementById('walkerCodeInput').value = data.code;
+      showLogin();
+      walkerLogin();
+    }, 2500);
+  } catch (e) {
+    errEl.textContent = e.message || 'Registration failed. Please try again.';
+    btn.disabled = false;
+    btn.textContent = 'Sign Up';
   }
 }
 
