@@ -6563,7 +6563,7 @@ document.getElementById('btnCreateP2pSession').addEventListener('click', async (
 
   const d = await apiPost('/api/p2p/sessions', body);
   if (d.error) return alert(d.error);
-  var volLink = window.location.origin + '/volunteer?code=' + d.joinCode;
+  var volLink = window.location.origin + '/volunteer';
   var msg = 'Session created! ' + d.contactCount.toLocaleString() + ' contacts loaded.';
   if (d.skippedNoPhone > 0 || d.skippedContacted > 0) {
     msg += '\n\nFrom ' + d.listTotal.toLocaleString() + ' voters on list:';
@@ -6624,7 +6624,7 @@ async function openP2pSession(id) {
     // Show shareable volunteer link
     var volLinkEl = document.getElementById('p2pVolunteerLink');
     if (volLinkEl) {
-      var link = window.location.origin + '/volunteer?code=' + s.join_code;
+      var link = window.location.origin + '/volunteer';
       volLinkEl.textContent = link;
       volLinkEl.href = link;
     }
@@ -6736,8 +6736,14 @@ async function loadUnifiedVols() {
       // Code
       var td2 = document.createElement('td');
       var codeEl = document.createElement('code');
-      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;font-size:14px';
+      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;font-size:14px;cursor:pointer';
+      codeEl.title = 'Click to copy';
       codeEl.textContent = v.code;
+      codeEl.addEventListener('click', function() {
+        navigator.clipboard.writeText(v.code);
+        codeEl.textContent = 'Copied!';
+        setTimeout(function() { codeEl.textContent = v.code; }, 1500);
+      });
       td2.appendChild(codeEl);
       tr.appendChild(td2);
       // Phone
@@ -6773,7 +6779,7 @@ async function loadUnifiedVols() {
       shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:3px 8px;font-size:11px;min-width:auto';
       shareBtn.textContent = 'Share';
       shareBtn.addEventListener('click', (function(vol) { return function() {
-        var link = window.location.origin + '/volunteer?code=' + vol.code;
+        var link = window.location.origin + '/volunteer';
         var msg = 'Hi ' + vol.name + '! Your volunteer code is: ' + vol.code + '\n\nSign in here: ' + link;
         if (navigator.share) { navigator.share({ title: 'Volunteer Code', text: msg }).catch(function(){}); }
         else { window.open('sms:' + (vol.phone || '') + '?&body=' + encodeURIComponent(msg), '_blank'); }
@@ -6808,7 +6814,7 @@ async function createTextingVolunteer2() {
   if (!name) return alert('Name is required.');
   try {
     var data = await apiPost('/api/texting-volunteers', { name: name, phone: phone || null });
-    alert('Volunteer created! Code: ' + data.code + '\nPortal: ' + window.location.origin + '/texter?code=' + data.code);
+    alert('Volunteer created! Code: ' + data.code + '\nPortal: ' + window.location.origin + '/volunteer');
     document.getElementById('newVolName2').value = '';
     document.getElementById('newVolPhone2').value = '';
     document.getElementById('addVolForm2').style.display = 'none';
@@ -6851,8 +6857,14 @@ async function loadTextingVolunteers2() {
       tr.appendChild(tdName);
       var tdCode = document.createElement('td');
       var codeEl = document.createElement('code');
-      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;font-size:14px';
+      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;font-size:14px;cursor:pointer';
+      codeEl.title = 'Click to copy';
       codeEl.textContent = v.code;
+      codeEl.addEventListener('click', function() {
+        navigator.clipboard.writeText(v.code);
+        codeEl.textContent = 'Copied!';
+        setTimeout(function() { codeEl.textContent = v.code; }, 1500);
+      });
       tdCode.appendChild(codeEl);
       tr.appendChild(tdCode);
       var tdPhone = document.createElement('td');
@@ -6883,7 +6895,7 @@ async function loadTextingVolunteers2() {
       copyBtn.style.cssText = 'background:#818cf8;color:#fff;padding:4px 10px;font-size:11px;min-width:auto;margin-left:4px';
       copyBtn.textContent = 'Copy Link';
       copyBtn.addEventListener('click', function() {
-        navigator.clipboard.writeText(window.location.origin + '/texter?code=' + v.code);
+        navigator.clipboard.writeText(window.location.origin + '/volunteer');
         copyBtn.textContent = 'Copied!';
         setTimeout(function() { copyBtn.textContent = 'Copy Link'; }, 2000);
       });
@@ -6915,7 +6927,7 @@ async function createTextingVolunteer() {
   if (!name) return alert('Name is required.');
   try {
     var data = await apiPost('/api/p2p/texting-volunteers', { name: name, phone: phone || null });
-    alert('Volunteer created! Code: ' + data.code + '\nShare portal link: ' + window.location.origin + '/texter?code=' + data.code);
+    alert('Volunteer created! Code: ' + data.code + '\nShare portal link: ' + window.location.origin + '/volunteer');
     document.getElementById('newVolName').value = '';
     document.getElementById('newVolPhone').value = '';
     document.getElementById('addVolForm').style.display = 'none';
@@ -6958,8 +6970,14 @@ async function loadTextingVolunteers() {
       tr.appendChild(tdName);
       var tdCode = document.createElement('td');
       var codeEl = document.createElement('code');
-      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px';
+      codeEl.style.cssText = 'color:#818cf8;font-weight:700;letter-spacing:2px;cursor:pointer';
+      codeEl.title = 'Click to copy';
       codeEl.textContent = v.code;
+      codeEl.addEventListener('click', function() {
+        navigator.clipboard.writeText(v.code);
+        codeEl.textContent = 'Copied!';
+        setTimeout(function() { codeEl.textContent = v.code; }, 1500);
+      });
       tdCode.appendChild(codeEl);
       tr.appendChild(tdCode);
       var tdSessions = document.createElement('td');
@@ -6999,7 +7017,7 @@ async function loadTextingVolunteers() {
 }
 
 function shareVolunteerInfo(vol) {
-  var portalLink = window.location.origin + '/volunteer?code=' + vol.code;
+  var portalLink = window.location.origin + '/volunteer';
   var msg = 'Hi ' + vol.name + '! Your texting volunteer code is: ' + vol.code + '\n\nSign in here: ' + portalLink;
   if (navigator.share) {
     navigator.share({ title: 'Volunteer Code for ' + vol.name, text: msg }).catch(function(){});
@@ -7012,7 +7030,7 @@ function shareVolunteerInfo(vol) {
 async function sendVolunteerInfoViaCampaign(vol) {
   if (!state.credentials.connected) { alert('Set up messaging credentials first in Messaging Setup.'); return; }
   if (!vol.phone) { alert('No phone number on file for this volunteer. Add one first.'); return; }
-  var portalLink = window.location.origin + '/volunteer?code=' + vol.code;
+  var portalLink = window.location.origin + '/volunteer';
   var msg = 'Hi ' + vol.name + '! Your texting volunteer code is: ' + vol.code + '\n\nSign in here: ' + portalLink;
   if (!confirm('Send via campaign SMS to ' + vol.phone + '?\n\n' + msg)) return;
   try {

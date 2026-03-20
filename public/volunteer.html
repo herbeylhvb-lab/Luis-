@@ -585,13 +585,10 @@
       survey:   { label: 'Poll',     icon: '\uD83D\uDCCA', badgeClass: 'badge-purple', bannerClass: 'type-survey', bannerText: 'Poll / Survey' }
     };
 
-    // Pre-fill code from URL param (auto-go to P2P if code is provided)
+    // Pre-fill code from URL param but stay on role dashboard (let volunteer choose)
     var urlCode = new URLSearchParams(window.location.search).get('code');
     if (urlCode) {
       document.getElementById('volCode').value = urlCode;
-      selectRole('p2p');
-      // Auto-login if code is provided in URL
-      setTimeout(function() { joinWithCode(); }, 100);
     }
 
     function selectRole(role) {
