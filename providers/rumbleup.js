@@ -64,7 +64,8 @@ function hasCredentials() {
 
 // --- HTTP helpers ---
 
-function authHeader(key, secret) {
+function authHeader(key, secret, style) {
+  if (style === 'bearer') return 'Bearer ' + key + ':' + secret;
   const encoded = Buffer.from(key + ':' + secret).toString('base64');
   return 'Basic ' + encoded;
 }
@@ -81,7 +82,7 @@ async function apiRequest(path, body, creds, options = {}) {
 
   const fetchOpts = {
     method,
-    headers: { 'Authorization': authHeader(key, secret) },
+    headers: { 'Authorization': authHeader(key, secret, options.authStyle) },
     signal: controller.signal
   };
 
@@ -291,16 +292,21 @@ async function sendSms(to, body, mediaUrl) {
       const mmsPayload = { phone, proxy, text: body, file: mediaUrl };
       // Include campaignId if available (may be required for TCR compliance)
       if (creds.campaignId) mmsPayload.campaignId = creds.campaignId;
-      console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' proxy=' + proxy + ' file=' + mediaUrl + ' campaignId=' + (creds.campaignId || 'none'));
-      try {
-        const result = await apiPost('/proxy/send', mmsPayload);
-        console.log('[rumbleup] MMS success:', JSON.stringify(result).substring(0, 300));
-        return result;
-      } catch (proxyErr) {
-        console.error('[rumbleup] MMS /proxy/send FAILED:', proxyErr.message, proxyErr.stack);
-        // Always throw — don't silently fall back. Let the user see the error.
-        throw new Error('MMS send failed: ' + proxyErr.message + '. Check RumbleUp proxy/send access.');
+      console.log('[rumbleup] Sending MMS via /proxy/send to ' + phone + ' proxy=' + proxy + ' file=' + mediaUrl);
+      // Try Bearer auth first (per RumbleUp support), then Basic
+      for (const authStyle of ['bearer', undefined]) {
+        try {
+          console.log('[rumbleup] Trying /proxy/send with auth=' + (authStyle || 'basic'));
+          const result = await apiPost('/proxy/send', mmsPayload, null, { authStyle });
+          console.log('[rumbleup] MMS success with auth=' + (authStyle || 'basic') + ':', JSON.stringify(result).substring(0, 300));
+          return result;
+        } catch (err) {
+          console.error('[rumbleup] /proxy/send FAILED with auth=' + (authStyle || 'basic') + ':', err.message);
+          if (authStyle === 'bearer' && err.message.includes('403')) continue; // try Basic next
+          if (!err.message.includes('403')) throw new Error('MMS send failed: ' + err.message);
+        }
       }
+      throw new Error('MMS send failed: 403 access denied with both Bearer and Basic auth. Contact RumbleUp support.');
     } else {
       console.warn('[rumbleup] No proxy phone number configured — cannot send MMS, using SMS with link');
       payload.text = body + '\n\nView your event flyer: ' + mediaUrl;
