@@ -268,54 +268,13 @@ async function getGroup(groupId) {
 
 // --- Messaging ---
 
-/**
- * Attempt a raw API request that does NOT throw on HTTP errors.
- * Returns { ok, status, body } so callers can inspect failures.
- */
-async function rawApiRequest(path, fetchOpts, timeoutMs = 15000) {
-  const creds = getCredentials();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  fetchOpts.signal = controller.signal;
-  try {
-    const resp = await fetch(BASE_URL + path, fetchOpts);
-    const text = await resp.text().catch(() => '');
-    clearTimeout(timeout);
-    let json = null;
-    try { json = JSON.parse(text); } catch {}
-    return { ok: resp.ok, status: resp.status, body: text, json };
-  } catch (err) {
-    clearTimeout(timeout);
-    return { ok: false, status: 0, body: err.message, json: null };
-  }
-}
-
-/**
- * Download a remote file into a Buffer for binary multipart upload.
- */
-async function downloadFileBuffer(url) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  try {
-    const resp = await fetch(url, { signal: controller.signal });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const arrayBuf = await resp.arrayBuffer();
-    const contentType = resp.headers.get('content-type') || 'image/jpeg';
-    clearTimeout(timeout);
-    return { buffer: Buffer.from(arrayBuf), contentType };
-  } catch (err) {
-    clearTimeout(timeout);
-    throw new Error('Failed to download media file: ' + err.message);
-  }
-}
-
 async function sendSms(to, body, mediaUrl) {
   const creds = getCredentials();
   if (!creds.apiKey || !creds.apiSecret) {
     throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
   }
-  if (!creds.actionId && !mediaUrl) {
-    throw new Error('RumbleUp credentials not configured. Set them in Messaging Setup.');
+  if (!creds.actionId) {
+    throw new Error('RumbleUp Action/Project ID not configured. Set it in Messaging Setup.');
   }
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
@@ -326,30 +285,10 @@ async function sendSms(to, body, mediaUrl) {
     text: body
   };
 
-  // --- MMS: try /proxy/send once, then fast fallback to SMS+link ---
+  // MMS: use the file parameter on /message/send (supported per API docs)
   if (mediaUrl) {
-    if (creds.phoneNumber) {
-      const proxy = creds.phoneNumber.replace(/\D/g, '');
-      const mmsPayload = { phone, proxy, text: body, file: mediaUrl };
-      if (creds.campaignId) mmsPayload.campaignId = creds.campaignId;
-      console.log('[rumbleup] Trying MMS /proxy/send to=' + phone + ' proxy=' + proxy);
-      try {
-        const result = await rawApiRequest('/proxy/send', {
-          method: 'POST',
-          headers: { 'Authorization': 'Basic ' + Buffer.from(creds.apiKey + ':' + creds.apiSecret).toString('base64'), 'Content-Type': 'application/json' },
-          body: JSON.stringify(mmsPayload)
-        });
-        if (result.ok) {
-          console.log('[rumbleup] MMS SUCCESS via /proxy/send');
-          return result.json || result.body;
-        }
-        console.log('[rumbleup] MMS /proxy/send returned ' + result.status + ' — sending SMS with flyer link');
-      } catch (e) {
-        console.log('[rumbleup] MMS /proxy/send error: ' + e.message + ' — sending SMS with flyer link');
-      }
-    }
-    // Fallback: SMS with prominent flyer link
-    payload.text = body + '\n\n📋 View your personalized event flyer:\n' + mediaUrl;
+    payload.file = mediaUrl;
+    console.log('[rumbleup] Sending MMS via /message/send file=' + mediaUrl);
   }
 
   return apiPost('/message/send', payload);
@@ -360,6 +299,7 @@ async function sendToProject(phone, actionId, text, options = {}) {
   if (options.name) body.name = options.name;
   if (options.group) body.group = options.group;
   if (options.flags) body.flags = options.flags;
+  if (options.file || options.mediaUrl) body.file = options.file || options.mediaUrl;
   return apiPost('/message/send', body);
 }
 
