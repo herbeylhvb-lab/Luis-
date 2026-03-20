@@ -508,26 +508,33 @@ router.get('/walks/:id/group', (req, res) => {
   res.json({ walk, members });
 });
 
-// Get addresses assigned to a specific walker
+// Get all addresses in a walk for a specific walker (shows everything, marks assigned)
 router.get('/walks/:id/walker/:name', (req, res) => {
   const walk = db.prepare('SELECT id, name, description, status FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
-  const myAddresses = db.prepare(
+  // Return ALL addresses so walkers can knock any door, not just their assigned split
+  const allAddresses = db.prepare(
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.assigned_walker, wa.lat, wa.lng, wa.voter_id,
             v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
-     WHERE wa.walk_id = ? AND wa.assigned_walker = ? ORDER BY wa.sort_order, wa.id`
-  ).all(req.params.id, req.params.name);
+     WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
+  ).all(req.params.id);
+
+  // Mark which addresses are assigned to THIS walker
+  const walkerName = req.params.name;
+  for (const addr of allAddresses) {
+    addr.assigned_to_me = addr.assigned_walker === walkerName;
+  }
 
   // Build household members for each address (other voters at same address+city)
   const householdStmt = db.prepare(
     `SELECT first_name, last_name, age FROM voters
      WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name`
   );
-  for (const addr of myAddresses) {
+  for (const addr of allAddresses) {
     if (addr.voter_id && addr.address) {
       addr.household = householdStmt.all(addr.address, addr.city || '', addr.voter_id);
     } else {
@@ -541,16 +548,12 @@ router.get('/walks/:id/walker/:name', (req, res) => {
   ).all(req.params.id);
   const countMap = {};
   for (const a of attemptCounts) countMap[a.address_id] = a.c;
-  for (const addr of myAddresses) addr.attempt_count = countMap[addr.id] || 0;
-
-  const allAddresses = db.prepare(
-    'SELECT id, result, assigned_walker FROM walk_addresses WHERE walk_id = ?'
-  ).all(req.params.id);
+  for (const addr of allAddresses) addr.attempt_count = countMap[addr.id] || 0;
 
   const total = allAddresses.length;
   const knocked = allAddresses.filter(a => a.result !== 'not_visited').length;
 
-  res.json({ walk, addresses: myAddresses, progress: { total, knocked, remaining: total - knocked } });
+  res.json({ walk, addresses: allAddresses, progress: { total, knocked, remaining: total - knocked } });
 });
 
 // Re-split addresses when group members change (only reassign unvisited ones)
@@ -749,14 +752,14 @@ router.post('/walks/from-voters', (req, res) => {
 
 // ===================== PER-WALKER LIVE ROUTE =====================
 
-// Get optimized route for a specific walker (only their unvisited addresses)
+// Get optimized route for a specific walker (all unvisited addresses in the walk)
 // Supports starting from current GPS position via query params
 router.get('/walks/:id/walker/:name/route', (req, res) => {
   const { lat, lng } = req.query;
 
   const addresses = db.prepare(
-    "SELECT id, address, city, zip, lat, lng FROM walk_addresses WHERE walk_id = ? AND assigned_walker = ? AND result = 'not_visited' ORDER BY sort_order, id"
-  ).all(req.params.id, req.params.name);
+    "SELECT id, address, city, zip, lat, lng, assigned_walker FROM walk_addresses WHERE walk_id = ? AND result = 'not_visited' ORDER BY sort_order, id"
+  ).all(req.params.id);
 
   if (addresses.length === 0) return res.json({ route: [], mapsUrl: '', remaining: 0 });
 

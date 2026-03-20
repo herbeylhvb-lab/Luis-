@@ -395,7 +395,9 @@ var walkState = {
   surveyResponses: {},
   // Distributed canvassing
   distGpsLat: null,
-  distGpsLng: null
+  distGpsLng: null,
+  // Group refresh polling
+  groupRefreshInterval: null
 };
 
 // ===================== VOICE RECORDING & TRANSCRIPTION =====================
@@ -800,6 +802,7 @@ async function joinWalk() {
     document.getElementById('walkScreen').style.display = '';
     startGps();
     loadWalkScript();
+    startGroupRefresh();
   } catch(e) {
     errEl.textContent = 'Failed to join: ' + e.message;
   } finally {
@@ -1219,6 +1222,55 @@ function stopGps() {
   }
 }
 
+// ===================== GROUP REFRESH (live updates from other walkers) =====================
+
+// Poll for updated address statuses so walkers see doors claimed by others
+function startGroupRefresh() {
+  stopGroupRefresh();
+  if (!walkState.isGroupMode) return;
+  walkState.groupRefreshInterval = setInterval(refreshWalkData, 30000);
+}
+
+function stopGroupRefresh() {
+  if (walkState.groupRefreshInterval) {
+    clearInterval(walkState.groupRefreshInterval);
+    walkState.groupRefreshInterval = null;
+  }
+}
+
+// Lightweight refresh: fetch current address statuses and update local state
+async function refreshWalkData() {
+  if (!walkState.walkId || !walkState.walk) return;
+  // Don't refresh while the door panel is open (would be jarring)
+  if (document.getElementById('doorOverlay').classList.contains('open')) return;
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/map-data');
+    var data = await res.json();
+    if (!res.ok) return;
+    // Update results for addresses that changed (knocked by other walkers)
+    var changed = false;
+    var statusMap = {};
+    for (var i = 0; i < data.addresses.length; i++) {
+      statusMap[data.addresses[i].id] = data.addresses[i].result;
+    }
+    for (var j = 0; j < walkState.walk.addresses.length; j++) {
+      var addr = walkState.walk.addresses[j];
+      var newResult = statusMap[addr.id];
+      if (newResult && newResult !== addr.result) {
+        addr.result = newResult;
+        changed = true;
+      }
+    }
+    if (changed) {
+      // Update progress
+      var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
+      walkState.walk.progress.knocked = knocked;
+      walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+      renderWalk();
+    }
+  } catch(e) { /* silent — network may be spotty in the field */ }
+}
+
 // ===================== LOAD WALK =====================
 
 async function loadWalk() {
@@ -1272,6 +1324,7 @@ async function loadWalk() {
     document.getElementById('walkScreen').style.display = '';
     startGps();
     loadWalkScript();
+    startGroupRefresh();
   } catch(e) {
     alert('Failed to load walk: ' + e.message);
     document.getElementById('walkSelectScreen').style.display = '';
@@ -1280,6 +1333,7 @@ async function loadWalk() {
 
 function exitWalk() {
   stopGps();
+  stopGroupRefresh();
   // Clean up map
   if (mapState.refreshInterval) { clearInterval(mapState.refreshInterval); mapState.refreshInterval = null; }
   if (mapState.map) { mapState.map.remove(); mapState.map = null; mapState.initialized = false; }
@@ -1351,10 +1405,18 @@ function renderAddressList() {
   el.textContent = '';
   var addrs = walkState.walk.addresses;
 
-  // Find first un-visited address as "current"
+  // Find first un-visited address as "current" — prefer walker's assigned addresses first
   var currentIdx = -1;
-  for (var i = 0; i < addrs.length; i++) {
-    if (addrs[i].result === 'not_visited') { currentIdx = i; break; }
+  if (walkState.isGroupMode && walkState.walkerName) {
+    for (var i = 0; i < addrs.length; i++) {
+      if (addrs[i].result === 'not_visited' && addrs[i].assigned_walker === walkState.walkerName) { currentIdx = i; break; }
+    }
+  }
+  // Fall back to first unvisited if none assigned to this walker
+  if (currentIdx === -1) {
+    for (var i = 0; i < addrs.length; i++) {
+      if (addrs[i].result === 'not_visited') { currentIdx = i; break; }
+    }
   }
   walkState.currentAddrIdx = currentIdx >= 0 ? currentIdx : addrs.length;
 
@@ -1363,6 +1425,9 @@ function renderAddressList() {
     card.className = 'addr-card';
     if (a.result !== 'not_visited') card.className += ' done';
     if (idx === currentIdx) card.className += ' current';
+
+    // In group mode, visually distinguish addresses assigned to other walkers
+    var isMyAddr = !walkState.isGroupMode || !a.assigned_walker || a.assigned_walker === walkState.walkerName;
 
     // Number badge
     var num = document.createElement('div');
@@ -1397,11 +1462,16 @@ function renderAddressList() {
       card.appendChild(hh);
     }
 
-    // Assigned walker (group mode)
+    // Assigned walker (group mode) — show whose door it is
     if (a.assigned_walker && walkState.isGroupMode) {
       var walkerLabel = document.createElement('div');
       walkerLabel.className = 'addr-walker';
-      walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
+      if (a.assigned_walker === walkState.walkerName) {
+        walkerLabel.textContent = '\u2B50 Your door';
+        walkerLabel.style.color = '#f59e0b';
+      } else {
+        walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
+      }
       card.appendChild(walkerLabel);
     }
 
