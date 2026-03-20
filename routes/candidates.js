@@ -356,17 +356,29 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
   const captains = ownCapsPortal.concat(sharedCapsPortal);
 
   for (const c of captains) {
-    c.lists = db.prepare(`
-      SELECT cl.*, COUNT(clv.id) as voter_count
+    // Captain-created lists + admin-assigned lists
+    const captainLists = db.prepare(`
+      SELECT cl.id, cl.name, cl.description, 'captain' as source, COUNT(clv.id) as voter_count
       FROM captain_lists cl
       LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
       WHERE cl.captain_id = ?
       GROUP BY cl.id ORDER BY cl.created_at DESC
     `).all(c.id);
+    const assignedLists = db.prepare(`
+      SELECT al.id, al.name, al.description, 'assigned' as source, COUNT(alv.id) as voter_count
+      FROM admin_lists al
+      LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+      WHERE al.assigned_captain_id = ?
+      GROUP BY al.id ORDER BY al.created_at DESC
+    `).all(c.id);
+    c.lists = captainLists.concat(assignedLists);
     c.total_voters = (db.prepare(`
-      SELECT COUNT(DISTINCT voter_id) as n FROM captain_list_voters
-      WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
-    `).get(c.id) || { n: 0 }).n;
+      SELECT COUNT(DISTINCT voter_id) as n FROM (
+        SELECT voter_id FROM captain_list_voters WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?)
+        UNION
+        SELECT voter_id FROM admin_list_voters WHERE list_id IN (SELECT id FROM admin_lists WHERE assigned_captain_id = ?)
+      )
+    `).get(c.id, c.id) || { n: 0 }).n;
     c.voted_count = (db.prepare(`
       SELECT COUNT(DISTINCT clv.voter_id) as n FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
