@@ -326,260 +326,30 @@ async function sendSms(to, body, mediaUrl) {
     text: body
   };
 
-  // --- MMS: exhaustively try every known approach ---
+  // --- MMS: try /proxy/send once, then fast fallback to SMS+link ---
   if (mediaUrl) {
-    if (!creds.phoneNumber) {
-      console.warn('[rumbleup] No proxy phone number configured — skipping MMS attempts, falling back to SMS+link');
-      payload.text = body + '\n\nView your event flyer: ' + mediaUrl;
-      return apiPost('/message/send', payload);
-    }
-
-    const proxy = creds.phoneNumber.replace(/\D/g, '');
-    const basicAuth = 'Basic ' + Buffer.from(creds.apiKey + ':' + creds.apiSecret).toString('base64');
-    const bearerAuth = 'Bearer ' + creds.apiKey + ':' + creds.apiSecret;
-
-    console.log('[rumbleup] ========= MMS SEND — EXHAUSTIVE ATTEMPTS =========');
-    console.log('[rumbleup] to=' + phone + ' proxy=' + proxy + ' file=' + mediaUrl);
-
-    // ---------------------------------------------------------------
-    // Attempt 1: POST /proxy/send — Basic auth — JSON body
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 1: POST /proxy/send, Basic auth, JSON body';
-      console.log('[rumbleup] ' + label);
-      const jsonBody = { phone, proxy, text: body, file: mediaUrl };
-      if (creds.campaignId) jsonBody.campaignId = creds.campaignId;
-      const res = await rawApiRequest('/proxy/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(jsonBody)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 2: POST /proxy/send — Bearer auth — JSON body
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 2: POST /proxy/send, Bearer auth, JSON body';
-      console.log('[rumbleup] ' + label);
-      const jsonBody = { phone, proxy, text: body, file: mediaUrl };
-      if (creds.campaignId) jsonBody.campaignId = creds.campaignId;
-      const res = await rawApiRequest('/proxy/send', {
-        method: 'POST',
-        headers: { 'Authorization': bearerAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(jsonBody)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 3: POST /proxy/send — Basic auth — multipart/form-data (URL in field)
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 3: POST /proxy/send, Basic auth, multipart/form-data (file URL)';
-      console.log('[rumbleup] ' + label);
-      const form = new FormData();
-      form.append('phone', phone);
-      form.append('proxy', proxy);
-      form.append('text', body);
-      form.append('file', mediaUrl);
-      if (creds.campaignId) form.append('campaignId', creds.campaignId);
-      const res = await rawApiRequest('/proxy/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth },
-        body: form
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 4: POST /proxy/send — Bearer auth — multipart/form-data (URL in field)
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 4: POST /proxy/send, Bearer auth, multipart/form-data (file URL)';
-      console.log('[rumbleup] ' + label);
-      const form = new FormData();
-      form.append('phone', phone);
-      form.append('proxy', proxy);
-      form.append('text', body);
-      form.append('file', mediaUrl);
-      if (creds.campaignId) form.append('campaignId', creds.campaignId);
-      const res = await rawApiRequest('/proxy/send', {
-        method: 'POST',
-        headers: { 'Authorization': bearerAuth },
-        body: form
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 5: POST /proxy/send — Basic + Bearer — multipart with actual binary file download
-    // ---------------------------------------------------------------
-    let fileBuf = null;
-    let fileContentType = 'image/jpeg';
-    try {
-      console.log('[rumbleup] MMS attempt 5: Downloading media file for binary upload...');
-      const dl = await downloadFileBuffer(mediaUrl);
-      fileBuf = dl.buffer;
-      fileContentType = dl.contentType;
-      console.log('[rumbleup]   Downloaded ' + fileBuf.length + ' bytes, type=' + fileContentType);
-    } catch (dlErr) {
-      console.error('[rumbleup]   Could not download media: ' + dlErr.message + ' — skipping binary upload attempts');
-    }
-
-    if (fileBuf) {
-      for (const [authLabel, authValue] of [['Basic', basicAuth], ['Bearer', bearerAuth]]) {
-        const label = 'MMS attempt 5' + (authLabel === 'Bearer' ? 'b' : 'a') + ': POST /proxy/send, ' + authLabel + ' auth, multipart binary upload';
-        console.log('[rumbleup] ' + label);
-        const ext = fileContentType.includes('png') ? '.png' : fileContentType.includes('gif') ? '.gif' : '.jpg';
-        const blob = new Blob([fileBuf], { type: fileContentType });
-        const form = new FormData();
-        form.append('phone', phone);
-        form.append('proxy', proxy);
-        form.append('text', body);
-        form.append('file', blob, 'media' + ext);
-        if (creds.campaignId) form.append('campaignId', creds.campaignId);
-        const res = await rawApiRequest('/proxy/send', {
-          method: 'POST',
-          headers: { 'Authorization': authValue },
-          body: form
-        });
-        console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-        if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-      }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 6: POST /message/send with file / media field (undocumented)
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 6a: POST /message/send with file field (Basic auth, JSON)';
-      console.log('[rumbleup] ' + label);
-      const msgPayload = { phone, action: creds.actionId, text: body, file: mediaUrl };
-      const res = await rawApiRequest('/message/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(msgPayload)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-    {
-      const label = 'MMS attempt 6b: POST /message/send with media field (Basic auth, JSON)';
-      console.log('[rumbleup] ' + label);
-      const msgPayload = { phone, action: creds.actionId, text: body, media: mediaUrl };
-      const res = await rawApiRequest('/message/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(msgPayload)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-    {
-      const label = 'MMS attempt 6c: POST /message/send with media_url field (Basic auth, JSON)';
-      console.log('[rumbleup] ' + label);
-      const msgPayload = { phone, action: creds.actionId, text: body, media_url: mediaUrl };
-      const res = await rawApiRequest('/message/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(msgPayload)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 7: POST /message/send with type: "MMS"
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 7a: POST /message/send with type=MMS + file (Basic auth)';
-      console.log('[rumbleup] ' + label);
-      const msgPayload = { phone, action: creds.actionId, text: body, type: 'MMS', file: mediaUrl };
-      const res = await rawApiRequest('/message/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(msgPayload)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-    {
-      const label = 'MMS attempt 7b: POST /message/send with type=MMS + media (Basic auth)';
-      console.log('[rumbleup] ' + label);
-      const msgPayload = { phone, action: creds.actionId, text: body, type: 'MMS', media: mediaUrl };
-      const res = await rawApiRequest('/message/send', {
-        method: 'POST',
-        headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-        body: JSON.stringify(msgPayload)
-      });
-      console.log('[rumbleup]   -> status=' + res.status + ' body=' + (res.body || '').substring(0, 500));
-      if (res.ok) { console.log('[rumbleup]   => SUCCESS'); return res.json || res.body; }
-    }
-
-    // ---------------------------------------------------------------
-    // Attempt 8: Create an MMS project via /project/create, then send through it
-    // ---------------------------------------------------------------
-    {
-      const label = 'MMS attempt 8: Create MMS project via /project/create then /project/test';
-      console.log('[rumbleup] ' + label);
+    if (creds.phoneNumber) {
+      const proxy = creds.phoneNumber.replace(/\D/g, '');
+      const mmsPayload = { phone, proxy, text: body, file: mediaUrl };
+      if (creds.campaignId) mmsPayload.campaignId = creds.campaignId;
+      console.log('[rumbleup] Trying MMS /proxy/send to=' + phone + ' proxy=' + proxy);
       try {
-        const projectPayload = {
-          name: 'MMS-auto-' + Date.now(),
-          message: body,
-          type: 'MMS',
-          media: mediaUrl,
-          proxy: proxy
-        };
-        if (creds.campaignId) projectPayload.campaignId = creds.campaignId;
-        console.log('[rumbleup]   Creating MMS project:', JSON.stringify(projectPayload).substring(0, 500));
-        const createRes = await rawApiRequest('/project/create', {
+        const result = await rawApiRequest('/proxy/send', {
           method: 'POST',
-          headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-          body: JSON.stringify(projectPayload)
+          headers: { 'Authorization': 'Basic ' + Buffer.from(creds.apiKey + ':' + creds.apiSecret).toString('base64'), 'Content-Type': 'application/json' },
+          body: JSON.stringify(mmsPayload)
         });
-        console.log('[rumbleup]   /project/create -> status=' + createRes.status + ' body=' + (createRes.body || '').substring(0, 500));
-        if (createRes.ok && createRes.json) {
-          const projectId = createRes.json.id || createRes.json.action || createRes.json.project_id;
-          if (projectId) {
-            // 8a: Try sending a test message through this project
-            console.log('[rumbleup]   MMS project created id=' + projectId + ', sending test message...');
-            const testRes = await rawApiRequest('/project/test/' + projectId, {
-              method: 'POST',
-              headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ test_phone: phone, terms_agree: true })
-            });
-            console.log('[rumbleup]   /project/test -> status=' + testRes.status + ' body=' + (testRes.body || '').substring(0, 500));
-            if (testRes.ok) { console.log('[rumbleup]   => SUCCESS via MMS project test'); return testRes.json || testRes.body; }
-
-            // 8b: Try /message/send with the new MMS project action ID
-            console.log('[rumbleup]   Trying /message/send with MMS project action=' + projectId);
-            const msgRes = await rawApiRequest('/message/send', {
-              method: 'POST',
-              headers: { 'Authorization': basicAuth, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phone, action: String(projectId), text: body })
-            });
-            console.log('[rumbleup]   /message/send with MMS project -> status=' + msgRes.status + ' body=' + (msgRes.body || '').substring(0, 500));
-            if (msgRes.ok) { console.log('[rumbleup]   => SUCCESS via MMS project /message/send'); return msgRes.json || msgRes.body; }
-          } else {
-            console.error('[rumbleup]   MMS project created but no ID found in response');
-          }
+        if (result.ok) {
+          console.log('[rumbleup] MMS SUCCESS via /proxy/send');
+          return result.json || result.body;
         }
-      } catch (projErr) {
-        console.error('[rumbleup]   MMS project approach failed:', projErr.message);
+        console.log('[rumbleup] MMS /proxy/send returned ' + result.status + ' — sending SMS with flyer link');
+      } catch (e) {
+        console.log('[rumbleup] MMS /proxy/send error: ' + e.message + ' — sending SMS with flyer link');
       }
     }
-
-    // ---------------------------------------------------------------
-    // ALL MMS APPROACHES FAILED — fall back to SMS + link
-    // ---------------------------------------------------------------
-    console.warn('[rumbleup] ========= ALL MMS ATTEMPTS FAILED — falling back to SMS with link =========');
-    payload.text = body + '\n\nView your event flyer: ' + mediaUrl;
+    // Fallback: SMS with prominent flyer link
+    payload.text = body + '\n\n📋 View your personalized event flyer:\n' + mediaUrl;
   }
 
   return apiPost('/message/send', payload);

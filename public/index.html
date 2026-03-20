@@ -8036,11 +8036,19 @@ async function loadCandidates() {
       tr.appendChild(tdVoters);
 
       var tdPortal = document.createElement('td');
-      var portalCode = document.createElement('code');
-      portalCode.style.cssText = 'background:#1e293b;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;word-break:break-all';
-      portalCode.textContent = portalUrl + ' \u{1F4CB}';
-      portalCode.onclick = function(e) { e.stopPropagation(); copyToClip(portalUrl); };
-      tdPortal.appendChild(portalCode);
+      var portalLink = document.createElement('a');
+      portalLink.href = portalUrl;
+      portalLink.target = '_blank';
+      portalLink.style.cssText = 'color:#818cf8;font-size:11px;text-decoration:underline;cursor:pointer;word-break:break-all';
+      portalLink.textContent = 'Open Portal';
+      portalLink.onclick = function(e) { e.stopPropagation(); };
+      tdPortal.appendChild(portalLink);
+      var copyBtn = document.createElement('span');
+      copyBtn.style.cssText = 'margin-left:6px;cursor:pointer;font-size:11px;color:#64748b';
+      copyBtn.textContent = '\u{1F4CB}';
+      copyBtn.title = 'Copy link';
+      copyBtn.onclick = function(e) { e.stopPropagation(); copyToClip(portalUrl); };
+      tdPortal.appendChild(copyBtn);
       tr.appendChild(tdPortal);
 
       var tdStatus = document.createElement('td');
