@@ -6,6 +6,7 @@
 <title>Block Walk</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
@@ -170,7 +171,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .view-toggle-btn{padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
 .view-toggle-btn.active{background:#f59e0b;color:#000}
 #mapContainer{display:none;height:calc(100vh - 200px);min-height:300px;background:#1e293b;position:relative;overflow:hidden}
-#walkMap{height:100%;width:100%;z-index:1;transition:transform 0.15s ease-out}
+#walkMap{height:100%;width:100%;z-index:1}
 .map-legend{position:absolute;bottom:24px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0}
 .map-legend-item{display:flex;align-items:center;gap:6px;margin-bottom:4px}
 .map-legend-item:last-child{margin-bottom:0}
@@ -188,7 +189,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .compass-btn{position:absolute;bottom:120px;right:10px;z-index:1000;width:40px;height:40px;border-radius:50%;background:rgba(30,41,59,0.95);border:1px solid #334155;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);transition:color 0.2s,border-color 0.2s}
 .compass-btn:hover{background:#1e293b;border-color:#60a5fa}
 .compass-btn.active{color:#f59e0b;border-color:#f59e0b}
-#walkMap.rotated .leaflet-map-pane{transform-origin:center center}
 .compass-arrow{transition:transform 0.3s ease}
 .success-toast.show{transform:translateX(-50%) translateY(0)}
 </style>
@@ -2020,9 +2020,17 @@ function centerOnMe() {
 }
 
 function toggleCompassMode() {
+  // If map is rotated but compass mode is off, just reset to north
+  var currentBearing = mapState.map && mapState.map.getBearing ? mapState.map.getBearing() : 0;
+  if (!mapState.compassMode && Math.abs(currentBearing) > 1) {
+    if (mapState.map.setBearing) mapState.map.setBearing(0);
+    document.getElementById('compassArrow').style.transform = '';
+    document.getElementById('btnCompass').classList.remove('active');
+    return;
+  }
+
   mapState.compassMode = !mapState.compassMode;
   var btn = document.getElementById('btnCompass');
-  var mapEl = document.getElementById('walkMap');
 
   if (mapState.compassMode) {
     btn.classList.add('active');
@@ -2034,8 +2042,8 @@ function toggleCompassMode() {
   } else {
     btn.classList.remove('active');
     stopCompass();
-    // Reset rotation
-    mapEl.style.transform = '';
+    // Reset rotation to north-up
+    if (mapState.map.setBearing) mapState.map.setBearing(0);
     document.getElementById('compassArrow').style.transform = '';
   }
 }
@@ -2072,9 +2080,8 @@ function addCompassListener() {
     if (e.webkitCompassHeading != null) {
       heading = e.webkitCompassHeading;
     } else if (e.alpha != null) {
-      // Android: alpha is degrees from north (needs to be inverted for rotation)
       heading = (360 - e.alpha);
-      if (e.absolute === false && e.alpha === 0) return; // No real data
+      if (e.absolute === false && e.alpha === 0) return;
     }
     if (heading == null) return;
 
@@ -2092,19 +2099,13 @@ function stopCompass() {
 }
 
 function applyMapRotation(heading) {
-  if (!mapState.compassMode) return;
-  var mapEl = document.getElementById('walkMap');
-  // Rotate the entire map so "up" points where you're facing
-  mapEl.style.transform = 'rotate(' + (-heading) + 'deg)';
-  mapEl.style.transformOrigin = 'center center';
-  // Rotate compass arrow icon to show north direction
-  document.getElementById('compassArrow').style.transform = 'rotate(' + (-heading) + 'deg)';
-
-  // Counter-rotate markers so text stays readable
-  var allIcons = mapEl.querySelectorAll('.leaflet-marker-icon');
-  for (var i = 0; i < allIcons.length; i++) {
-    allIcons[i].style.transform = (allIcons[i].style.transform || '').replace(/rotate\([^)]*\)/, '') + ' rotate(' + heading + 'deg)';
+  if (!mapState.compassMode || !mapState.map) return;
+  // Use leaflet-rotate native bearing API — proper tile rotation, no CSS hacks
+  if (mapState.map.setBearing) {
+    mapState.map.setBearing(heading);
   }
+  // Rotate compass arrow icon to show where north is
+  document.getElementById('compassArrow').style.transform = 'rotate(' + (-heading) + 'deg)';
 }
 
 function buildGoogleMapsUrl(address, city, zip) {
@@ -2173,7 +2174,13 @@ function initMap() {
     bounceAtZoomLimits: false,
     zoomSnap: 0.5,
     zoomDelta: 0.5,
-    wheelPxPerZoomLevel: 120
+    wheelPxPerZoomLevel: 120,
+    // leaflet-rotate: enable two-finger rotation like Google/Apple Maps
+    rotate: true,
+    rotateControl: false,
+    touchRotate: true,
+    shiftKeyRotate: true,
+    bearing: 0
   }).setView([39.8283, -98.5795], 4); // Default center US
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -2181,6 +2188,20 @@ function initMap() {
   }).addTo(mapState.map);
 
   mapState.initialized = true;
+
+  // Update compass arrow when user manually rotates with two fingers
+  mapState.map.on('rotate', function() {
+    var bearing = mapState.map.getBearing ? mapState.map.getBearing() : 0;
+    var arrow = document.getElementById('compassArrow');
+    if (arrow) arrow.style.transform = 'rotate(' + (-bearing) + 'deg)';
+    // Show compass button as active when map is rotated
+    var btn = document.getElementById('btnCompass');
+    if (btn && bearing !== 0) {
+      btn.classList.add('active');
+    } else if (btn && !mapState.compassMode) {
+      btn.classList.remove('active');
+    }
+  });
 
   // Force Leaflet to recalculate size after the container is fully rendered
   setTimeout(function() { mapState.map.invalidateSize(); }, 100);
