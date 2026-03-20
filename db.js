@@ -643,6 +643,14 @@ try {
     CREATE INDEX IF NOT EXISTS idx_voters_registration ON voters(registration_number);
     CREATE INDEX IF NOT EXISTS idx_voters_address_city ON voters(address, city);
     CREATE INDEX IF NOT EXISTS idx_block_walks_join ON block_walks(join_code, status);
+
+    -- Walk infrastructure indexes (previously missing)
+    CREATE INDEX IF NOT EXISTS idx_walk_addresses_voter_id ON walk_addresses(voter_id);
+    CREATE INDEX IF NOT EXISTS idx_walk_addresses_universe_id ON walk_addresses(universe_id);
+    CREATE INDEX IF NOT EXISTS idx_walk_group_members_phone ON walk_group_members(phone);
+    CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_id ON walk_attempts(walker_id);
+    CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_walk ON walk_attempts(walker_id, walk_id);
+    CREATE INDEX IF NOT EXISTS idx_walk_universes_status ON walk_universes(status);
   `);
 } catch (e) { /* indexes already exist */ }
 

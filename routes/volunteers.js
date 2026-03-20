@@ -8,15 +8,35 @@ const { geocodeWalkAddresses } = require('./walks');
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 
 // List all volunteers (admin)
+// Fixed: use LEFT JOINs + GROUP BY instead of correlated subqueries for O(1) instead of O(N)
 router.get('/volunteers', (req, res) => {
   const volunteers = db.prepare(`
     SELECT v.*,
-      (SELECT COUNT(*) FROM p2p_volunteers pv WHERE pv.volunteer_id = v.id) as sessions_joined,
-      (SELECT COUNT(*) FROM p2p_assignments pa JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id AND pv.volunteer_id = v.id WHERE pa.status IN ('sent','in_conversation','completed')) as texts_sent,
-      (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = COALESCE((SELECT w.id FROM walkers w WHERE w.code = v.code), v.id)) as doors_knocked,
-      (SELECT COUNT(DISTINCT wa.walk_id) FROM walk_attempts wa WHERE wa.walker_id = COALESCE((SELECT w.id FROM walkers w WHERE w.code = v.code), v.id)) as walks_participated,
-      (SELECT MAX(pv.last_active) FROM p2p_volunteers pv WHERE pv.volunteer_id = v.id) as last_active
-    FROM volunteers v ORDER BY v.created_at DESC
+      COALESCE(pv_stats.sessions_joined, 0) as sessions_joined,
+      COALESCE(pa_stats.texts_sent, 0) as texts_sent,
+      COALESCE(wa_stats.doors_knocked, 0) as doors_knocked,
+      COALESCE(wa_stats.walks_participated, 0) as walks_participated,
+      pv_stats.last_active
+    FROM volunteers v
+    LEFT JOIN (
+      SELECT pv.volunteer_id, COUNT(*) as sessions_joined, MAX(pv.last_active) as last_active
+      FROM p2p_volunteers pv
+      GROUP BY pv.volunteer_id
+    ) pv_stats ON pv_stats.volunteer_id = v.id
+    LEFT JOIN (
+      SELECT pv2.volunteer_id, COUNT(*) as texts_sent
+      FROM p2p_assignments pa
+      JOIN p2p_volunteers pv2 ON pa.session_id = pv2.session_id AND pa.volunteer_id = pv2.id
+      WHERE pa.status IN ('sent','in_conversation','completed')
+      GROUP BY pv2.volunteer_id
+    ) pa_stats ON pa_stats.volunteer_id = v.id
+    LEFT JOIN (
+      SELECT wa.walker_id, COUNT(*) as doors_knocked, COUNT(DISTINCT wa.walk_id) as walks_participated
+      FROM walk_attempts wa
+      WHERE wa.walker_id IS NOT NULL
+      GROUP BY wa.walker_id
+    ) wa_stats ON wa_stats.walker_id = (SELECT w.id FROM walkers w WHERE w.code = v.code LIMIT 1)
+    ORDER BY v.created_at DESC
   `).all();
   res.json({ volunteers });
 });
@@ -102,19 +122,20 @@ router.post('/volunteers/register', (req, res) => {
     if (i === 9) return res.status(500).json({ error: 'Could not generate unique code. Try again.' });
   }
 
-  // Create the volunteer (walk-only by default for self-registration)
-  const result = db.prepare('INSERT INTO volunteers (name, phone, code, can_text, can_walk) VALUES (?, ?, ?, 0, 1)').run(
-    trimmedName, phone || null, code
-  );
+  // Create volunteer + walker in a transaction to ensure atomicity and consistent phone normalization
+  const registerResult = db.transaction(() => {
+    const result = db.prepare('INSERT INTO volunteers (name, phone, code, can_text, can_walk) VALUES (?, ?, ?, 0, 1)').run(
+      trimmedName, phone || null, code
+    );
+    const normalizedPhone = phone || '';
+    const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(
+      candidate.id, trimmedName, normalizedPhone, code
+    );
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker self-registered: ' + trimmedName + ' (code: ' + code + ')');
+    return { volunteerId: result.lastInsertRowid, walkerId: wResult.lastInsertRowid };
+  })();
 
-  // Also create the walkers record so they can be assigned to walks
-  const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(
-    candidate.id, trimmedName, phone || '', code
-  );
-
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker self-registered: ' + trimmedName + ' (code: ' + code + ')');
-
-  res.json({ success: true, code, name: trimmedName, volunteerId: result.lastInsertRowid, walkerId: wResult.lastInsertRowid });
+  res.json({ success: true, code, name: trimmedName, volunteerId: registerResult.volunteerId, walkerId: registerResult.walkerId });
 });
 
 // Volunteer login (public — code-based)
@@ -151,18 +172,20 @@ router.post('/volunteers/login', (req, res) => {
     walkerId = walker ? walker.id : null;
 
     if (walkerId) {
-      // Backfill walker_id on any existing walk_group_members rows that match by name but have NULL walker_id
-      db.prepare(`UPDATE walk_group_members SET walker_id = ?, phone = COALESCE(NULLIF(phone, ''), ?)
-        WHERE walker_name = ? AND (walker_id IS NULL OR walker_id != ?)`).run(walkerId, vol.phone || '', vol.name, walkerId);
+      // Backfill and auto-assign in a single transaction to prevent race conditions
+      db.transaction(() => {
+        db.prepare(`UPDATE walk_group_members SET walker_id = ?, phone = COALESCE(NULLIF(phone, ''), ?)
+          WHERE walker_name = ? AND (walker_id IS NULL OR walker_id != ?)`).run(walkerId, vol.phone || '', vol.name, walkerId);
 
-      // Auto-assign to all non-completed walks the walker isn't already in
-      const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
-        WHERE bw.status != 'completed'
-        AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ? OR walker_name = ?)`).all(walkerId, vol.name);
-      if (unassigned.length > 0) {
-        const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
-        for (const w of unassigned) { ins.run(w.id, vol.name, walkerId, vol.phone || ''); }
-      }
+        const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
+          WHERE bw.status != 'completed'
+          AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ? OR walker_name = ?)`).all(walkerId, vol.name);
+        if (unassigned.length > 0) {
+          const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
+          for (const w of unassigned) { ins.run(w.id, vol.name, walkerId, vol.phone || ''); }
+        }
+      })();
+
       walks = db.prepare(`SELECT bw.id, bw.name, bw.description, bw.status,
         (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
         (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses

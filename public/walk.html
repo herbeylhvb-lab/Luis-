@@ -818,49 +818,7 @@ function setLoadMode(mode) {
 
 // ===================== JOIN GROUP WALK =====================
 
-async function joinWalk() {
-  var codeInput = document.getElementById('joinCodeInput');
-  var nameInput = document.getElementById('joinNameInput');
-  var phoneInput = document.getElementById('joinPhoneInput');
-  var errEl = document.getElementById('loadError');
-  errEl.textContent = '';
-
-  var joinCode = codeInput.value.trim().toUpperCase();
-  var walkerName = nameInput.value.trim();
-  var phone = phoneInput.value.trim();
-
-  if (!joinCode || joinCode.length < 4) { errEl.textContent = 'Enter the 4-character join code.'; return; }
-  if (!walkerName) { errEl.textContent = 'Enter your name.'; return; }
-  if (!phone) { errEl.textContent = 'Enter your phone number.'; return; }
-
-  document.getElementById('btnJoinWalk').disabled = true;
-  try {
-    var res = await fetch('/api/walks/join', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ joinCode: joinCode, walkerName: walkerName, phone: phone })
-    });
-    var data = await res.json();
-    if (!res.ok || data.error) { errEl.textContent = data.error || 'Failed to join'; return; }
-
-    walkState.walkId = data.walkId;
-    walkState.isGroupMode = true;
-    walkState.walkerName = data.walkerName || walkerName;
-
-    // Load walker-specific addresses
-    await loadGroupWalk(data.walkId, walkerName);
-
-    document.getElementById('loadScreen').style.display = 'none';
-    document.getElementById('walkScreen').style.display = '';
-    startGps();
-    loadWalkScript();
-    startGroupRefresh();
-  } catch(e) {
-    errEl.textContent = 'Failed to join: ' + e.message;
-  } finally {
-    document.getElementById('btnJoinWalk').disabled = false;
-  }
-}
+// Legacy joinWalk() removed — replaced by walkerLogin() flow
 
 async function loadGroupWalk(walkId, walkerName) {
   // Get walker's addresses
@@ -1312,7 +1270,7 @@ async function refreshWalkData() {
       walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
       renderWalk();
     }
-  } catch(e) { /* silent — network may be spotty in the field */ }
+  } catch(e) { console.warn('Group refresh failed:', e.message); }
 }
 
 // ===================== LOAD WALK =====================
@@ -1862,7 +1820,12 @@ document.getElementById('doorOverlay').addEventListener('click', function(e) {
   if (e.target === this) closeDoor();
 });
 
+var _logDoorInProgress = false;
 async function logDoor() {
+  // Debounce: prevent double-submission from rapid taps
+  if (_logDoorInProgress) return;
+  _logDoorInProgress = true;
+
   var addr = walkState.walk.addresses[walkState.currentAddrIdx];
   var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
@@ -1982,6 +1945,7 @@ async function logDoor() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Log & Next \u27A1';
+    _logDoorInProgress = false;
   }
 }
 
@@ -2074,6 +2038,10 @@ function startCompass() {
 }
 
 function addCompassListener() {
+  // Remove any existing listener first to prevent stacking
+  if (mapState.compassHandler) {
+    window.removeEventListener('deviceorientation', mapState.compassHandler, true);
+  }
   mapState.compassHandler = function(e) {
     var heading = null;
     // webkitCompassHeading is available on iOS Safari
