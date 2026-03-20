@@ -270,7 +270,7 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
   for (const c of captains) {
     // Captain-created lists + admin-assigned lists (same as portal endpoint)
     const capLists = db.prepare(`
-      SELECT cl.id, cl.name, cl.description, 'captain' as source, COUNT(clv.id) as voter_count
+      SELECT cl.id, cl.name, '' as description, 'captain' as source, COUNT(clv.id) as voter_count
       FROM captain_lists cl
       LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
       WHERE cl.captain_id = ?
@@ -377,7 +377,7 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
   for (const c of captains) {
     // Captain-created lists + admin-assigned lists
     const captainLists = db.prepare(`
-      SELECT cl.id, cl.name, cl.description, 'captain' as source, COUNT(clv.id) as voter_count
+      SELECT cl.id, cl.name, '' as description, 'captain' as source, COUNT(clv.id) as voter_count
       FROM captain_lists cl
       LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
       WHERE cl.captain_id = ?

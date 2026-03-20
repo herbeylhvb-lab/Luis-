@@ -8,6 +8,9 @@ const { generateAlphaCode, normalizePhone } = require('../utils');
 
 // Geocode a single address using OpenStreetMap Nominatim (free, no API key)
 // Uses structured query params for house-level accuracy instead of free-text search
+// State is configurable via GEOCODE_STATE env var (defaults to empty for auto-detection)
+const GEOCODE_STATE = process.env.GEOCODE_STATE || '';
+
 async function geocodeAddress(address, city, zip) {
   if (!address || !address.trim()) return null;
 
@@ -23,7 +26,7 @@ async function geocodeAddress(address, city, zip) {
   };
   if (city) params.city = city.trim();
   if (zip) params.postalcode = zip.trim();
-  params.state = 'Texas';
+  if (GEOCODE_STATE) params.state = GEOCODE_STATE;
 
   try {
     const url1 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
@@ -40,7 +43,8 @@ async function geocodeAddress(address, city, zip) {
     var q = address.trim();
     if (city) q += ', ' + city.trim();
     if (zip) q += ' ' + zip.trim();
-    q += ', Texas, USA';
+    if (GEOCODE_STATE) q += ', ' + GEOCODE_STATE;
+    q += ', USA';
     const url2 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
       q: q,
       format: 'json',
@@ -60,7 +64,8 @@ async function geocodeAddress(address, city, zip) {
   if (stripped !== address.trim()) {
     await new Promise(r => setTimeout(r, 1100));
     try {
-      const params3 = { street: stripped, format: 'json', limit: '1', countrycodes: 'us', state: 'Texas' };
+      const params3 = { street: stripped, format: 'json', limit: '1', countrycodes: 'us' };
+      if (GEOCODE_STATE) params3.state = GEOCODE_STATE;
       if (city) params3.city = city.trim();
       if (zip) params3.postalcode = zip.trim();
       const url3 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params3);
@@ -432,6 +437,12 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
   // Wrap address update + voter contact log + attempt record in a transaction for atomicity
   const logKnock = db.transaction(() => {
+    // Prevent double-knock: check if this address was already knocked in the last 10 seconds
+    const recentAttempt = db.prepare(
+      "SELECT id FROM walk_attempts WHERE address_id = ? AND walk_id = ? AND attempted_at > datetime('now', '-10 seconds')"
+    ).get(req.params.addrId, req.params.walkId);
+    if (recentAttempt) return { duplicate: true };
+
     // Update the walk address
     db.prepare(`
       UPDATE walk_addresses SET
@@ -489,8 +500,12 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
         db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[result], addr.voter_id);
       }
     }
+    return { duplicate: false };
   });
-  logKnock();
+  const knockResult = logKnock();
+  if (knockResult && knockResult.duplicate) {
+    return res.json({ success: true, gps_verified, duplicate: true });
+  }
 
   res.json({ success: true, gps_verified });
 });
@@ -537,6 +552,12 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
   const allNotes = notes || '';
 
   const logHousehold = db.transaction(() => {
+    // Prevent double-knock: check if this address was already knocked in the last 10 seconds
+    const recentAttempt = db.prepare(
+      "SELECT id FROM walk_attempts WHERE address_id = ? AND walk_id = ? AND attempted_at > datetime('now', '-10 seconds')"
+    ).get(req.params.addrId, req.params.walkId);
+    if (recentAttempt) return { duplicate: true };
+
     // Update the walk address with overall result
     db.prepare(`
       UPDATE walk_addresses SET
@@ -598,18 +619,23 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
       }
     }
 
-    // Also log for the primary voter on the address
+    // Also log for the primary voter on the address — but only if they were explicitly
+    // included in the members list. Don't auto-log "Not Home" for missing primary voters
+    // as this could corrupt data if the members list was incomplete.
     if (addr.voter_id) {
       const primaryMember = members.find(m => m.voter_id === addr.voter_id);
       if (!primaryMember) {
-        // Primary voter wasn't in the members list — log as not_home
-        db.prepare(
-          'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
-        ).run(addr.voter_id, 'Door-knock', 'Not Home', '', walker_name || 'Block Walker');
+        // Primary voter wasn't in the members list — skip rather than assume not_home
+        // The primary voter's contact will only be logged if explicitly included
       }
     }
+
+    return { duplicate: false };
   });
-  logHousehold();
+  const hhResult = logHousehold();
+  if (hhResult && hhResult.duplicate) {
+    return res.json({ success: true, gps_verified, result: overallResult, duplicate: true });
+  }
 
   res.json({ success: true, gps_verified, result: overallResult });
 });
@@ -621,6 +647,7 @@ router.post('/walks/join', (req, res) => {
   const { joinCode, walkerName, phone } = req.body;
   if (!joinCode || !walkerName) return res.status(400).json({ error: 'Join code and walker name required.' });
   if (!phone) return res.status(400).json({ error: 'Phone number is required.' });
+  if (String(walkerName).length > 100) return res.status(400).json({ error: 'Name is too long (max 100 characters).' });
 
   const normPhone = normalizePhone(phone);
   if (!normPhone) return res.status(400).json({ error: 'Enter a valid 10-digit phone number.' });
@@ -684,17 +711,36 @@ router.get('/walks/:id/walker/:name', (req, res) => {
     addr.assigned_to_me = addr.assigned_walker === walkerName;
   }
 
-  // Build household members for each address (other voters at same address+city)
-  const householdStmt = db.prepare(
-    `SELECT id AS voter_id, first_name, last_name, age FROM voters
-     WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name`
-  );
-  for (const addr of allAddresses) {
-    if (addr.voter_id && addr.address) {
-      addr.household = householdStmt.all(addr.address, addr.city || '', addr.voter_id);
-    } else {
-      addr.household = [];
+  // Build household members — batched to avoid N+1 queries (same pattern as /volunteer endpoint)
+  const addrWithVoters = allAddresses.filter(a => a.voter_id && a.address);
+  const householdMap = {};
+  if (addrWithVoters.length > 0) {
+    const excludeIds = new Set(addrWithVoters.map(a => a.voter_id));
+    const addrKeys = new Set(addrWithVoters.map(a => `${a.address}\0${a.city || ''}`));
+    const uniqueAddrs = [...addrKeys].map(k => { const [address, city] = k.split('\0'); return { address, city }; });
+
+    const CHUNK = 400;
+    for (let i = 0; i < uniqueAddrs.length; i += CHUNK) {
+      const chunk = uniqueAddrs.slice(i, i + CHUNK);
+      const params = [];
+      chunk.forEach(a => { params.push(a.address, a.city); });
+      const rows = db.prepare(
+        `SELECT id, first_name, last_name, age, address, city FROM voters
+         WHERE (${chunk.map(() => '(address = ? AND city = ?)').join(' OR ')})
+         ORDER BY last_name, first_name`
+      ).all(...params);
+
+      for (const v of rows) {
+        if (excludeIds.has(v.id)) continue;
+        const key = `${v.address}\0${v.city || ''}`;
+        if (!householdMap[key]) householdMap[key] = [];
+        householdMap[key].push({ voter_id: v.id, first_name: v.first_name, last_name: v.last_name, age: v.age });
+      }
     }
+  }
+  for (const addr of allAddresses) {
+    const key = `${addr.address}\0${addr.city || ''}`;
+    addr.household = householdMap[key] || [];
   }
 
   // Add attempt counts per address
@@ -712,15 +758,15 @@ router.get('/walks/:id/walker/:name', (req, res) => {
 });
 
 // Re-split addresses when group members change (only reassign unvisited ones)
+// Fixed: fetch members INSIDE transaction to prevent race condition if members join/leave mid-split
 function splitAddresses(walkId) {
-  const members = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(walkId);
-  if (members.length === 0) return;
-
-  // Only reassign addresses that haven't been knocked yet
-  const unvisited = db.prepare("SELECT id FROM walk_addresses WHERE walk_id = ? AND result = 'not_visited' ORDER BY sort_order, id").all(walkId);
-
   const update = db.prepare('UPDATE walk_addresses SET assigned_walker = ? WHERE id = ?');
   const split = db.transaction(() => {
+    const members = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(walkId);
+    if (members.length === 0) return;
+
+    const unvisited = db.prepare("SELECT id FROM walk_addresses WHERE walk_id = ? AND result = 'not_visited' ORDER BY sort_order, id").all(walkId);
+
     for (let i = 0; i < unvisited.length; i++) {
       const walker = members[i % members.length].walker_name;
       update.run(walker, unvisited[i].id);
@@ -791,18 +837,24 @@ router.get('/walks/:id/route', (req, res) => {
     mapsUrl = 'https://www.google.com/maps/search/?api=1&query=' + waypoints[0];
   }
 
-  // Update sort order in DB
-  const updateSort = db.prepare('UPDATE walk_addresses SET sort_order = ? WHERE id = ?');
-  const reorder = db.transaction(() => {
-    ordered.forEach((a, i) => updateSort.run(i, a.id));
-  });
-  reorder();
-
+  // Return optimized route without modifying DB (GET should be read-only)
   res.json({
     route: ordered.map(a => ({ id: a.id, address: a.address, city: a.city })),
     mapsUrl,
     optimized: hasCoords.length >= 2
   });
+});
+
+// POST endpoint to persist optimized route order (explicit write action)
+router.post('/walks/:id/route/save', (req, res) => {
+  const { order } = req.body;
+  if (!order || !Array.isArray(order)) return res.status(400).json({ error: 'Order array is required.' });
+  const updateSort = db.prepare('UPDATE walk_addresses SET sort_order = ? WHERE id = ? AND walk_id = ?');
+  const reorder = db.transaction(() => {
+    order.forEach((id, i) => updateSort.run(i, id, req.params.id));
+  });
+  reorder();
+  res.json({ success: true });
 });
 
 // ===================== CREATE WALK FROM PRECINCT =====================
@@ -973,13 +1025,7 @@ router.get('/walks/:id/walker/:name/route', (req, res) => {
     mapsUrl = 'https://www.google.com/maps/dir/?api=1&travelmode=walking&origin=' + origin + '&destination=' + waypoints[0];
   }
 
-  // Update sort order for this walker's addresses
-  const updateSort = db.prepare('UPDATE walk_addresses SET sort_order = ? WHERE id = ?');
-  const reorder = db.transaction(() => {
-    ordered.forEach((a, i) => updateSort.run(i, a.id));
-  });
-  reorder();
-
+  // Return optimized route without modifying DB (GET should be read-only)
   res.json({
     route: ordered.map(a => ({ id: a.id, address: a.address, city: a.city, zip: a.zip })),
     mapsUrl,
@@ -1233,6 +1279,9 @@ router.put('/walk-scripts/:id', (req, res) => {
 
 // Delete a script
 router.delete('/walk-scripts/:id', (req, res) => {
+  // Clean up references: set script_id to NULL on walks and universes using this script
+  db.prepare('UPDATE block_walks SET script_id = NULL WHERE script_id = ?').run(req.params.id);
+  db.prepare('UPDATE walk_universes SET script_id = NULL WHERE script_id = ?').run(req.params.id);
   db.prepare('DELETE FROM walk_scripts WHERE id = ?').run(req.params.id);
   res.json({ success: true });
 });
@@ -1429,61 +1478,52 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
     params.push(...votingParams);
   }
 
-  const available = db.prepare(sql).all(...params);
-  if (available.length === 0) return res.status(400).json({ error: 'No more doors available in this universe. All have been assigned!' });
+  // Wrap the entire claim in a transaction to prevent race conditions
+  // (two concurrent claims could otherwise assign the same voters)
+  const claimResult = db.transaction(() => {
+    const available = db.prepare(sql).all(...params);
+    if (available.length === 0) return { error: 'No more doors available in this universe. All have been assigned!' };
 
-  // If GPS provided, sort by distance to get nearest doors
-  let sorted = available;
-  if (lat && lng && isValidCoord(parseFloat(lat), parseFloat(lng))) {
-    const wLat = parseFloat(lat), wLng = parseFloat(lng);
-    // Use voter geocoded coords if available, otherwise we'll just take the first N
-    sorted = available.map(v => {
-      // Try to use voter's address geocoding (we may not have lat/lng on voters, so fallback)
-      return v;
-    });
-    // Sort by distance if voters have coordinates (from walk_addresses lat/lng — voters table doesn't have them)
-    // Since voters don't have lat/lng, we'll use address matching as a proxy
-    // For now, just take the first N available — addresses will be geocoded after walk creation
-  }
+    const doorsToAssign = Math.min(universe.doors_per_turf || 30, available.length);
+    const selected = available.slice(0, doorsToAssign);
 
-  const doorsToAssign = Math.min(universe.doors_per_turf || 30, sorted.length);
-  const selected = sorted.slice(0, doorsToAssign);
+    // Create a walk for this volunteer
+    const joinCode = generateAlphaCode(4);
+    const walkName = universe.name + ' - ' + walkerName;
+    const walkResult = db.prepare(
+      'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
+    const walkId = walkResult.lastInsertRowid;
 
-  // Create a walk for this volunteer
-  const joinCode = generateAlphaCode(4);
-  const walkName = universe.name + ' - ' + walkerName;
-  const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
-  const walkId = walkResult.lastInsertRowid;
+    // Track walker with phone for dedup across claims
+    try {
+      db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walkId, walkerName, normPhone);
+    } catch (e) {
+      if (!e.message.includes('UNIQUE constraint')) throw e;
+    }
 
-  // Track walker with phone for dedup across claims
-  try {
-    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walkId, walkerName, normPhone);
-  } catch (e) {
-    if (!e.message.includes('UNIQUE constraint')) throw e;
-  }
-
-  // Add addresses
-  const insert = db.prepare(
-    'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order, universe_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  );
-  const addAll = db.transaction(() => {
+    // Add addresses
+    const insert = db.prepare(
+      'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order, universe_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
     let i = 0;
     for (const v of selected) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
       insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
     }
-    return i;
-  });
-  const added = addAll();
+
+    return { walkId, walkName, added: i };
+  })();
+
+  if (claimResult.error) return res.status(400).json({ error: claimResult.error });
+  const { walkId, walkName: claimedWalkName, added } = claimResult;
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
     'Distributed canvass: ' + walkerName + ' claimed ' + added + ' doors from ' + universe.name
   );
 
   geocodeWalkAddresses(walkId);
-  res.json({ success: true, walkId, added, walkName });
+  res.json({ success: true, walkId, added, walkName: claimedWalkName });
 });
 
 // Delete/close a universe
@@ -1623,7 +1663,7 @@ router.get('/walks/:id/print', (req, res) => {
   }
 
   // Generate printable HTML
-  const escH = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const escH = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Walk List: ${escH(walk.name)}</title>
 <style>
@@ -1755,13 +1795,16 @@ router.post('/walks/:id/remove-walker', (req, res) => {
 });
 
 // List walkers assigned to a walk (with per-walk stats)
+// Fixed: use LEFT JOIN to include legacy walkers without walker_id
 router.get('/walks/:id/walkers', (req, res) => {
   const members = db.prepare(`
-    SELECT wgm.walker_id, wgm.joined_at, wgm.doors_knocked, wgm.contacts_made, wgm.first_knock_at, wgm.last_knock_at,
-      w.name as walker_name, w.code as walker_code, w.is_active, w.phone as walker_phone
+    SELECT wgm.walker_id, wgm.walker_name, wgm.joined_at, wgm.doors_knocked, wgm.contacts_made,
+      wgm.first_knock_at, wgm.last_knock_at, wgm.phone,
+      COALESCE(w.name, wgm.walker_name) as walker_name,
+      w.code as walker_code, w.is_active, w.phone as walker_phone
     FROM walk_group_members wgm
-    JOIN walkers w ON w.id = wgm.walker_id
-    WHERE wgm.walk_id = ? AND wgm.walker_id IS NOT NULL
+    LEFT JOIN walkers w ON w.id = wgm.walker_id
+    WHERE wgm.walk_id = ?
     ORDER BY wgm.joined_at
   `).all(req.params.id);
   res.json({ members });
@@ -1769,6 +1812,9 @@ router.get('/walks/:id/walkers', (req, res) => {
 
 // Get all addresses for a walker (no split — everyone sees everything, first-knock-gets-credit)
 router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
+  const walkerId = parseInt(req.params.walkerId, 10);
+  if (isNaN(walkerId) || walkerId <= 0) return res.status(400).json({ error: 'Invalid walker ID.' });
+
   const walk = db.prepare('SELECT id, name, description, status FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
@@ -1784,7 +1830,7 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   // Mark which doors this walker knocked
   const myKnocks = new Set(
     db.prepare('SELECT address_id FROM walk_attempts WHERE walk_id = ? AND walker_id = ?')
-      .all(req.params.id, req.params.walkerId)
+      .all(req.params.id, walkerId)
       .map(r => r.address_id)
   );
   for (const addr of addresses) {
