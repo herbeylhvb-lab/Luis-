@@ -345,7 +345,7 @@ router.get('/walks/:id/volunteer', (req, res) => {
         if (excludeIds.has(v.id)) continue;
         const key = `${v.address}\0${v.city || ''}`;
         if (!householdMap[key]) householdMap[key] = [];
-        householdMap[key].push({ first_name: v.first_name, last_name: v.last_name, age: v.age });
+        householdMap[key].push({ voter_id: v.id, first_name: v.first_name, last_name: v.last_name, age: v.age });
       }
     }
   }
@@ -495,6 +495,125 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
   res.json({ success: true, gps_verified });
 });
 
+// Log a household door knock — marks address result + individual household member results
+router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
+  const { members, notes, gps_lat, gps_lng, gps_accuracy, walker_name, walker_id } = req.body;
+  // members: [{ voter_id, name, result }] — each person at the address
+  if (!members || !Array.isArray(members) || members.length === 0) {
+    return res.status(400).json({ error: 'Members array is required.' });
+  }
+
+  // Verify walker is assigned to this walk
+  if (walker_id) {
+    const member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
+    if (!member) return res.status(403).json({ error: 'Not assigned to this walk.' });
+  } else if (walker_name) {
+    const member = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').get(req.params.walkId, walker_name);
+    if (!member) return res.status(403).json({ error: 'Not a member of this walk group.' });
+  }
+
+  const addr = db.prepare('SELECT * FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+
+  // Determine overall address result from member results
+  // If anyone was contacted (not not_home), address is contacted
+  const contactedMembers = members.filter(m => m.result && m.result !== 'not_home');
+  const overallResult = contactedMembers.length > 0 ? contactedMembers[0].result : 'not_home';
+
+  // GPS verification
+  let gps_verified = 0;
+  if (gps_lat != null && gps_lng != null && isValidCoord(gps_lat, gps_lng)) {
+    if (gps_accuracy != null && gps_accuracy > MAX_GPS_ACCURACY) {
+      gps_verified = 0;
+    } else if (addr.lat != null && addr.lng != null) {
+      const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
+      gps_verified = dist <= 150 ? 1 : 0;
+    } else {
+      gps_verified = 1;
+    }
+  }
+
+  const knocked_at = new Date().toISOString();
+  const allNotes = notes || '';
+
+  const logHousehold = db.transaction(() => {
+    // Update the walk address with overall result
+    db.prepare(`
+      UPDATE walk_addresses SET
+        result = ?, notes = ?, knocked_at = ?,
+        gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
+      WHERE id = ? AND walk_id = ?
+    `).run(overallResult, allNotes, knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
+
+    // Record attempt
+    db.prepare(
+      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified);
+
+    // Update walker performance
+    if (walker_id) {
+      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult);
+      db.prepare(`
+        UPDATE walk_group_members SET
+          doors_knocked = doors_knocked + 1,
+          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          first_knock_at = COALESCE(first_knock_at, ?),
+          last_knock_at = ?
+        WHERE walk_id = ? AND walker_id = ?
+      `).run(knocked_at, knocked_at, req.params.walkId, walker_id);
+    } else if (walker_name) {
+      const isContact = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult);
+      db.prepare(`
+        UPDATE walk_group_members SET
+          doors_knocked = doors_knocked + 1,
+          contacts_made = contacts_made + ${isContact ? 1 : 0},
+          first_knock_at = COALESCE(first_knock_at, ?),
+          last_knock_at = ?
+        WHERE walk_id = ? AND walker_name = ?
+      `).run(knocked_at, knocked_at, req.params.walkId, walker_name);
+    }
+
+    // Log individual voter contacts for each member
+    for (const m of members) {
+      if (!m.voter_id || !m.result) continue;
+      if (!VALID_RESULTS.has(m.result)) continue;
+
+      const contactResult = {
+        'support': 'Strong Support', 'lean_support': 'Lean Support',
+        'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
+        'oppose': 'Strong Oppose', 'not_home': 'Not Home',
+        'refused': 'Refused', 'moved': 'Moved', 'deceased': 'Deceased', 'come_back': 'Come Back'
+      }[m.result] || m.result;
+
+      db.prepare(
+        'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+      ).run(m.voter_id, 'Door-knock', contactResult, '', walker_name || 'Block Walker');
+
+      const supportMap = {
+        'support': 'strong_support', 'lean_support': 'lean_support',
+        'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose'
+      };
+      if (supportMap[m.result]) {
+        db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[m.result], m.voter_id);
+      }
+    }
+
+    // Also log for the primary voter on the address
+    if (addr.voter_id) {
+      const primaryMember = members.find(m => m.voter_id === addr.voter_id);
+      if (!primaryMember) {
+        // Primary voter wasn't in the members list — log as not_home
+        db.prepare(
+          'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+        ).run(addr.voter_id, 'Door-knock', 'Not Home', '', walker_name || 'Block Walker');
+      }
+    }
+  });
+  logHousehold();
+
+  res.json({ success: true, gps_verified, result: overallResult });
+});
+
 // ===================== GROUP WALKING =====================
 
 // Join a walk group by join code
@@ -567,7 +686,7 @@ router.get('/walks/:id/walker/:name', (req, res) => {
 
   // Build household members for each address (other voters at same address+city)
   const householdStmt = db.prepare(
-    `SELECT first_name, last_name, age FROM voters
+    `SELECT id AS voter_id, first_name, last_name, age FROM voters
      WHERE address = ? AND city = ? AND id != ? ORDER BY last_name, first_name`
   );
   for (const addr of allAddresses) {
@@ -1695,7 +1814,7 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
         if (excludeIds.has(v.id)) continue;
         const key = `${v.address}\0${v.city || ''}`;
         if (!householdMap[key]) householdMap[key] = [];
-        householdMap[key].push({ first_name: v.first_name, last_name: v.last_name, age: v.age });
+        householdMap[key].push({ voter_id: v.id, first_name: v.first_name, last_name: v.last_name, age: v.age });
       }
     }
   }
