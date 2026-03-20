@@ -152,8 +152,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .view-toggle{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid #334155}
 .view-toggle-btn{padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
 .view-toggle-btn.active{background:#f59e0b;color:#000}
-#mapContainer{display:none;height:calc(100vh - 200px);min-height:300px;background:#1e293b;position:relative}
-#walkMap{height:100%;width:100%;z-index:1}
+#mapContainer{display:none;height:calc(100vh - 200px);min-height:300px;background:#1e293b;position:relative;overflow:hidden}
+#walkMap{height:100%;width:100%;z-index:1;transition:transform 0.15s ease-out}
 .map-legend{position:absolute;bottom:24px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0}
 .map-legend-item{display:flex;align-items:center;gap:6px;margin-bottom:4px}
 .map-legend-item:last-child{margin-bottom:0}
@@ -168,6 +168,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .door-gmaps:hover{color:#93c5fd}
 .locate-me-btn{position:absolute;bottom:70px;right:10px;z-index:1000;width:40px;height:40px;border-radius:50%;background:rgba(30,41,59,0.95);border:1px solid #334155;color:#3b82f6;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
 .locate-me-btn:hover{background:#1e293b;border-color:#3b82f6}
+.compass-btn{position:absolute;bottom:120px;right:10px;z-index:1000;width:40px;height:40px;border-radius:50%;background:rgba(30,41,59,0.95);border:1px solid #334155;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);transition:color 0.2s,border-color 0.2s}
+.compass-btn:hover{background:#1e293b;border-color:#60a5fa}
+.compass-btn.active{color:#f59e0b;border-color:#f59e0b}
+#walkMap.rotated .leaflet-map-pane{transform-origin:center center}
+.compass-arrow{transition:transform 0.3s ease}
 .success-toast.show{transform:translateX(-50%) translateY(0)}
 </style>
 </head>
@@ -323,6 +328,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="map-legend-item"><div class="map-legend-dot" style="background:#64748b"></div> Other walkers</div>
       <div class="map-legend-item"><div class="map-legend-dot" style="background:#3b82f6"></div> Your location</div>
     </div>
+    <button class="compass-btn" id="btnCompass" onclick="toggleCompassMode()" title="Rotate map to face your direction">
+      <svg class="compass-arrow" id="compassArrow" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 19,21 12,17 5,21" fill="currentColor" stroke="currentColor"/></svg>
+    </button>
     <button class="locate-me-btn" onclick="centerOnMe()" title="Center on my location">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
     </button>
@@ -1753,6 +1761,11 @@ function updateWalkerMarkerPosition() {
       .bindPopup('<strong>' + escHtml(myName) + '</strong><br>Your current position');
     mapState.walkerMarker.addTo(mapState.map);
   }
+
+  // In compass mode, keep map centered on walker
+  if (mapState.compassMode) {
+    mapState.map.setView(latlng, mapState.map.getZoom(), { animate: false });
+  }
 }
 
 function centerOnMe() {
@@ -1762,6 +1775,94 @@ function centerOnMe() {
     return;
   }
   mapState.map.setView([walkState.gpsLat, walkState.gpsLng], 17);
+}
+
+function toggleCompassMode() {
+  mapState.compassMode = !mapState.compassMode;
+  var btn = document.getElementById('btnCompass');
+  var mapEl = document.getElementById('walkMap');
+
+  if (mapState.compassMode) {
+    btn.classList.add('active');
+    startCompass();
+    // Center on walker when entering compass mode
+    if (walkState.gpsLat != null && walkState.gpsLng != null) {
+      mapState.map.setView([walkState.gpsLat, walkState.gpsLng], Math.max(mapState.map.getZoom(), 17));
+    }
+  } else {
+    btn.classList.remove('active');
+    stopCompass();
+    // Reset rotation
+    mapEl.style.transform = '';
+    document.getElementById('compassArrow').style.transform = '';
+  }
+}
+
+function startCompass() {
+  // Try DeviceOrientationEvent with permission request (required on iOS 13+)
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(function(state) {
+      if (state === 'granted') {
+        addCompassListener();
+      } else {
+        showToast('Compass permission denied. Enable in Settings.');
+        mapState.compassMode = false;
+        document.getElementById('btnCompass').classList.remove('active');
+      }
+    }).catch(function() {
+      showToast('Could not access compass');
+      mapState.compassMode = false;
+      document.getElementById('btnCompass').classList.remove('active');
+    });
+  } else if ('DeviceOrientationEvent' in window) {
+    addCompassListener();
+  } else {
+    showToast('Compass not available on this device');
+    mapState.compassMode = false;
+    document.getElementById('btnCompass').classList.remove('active');
+  }
+}
+
+function addCompassListener() {
+  mapState.compassHandler = function(e) {
+    var heading = null;
+    // webkitCompassHeading is available on iOS Safari
+    if (e.webkitCompassHeading != null) {
+      heading = e.webkitCompassHeading;
+    } else if (e.alpha != null) {
+      // Android: alpha is degrees from north (needs to be inverted for rotation)
+      heading = (360 - e.alpha);
+      if (e.absolute === false && e.alpha === 0) return; // No real data
+    }
+    if (heading == null) return;
+
+    mapState.currentHeading = heading;
+    applyMapRotation(heading);
+  };
+  window.addEventListener('deviceorientation', mapState.compassHandler, true);
+}
+
+function stopCompass() {
+  if (mapState.compassHandler) {
+    window.removeEventListener('deviceorientation', mapState.compassHandler, true);
+    mapState.compassHandler = null;
+  }
+}
+
+function applyMapRotation(heading) {
+  if (!mapState.compassMode) return;
+  var mapEl = document.getElementById('walkMap');
+  // Rotate the entire map so "up" points where you're facing
+  mapEl.style.transform = 'rotate(' + (-heading) + 'deg)';
+  mapEl.style.transformOrigin = 'center center';
+  // Rotate compass arrow icon to show north direction
+  document.getElementById('compassArrow').style.transform = 'rotate(' + (-heading) + 'deg)';
+
+  // Counter-rotate markers so text stays readable
+  var allIcons = mapEl.querySelectorAll('.leaflet-marker-icon');
+  for (var i = 0; i < allIcons.length; i++) {
+    allIcons[i].style.transform = (allIcons[i].style.transform || '').replace(/rotate\([^)]*\)/, '') + ' rotate(' + heading + 'deg)';
+  }
 }
 
 function buildGoogleMapsUrl(address, city, zip) {
@@ -1781,7 +1882,10 @@ var mapState = {
   refreshInterval: null,
   currentView: 'list',
   initialized: false,
-  hasFittedBounds: false
+  hasFittedBounds: false,
+  compassMode: false,
+  currentHeading: 0,
+  compassHandler: null
 };
 
 function setView(view) {
