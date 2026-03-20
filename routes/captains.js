@@ -1055,4 +1055,54 @@ router.delete('/captains/:id/team/:memberId', requireCaptainAuth, (req, res) => 
   res.json({ success: true });
 });
 
+// Transfer voters from one captain list to another (target must belong to a sub-captain)
+router.post('/captains/:id/transfer-voters', requireCaptainAuth, (req, res) => {
+  const captainId = parseInt(req.params.id, 10);
+  const { voterIds, targetListId, removeFromSource, sourceListId } = req.body;
+
+  if (!voterIds || !Array.isArray(voterIds) || voterIds.length === 0) {
+    return res.status(400).json({ error: 'voterIds array is required.' });
+  }
+  if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
+  if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
+
+  // Validate the captain owns the source list
+  const sourceList = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(sourceListId, captainId);
+  if (!sourceList) return res.status(404).json({ error: 'Source list not found or not owned by this captain.' });
+
+  // Validate the target list belongs to a sub-captain under this captain
+  const targetList = db.prepare(`
+    SELECT cl.id FROM captain_lists cl
+    JOIN captains c ON cl.captain_id = c.id
+    WHERE cl.id = ? AND c.parent_captain_id = ?
+  `).get(targetListId, captainId);
+  if (!targetList) return res.status(404).json({ error: 'Target list not found or does not belong to a sub-captain under this captain.' });
+
+  const doTransfer = db.transaction(() => {
+    const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
+    let transferred = 0;
+    for (const voterId of voterIds) {
+      const r = insert.run(targetListId, voterId);
+      transferred += r.changes;
+    }
+
+    if (removeFromSource) {
+      const del = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
+      for (const voterId of voterIds) {
+        del.run(sourceListId, voterId);
+      }
+    }
+
+    return transferred;
+  });
+
+  try {
+    const transferred = doTransfer();
+    res.json({ success: true, transferred, removed: !!removeFromSource });
+  } catch (e) {
+    console.error('Voter transfer error:', e.message);
+    res.status(500).json({ error: 'Failed to transfer voters.' });
+  }
+});
+
 module.exports = router;

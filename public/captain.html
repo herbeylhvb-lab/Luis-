@@ -156,17 +156,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 
-/* Drag-and-drop styles */
-.voter-card[draggable="true"]{cursor:grab}
-.voter-card[draggable="true"]:active{cursor:grabbing}
-.voter-card.dragging{opacity:0.4;transform:scale(0.97)}
-.list-item.drag-over,.team-member-row.drag-over{background:#2d3b4f;border-left-color:#f59e0b;box-shadow:inset 0 0 0 2px rgba(245,158,11,0.3)}
-.team-member-lists .list-item.drag-over{background:#1a2a3a;box-shadow:inset 0 0 0 2px rgba(245,158,11,0.4)}
-.drag-hint{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);padding:10px 20px;background:#422006;color:#fcd34d;border:1px solid #f59e0b;border-radius:10px;font-size:13px;font-weight:600;z-index:200;pointer-events:none;animation:fadeIn 0.3s ease;white-space:nowrap}
-.add-list-dropdown{position:absolute;right:0;top:100%;z-index:150;background:#1e293b;border:1px solid #475569;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);min-width:200px;max-height:300px;overflow-y:auto;padding:4px 0;margin-top:4px}
-.add-list-dropdown .drop-section{padding:4px 12px 2px;font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
-.add-list-dropdown .drop-item{display:block;width:100%;padding:8px 12px;border:none;background:none;color:#e2e8f0;font-size:13px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.add-list-dropdown .drop-item:hover{background:#334155;color:#f59e0b}
+/* Multi-select & Transfer */
+.right-voter-checkbox{width:18px;height:18px;accent-color:#f59e0b;cursor:pointer;flex-shrink:0;margin-right:8px}
+.right-voter.selected{background:#1a2536;border-left:3px solid #f59e0b}
+.right-voter.dragging{opacity:0.5;background:#334155}
+.select-all-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
+.select-all-bar label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.select-all-bar .sel-count{color:#f59e0b;font-weight:600;font-size:12px}
+.floating-action-bar{position:sticky;bottom:0;left:0;right:0;background:#1e293b;border-top:2px solid #f59e0b;padding:12px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;z-index:40;animation:fadeIn 0.2s ease}
+.floating-action-bar.visible{display:flex}
+.floating-action-bar .fab-count{font-size:14px;font-weight:700;color:#f59e0b;white-space:nowrap}
+.floating-action-bar select{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:120px;max-width:200px}
+.drop-highlight{outline:2px dashed #f59e0b!important;outline-offset:-2px;background:rgba(245,158,11,0.08)!important}
+
+@media(max-width:900px){
+  .floating-action-bar{position:fixed;bottom:62px;left:0;right:0;flex-wrap:wrap;padding:10px 12px}
+  .floating-action-bar select{min-width:100px}
+}
 
 /* CSV Import Modal */
 .csv-modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;box-sizing:border-box}
@@ -285,6 +291,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       </div>
       <div class="right-list" id="rightListContent">
         <div class="right-empty">Select a list from the sidebar</div>
+      </div>
+      <div class="floating-action-bar" id="floatingActionBar">
+        <span class="fab-count" id="fabCount">0 voters selected</span>
+        <span style="color:#64748b;font-size:13px">Send to &rarr;</span>
+        <select id="fabTargetList"></select>
+        <button class="btn btn-xs btn-captain" onclick="transferVoters(false)">Copy</button>
+        <button class="btn btn-xs btn-primary" onclick="transferVoters(true)">Move</button>
+        <button class="btn btn-xs btn-secondary" onclick="clearVoterSelection()">Cancel</button>
       </div>
     </div>
   </div>
@@ -406,7 +420,6 @@ async function refreshSidebar() {
   var assignedLists = data.assigned_lists || [];
   captainState.captain.lists = lists;
   captainState.captain.assigned_lists = assignedLists;
-  captainState._cachedSubCaptainLists = subCaptainLists;
   if (data.team_members) captainState.captain.team_members = data.team_members;
   if (data.sub_captains) captainState.captain.sub_captains = data.sub_captains;
 
@@ -551,35 +564,12 @@ async function refreshSidebar() {
         rightDiv.appendChild(shareBtn);
       }
       row.appendChild(rightDiv);
-      // Click team member name → directly open their first list (or expand if multiple)
-      (function(scNode) {
-        var mls = subCaptainLists.filter(function(l) { return l.sub_captain_id === scNode.id; });
-        var lls = teamLists.filter(function(l) { return l.team_member_name === scNode.name; });
-        var allLists = [];
-        mls.forEach(function(l) { allLists.push({ id: l.id, name: l.name, type: 'subcaptain', sub_captain_id: l.sub_captain_id || scNode.id }); });
-        lls.forEach(function(l) { allLists.push({ id: l.id, name: l.name, type: 'captain' }); });
-
-        row.addEventListener('click', function() {
-          if (allLists.length === 1) {
-            // Single list — go straight to it
-            var theList = allLists[0];
-            if (theList.type === 'subcaptain') {
-              selectSubCaptainList(theList.id, theList.name, theList.sub_captain_id);
-            } else {
-              selectList(theList.id, theList.name);
-            }
-          } else {
-            // Multiple lists or none — toggle expand to show them
-            captainState.expandedTeamMember = captainState.expandedTeamMember === scNode.name ? null : scNode.name;
-            refreshSidebar();
-          }
-        });
-
-        // Drop target for drag-and-drop
-        if (allLists.length > 0) {
-          setupListDropTarget(row, allLists[0]);
-        }
-      })(sc);
+      row.addEventListener('click', (function(person) {
+        return function() {
+          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+          refreshSidebar();
+        };
+      })(sc));
       teamContainer.appendChild(row);
 
       // Expandable lists container
@@ -630,8 +620,8 @@ async function refreshSidebar() {
             return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
           })(ml));
         }
-        // Drop target: drag voters directly into this list
-        setupListDropTarget(item, ml);
+        // Drop target for drag-and-drop voter transfer
+        setupDropTarget(item, ml.id, ml.name);
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -662,17 +652,12 @@ async function refreshSidebar() {
       nameSpan.textContent = tm.name;
       leftDiv.appendChild(nameSpan);
       row.appendChild(leftDiv);
-      // Click legacy team member → directly open their first list (or expand if multiple)
-      (function(person, pLists) {
-        row.addEventListener('click', function() {
-          if (pLists.length === 1) {
-            selectList(pLists[0].id, pLists[0].name);
-          } else {
-            captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
-            refreshSidebar();
-          }
-        });
-      })(tm, legacyLists);
+      row.addEventListener('click', (function(person) {
+        return function() {
+          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+          refreshSidebar();
+        };
+      })(tm));
       teamContainer.appendChild(row);
 
       var listsDiv = document.createElement('div');
@@ -704,6 +689,8 @@ async function refreshSidebar() {
         item.addEventListener('click', (function(listItem) {
           return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
         })(l));
+        // Drop target for drag-and-drop voter transfer
+        setupDropTarget(item, l.id, l.name);
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -741,6 +728,8 @@ function makeAssignedListItem(l) {
   count.textContent = l.voter_count || 0;
   item.appendChild(count);
   item.addEventListener('click', function() { selectAssignedList(l.id, l.name); });
+  // Drop target for drag-and-drop voter transfer
+  setupDropTarget(item, l.id, l.name);
   return item;
 }
 
@@ -761,8 +750,8 @@ function makeListItem(l) {
   count.textContent = l.voter_count || 0;
   item.appendChild(count);
   item.addEventListener('click', function() { selectList(l.id, l.name); });
-  // Drop target: drag voters directly into this list
-  setupListDropTarget(item, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+  // Drop target for drag-and-drop voter transfer
+  setupDropTarget(item, l.id, l.name);
   return item;
 }
 
@@ -796,6 +785,7 @@ async function selectAllTeamVoters() {
 }
 
 async function loadAllTeamVoters() {
+  _selectedVoterIds.clear();
   var data = await api('/api/captains/' + captainState.captain.id + '/team-voters');
   var voters = data.voters || [];
   _currentListVoters = voters;
@@ -864,8 +854,259 @@ function getListApiBase() {
 var _currentListVoters = [];
 var _currentListTab = 'all';
 
+// Multi-select state
+var _selectedVoterIds = new Set();
+
+function clearVoterSelection() {
+  _selectedVoterIds.clear();
+  updateSelectionUI();
+}
+
+function toggleVoterSelection(voterId) {
+  if (_selectedVoterIds.has(voterId)) _selectedVoterIds.delete(voterId);
+  else _selectedVoterIds.add(voterId);
+  updateSelectionUI();
+}
+
+function toggleSelectAll() {
+  var filtered = getFilteredVoters();
+  if (_selectedVoterIds.size === filtered.length && filtered.length > 0) {
+    _selectedVoterIds.clear();
+  } else {
+    filtered.forEach(function(v) { _selectedVoterIds.add(v.id); });
+  }
+  updateSelectionUI();
+}
+
+function getFilteredVoters() {
+  var voters = _currentListVoters;
+  var tab = _currentListTab;
+  if (tab === 'voted') return voters.filter(function(v) { return v.early_voted; });
+  if (tab === 'not_voted') return voters.filter(function(v) { return !v.early_voted; });
+  return voters;
+}
+
+function updateSelectionUI() {
+  var filtered = getFilteredVoters();
+  // Update checkboxes
+  filtered.forEach(function(v) {
+    var cb = document.getElementById('vcb_' + v.id);
+    if (cb) cb.checked = _selectedVoterIds.has(v.id);
+    var row = document.getElementById('vrow_' + v.id);
+    if (row) {
+      if (_selectedVoterIds.has(v.id)) row.classList.add('selected');
+      else row.classList.remove('selected');
+    }
+  });
+  // Update select-all checkbox
+  var selectAllCb = document.getElementById('selectAllCheckbox');
+  if (selectAllCb) {
+    selectAllCb.checked = filtered.length > 0 && _selectedVoterIds.size === filtered.length;
+    selectAllCb.indeterminate = _selectedVoterIds.size > 0 && _selectedVoterIds.size < filtered.length;
+  }
+  // Update count display
+  var countEl = document.getElementById('selectCount');
+  if (countEl) countEl.textContent = _selectedVoterIds.size > 0 ? _selectedVoterIds.size + ' selected' : '';
+  // Show/hide floating action bar
+  var fab = document.getElementById('floatingActionBar');
+  if (fab) {
+    if (_selectedVoterIds.size > 0) fab.classList.add('visible');
+    else fab.classList.remove('visible');
+  }
+  var fabCount = document.getElementById('fabCount');
+  if (fabCount) fabCount.textContent = _selectedVoterIds.size + ' voter' + (_selectedVoterIds.size !== 1 ? 's' : '') + ' selected';
+  // Populate target list dropdown
+  populateTransferTargets();
+}
+
+function populateTransferTargets() {
+  var sel = document.getElementById('fabTargetList');
+  if (!sel) return;
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  var lists = (captainState.captain && captainState.captain.lists) || [];
+  // Add captain's own lists (excluding current)
+  lists.forEach(function(l) {
+    if (l.id === captainState.selectedListId && captainState.selectedListType === 'captain') return;
+    var opt = document.createElement('option');
+    opt.value = 'captain:' + l.id;
+    opt.textContent = l.name + (l.team_member_name ? ' (' + l.team_member_name + ')' : '');
+    sel.appendChild(opt);
+  });
+  // Add assigned lists
+  var assigned = (captainState.captain && captainState.captain.assigned_lists) || [];
+  assigned.forEach(function(l) {
+    if (l.id === captainState.selectedListId && captainState.selectedListType === 'assigned') return;
+    var opt = document.createElement('option');
+    opt.value = 'assigned:' + l.id;
+    opt.textContent = l.name + ' (admin)';
+    sel.appendChild(opt);
+  });
+  if (sel.options.length === 0) {
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No other lists available';
+    sel.appendChild(opt);
+  }
+}
+
+// Transfer voters (copy or move)
+async function transferVoters(removeFromSource) {
+  if (_selectedVoterIds.size === 0) return;
+  var sel = document.getElementById('fabTargetList');
+  if (!sel || !sel.value) { alert('Please select a target list.'); return; }
+  var parts = sel.value.split(':');
+  var targetListId = parseInt(parts[1]);
+  var targetName = sel.options[sel.selectedIndex].textContent;
+
+  var voterIds = Array.from(_selectedVoterIds);
+  var action = removeFromSource ? 'Move' : 'Copy';
+
+  try {
+    await api('/api/captains/' + captainState.captain.id + '/transfer-voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voterIds: voterIds,
+        targetListId: targetListId,
+        sourceListId: captainState.selectedListId,
+        removeFromSource: removeFromSource
+      })
+    });
+    var count = voterIds.length;
+    showToast(action + 'd ' + count + ' voter' + (count !== 1 ? 's' : '') + ' to ' + targetName, 'success');
+    clearVoterSelection();
+    await loadListVoters();
+    refreshSidebar();
+  } catch(e) {
+    alert(action + ' failed: ' + (e.message || 'Unknown error'));
+  }
+}
+
+// Drag and drop state
+var _dragVoterIds = [];
+
+function onVoterDragStart(e, voterId) {
+  if (_selectedVoterIds.has(voterId)) {
+    _dragVoterIds = Array.from(_selectedVoterIds);
+  } else {
+    _dragVoterIds = [voterId];
+  }
+  e.dataTransfer.effectAllowed = 'copyMove';
+  e.dataTransfer.setData('text/plain', JSON.stringify(_dragVoterIds));
+  var row = document.getElementById('vrow_' + voterId);
+  if (row) row.classList.add('dragging');
+  var count = _dragVoterIds.length;
+  var ghost = document.createElement('div');
+  ghost.style.cssText = 'position:absolute;top:-1000px;background:#f59e0b;color:#000;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700';
+  ghost.textContent = count + ' voter' + (count !== 1 ? 's' : '');
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 0, 0);
+  setTimeout(function() { ghost.remove(); }, 0);
+}
+
+function onVoterDragEnd(e, voterId) {
+  var row = document.getElementById('vrow_' + voterId);
+  if (row) row.classList.remove('dragging');
+  _dragVoterIds = [];
+  document.querySelectorAll('.drop-highlight').forEach(function(el) { el.classList.remove('drop-highlight'); });
+}
+
+function setupDropTarget(el, listId, listName) {
+  el.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    el.classList.add('drop-highlight');
+  });
+  el.addEventListener('dragleave', function(e) {
+    el.classList.remove('drop-highlight');
+  });
+  el.addEventListener('drop', function(e) {
+    e.preventDefault();
+    el.classList.remove('drop-highlight');
+    var voterIds;
+    try { voterIds = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(ex) { return; }
+    if (!voterIds || !voterIds.length) return;
+    showDropConfirmDialog(voterIds, listId, listName);
+  });
+}
+
+function showDropConfirmDialog(voterIds, targetListId, targetListName) {
+  var count = voterIds.length;
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'dropConfirmModal';
+
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.maxWidth = '400px';
+
+  var h3 = document.createElement('h3');
+  h3.textContent = 'Transfer ' + count + ' voter' + (count !== 1 ? 's' : '');
+  box.appendChild(h3);
+
+  var desc = document.createElement('p');
+  desc.style.cssText = 'color:#94a3b8;font-size:14px;margin-bottom:16px';
+  desc.textContent = 'Send ' + count + ' voter' + (count !== 1 ? 's' : '') + ' to "' + targetListName + '"?';
+  box.appendChild(desc);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+
+  var moveBtn = document.createElement('button');
+  moveBtn.className = 'btn btn-primary';
+  moveBtn.textContent = 'Move (remove from current)';
+  moveBtn.addEventListener('click', function() {
+    closeModal('dropConfirmModal');
+    executeDropTransfer(voterIds, targetListId, true);
+  });
+  btnRow.appendChild(moveBtn);
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'btn btn-captain';
+  copyBtn.textContent = 'Copy (keep in current)';
+  copyBtn.addEventListener('click', function() {
+    closeModal('dropConfirmModal');
+    executeDropTransfer(voterIds, targetListId, false);
+  });
+  btnRow.appendChild(copyBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { closeModal('dropConfirmModal'); });
+  btnRow.appendChild(cancelBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal('dropConfirmModal'); });
+  document.body.appendChild(overlay);
+}
+
+async function executeDropTransfer(voterIds, targetListId, removeFromSource) {
+  try {
+    await api('/api/captains/' + captainState.captain.id + '/transfer-voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voterIds: voterIds,
+        targetListId: targetListId,
+        sourceListId: captainState.selectedListId,
+        removeFromSource: removeFromSource
+      })
+    });
+    var action = removeFromSource ? 'Moved' : 'Copied';
+    showToast(action + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : ''), 'success');
+    clearVoterSelection();
+    await loadListVoters();
+    refreshSidebar();
+  } catch(e) {
+    alert('Transfer failed: ' + (e.message || 'Unknown error'));
+  }
+}
+
 async function loadListVoters() {
   if (!captainState.selectedListId) return;
+  _selectedVoterIds.clear();
   var data = await api(getListApiBase() + '/voters');
   var voters = data.voters || [];
   _currentListVoters = voters;
@@ -910,11 +1151,17 @@ function renderListVoters() {
   var el = document.getElementById('rightListContent');
   el.textContent = '';
 
+  // Clear selection when re-rendering (tab switch keeps selection valid)
+  // Remove voters no longer in filtered set
+  var filteredIds = new Set();
+
   // Counts
   var votedCount = voters.filter(function(v) { return v.early_voted; }).length;
   var notVotedCount = voters.length - votedCount;
 
   if (voters.length === 0) {
+    _selectedVoterIds.clear();
+    updateSelectionUI();
     var emptyDiv = document.createElement('div');
     emptyDiv.className = 'right-empty';
     emptyDiv.textContent = 'No voters in this list yet. Search and add voters from the center panel.';
@@ -938,7 +1185,7 @@ function renderListVoters() {
       'color:' + (isActive ? t.color : '#64748b') + ';' +
       'border-bottom:3px solid ' + (isActive ? t.color : 'transparent');
     tabBtn.textContent = t.label;
-    tabBtn.addEventListener('click', function() { _currentListTab = t.key; renderListVoters(); });
+    tabBtn.addEventListener('click', function() { _currentListTab = t.key; _selectedVoterIds.clear(); renderListVoters(); });
     tabBar.appendChild(tabBtn);
   });
   el.appendChild(tabBar);
@@ -948,7 +1195,13 @@ function renderListVoters() {
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
   else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
 
+  // Prune selection to only include voters in the current filtered set
+  filtered.forEach(function(v) { filteredIds.add(v.id); });
+  _selectedVoterIds.forEach(function(id) { if (!filteredIds.has(id)) _selectedVoterIds.delete(id); });
+
   if (filtered.length === 0) {
+    _selectedVoterIds.clear();
+    updateSelectionUI();
     var noResults = document.createElement('div');
     noResults.className = 'right-empty';
     noResults.textContent = tab === 'voted' ? 'No voters have voted yet.' : 'All voters have voted!';
@@ -956,25 +1209,48 @@ function renderListVoters() {
     return;
   }
 
+  // Select all / deselect all bar
+  var selectBar = document.createElement('div');
+  selectBar.className = 'select-all-bar';
+  var selectLabel = document.createElement('label');
+  var selectAllCb = document.createElement('input');
+  selectAllCb.type = 'checkbox';
+  selectAllCb.id = 'selectAllCheckbox';
+  selectAllCb.className = 'right-voter-checkbox';
+  selectAllCb.checked = _selectedVoterIds.size === filtered.length && filtered.length > 0;
+  selectAllCb.indeterminate = _selectedVoterIds.size > 0 && _selectedVoterIds.size < filtered.length;
+  selectAllCb.addEventListener('change', function() { toggleSelectAll(); });
+  selectLabel.appendChild(selectAllCb);
+  var selectText = document.createElement('span');
+  selectText.textContent = 'Select All';
+  selectLabel.appendChild(selectText);
+  selectBar.appendChild(selectLabel);
+  var countSpan = document.createElement('span');
+  countSpan.className = 'sel-count';
+  countSpan.id = 'selectCount';
+  countSpan.textContent = _selectedVoterIds.size > 0 ? _selectedVoterIds.size + ' selected' : '';
+  selectBar.appendChild(countSpan);
+  el.appendChild(selectBar);
+
   filtered.forEach(function(v) {
     var row = document.createElement('div');
-    row.className = 'right-voter';
+    row.className = 'right-voter' + (_selectedVoterIds.has(v.id) ? ' selected' : '');
+    row.id = 'vrow_' + v.id;
     row.draggable = true;
-    row.style.cursor = 'grab';
-    row.addEventListener('dragstart', (function(voter) { return function(e) {
-      e.dataTransfer.setData('text/plain', JSON.stringify({ voter_id: voter.id, voter_name: (voter.first_name || '') + ' ' + (voter.last_name || '') }));
-      e.dataTransfer.effectAllowed = 'copy';
-      row.style.opacity = '0.4';
-      showDragHint(true);
-    }; })(v));
-    row.addEventListener('dragend', function() {
-      row.style.opacity = '1';
-      showDragHint(false);
-      clearAllDragOver();
-    });
+    row.addEventListener('dragstart', (function(vid) { return function(e) { onVoterDragStart(e, vid); }; })(v.id));
+    row.addEventListener('dragend', (function(vid) { return function(e) { onVoterDragEnd(e, vid); }; })(v.id));
+
+    // Checkbox
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'right-voter-checkbox';
+    cb.id = 'vcb_' + v.id;
+    cb.checked = _selectedVoterIds.has(v.id);
+    cb.addEventListener('change', (function(vid) { return function() { toggleVoterSelection(vid); }; })(v.id));
+    row.appendChild(cb);
 
     var info = document.createElement('div');
-    info.style.cursor = 'pointer';
+    info.style.cssText = 'cursor:pointer;flex:1;min-width:0';
     info.addEventListener('click', (function(voter) { return function() { showVoterDetail(voter); }; })(v));
     var nameRow = document.createElement('div');
     nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
@@ -1027,6 +1303,9 @@ function renderListVoters() {
 
     el.appendChild(row);
   });
+
+  // Update floating bar state after render
+  updateSelectionUI();
 }
 
 // Download current filtered list as CSV
@@ -1171,20 +1450,6 @@ async function searchVoters() {
   voters.forEach(function(v) {
     var card = document.createElement('div');
     card.className = 'voter-card';
-    card.draggable = true;
-    card.dataset.voterId = v.id;
-    card.dataset.voterName = (v.first_name || '') + ' ' + (v.last_name || '');
-    card.addEventListener('dragstart', function(e) {
-      e.dataTransfer.setData('text/plain', JSON.stringify({ voter_id: v.id, voter_name: (v.first_name || '') + ' ' + (v.last_name || '') }));
-      e.dataTransfer.effectAllowed = 'copy';
-      card.classList.add('dragging');
-      showDragHint(true);
-    });
-    card.addEventListener('dragend', function() {
-      card.classList.remove('dragging');
-      showDragHint(false);
-      clearAllDragOver();
-    });
 
     // Top row: name + add button
     var top = document.createElement('div');
@@ -1219,8 +1484,6 @@ async function searchVoters() {
     nameDiv.appendChild(addrEl);
     top.appendChild(nameDiv);
 
-    var addWrap = document.createElement('div');
-    addWrap.style.cssText = 'display:flex;gap:2px;flex-shrink:0';
     var addBtn = document.createElement('button');
     addBtn.className = 'btn btn-xs btn-captain';
     addBtn.textContent = '+ Add';
@@ -1228,20 +1491,7 @@ async function searchVoters() {
       if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
       showAddVoterModal(voter);
     }; })(v));
-    addWrap.appendChild(addBtn);
-    // Dropdown arrow to pick which list to add to
-    var dropBtn = document.createElement('button');
-    dropBtn.className = 'btn btn-xs btn-captain';
-    dropBtn.style.cssText = 'padding:10px 6px;border-left:1px solid rgba(0,0,0,0.2);border-radius:0 6px 6px 0;min-width:28px';
-    addBtn.style.borderRadius = '6px 0 0 6px';
-    dropBtn.textContent = '\u25BC';
-    dropBtn.title = 'Add to a specific list';
-    dropBtn.addEventListener('click', (function(voter, wrapper) { return function(e) {
-      e.stopPropagation();
-      showAddToListDropdown(voter, wrapper);
-    }; })(v, addWrap));
-    addWrap.appendChild(dropBtn);
-    top.appendChild(addWrap);
+    top.appendChild(addBtn);
     card.appendChild(top);
 
     // Meta badges
@@ -1786,30 +2036,8 @@ async function submitAddVoter(voterId) {
     showToast('All selected voters are already on this list.', 'warn');
   }
 
-  // Reset search so user can keep adding voters
-  document.getElementById('voterSearch').value = '';
-  var phoneFilter = document.getElementById('capPhoneFilter');
-  var vanidFilter = document.getElementById('capVanidFilter');
-  var zipFilter = document.getElementById('capZipFilter');
-  var precinctFilter = document.getElementById('capPrecinctFilter');
-  var addressFilter = document.getElementById('capAddressFilter');
-  if (phoneFilter) phoneFilter.value = '';
-  if (vanidFilter) vanidFilter.value = '';
-  if (zipFilter) zipFilter.value = '';
-  if (precinctFilter) precinctFilter.value = '';
-  if (addressFilter) addressFilter.value = '';
-  var searchEl = document.getElementById('searchResults');
-  searchEl.textContent = '';
-  var emptyDiv = document.createElement('div');
-  emptyDiv.className = 'empty-state';
-  var icon = document.createElement('div');
-  icon.className = 'icon';
-  icon.textContent = '\uD83D\uDD0D';
-  emptyDiv.appendChild(icon);
-  var p = document.createElement('p');
-  p.textContent = 'Search for voters to add them to your lists.';
-  emptyDiv.appendChild(p);
-  searchEl.appendChild(emptyDiv);
+  // On mobile, switch to My List tab so user sees the voter they just added
+  if (window.innerWidth <= 900) switchMobileTab('list');
 
   await loadListVoters();
   refreshSidebar();
@@ -2453,178 +2681,6 @@ async function addTeamMember() {
     overlay.appendChild(box);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
     document.body.appendChild(overlay);
-  }
-}
-
-// ===================== DRAG & DROP VOTERS INTO LISTS =====================
-
-var _dragHintEl = null;
-var _dragExpandTimeout = null;
-
-function showDragHint(show) {
-  if (show && !_dragHintEl) {
-    _dragHintEl = document.createElement('div');
-    _dragHintEl.className = 'drag-hint';
-    _dragHintEl.textContent = 'Drop on a team member or list in the sidebar';
-    document.body.appendChild(_dragHintEl);
-  } else if (!show && _dragHintEl) {
-    _dragHintEl.remove();
-    _dragHintEl = null;
-  }
-}
-
-function clearAllDragOver() {
-  document.querySelectorAll('.drag-over').forEach(function(el) {
-    el.classList.remove('drag-over');
-  });
-  if (_dragExpandTimeout) {
-    clearTimeout(_dragExpandTimeout);
-    _dragExpandTimeout = null;
-  }
-}
-
-function setupListDropTarget(item, listInfo) {
-  item.addEventListener('dragover', function(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-    item.classList.add('drag-over');
-  });
-  item.addEventListener('dragleave', function(e) {
-    if (!item.contains(e.relatedTarget)) {
-      item.classList.remove('drag-over');
-    }
-  });
-  item.addEventListener('drop', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    item.classList.remove('drag-over');
-    showDragHint(false);
-    clearAllDragOver();
-    try {
-      var data = JSON.parse(e.dataTransfer.getData('text/plain'));
-      if (data && data.voter_id) {
-        dropVoterOnList(data.voter_id, data.voter_name, listInfo);
-      }
-    } catch(err) { console.warn('Drop parse error:', err); }
-  });
-}
-
-function showAddToListDropdown(voter, anchorEl) {
-  // Close any existing dropdown
-  var old = document.querySelector('.add-list-dropdown');
-  if (old) old.remove();
-
-  var dropdown = document.createElement('div');
-  dropdown.className = 'add-list-dropdown';
-
-  // My lists
-  var myLists = (captainState.captain.lists || []).filter(function(l) { return !l.team_member_name; });
-  if (myLists.length > 0) {
-    var sec = document.createElement('div');
-    sec.className = 'drop-section';
-    sec.textContent = 'My Lists';
-    dropdown.appendChild(sec);
-    myLists.forEach(function(l) {
-      var btn = document.createElement('button');
-      btn.className = 'drop-item';
-      btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
-      btn.addEventListener('click', function() {
-        dropdown.remove();
-        quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
-      });
-      dropdown.appendChild(btn);
-    });
-  }
-
-  // Sub-captain lists
-  var subCaptains = captainState.captain.sub_captains || [];
-  if (subCaptains.length > 0) {
-    // Get fresh sub_captain_lists from the last sidebar refresh
-    var subCaptainLists = [];
-    var teamLists = (captainState.captain.lists || []).filter(function(l) { return l.team_member_name; });
-    // We need to fetch sub-captain lists — they're stored during refreshSidebar
-    // Use the cached data from the API response
-    if (captainState._cachedSubCaptainLists) {
-      subCaptainLists = captainState._cachedSubCaptainLists;
-    }
-
-    subCaptains.forEach(function(sc) {
-      var scLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
-      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
-      if (scLists.length > 0 || legacyLists.length > 0) {
-        var sec = document.createElement('div');
-        sec.className = 'drop-section';
-        sec.textContent = sc.name;
-        dropdown.appendChild(sec);
-        scLists.forEach(function(l) {
-          var btn = document.createElement('button');
-          btn.className = 'drop-item';
-          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
-          btn.addEventListener('click', function() {
-            dropdown.remove();
-            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'subcaptain', sub_captain_id: l.sub_captain_id || sc.id });
-          });
-          dropdown.appendChild(btn);
-        });
-        legacyLists.forEach(function(l) {
-          var btn = document.createElement('button');
-          btn.className = 'drop-item';
-          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
-          btn.addEventListener('click', function() {
-            dropdown.remove();
-            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
-          });
-          dropdown.appendChild(btn);
-        });
-      }
-    });
-  }
-
-  // Position relative to anchor
-  anchorEl.style.position = 'relative';
-  anchorEl.appendChild(dropdown);
-
-  // Close on click outside
-  function closeDropdown(e) {
-    if (!dropdown.contains(e.target) && !anchorEl.contains(e.target)) {
-      dropdown.remove();
-      document.removeEventListener('click', closeDropdown);
-    }
-  }
-  setTimeout(function() { document.addEventListener('click', closeDropdown); }, 10);
-}
-
-async function quickAddVoterToList(voter, listInfo) {
-  var voterName = (voter.first_name || '') + ' ' + (voter.last_name || '');
-  await dropVoterOnList(voter.id, voterName, listInfo);
-}
-
-async function dropVoterOnList(voterId, voterName, listInfo) {
-  var cid = captainState.captain.id;
-  var apiUrl;
-  if (listInfo.type === 'subcaptain' && listInfo.sub_captain_id) {
-    apiUrl = '/api/captains/' + listInfo.sub_captain_id + '/lists/' + listInfo.id + '/voters';
-  } else {
-    apiUrl = '/api/captains/' + cid + '/lists/' + listInfo.id + '/voters';
-  }
-  try {
-    var data = await api(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voter_id: voterId })
-    });
-    if (data.already) {
-      showToast((voterName || 'Voter') + ' is already on ' + listInfo.name, 'warn');
-    } else {
-      showToast((voterName || 'Voter') + ' added to ' + listInfo.name, 'success');
-    }
-    // Refresh list if we're viewing the target list
-    if (captainState.selectedListId === listInfo.id) {
-      await loadListVoters();
-    }
-    refreshSidebar();
-  } catch(err) {
-    showToast('Failed to add voter: ' + (err.message || 'Unknown error'), 'warn');
   }
 }
 

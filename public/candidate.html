@@ -15,8 +15,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .login-card p{color:#94a3b8;font-size:0.9rem;margin-bottom:1.5rem}
 .form-group{margin-bottom:1rem;text-align:left}
 .form-group label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px}
-.form-group input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:16px;outline:none}
-.form-group input:focus{border-color:#818cf8}
+.form-group input,.form-group select{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:16px;outline:none}
+.form-group input:focus,.form-group select:focus{border-color:#818cf8}
 .code-input{text-align:center;font-size:24px!important;letter-spacing:4px;font-weight:700;text-transform:uppercase}
 .error-msg{color:#ef4444;font-size:14px;margin-top:0.5rem}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:12px 24px;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
@@ -38,15 +38,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .header-right .info{font-size:13px;color:#94a3b8}
 .btn-leave{padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}
 
-/* TABS */
-.tab-bar{display:flex;background:#1e293b;border-bottom:1px solid #334155;padding:0 24px;gap:0}
-.tab-btn{padding:12px 24px;font-size:14px;font-weight:600;color:#64748b;background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;transition:all 0.2s}
-.tab-btn:hover{color:#94a3b8}
-.tab-btn.active{color:#818cf8;border-bottom-color:#818cf8}
-.tab-content{display:none;height:calc(100vh - 104px);overflow-y:auto}
-.tab-content.active{display:block}
+/* VIEW SWITCHING */
+.view-container{display:none}
+.view-container.active{display:block}
 
-/* DASHBOARD */
+/* DASHBOARD VIEW */
 .dash-container{max-width:1100px;margin:0 auto;padding:24px}
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:16px;margin-bottom:28px}
 .stat-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;text-align:center}
@@ -89,10 +85,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .empty-state{text-align:center;padding:3rem 1rem;color:#475569}
 .empty-state .icon{font-size:3rem;margin-bottom:0.5rem}
 
-/* VOTER SEARCH TAB */
-.search-layout{display:flex;height:100%;overflow:hidden}
-.search-center{width:420px;flex-shrink:0;overflow-y:auto;padding:20px;border-right:1px solid #334155}
-.search-right{flex:1;min-width:400px;overflow-y:auto;display:flex;flex-direction:column}
+/* ============== WORKSPACE VIEW — 3-column layout ============== */
+.app-layout{display:flex;height:calc(100vh - 52px);overflow:hidden}
+
+/* Left sidebar */
+.sidebar{width:280px;background:#1e293b;border-right:1px solid #334155;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar-section{padding:14px 16px 6px;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:1px}
+.list-item{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;font-size:14px;color:#94a3b8;transition:background 0.15s;border-left:3px solid transparent}
+.list-item:hover{background:#334155}
+.list-item.active{background:#334155;color:#818cf8;border-left-color:#818cf8}
+.list-item .count{font-size:12px;color:#64748b;background:#0f172a;padding:2px 8px;border-radius:9999px}
+.sidebar-actions{padding:12px 16px;border-top:1px solid #334155;margin-top:auto}
+.sidebar-btn{display:block;width:100%;padding:8px;border:1px dashed #475569;border-radius:8px;background:transparent;color:#94a3b8;font-size:13px;cursor:pointer;text-align:center;margin-bottom:8px}
+.sidebar-btn:hover{border-color:#818cf8;color:#818cf8}
+.sidebar-dash-btn{display:block;width:100%;padding:10px;border:none;border-radius:8px;background:#818cf8;color:#fff;font-size:14px;font-weight:600;cursor:pointer;text-align:center;margin-bottom:16px}
+.sidebar-dash-btn:hover{opacity:0.85}
+
+/* Center panel */
+.center-panel{width:380px;flex-shrink:0;overflow-y:auto;padding:20px;border-right:1px solid #334155}
 .search-bar{position:relative;margin-bottom:20px}
 .search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
 .search-bar input:focus{border-color:#818cf8}
@@ -118,6 +128,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .household-section h4{font-size:13px;color:#64748b;margin-bottom:8px}
 .household-member{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;font-size:13px}
 
+/* Right panel */
+.right-panel{flex:1;min-width:400px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;display:flex;flex-direction:column}
 .right-header{padding:16px;border-bottom:1px solid #334155}
 .right-header h3{font-size:15px;margin-bottom:2px}
 .right-header .sub{font-size:12px;color:#64748b}
@@ -130,7 +142,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .remove-btn:hover{background:#450a0a}
 .right-empty{text-align:center;padding:3rem 1rem;color:#475569;font-size:14px}
 
-/* LIST SELECTOR IN SEARCH TAB */
+/* LIST SELECTOR IN CENTER */
 .list-selector{margin-bottom:16px;display:flex;align-items:center;gap:8px}
 .list-selector label{font-size:12px;color:#64748b;white-space:nowrap}
 .list-selector select{flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:16px;outline:none}
@@ -142,14 +154,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 @media(max-width:600px){.modal-box{padding:16px;max-width:100%;width:95%;border-radius:10px}}
 .modal-box h3{margin-bottom:16px;font-size:16px}
 
-@media(max-width:768px){
-  .stats-grid{grid-template-columns:repeat(2,1fr)}
-  .captain-stats{gap:16px}
-  .search-layout{flex-direction:column}
-  .search-center{width:100%;border-right:none;border-bottom:1px solid #334155}
-  .search-right{min-width:100%;max-height:50vh}
-  .tab-btn{padding:10px 14px;font-size:13px}
-}
 /* MASTER LIST */
 .master-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px}
 .master-stats{display:flex;gap:16px}
@@ -176,10 +180,73 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .voted-pct.yellow{color:#eab308}
 .voted-pct.red{color:#ef4444}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* MULTI-SELECT & TRANSFER */
+.right-voter-checkbox{width:18px;height:18px;accent-color:#818cf8;cursor:pointer;flex-shrink:0;margin-right:8px;margin-top:2px}
+.right-voter.selected{background:#1e1b4b;border-color:#4338ca}
+.select-all-row{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
+.select-all-row label{cursor:pointer;display:flex;align-items:center;gap:6px}
+.select-all-row .selected-count{margin-left:auto;color:#818cf8;font-weight:600;font-size:12px}
+.floating-action-bar{position:sticky;bottom:0;left:0;right:0;background:#1e293b;border-top:2px solid #818cf8;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:10;box-shadow:0 -4px 12px rgba(0,0,0,0.4)}
+.floating-action-bar .fab-info{font-size:13px;color:#c4b5fd;font-weight:600;white-space:nowrap}
+.floating-action-bar select{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;max-width:200px}
+.floating-action-bar .btn{padding:8px 16px;font-size:13px}
+.right-voter[draggable="true"]{cursor:grab}
+.right-voter[draggable="true"]:active{cursor:grabbing;opacity:0.7}
+.list-item.drag-over{border:2px solid #818cf8!important;background:#2e1065!important;border-radius:6px}
+.drop-confirm-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:200}
+.drop-confirm-box{background:#1e293b;border:1px solid #818cf8;border-radius:16px;padding:28px;max-width:400px;width:90%;text-align:center}
+.drop-confirm-box h3{margin-bottom:12px;color:#e2e8f0;font-size:16px}
+.drop-confirm-box p{color:#94a3b8;margin-bottom:20px;font-size:14px}
+.drop-confirm-box .btn-row{display:flex;gap:8px;justify-content:center}
+
+/* Mobile tab bar for workspace */
+.mobile-tabs{display:none}
+.mobile-tab{flex:1;display:flex;flex-direction:column;align-items:center;padding:8px 4px 4px;background:none;border:none;color:#64748b;font-size:10px;cursor:pointer;font-weight:600;letter-spacing:0.3px}
+.mobile-tab.active{color:#818cf8}
+.mobile-tab .tab-icon{font-size:22px;margin-bottom:2px;line-height:1}
+
+/* Responsive */
+@media(max-width:900px){
+  .mobile-tabs{
+    display:flex;
+    position:fixed;
+    bottom:0;left:0;right:0;
+    background:#1e293b;
+    border-top:1px solid #334155;
+    z-index:50;
+    padding:4px 0 env(safe-area-inset-bottom,8px)
+  }
+  .app-layout{
+    flex-direction:column;
+    height:calc(100vh - 52px - 62px);
+    overflow:hidden
+  }
+  .sidebar,.center-panel,.right-panel{
+    width:100%;display:none!important;
+    max-height:none;overflow-y:auto;
+    border:none!important;min-width:0
+  }
+  .sidebar.mob-on{display:flex!important;flex:1;height:100%}
+  .center-panel.mob-on{display:block!important;flex:1;height:100%}
+  .right-panel.mob-on{display:flex!important;flex:1;height:100%}
+  .center-panel{padding:14px 12px;width:100%}
+  .voter-card{padding:12px;margin-bottom:8px;border-radius:10px}
+  .voter-card .voter-name{font-size:15px}
+  .voter-card .voter-addr{font-size:12px}
+  .right-voter{padding:8px 10px;font-size:12px}
+  .search-bar input{padding:12px 14px;font-size:14px}
+  .app-header{padding:10px 14px}
+  .app-header h1{font-size:16px}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .captain-stats{gap:16px}
+}
+
 @media print{
   body{background:#fff!important;color:#000!important}
-  .app-header,.tab-bar,.btn,.btn-icon,.action-btns,.master-search,.btn-leave,.captain-code,.captain-portal-link,.progress-bar{display:none!important}
-  .tab-content{display:block!important;height:auto!important;overflow:visible!important}
+  .app-header,.tab-bar,.btn,.btn-icon,.action-btns,.master-search,.btn-leave,.captain-code,.captain-portal-link,.progress-bar,.sidebar,.center-panel,.mobile-tabs,.sidebar-dash-btn{display:none!important}
+  .view-container{display:block!important;height:auto!important;overflow:visible!important}
+  .right-panel{display:block!important;border:none!important;min-width:0!important}
   .master-table thead th{background:#f1f5f9!important;color:#000!important;border-bottom:2px solid #000!important}
   .master-table tbody td{border-bottom:1px solid #ccc!important;color:#000!important}
   .badge,.source-tag,.overlap-badge{border:1px solid #999!important;color:#000!important;background:#f1f5f9!important}
@@ -217,19 +284,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
   </div>
 
-  <!-- TABS -->
-  <div class="tab-bar">
-    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
-    <button class="tab-btn" data-tab="search" onclick="switchTab('search')">Voter Search</button>
-    <button class="tab-btn" data-tab="lists" onclick="switchTab('lists')">My Lists</button>
-    <button class="tab-btn" data-tab="master" onclick="switchTab('master')">Master List</button>
-  </div>
-
-  <!-- ===================== DASHBOARD TAB ===================== -->
-  <div id="tab-dashboard" class="tab-content active">
+  <!-- ===================== VIEW 1: DASHBOARD ===================== -->
+  <div id="view-dashboard" class="view-container active" style="height:calc(100vh - 52px);overflow-y:auto">
     <div class="dash-container">
       <!-- STATS -->
       <div class="stats-grid" id="statsGrid"></div>
+
+      <!-- Go to Workspace button -->
+      <div style="text-align:center;margin-bottom:28px">
+        <button class="btn btn-primary" onclick="switchView('workspace')" style="padding:14px 36px;font-size:16px">Open Workspace &#8594;</button>
+      </div>
 
       <!-- CAPTAINS -->
       <div class="section-title">
@@ -247,10 +311,47 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     </div>
   </div>
 
-  <!-- ===================== VOTER SEARCH TAB ===================== -->
-  <div id="tab-search" class="tab-content">
-    <div class="search-layout">
-      <div class="search-center">
+  <!-- ===================== VIEW 2: WORKSPACE (3-column) ===================== -->
+  <div id="view-workspace" class="view-container">
+
+    <!-- Mobile bottom tab bar -->
+    <div class="mobile-tabs" id="mobileTabs">
+      <button class="mobile-tab" onclick="switchMobileTab('dashboard')" id="mobTabDashboard">
+        <span class="tab-icon">&#128200;</span>Dashboard
+      </button>
+      <button class="mobile-tab active" onclick="switchMobileTab('lists')" id="mobTabLists">
+        <span class="tab-icon">&#128203;</span>Lists
+      </button>
+      <button class="mobile-tab" onclick="switchMobileTab('search')" id="mobTabSearch">
+        <span class="tab-icon">&#128269;</span>Search
+      </button>
+      <button class="mobile-tab" onclick="switchMobileTab('view')" id="mobTabView">
+        <span class="tab-icon">&#128065;</span>View
+      </button>
+    </div>
+
+    <div class="app-layout">
+      <!-- LEFT SIDEBAR -->
+      <div class="sidebar" id="workspaceSidebar">
+        <div style="padding:12px 16px 0">
+          <button class="sidebar-dash-btn" onclick="switchView('dashboard')">&#8592; Dashboard</button>
+        </div>
+
+        <div class="sidebar-section">My Captains</div>
+        <div id="sidebarCaptains"></div>
+
+        <div class="sidebar-section">My Lists</div>
+        <div id="sidebarLists"></div>
+
+        <div class="sidebar-actions">
+          <button class="sidebar-btn" onclick="sidebarSelectMaster()">&#128203; Master List</button>
+          <button class="sidebar-btn" onclick="showNewCaptainModal()">+ New Captain</button>
+          <button class="sidebar-btn" onclick="showNewListModal()">+ New List</button>
+        </div>
+      </div>
+
+      <!-- CENTER: Search -->
+      <div class="center-panel" id="workspaceCenter">
         <div class="list-selector">
           <label>Add to:</label>
           <select id="activeListSelect" onchange="onListSelectChange()">
@@ -273,6 +374,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
               <div class="form-group"><label>ZIP</label><input type="text" id="candZipFilter" placeholder="All" oninput="debounceSearch()"></div>
               <div class="form-group"><label>Precinct</label><input type="text" id="candPrecinctFilter" placeholder="All" oninput="debounceSearch()"></div>
               <div class="form-group" style="grid-column:1/-1"><label>Address</label><input type="text" id="candAddressFilter" placeholder="Street..." oninput="debounceSearch()"></div>
+              <div class="form-group"><label>Party</label>
+                <select id="candPartyFilter" onchange="debounceSearch()">
+                  <option value="">All Parties</option>
+                  <option value="DEM">DEM</option>
+                  <option value="REP">REP</option>
+                  <option value="NPA">NPA</option>
+                  <option value="LPF">LPF</option>
+                </select>
+              </div>
+              <div class="form-group"><label>Support</label>
+                <select id="candSupportFilter" onchange="debounceSearch()">
+                  <option value="">All</option>
+                  <option value="voted">Voted</option>
+                  <option value="not_voted">Not Voted</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -283,75 +400,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           </div>
         </div>
       </div>
-      <div class="search-right">
-        <div class="right-header">
+
+      <!-- RIGHT: Current List/Captain/Master View -->
+      <div class="right-panel" id="workspaceRight">
+        <div class="right-header" id="rightHeaderArea">
           <h3 id="rightTitle">Select a list</h3>
-          <div class="sub" id="rightSub">Pick a list from the dropdown to view its voters</div>
+          <div class="sub" id="rightSub">Pick a captain or list from the sidebar to view voters</div>
         </div>
         <div class="right-list" id="rightListContent">
           <div class="right-empty">No list selected</div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===================== MY LISTS TAB ===================== -->
-  <div id="tab-lists" class="tab-content">
-    <div class="dash-container">
-      <div class="section-title">
-        <span>All Lists</span>
-        <button class="btn btn-sm btn-primary" onclick="showNewListModal()">+ New List</button>
-      </div>
-      <div id="allListsView"></div>
-    </div>
-  </div>
-
-  <!-- ===================== MASTER LIST TAB ===================== -->
-  <div id="tab-master" class="tab-content">
-    <div class="dash-container">
-      <div class="master-header">
-        <div>
-          <h2 style="font-size:18px;margin-bottom:4px">Master Voter List</h2>
-          <p style="font-size:13px;color:#64748b">Every voter across all your lists — see who has them</p>
+        <div class="floating-action-bar" id="floatingActionBar" style="display:none">
+          <span class="fab-info" id="fabSelectedCount">0 voters selected</span>
+          <label style="font-size:12px;color:#94a3b8;white-space:nowrap">Send to &rarr;</label>
+          <select id="fabTargetList"></select>
+          <button class="btn btn-sm btn-success" onclick="doTransfer(false)">Copy</button>
+          <button class="btn btn-sm btn-primary" onclick="doTransfer(true)">Move</button>
+          <button class="btn btn-sm btn-secondary" onclick="clearVoterSelection()">Cancel</button>
         </div>
-        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-          <div class="master-stats" id="masterStats"></div>
-          <div class="action-btns">
-            <button class="btn-icon" onclick="printMasterList()" title="Print">&#128424; Print</button>
-            <button class="btn-icon" onclick="downloadMasterCSV()" title="Download CSV">&#128229; Download</button>
-          </div>
-        </div>
-      </div>
-      <div class="master-search" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="masterSearchInput" placeholder="Filter by name, address, captain..." oninput="filterMasterList()" style="flex:1;min-width:200px">
-        <select id="masterVotedFilter" onchange="filterMasterList()" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
-          <option value="all">All Voters</option>
-          <option value="voted">Voted Only</option>
-          <option value="not_voted">Not Yet Voted</option>
-        </select>
-        <select id="masterCaptainFilter" onchange="filterMasterList()" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
-          <option value="all">All Sources</option>
-        </select>
-      </div>
-      <div style="overflow-x:auto">
-        <table class="master-table">
-          <thead>
-            <tr>
-              <th>Voter</th>
-              <th>Voter ID</th>
-              <th>Address</th>
-              <th>Party</th>
-              <th>Voted</th>
-              <th>Phone</th>
-              <th>On Lists</th>
-            </tr>
-          </thead>
-          <tbody id="masterTableBody"></tbody>
-        </table>
-      </div>
-      <div id="masterEmpty" class="empty-state" style="display:none">
-        <div class="icon">&#128203;</div>
-        <p>No voters on any lists yet.</p>
       </div>
     </div>
   </div>
@@ -388,6 +454,276 @@ var candidateId = null;
 var candidateData = null;
 var selectedListId = null;
 var searchTimer = null;
+var currentView = 'dashboard';
+var workspaceSelection = { type: null, id: null, name: '' }; // type: 'list', 'captain', 'master'
+var masterListData = [];
+var captainListVoters = [];
+
+// Multi-select & transfer state
+var selectedVoterIds = new Set();
+var currentRightPanelVoters = []; // voters currently rendered in right panel
+var currentRightPanelListId = null; // the list ID currently shown in right panel
+var draggedVoterIds = []; // IDs being dragged
+
+function updateFloatingBar() {
+  var bar = document.getElementById('floatingActionBar');
+  if (!bar) return;
+  var count = selectedVoterIds.size;
+  if (count === 0 || !currentRightPanelListId) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  document.getElementById('fabSelectedCount').textContent = count + ' voter' + (count !== 1 ? 's' : '') + ' selected';
+  populateFabTargetList();
+}
+
+function populateFabTargetList() {
+  var sel = document.getElementById('fabTargetList');
+  if (!sel) return;
+  sel.textContent = '';
+  var lists = candidateData.lists || [];
+  var captains = candidateData.captains || [];
+  // Add candidate's own lists
+  lists.forEach(function(l) {
+    if (l.id === currentRightPanelListId) return; // skip current
+    var opt = document.createElement('option');
+    opt.value = 'list-' + l.id;
+    opt.textContent = l.name;
+    sel.appendChild(opt);
+  });
+  // Add captain lists
+  captains.forEach(function(cap) {
+    (cap.lists || []).forEach(function(cl) {
+      if (cl.id === currentRightPanelListId) return;
+      var opt = document.createElement('option');
+      opt.value = 'list-' + cl.id;
+      opt.textContent = cap.name + ': ' + cl.name;
+      sel.appendChild(opt);
+    });
+  });
+  if (sel.options.length === 0) {
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No other lists';
+    sel.appendChild(opt);
+  }
+}
+
+function toggleVoterSelection(voterId) {
+  if (selectedVoterIds.has(voterId)) {
+    selectedVoterIds.delete(voterId);
+  } else {
+    selectedVoterIds.add(voterId);
+  }
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  // Update checkboxes and row highlights
+  document.querySelectorAll('.right-voter[data-voter-id]').forEach(function(row) {
+    var vid = parseInt(row.getAttribute('data-voter-id'), 10);
+    var cb = row.querySelector('.right-voter-checkbox');
+    var isSelected = selectedVoterIds.has(vid);
+    if (cb) cb.checked = isSelected;
+    if (isSelected) { row.classList.add('selected'); } else { row.classList.remove('selected'); }
+  });
+  // Update select-all checkbox
+  var selectAllCb = document.getElementById('selectAllCheckbox');
+  if (selectAllCb) {
+    var total = document.querySelectorAll('.right-voter[data-voter-id]').length;
+    selectAllCb.checked = total > 0 && selectedVoterIds.size === total;
+    selectAllCb.indeterminate = selectedVoterIds.size > 0 && selectedVoterIds.size < total;
+  }
+  // Update selected count display
+  var countEl = document.getElementById('selectAllCount');
+  if (countEl) {
+    countEl.textContent = selectedVoterIds.size > 0 ? selectedVoterIds.size + ' selected' : '';
+  }
+  updateFloatingBar();
+}
+
+function toggleSelectAll() {
+  var allRows = document.querySelectorAll('.right-voter[data-voter-id]');
+  var total = allRows.length;
+  if (selectedVoterIds.size === total) {
+    // Deselect all
+    selectedVoterIds.clear();
+  } else {
+    // Select all
+    allRows.forEach(function(row) {
+      var vid = parseInt(row.getAttribute('data-voter-id'), 10);
+      selectedVoterIds.add(vid);
+    });
+  }
+  updateSelectionUI();
+}
+
+function clearVoterSelection() {
+  selectedVoterIds.clear();
+  updateSelectionUI();
+}
+
+async function doTransfer(removeFromSource) {
+  var sel = document.getElementById('fabTargetList');
+  if (!sel || !sel.value) { alert('Please select a target list.'); return; }
+  var targetListId = parseInt(sel.value.replace('list-', ''), 10);
+  if (!targetListId || !currentRightPanelListId) return;
+  var voterIds = Array.from(selectedVoterIds);
+  if (voterIds.length === 0) return;
+  try {
+    await apiPost('/api/candidates/' + candidateId + '/transfer-voters', {
+      voterIds: voterIds,
+      targetListId: targetListId,
+      sourceListId: currentRightPanelListId,
+      removeFromSource: removeFromSource
+    });
+    alert((removeFromSource ? 'Moved' : 'Copied') + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : '') + ' successfully.');
+    clearVoterSelection();
+    refreshDashboard();
+    // Reload current view
+    if (workspaceSelection.type === 'list') {
+      loadListVoters(currentRightPanelListId);
+    } else if (workspaceSelection.type === 'captain') {
+      var cap = (candidateData.captains || []).find(function(c) { return c.id === workspaceSelection.id; });
+      if (cap && cap.lists && cap.lists.length > 0) loadCaptainListInRight(cap.lists[0].id, cap.name);
+    }
+  } catch (e) {
+    alert('Transfer failed: ' + e.message);
+  }
+}
+
+// Drag and drop helpers
+function onVoterDragStart(e, voterId) {
+  // If the dragged voter is selected, drag all selected; otherwise just drag this one
+  if (selectedVoterIds.has(voterId) && selectedVoterIds.size > 1) {
+    draggedVoterIds = Array.from(selectedVoterIds);
+  } else {
+    draggedVoterIds = [voterId];
+  }
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', JSON.stringify(draggedVoterIds));
+  // Set a drag image badge showing count
+  if (draggedVoterIds.length > 1) {
+    var badge = document.createElement('div');
+    badge.textContent = draggedVoterIds.length + ' voters';
+    badge.style.cssText = 'position:absolute;top:-1000px;background:#818cf8;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600';
+    document.body.appendChild(badge);
+    e.dataTransfer.setDragImage(badge, 40, 16);
+    setTimeout(function() { badge.remove(); }, 0);
+  }
+}
+
+function setupDropTargets() {
+  // Make sidebar list items and captain items drop targets
+  document.querySelectorAll('#sidebarLists .list-item, #sidebarCaptains .list-item').forEach(function(item) {
+    item.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', function(e) {
+      item.classList.remove('drag-over');
+    });
+    item.addEventListener('drop', function(e) {
+      e.preventDefault();
+      item.classList.remove('drag-over');
+      var ids = [];
+      try { ids = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(err) {}
+      if (!ids.length) return;
+      // Determine which list this item represents
+      var targetName = item.querySelector('div') ? item.querySelector('div').textContent.trim() : item.textContent.trim();
+      showDropConfirmDialog(ids, targetName, item);
+    });
+  });
+}
+
+function showDropConfirmDialog(voterIds, targetName, listItem) {
+  // Find the list ID from the sidebar item
+  // We encode it via data attributes set during rendering
+  var targetListId = listItem.getAttribute('data-list-id');
+  if (!targetListId) { alert('Could not determine target list.'); return; }
+  targetListId = parseInt(targetListId, 10);
+
+  var overlay = document.createElement('div');
+  overlay.className = 'drop-confirm-overlay';
+  var box = document.createElement('div');
+  box.className = 'drop-confirm-box';
+  var h3 = document.createElement('h3');
+  h3.textContent = 'Transfer ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : '');
+  box.appendChild(h3);
+  var p = document.createElement('p');
+  p.textContent = 'Send ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : '') + ' to "' + targetName + '"?';
+  box.appendChild(p);
+  var btnRow = document.createElement('div');
+  btnRow.className = 'btn-row';
+
+  var moveBtn = document.createElement('button');
+  moveBtn.className = 'btn btn-sm btn-primary';
+  moveBtn.textContent = 'Move';
+  moveBtn.onclick = function() { overlay.remove(); executeDrop(voterIds, targetListId, true); };
+  btnRow.appendChild(moveBtn);
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'btn btn-sm btn-success';
+  copyBtn.textContent = 'Copy';
+  copyBtn.onclick = function() { overlay.remove(); executeDrop(voterIds, targetListId, false); };
+  btnRow.appendChild(copyBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-sm btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = function() { overlay.remove(); };
+  btnRow.appendChild(cancelBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function executeDrop(voterIds, targetListId, removeFromSource) {
+  if (!currentRightPanelListId) return;
+  try {
+    await apiPost('/api/candidates/' + candidateId + '/transfer-voters', {
+      voterIds: voterIds,
+      targetListId: targetListId,
+      sourceListId: currentRightPanelListId,
+      removeFromSource: removeFromSource
+    });
+    alert((removeFromSource ? 'Moved' : 'Copied') + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : '') + ' successfully.');
+    clearVoterSelection();
+    refreshDashboard();
+    if (workspaceSelection.type === 'list') {
+      loadListVoters(currentRightPanelListId);
+    } else if (workspaceSelection.type === 'captain') {
+      var cap = (candidateData.captains || []).find(function(c) { return c.id === workspaceSelection.id; });
+      if (cap && cap.lists && cap.lists.length > 0) loadCaptainListInRight(cap.lists[0].id, cap.name);
+    }
+  } catch (e) {
+    alert('Transfer failed: ' + e.message);
+  }
+}
+
+function addSelectAllRow(container) {
+  var selectRow = document.createElement('div');
+  selectRow.className = 'select-all-row';
+  var label = document.createElement('label');
+  var cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.id = 'selectAllCheckbox';
+  cb.className = 'right-voter-checkbox';
+  cb.onchange = toggleSelectAll;
+  label.appendChild(cb);
+  var text = document.createTextNode('Select All');
+  label.appendChild(text);
+  selectRow.appendChild(label);
+  var countSpan = document.createElement('span');
+  countSpan.className = 'selected-count';
+  countSpan.id = 'selectAllCount';
+  selectRow.appendChild(countSpan);
+  container.insertBefore(selectRow, container.firstChild);
+}
 
 // Check URL for code parameter
 (function() {
@@ -437,9 +773,11 @@ function logout() {
   candidateId = null;
   candidateData = null;
   selectedListId = null;
+  workspaceSelection = { type: null, id: null, name: '' };
   document.getElementById('mainApp').style.display = 'none';
   document.getElementById('loginScreen').style.display = '';
   document.getElementById('codeInput').value = '';
+  switchView('dashboard');
   window.history.replaceState({}, '', '/candidate');
 }
 
@@ -450,22 +788,50 @@ async function refreshDashboard() {
     if (!resp.ok) throw new Error(data.error);
     candidateData = data;
     renderDashboard(data);
+    if (currentView === 'workspace') renderWorkspaceSidebar();
   } catch (e) { console.error('refresh error:', e); }
 }
 
-// ===================== TABS =====================
+// ===================== VIEW SWITCHING =====================
 
-function switchTab(tab) {
-  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
-  document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
-  var tabBtn = document.querySelector('[data-tab="' + tab + '"]');
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-container').forEach(function(c) { c.classList.remove('active'); });
+  var el = document.getElementById('view-' + view);
+  if (el) el.classList.add('active');
+
+  if (view === 'workspace') {
+    renderWorkspaceSidebar();
+    populateListSelector();
+    // Show mobile tabs
+    var tabs = document.getElementById('mobileTabs');
+    if (tabs) tabs.style.display = '';
+    // Default mobile to lists
+    if (window.innerWidth <= 900) switchMobileTab('lists');
+  } else {
+    // Hide mobile tabs on dashboard
+    var tabs = document.getElementById('mobileTabs');
+    if (tabs) tabs.style.display = 'none';
+  }
+}
+
+// ===================== MOBILE TAB SWITCHING =====================
+
+function switchMobileTab(tab) {
+  if (tab === 'dashboard') {
+    switchView('dashboard');
+    return;
+  }
+  var panels = {
+    lists:  document.getElementById('workspaceSidebar'),
+    search: document.getElementById('workspaceCenter'),
+    view:   document.getElementById('workspaceRight')
+  };
+  Object.values(panels).forEach(function(p) { if (p) p.classList.remove('mob-on'); });
+  document.querySelectorAll('.mobile-tab').forEach(function(t) { t.classList.remove('active'); });
+  if (panels[tab]) panels[tab].classList.add('mob-on');
+  var tabBtn = document.getElementById('mobTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
   if (tabBtn) tabBtn.classList.add('active');
-  var tabContent = document.getElementById('tab-' + tab);
-  if (tabContent) tabContent.classList.add('active');
-
-  if (tab === 'search') populateListSelector();
-  if (tab === 'lists') renderAllLists();
-  if (tab === 'master') loadMasterList();
 }
 
 // ===================== HELPERS =====================
@@ -613,7 +979,7 @@ function renderCaptainCards(captains) {
     return;
   }
 
-  // Build tree: top-level captains (no parent or parent not in this candidate's captains)
+  // Build tree
   var captainIds = new Set(captains.map(function(c) { return c.id; }));
   var topLevel = captains.filter(function(c) {
     return !c.parent_captain_id || !captainIds.has(c.parent_captain_id);
@@ -626,7 +992,6 @@ function renderCaptainCards(captains) {
     }
   });
 
-  // Find max voters for progress bar scaling
   var maxVoters = Math.max.apply(null, captains.map(function(c) { return c.total_voters || 0; }));
   if (maxVoters < 10) maxVoters = 10;
 
@@ -642,7 +1007,6 @@ function renderCaptainCards(captains) {
       card.style.cssText = 'border-color:#475569;background:#1a2332';
     }
 
-    // Header row: name + code
     var header = document.createElement('div');
     header.className = 'captain-header';
 
@@ -742,13 +1106,12 @@ function renderCaptainCards(captains) {
     votedNum.className = 'num voted-pct ' + (capVotedPct >= 60 ? 'green' : capVotedPct >= 30 ? 'yellow' : 'red');
     votedNum.textContent = capVotedPct + '%';
     votedStat.appendChild(votedNum);
-    var votedLabel = document.createElement('div');
-    votedLabel.className = 'label';
-    votedLabel.textContent = 'Voted';
-    votedStat.appendChild(votedLabel);
+    var votedLabelEl = document.createElement('div');
+    votedLabelEl.className = 'label';
+    votedLabelEl.textContent = 'Voted';
+    votedStat.appendChild(votedLabelEl);
     statsRow.appendChild(votedStat);
 
-    // Show sub-captain count for top-level captains
     var subs = childrenOf[cap.id] || [];
     if (subs.length > 0) {
       var subStat = document.createElement('div');
@@ -763,7 +1126,6 @@ function renderCaptainCards(captains) {
       subStat.appendChild(subLabel);
       statsRow.appendChild(subStat);
 
-      // Total voters + voted across this captain + all subs (recursive)
       function sumTree(id) {
         var node = captains.find(function(c) { return c.id === id; });
         var tv = node ? (node.total_voters || 0) : 0;
@@ -789,7 +1151,6 @@ function renderCaptainCards(captains) {
       teamStat.appendChild(teamLabel);
       statsRow.appendChild(teamStat);
 
-      // Team voted %
       var teamVotedStat = document.createElement('div');
       teamVotedStat.className = 'captain-stat';
       var teamVotedNum = document.createElement('div');
@@ -805,7 +1166,6 @@ function renderCaptainCards(captains) {
 
     card.appendChild(statsRow);
 
-    // Progress bar
     var pbar = document.createElement('div');
     pbar.className = 'progress-bar';
     var pfill = document.createElement('div');
@@ -815,7 +1175,6 @@ function renderCaptainCards(captains) {
     pbar.appendChild(pfill);
     card.appendChild(pbar);
 
-    // Portal link
     var portalLink = document.createElement('div');
     portalLink.className = 'captain-portal-link';
     var linkText = document.createTextNode('Captain portal: ');
@@ -828,7 +1187,6 @@ function renderCaptainCards(captains) {
     portalLink.appendChild(a);
     card.appendChild(portalLink);
 
-    // Action row: toggle active + delete
     var actRow = document.createElement('div');
     actRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end';
     var toggleBtn = document.createElement('button');
@@ -844,7 +1202,6 @@ function renderCaptainCards(captains) {
     actRow.appendChild(delBtn);
     card.appendChild(actRow);
 
-    // Tap hint + card click → open voter list
     if (cap.lists && cap.lists.length > 0) {
       var hint = document.createElement('div');
       hint.style.cssText = 'text-align:center;font-size:11px;color:#818cf8;margin-top:8px;padding-top:8px;border-top:1px solid #334155';
@@ -853,14 +1210,14 @@ function renderCaptainCards(captains) {
 
       card.style.cursor = 'pointer';
       card.onclick = function() {
-        viewCaptainList(cap.lists[0].id, cap.lists[0].name || cap.name, cap.name);
+        switchView('workspace');
+        sidebarSelectCaptain(cap);
       };
     }
 
     wrapper.appendChild(card);
     container.appendChild(wrapper);
 
-    // Render sub-captains indented
     if (subs.length > 0) {
       subs.forEach(function(sub) {
         renderCaptainCard(sub, indentLevel + 1);
@@ -891,6 +1248,11 @@ function renderListsOverview(lists) {
   lists.forEach(function(l) {
     var row = document.createElement('div');
     row.className = 'list-row';
+    row.style.cursor = 'pointer';
+    row.onclick = function() {
+      switchView('workspace');
+      sidebarSelectList(l.id, l.name);
+    };
 
     var left = document.createElement('div');
     var nameEl = document.createElement('div');
@@ -912,7 +1274,115 @@ function renderListsOverview(lists) {
   });
 }
 
-// ===================== VOTER SEARCH TAB =====================
+// ===================== WORKSPACE SIDEBAR =====================
+
+function renderWorkspaceSidebar() {
+  var captains = candidateData.captains || [];
+  var lists = candidateData.lists || [];
+
+  // Captains
+  var capContainer = document.getElementById('sidebarCaptains');
+  capContainer.textContent = '';
+  if (captains.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'padding:8px 16px;color:#475569;font-size:13px';
+    empty.textContent = 'No captains yet';
+    capContainer.appendChild(empty);
+  }
+  captains.forEach(function(cap) {
+    var item = document.createElement('div');
+    var isActive = workspaceSelection.type === 'captain' && workspaceSelection.id === cap.id;
+    item.className = 'list-item' + (isActive ? ' active' : '');
+    // Set data-list-id for drag-drop (use first list if captain has lists)
+    if (cap.lists && cap.lists.length > 0) {
+      item.setAttribute('data-list-id', cap.lists[0].id);
+    }
+    var left = document.createElement('div');
+    left.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = cap.name;
+    left.appendChild(nameSpan);
+    var codeMeta = document.createElement('span');
+    codeMeta.style.cssText = 'font-size:11px;color:#64748b;margin-left:6px;font-family:monospace';
+    codeMeta.textContent = cap.code;
+    left.appendChild(codeMeta);
+    item.appendChild(left);
+    var count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = cap.total_voters || 0;
+    item.appendChild(count);
+    item.addEventListener('click', (function(c) {
+      return function() { sidebarSelectCaptain(c); };
+    })(cap));
+    capContainer.appendChild(item);
+  });
+
+  // Lists
+  var listContainer = document.getElementById('sidebarLists');
+  listContainer.textContent = '';
+  if (lists.length === 0) {
+    var emptyL = document.createElement('div');
+    emptyL.style.cssText = 'padding:8px 16px;color:#475569;font-size:13px';
+    emptyL.textContent = 'No lists yet';
+    listContainer.appendChild(emptyL);
+  }
+  lists.forEach(function(l) {
+    var item = document.createElement('div');
+    var isActive = workspaceSelection.type === 'list' && workspaceSelection.id === l.id;
+    item.className = 'list-item' + (isActive ? ' active' : '');
+    item.setAttribute('data-list-id', l.id);
+    var left = document.createElement('div');
+    left.textContent = l.name;
+    item.appendChild(left);
+    var count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = l.voter_count || 0;
+    item.appendChild(count);
+    item.addEventListener('click', (function(li) {
+      return function() { sidebarSelectList(li.id, li.name); };
+    })(l));
+    listContainer.appendChild(item);
+  });
+
+  // Wire up drag-drop targets on sidebar items
+  setupDropTargets();
+}
+
+function sidebarSelectCaptain(cap) {
+  workspaceSelection = { type: 'captain', id: cap.id, name: cap.name };
+  renderWorkspaceSidebar();
+  // Load captain voters in right panel
+  if (cap.lists && cap.lists.length > 0) {
+    loadCaptainListInRight(cap.lists[0].id, cap.name);
+  } else {
+    document.getElementById('rightTitle').textContent = cap.name;
+    document.getElementById('rightSub').textContent = 'No voter list for this captain';
+    var content = document.getElementById('rightListContent');
+    content.textContent = '';
+    var empty = document.createElement('div');
+    empty.className = 'right-empty';
+    empty.textContent = 'This captain has no voters yet.';
+    content.appendChild(empty);
+  }
+}
+
+function sidebarSelectList(listId, listName) {
+  workspaceSelection = { type: 'list', id: listId, name: listName };
+  selectedListId = listId;
+  renderWorkspaceSidebar();
+  populateListSelector();
+  var sel = document.getElementById('activeListSelect');
+  if (sel) sel.value = listId;
+  loadListVoters(listId);
+}
+
+function sidebarSelectMaster() {
+  workspaceSelection = { type: 'master', id: null, name: 'Master List' };
+  renderWorkspaceSidebar();
+  loadMasterListInRight();
+}
+
+// ===================== VOTER SEARCH =====================
 
 function populateListSelector() {
   var sel = document.getElementById('activeListSelect');
@@ -936,7 +1406,7 @@ function onListSelectChange() {
   var sel = document.getElementById('activeListSelect');
   selectedListId = sel.value ? parseInt(sel.value, 10) : null;
   if (selectedListId) {
-    loadListVoters(selectedListId);
+    sidebarSelectList(selectedListId, sel.options[sel.selectedIndex].textContent.replace(/\s*\(\d+\)\s*$/, ''));
   } else {
     document.getElementById('rightTitle').textContent = 'Select a list';
     document.getElementById('rightSub').textContent = 'Pick a list from the dropdown to view its voters';
@@ -947,7 +1417,6 @@ function onListSelectChange() {
     empty.textContent = 'No list selected';
     content.appendChild(empty);
   }
-  // Re-render search results to show/hide add buttons
   var q = document.getElementById('voterSearch').value.trim();
   var hasFilter = (document.getElementById('candPhoneFilter') || {}).value || (document.getElementById('candVanidFilter') || {}).value || (document.getElementById('candCityFilter') || {}).value || (document.getElementById('candZipFilter') || {}).value || (document.getElementById('candPrecinctFilter') || {}).value || (document.getElementById('candAddressFilter') || {}).value;
   if (q.length >= 2 || hasFilter) searchVoters();
@@ -1069,7 +1538,6 @@ async function searchVoters() {
       }
       card.appendChild(meta);
 
-      // Action buttons row
       var actions = document.createElement('div');
       actions.style.cssText = 'display:flex;gap:8px;margin-top:10px';
 
@@ -1109,6 +1577,10 @@ async function loadListVoters(listId) {
   var content = document.getElementById('rightListContent');
   content.textContent = '';
 
+  // Reset header area
+  var headerArea = document.getElementById('rightHeaderArea');
+  headerArea.style.cssText = 'padding:16px;border-bottom:1px solid #334155';
+
   try {
     var data = await api('/api/candidates/' + candidateId + '/lists/' + listId + '/voters');
     var voters = data.voters || [];
@@ -1117,34 +1589,50 @@ async function loadListVoters(listId) {
     document.getElementById('rightTitle').textContent = listName;
     document.getElementById('rightSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
-    // Add Upload CSV button + Voted filter to header
-    var header = document.querySelector('.right-header');
-    var existingUploadBtn = header.querySelector('.upload-csv-btn');
-    if (existingUploadBtn) existingUploadBtn.remove();
-    var existingFilter = header.querySelector('.voted-filter-wrap');
-    if (existingFilter) existingFilter.remove();
+    // Add controls
+    var existingControls = headerArea.querySelector('.right-controls');
+    if (existingControls) existingControls.remove();
 
-    var headerControls = document.createElement('div');
-    headerControls.className = 'voted-filter-wrap';
-    headerControls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
-
-    var uploadBtn = document.createElement('button');
-    uploadBtn.className = 'btn btn-sm upload-csv-btn';
-    uploadBtn.style.cssText = 'background:#d97706;border-color:#b45309;font-size:12px';
-    uploadBtn.textContent = '\uD83D\uDCE4 Upload CSV';
-    (function(lid) {
-      uploadBtn.onclick = function() { showUploadModal(lid); };
-    })(listId);
-    headerControls.appendChild(uploadBtn);
+    var controls = document.createElement('div');
+    controls.className = 'right-controls';
+    controls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
 
     var allVoters = voters.slice();
+
     var votedFilter = createVotedFilter(function(status) {
       var filtered = filterVotersByStatus(allVoters, status);
       renderListVoterRows(filtered, content, listId);
       document.getElementById('rightSub').textContent = filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '');
     });
-    headerControls.appendChild(votedFilter);
-    header.appendChild(headerControls);
+    controls.appendChild(votedFilter);
+
+    var uploadBtn = document.createElement('button');
+    uploadBtn.className = 'btn-icon';
+    uploadBtn.innerHTML = '&#128228; CSV Upload';
+    (function(lid) {
+      uploadBtn.onclick = function() { showUploadModal(lid); };
+    })(listId);
+    controls.appendChild(uploadBtn);
+
+    var printBtn = document.createElement('button');
+    printBtn.className = 'btn-icon';
+    printBtn.innerHTML = '&#128424; Print';
+    printBtn.onclick = function() {
+      captainListVoters = allVoters;
+      printCaptainList(listName);
+    };
+    controls.appendChild(printBtn);
+
+    var dlBtn = document.createElement('button');
+    dlBtn.className = 'btn-icon';
+    dlBtn.innerHTML = '&#128229; CSV';
+    dlBtn.onclick = function() {
+      captainListVoters = allVoters;
+      downloadCaptainListCSV(listName);
+    };
+    controls.appendChild(dlBtn);
+
+    headerArea.appendChild(controls);
 
     renderListVoterRows(voters, content, listId);
   } catch (e) {
@@ -1155,6 +1643,11 @@ async function loadListVoters(listId) {
 
 function renderListVoterRows(voters, content, listId) {
   content.textContent = '';
+  selectedVoterIds.clear();
+  currentRightPanelVoters = voters;
+  currentRightPanelListId = listId;
+  updateFloatingBar();
+
   if (voters.length === 0) {
     var empty = document.createElement('div');
     empty.className = 'right-empty';
@@ -1162,9 +1655,31 @@ function renderListVoterRows(voters, content, listId) {
     content.appendChild(empty);
     return;
   }
+
+  // Select all row
+  addSelectAllRow(content);
+
   voters.forEach(function(v) {
     var row = document.createElement('div');
     row.className = 'right-voter';
+    row.setAttribute('data-voter-id', v.id);
+    row.setAttribute('draggable', 'true');
+
+    // Drag handlers
+    (function(voterId) {
+      row.addEventListener('dragstart', function(e) { onVoterDragStart(e, voterId); });
+      row.addEventListener('dragend', function() { document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); }); });
+    })(v.id);
+
+    // Checkbox
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'right-voter-checkbox';
+    cb.checked = selectedVoterIds.has(v.id);
+    (function(voterId) {
+      cb.onchange = function(e) { e.stopPropagation(); toggleVoterSelection(voterId); };
+    })(v.id);
+    row.appendChild(cb);
 
     var infoDiv = document.createElement('div');
     infoDiv.style.flex = '1';
@@ -1206,6 +1721,370 @@ async function removeVoterFromList(listId, voterId) {
     loadListVoters(listId);
   } catch (e) { console.error('Remove voter failed:', e.message); }
 }
+
+// ===================== CAPTAIN LIST IN RIGHT PANEL =====================
+
+async function loadCaptainListInRight(listId, captainName) {
+  currentRightPanelListId = listId;
+  document.getElementById('rightTitle').textContent = captainName;
+  document.getElementById('rightSub').textContent = 'Loading...';
+  var content = document.getElementById('rightListContent');
+  content.textContent = '';
+
+  var headerArea = document.getElementById('rightHeaderArea');
+  headerArea.style.cssText = 'padding:16px;border-bottom:1px solid #334155';
+
+  // Remove old controls
+  var existingControls = headerArea.querySelector('.right-controls');
+  if (existingControls) existingControls.remove();
+
+  try {
+    var data = await api('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
+    var voters = data.voters || [];
+    captainListVoters = voters;
+    var allCapVoters = voters.slice();
+
+    document.getElementById('rightTitle').textContent = captainName;
+    document.getElementById('rightSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+
+    var controls = document.createElement('div');
+    controls.className = 'right-controls';
+    controls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
+
+    var votedFilter = createVotedFilter(function(status) {
+      var filtered = filterVotersByStatus(allCapVoters, status);
+      renderCaptainVoterRows(filtered, content);
+      document.getElementById('rightSub').textContent = filtered.length + ' of ' + allCapVoters.length + ' voter' + (allCapVoters.length !== 1 ? 's' : '');
+    });
+    controls.appendChild(votedFilter);
+
+    var printBtn = document.createElement('button');
+    printBtn.className = 'btn-icon';
+    printBtn.innerHTML = '&#128424; Print';
+    printBtn.onclick = function() { printCaptainList(captainName); };
+    controls.appendChild(printBtn);
+
+    var dlBtn = document.createElement('button');
+    dlBtn.className = 'btn-icon';
+    dlBtn.innerHTML = '&#128229; CSV';
+    dlBtn.onclick = function() { downloadCaptainListCSV(captainName); };
+    controls.appendChild(dlBtn);
+
+    headerArea.appendChild(controls);
+
+    renderCaptainVoterRows(voters, content);
+  } catch (e) {
+    document.getElementById('rightSub').textContent = 'Error loading voters';
+    console.error(e);
+  }
+}
+
+function renderCaptainVoterRows(voters, container) {
+  container.textContent = '';
+  selectedVoterIds.clear();
+  currentRightPanelVoters = voters;
+  // For captain views, currentRightPanelListId is set by loadCaptainListInRight
+  updateFloatingBar();
+
+  if (voters.length === 0) {
+    var emptyDiv = document.createElement('div');
+    emptyDiv.className = 'right-empty';
+    emptyDiv.textContent = 'No voters match the current filter.';
+    container.appendChild(emptyDiv);
+    return;
+  }
+
+  // Select all row
+  addSelectAllRow(container);
+
+  voters.forEach(function(v) {
+    var row = document.createElement('div');
+    row.className = 'right-voter';
+    row.setAttribute('data-voter-id', v.id);
+    row.setAttribute('draggable', 'true');
+
+    // Drag handlers
+    (function(voterId) {
+      row.addEventListener('dragstart', function(e) { onVoterDragStart(e, voterId); });
+      row.addEventListener('dragend', function() { document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); }); });
+    })(v.id);
+
+    // Checkbox
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'right-voter-checkbox';
+    cb.checked = selectedVoterIds.has(v.id);
+    (function(voterId) {
+      cb.onchange = function(e) { e.stopPropagation(); toggleVoterSelection(voterId); };
+    })(v.id);
+    row.appendChild(cb);
+
+    var info = document.createElement('div');
+    info.style.flex = '1';
+    var nameEl = document.createElement('div');
+    nameEl.className = 'name';
+    nameEl.style.cssText = 'cursor:pointer;color:#818cf8';
+    nameEl.textContent = voterFullName(v) + ' \u25B8';
+    nameEl.title = 'Click to expand details';
+    (function(voter, rowEl) {
+      nameEl.onclick = function() {
+        var existing = rowEl.querySelector('.voter-expand-panel');
+        if (existing) { existing.remove(); nameEl.textContent = voterFullName(voter) + ' \u25B8'; return; }
+        nameEl.textContent = voterFullName(voter) + ' \u25BE';
+        rowEl.appendChild(createVoterExpandPanel(voter));
+      };
+    })(v, row);
+    info.appendChild(nameEl);
+    var metaDiv = document.createElement('div');
+    metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
+    metaDiv.appendChild(createVotedBadge(v));
+    info.appendChild(metaDiv);
+    row.appendChild(info);
+
+    container.appendChild(row);
+  });
+}
+
+// ===================== MASTER LIST IN RIGHT PANEL =====================
+
+async function loadMasterListInRight() {
+  currentRightPanelListId = null;
+  selectedVoterIds.clear();
+  updateFloatingBar();
+  document.getElementById('rightTitle').textContent = 'Master Voter List';
+  document.getElementById('rightSub').textContent = 'Loading...';
+  var content = document.getElementById('rightListContent');
+  content.textContent = '';
+
+  var headerArea = document.getElementById('rightHeaderArea');
+  headerArea.style.cssText = 'padding:16px;border-bottom:1px solid #334155';
+
+  var existingControls = headerArea.querySelector('.right-controls');
+  if (existingControls) existingControls.remove();
+
+  try {
+    var data = await api('/api/candidates/' + candidateId + '/master-list');
+    masterListData = data.voters || [];
+
+    document.getElementById('rightTitle').textContent = 'Master Voter List';
+    document.getElementById('rightSub').textContent = (data.uniqueVoters || 0) + ' unique voters \u00B7 ' + (data.overlaps || 0) + ' on multiple lists';
+
+    var controls = document.createElement('div');
+    controls.className = 'right-controls';
+    controls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
+
+    // Voted filter
+    var votedFilter = document.createElement('select');
+    votedFilter.id = 'masterVotedFilterRight';
+    votedFilter.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px';
+    [['all','All Voters'],['voted','Voted Only'],['not_voted','Not Yet Voted']].forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o[0]; opt.textContent = o[1];
+      votedFilter.appendChild(opt);
+    });
+    votedFilter.onchange = function() { filterMasterListRight(); };
+    controls.appendChild(votedFilter);
+
+    // Captain/source filter
+    var captainFilter = document.createElement('select');
+    captainFilter.id = 'masterCaptainFilterRight';
+    captainFilter.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px';
+    var allOpt = document.createElement('option');
+    allOpt.value = 'all'; allOpt.textContent = 'All Sources';
+    captainFilter.appendChild(allOpt);
+    var sourceNames = {};
+    masterListData.forEach(function(v) {
+      (v.lists || []).forEach(function(l) { sourceNames[l.source_name] = l.source_type; });
+    });
+    Object.keys(sourceNames).sort().forEach(function(name) {
+      var opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name + (sourceNames[name] === 'admin' ? ' (Admin)' : '');
+      captainFilter.appendChild(opt);
+    });
+    captainFilter.onchange = function() { filterMasterListRight(); };
+    controls.appendChild(captainFilter);
+
+    // Search
+    var searchInput = document.createElement('input');
+    searchInput.id = 'masterSearchRight';
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Filter...';
+    searchInput.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;width:140px';
+    searchInput.oninput = function() { filterMasterListRight(); };
+    controls.appendChild(searchInput);
+
+    var printBtn = document.createElement('button');
+    printBtn.className = 'btn-icon';
+    printBtn.innerHTML = '&#128424; Print';
+    printBtn.onclick = function() { printMasterList(); };
+    controls.appendChild(printBtn);
+
+    var dlBtn = document.createElement('button');
+    dlBtn.className = 'btn-icon';
+    dlBtn.innerHTML = '&#128229; CSV';
+    dlBtn.onclick = function() { downloadMasterCSV(); };
+    controls.appendChild(dlBtn);
+
+    headerArea.appendChild(controls);
+
+    if (masterListData.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'right-empty';
+      empty.textContent = 'No voters on any lists yet.';
+      content.appendChild(empty);
+      return;
+    }
+
+    renderMasterRowsRight(masterListData, content);
+  } catch (e) {
+    console.error('master list error:', e);
+    document.getElementById('rightSub').textContent = 'Error loading';
+  }
+}
+
+function filterMasterListRight() {
+  var q = (document.getElementById('masterSearchRight') || {}).value || '';
+  q = q.trim().toLowerCase();
+  var votedStatus = (document.getElementById('masterVotedFilterRight') || {}).value || 'all';
+  var captainVal = (document.getElementById('masterCaptainFilterRight') || {}).value || 'all';
+  var filtered = filterVotersByStatus(masterListData, votedStatus);
+  if (captainVal !== 'all') {
+    filtered = filtered.filter(function(v) {
+      return (v.lists || []).some(function(l) { return l.source_name === captainVal; });
+    });
+  }
+  if (q) {
+    filtered = filtered.filter(function(v) {
+      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
+      (v.lists || []).forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
+      return text.indexOf(q) !== -1;
+    });
+  }
+  var content = document.getElementById('rightListContent');
+  renderMasterRowsRight(filtered, content);
+}
+
+function renderMasterRowsRight(voters, container) {
+  container.textContent = '';
+
+  if (voters.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 'right-empty';
+    empty.textContent = 'No voters match filters.';
+    container.appendChild(empty);
+    return;
+  }
+
+  // Full table with all columns
+  var tableWrap = document.createElement('div');
+  tableWrap.style.cssText = 'overflow-x:auto;padding:0 8px';
+  var table = document.createElement('table');
+  table.className = 'master-table';
+  var thead = document.createElement('thead');
+  var headTr = document.createElement('tr');
+  ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'].forEach(function(h) {
+    var th = document.createElement('th');
+    th.textContent = h;
+    headTr.appendChild(th);
+  });
+  thead.appendChild(headTr);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  voters.forEach(function(v) {
+    var tr = document.createElement('tr');
+
+    var tdName = document.createElement('td');
+    var nameText = document.createElement('div');
+    nameText.style.cssText = 'font-weight:600;color:#818cf8;cursor:pointer';
+    nameText.textContent = voterFullName(v) + ' \u25B8';
+    nameText.title = 'Click to expand details';
+    (function(voter, tableRow) {
+      nameText.onclick = function() {
+        var next = tableRow.nextElementSibling;
+        if (next && next.classList.contains('voter-detail-row')) {
+          next.remove();
+          nameText.textContent = voterFullName(voter) + ' \u25B8';
+          return;
+        }
+        nameText.textContent = voterFullName(voter) + ' \u25BE';
+        var detailTr = document.createElement('tr');
+        detailTr.className = 'voter-detail-row';
+        var detailTd = document.createElement('td');
+        detailTd.colSpan = 7;
+        detailTd.style.cssText = 'padding:0 8px 10px';
+        detailTd.appendChild(createVoterExpandPanel(voter));
+        detailTr.appendChild(detailTd);
+        tableRow.parentNode.insertBefore(detailTr, tableRow.nextSibling);
+      };
+    })(v, tr);
+    tdName.appendChild(nameText);
+    if (v.precinct) {
+      var precEl = document.createElement('div');
+      precEl.style.cssText = 'font-size:11px;color:#64748b;margin-top:2px';
+      precEl.textContent = 'Pct ' + v.precinct;
+      tdName.appendChild(precEl);
+    }
+    tr.appendChild(tdName);
+
+    var tdVid = document.createElement('td');
+    tdVid.style.cssText = 'color:#94a3b8;font-family:monospace;font-size:12px';
+    tdVid.textContent = voterIdDisplay(v) || '\u2014';
+    tr.appendChild(tdVid);
+
+    var tdAddr = document.createElement('td');
+    tdAddr.style.color = '#94a3b8';
+    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    tr.appendChild(tdAddr);
+
+    var tdParty = document.createElement('td');
+    if (v.party) {
+      var partyBadge = document.createElement('span');
+      partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
+      partyBadge.textContent = v.party;
+      tdParty.appendChild(partyBadge);
+    }
+    tr.appendChild(tdParty);
+
+    var tdVoted = document.createElement('td');
+    tdVoted.appendChild(createVotedBadge(v));
+    tr.appendChild(tdVoted);
+
+    var tdPhone = document.createElement('td');
+    tdPhone.style.color = '#94a3b8';
+    tdPhone.textContent = v.phone || '';
+    tr.appendChild(tdPhone);
+
+    var tdLists = document.createElement('td');
+    (v.lists || []).forEach(function(l) {
+      var tag = document.createElement('span');
+      tag.className = 'source-tag ' + l.source_type;
+      if (l.source_type === 'captain') {
+        tag.textContent = l.source_name;
+      } else {
+        tag.textContent = l.list_name;
+      }
+      tag.title = l.list_name + (l.source_type === 'captain' ? ' (Captain: ' + l.source_name + ')' : ' (Your list)');
+      tdLists.appendChild(tag);
+    });
+    if ((v.lists || []).length > 1) {
+      var overlap = document.createElement('span');
+      overlap.className = 'overlap-badge';
+      overlap.textContent = v.lists.length + '\u00D7';
+      overlap.title = 'On ' + v.lists.length + ' lists';
+      tdLists.appendChild(overlap);
+    }
+    tr.appendChild(tdLists);
+
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  container.appendChild(tableWrap);
+}
+
+// ===================== UPLOAD MODAL =====================
 
 function showUploadModal(listId) {
   var apiUrl = '/api/candidates/' + candidateId + '/lists/' + listId + '/bulk-upload';
@@ -1296,6 +2175,8 @@ function showUploadModal(listId) {
   };
 }
 
+// ===================== HOUSEHOLD =====================
+
 async function loadHousehold(voterId, card) {
   var existing = card.querySelector('.household-section');
   if (existing) { existing.remove(); return; }
@@ -1327,428 +2208,6 @@ async function loadHousehold(voterId, card) {
     });
     card.appendChild(section);
   } catch (e) { console.error(e); }
-}
-
-// ===================== MY LISTS TAB =====================
-
-function renderAllLists() {
-  var container = document.getElementById('allListsView');
-  container.textContent = '';
-
-  var lists = candidateData.lists || [];
-  var captains = candidateData.captains || [];
-
-  // Admin lists
-  if (lists.length > 0) {
-    var adminTitle = document.createElement('div');
-    adminTitle.style.cssText = 'font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;font-weight:600';
-    adminTitle.textContent = 'My Lists (' + lists.length + ')';
-    container.appendChild(adminTitle);
-
-    lists.forEach(function(l) {
-      var row = document.createElement('div');
-      row.className = 'list-row';
-      row.style.cursor = 'pointer';
-      row.onclick = function() {
-        selectedListId = l.id;
-        switchTab('search');
-        var sel = document.getElementById('activeListSelect');
-        sel.value = l.id;
-        loadListVoters(l.id);
-      };
-      var left = document.createElement('div');
-      var nameEl = document.createElement('div');
-      nameEl.className = 'list-name';
-      nameEl.textContent = l.name;
-      left.appendChild(nameEl);
-      var metaEl = document.createElement('div');
-      metaEl.className = 'list-meta';
-      metaEl.textContent = 'Created ' + daysSince(l.created_at) + '  \u00B7  Click to manage voters';
-      left.appendChild(metaEl);
-      row.appendChild(left);
-      var count = document.createElement('div');
-      count.className = 'voter-count';
-      count.textContent = l.voter_count || 0;
-      row.appendChild(count);
-      container.appendChild(row);
-    });
-  }
-
-  // Captain lists — show as tree with captain name, sub-captains indented
-  if (captains.length > 0) {
-    var capIdSet = new Set(captains.map(function(c) { return c.id; }));
-    var capTopLevel = captains.filter(function(c) { return !c.parent_captain_id || !capIdSet.has(c.parent_captain_id); });
-    var capChildrenOf = {};
-    captains.forEach(function(c) {
-      if (c.parent_captain_id && capIdSet.has(c.parent_captain_id)) {
-        if (!capChildrenOf[c.parent_captain_id]) capChildrenOf[c.parent_captain_id] = [];
-        capChildrenOf[c.parent_captain_id].push(c);
-      }
-    });
-
-    var totalCapLists = captains.reduce(function(s, c) { return s + (c.lists || []).length; }, 0);
-    var capTitle = document.createElement('div');
-    capTitle.style.cssText = 'font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px;font-weight:600';
-    capTitle.textContent = 'Captain Voter Lists (' + totalCapLists + ')';
-    container.appendChild(capTitle);
-
-    function renderCapListRow(cap, indent) {
-      var totalVoters = 0;
-      (cap.lists || []).forEach(function(l) { totalVoters += (l.voter_count || 0); });
-      var row = document.createElement('div');
-      row.className = 'list-row';
-      row.style.cursor = 'pointer';
-      if (indent > 0) {
-        row.style.marginLeft = (indent * 24) + 'px';
-        row.style.borderLeft = '3px solid #334155';
-        row.style.paddingLeft = '12px';
-      }
-      row.onclick = function() {
-        var listId = (cap.lists && cap.lists[0]) ? cap.lists[0].id : null;
-        if (listId) viewCaptainList(listId, cap.name, cap.name);
-      };
-      var left = document.createElement('div');
-      var nameEl = document.createElement('div');
-      nameEl.className = 'list-name';
-      nameEl.style.cssText = 'display:flex;align-items:center;gap:6px';
-      var nameText = document.createElement('span');
-      nameText.textContent = cap.name;
-      nameEl.appendChild(nameText);
-      if (indent > 0) {
-        var subTag = document.createElement('span');
-        subTag.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
-        subTag.textContent = 'Sub-Captain';
-        nameEl.appendChild(subTag);
-      }
-      var editBtn = document.createElement('button');
-      editBtn.style.cssText = 'background:none;border:none;color:#818cf8;cursor:pointer;font-size:11px;padding:1px 4px';
-      editBtn.textContent = '\u270F\uFE0F';
-      editBtn.title = 'Edit name';
-      editBtn.onclick = function(e) {
-        e.stopPropagation();
-        inlineEditName(nameText, cap.name, async function(newName) {
-          await apiPut('/api/candidates/' + candidateId + '/portal/captains/' + cap.id, { name: newName });
-          renderAllLists();
-          refreshDashboard();
-        });
-      };
-      nameEl.appendChild(editBtn);
-      left.appendChild(nameEl);
-      var metaEl = document.createElement('div');
-      metaEl.className = 'list-meta';
-      metaEl.textContent = 'Code: ' + cap.code + '  \u00B7  Click to view voters';
-      left.appendChild(metaEl);
-      row.appendChild(left);
-      var count = document.createElement('div');
-      count.className = 'voter-count';
-      count.textContent = totalVoters;
-      row.appendChild(count);
-      container.appendChild(row);
-
-      // Render sub-captain lists indented
-      var subs = capChildrenOf[cap.id] || [];
-      subs.forEach(function(sub) { renderCapListRow(sub, indent + 1); });
-    }
-
-    capTopLevel.forEach(function(cap) { renderCapListRow(cap, 0); });
-  }
-
-  if (lists.length === 0 && captains.length === 0) {
-    var empty = document.createElement('div');
-    empty.className = 'empty-state';
-    var p = document.createElement('p');
-    p.textContent = 'No lists yet. Create a list to start organizing voters.';
-    empty.appendChild(p);
-    container.appendChild(empty);
-  }
-}
-
-// ===================== CAPTAIN LIST VIEWER =====================
-
-async function viewCaptainList(listId, listName, captainName) {
-  var existing = document.getElementById('captainListViewerOverlay');
-  if (existing) existing.remove();
-
-  var overlay = document.createElement('div');
-  overlay.id = 'captainListViewerOverlay';
-  overlay.className = 'modal-overlay';
-
-  var box = document.createElement('div');
-  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;max-width:600px;width:95%;max-height:80vh;display:flex;flex-direction:column';
-
-  var headerDiv = document.createElement('div');
-  headerDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px';
-  var titleDiv = document.createElement('div');
-  var h3 = document.createElement('h3');
-  h3.style.cssText = 'font-size:16px;margin-bottom:4px';
-  h3.textContent = listName;
-  titleDiv.appendChild(h3);
-  var sub = document.createElement('div');
-  sub.style.cssText = 'font-size:13px;color:#64748b';
-  sub.textContent = 'Captain: ' + captainName + '  \u00B7  Loading...';
-  titleDiv.appendChild(sub);
-  headerDiv.appendChild(titleDiv);
-  var btnGroup = document.createElement('div');
-  btnGroup.className = 'action-btns';
-  var printBtn = document.createElement('button');
-  printBtn.className = 'btn-icon';
-  printBtn.innerHTML = '&#128424; Print';
-  printBtn.onclick = function() { printCaptainList(captainName); };
-  btnGroup.appendChild(printBtn);
-  var dlBtn = document.createElement('button');
-  dlBtn.className = 'btn-icon';
-  dlBtn.innerHTML = '&#128229; CSV';
-  dlBtn.onclick = function() { downloadCaptainListCSV(captainName); };
-  btnGroup.appendChild(dlBtn);
-  var closeBtn = document.createElement('button');
-  closeBtn.className = 'btn btn-sm btn-secondary';
-  closeBtn.textContent = 'Close';
-  closeBtn.onclick = function() { overlay.remove(); };
-  btnGroup.appendChild(closeBtn);
-  headerDiv.appendChild(btnGroup);
-  box.appendChild(headerDiv);
-
-  var listContainer = document.createElement('div');
-  listContainer.style.cssText = 'flex:1;overflow-y:auto';
-  box.appendChild(listContainer);
-
-  overlay.appendChild(box);
-  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
-  document.body.appendChild(overlay);
-
-  try {
-    var data = await api('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
-    var voters = data.voters || [];
-    captainListVoters = voters;
-    var allCapVoters = voters.slice();
-    sub.textContent = 'Captain: ' + captainName + '  \u00B7  ' + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
-
-    // Add voted filter below header
-    var filterWrap = document.createElement('div');
-    filterWrap.style.cssText = 'margin-bottom:12px';
-    var capVotedFilter = createVotedFilter(function(status) {
-      var filtered = filterVotersByStatus(allCapVoters, status);
-      renderCaptainVoterRows(filtered, listContainer);
-      sub.textContent = 'Captain: ' + captainName + '  \u00B7  ' + filtered.length + ' of ' + allCapVoters.length + ' voter' + (allCapVoters.length !== 1 ? 's' : '');
-    });
-    filterWrap.appendChild(capVotedFilter);
-    box.insertBefore(filterWrap, listContainer);
-
-    renderCaptainVoterRows(voters, listContainer);
-  } catch (e) {
-    sub.textContent = 'Error loading voters';
-    console.error(e);
-  }
-}
-
-function renderCaptainVoterRows(voters, container) {
-  container.textContent = '';
-  if (voters.length === 0) {
-    var emptyDiv = document.createElement('div');
-    emptyDiv.className = 'right-empty';
-    emptyDiv.textContent = 'No voters match the current filter.';
-    container.appendChild(emptyDiv);
-    return;
-  }
-  voters.forEach(function(v) {
-    var row = document.createElement('div');
-    row.style.cssText = 'padding:10px 0;border-bottom:1px solid #334155;font-size:13px';
-    var topRow = document.createElement('div');
-    topRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between';
-    var nameEl = document.createElement('div');
-    nameEl.style.cssText = 'font-weight:600;color:#818cf8;cursor:pointer';
-    nameEl.textContent = voterFullName(v) + ' \u25B8';
-    nameEl.title = 'Click to expand details';
-    (function(voter, rowEl) {
-      nameEl.onclick = function() {
-        var existing = rowEl.querySelector('.voter-expand-panel');
-        if (existing) { existing.remove(); nameEl.textContent = voterFullName(voter) + ' \u25B8'; return; }
-        nameEl.textContent = voterFullName(voter) + ' \u25BE';
-        rowEl.appendChild(createVoterExpandPanel(voter));
-      };
-    })(v, row);
-    topRow.appendChild(nameEl);
-    var badgesDiv = document.createElement('div');
-    badgesDiv.style.cssText = 'display:flex;gap:6px;align-items:center;flex-shrink:0';
-    badgesDiv.appendChild(createVotedBadge(v));
-    topRow.appendChild(badgesDiv);
-    row.appendChild(topRow);
-    container.appendChild(row);
-  });
-}
-
-// ===================== MASTER LIST =====================
-
-var masterListData = [];
-var captainListVoters = [];
-
-async function loadMasterList() {
-  var tbody = document.getElementById('masterTableBody');
-  var emptyEl = document.getElementById('masterEmpty');
-  var statsEl = document.getElementById('masterStats');
-  tbody.textContent = '';
-  emptyEl.style.display = 'none';
-  statsEl.textContent = '';
-
-  try {
-    var data = await api('/api/candidates/' + candidateId + '/master-list');
-    masterListData = data.voters || [];
-
-    var stats = [
-      { num: data.uniqueVoters || 0, label: 'Unique Voters' },
-      { num: data.totalAppearances || 0, label: 'List Entries' },
-      { num: data.overlaps || 0, label: 'On Multiple Lists' }
-    ];
-    stats.forEach(function(s) {
-      var card = document.createElement('div');
-      card.className = 'master-stat';
-      var num = document.createElement('div');
-      num.className = 'num';
-      num.textContent = s.num;
-      card.appendChild(num);
-      var label = document.createElement('div');
-      label.className = 'label';
-      label.textContent = s.label;
-      card.appendChild(label);
-      statsEl.appendChild(card);
-    });
-
-    // Populate captain filter
-    var captainFilter = document.getElementById('masterCaptainFilter');
-    captainFilter.innerHTML = '<option value="all">All Sources</option>';
-    var sourceNames = {};
-    masterListData.forEach(function(v) {
-      (v.lists || []).forEach(function(l) { sourceNames[l.source_name] = l.source_type; });
-    });
-    Object.keys(sourceNames).sort().forEach(function(name) {
-      var opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name + (sourceNames[name] === 'admin' ? ' (Admin)' : '');
-      captainFilter.appendChild(opt);
-    });
-
-    if (masterListData.length === 0) {
-      emptyEl.style.display = '';
-      return;
-    }
-
-    renderMasterRows(masterListData);
-  } catch (e) {
-    console.error('master list error:', e);
-  }
-}
-
-function filterMasterList() {
-  var q = (document.getElementById('masterSearchInput').value || '').trim().toLowerCase();
-  var votedStatus = (document.getElementById('masterVotedFilter') || {}).value || 'all';
-  var captainVal = (document.getElementById('masterCaptainFilter') || {}).value || 'all';
-  var filtered = filterVotersByStatus(masterListData, votedStatus);
-  if (captainVal !== 'all') {
-    filtered = filtered.filter(function(v) {
-      return (v.lists || []).some(function(l) { return l.source_name === captainVal; });
-    });
-  }
-  if (q) {
-    filtered = filtered.filter(function(v) {
-      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
-      (v.lists || []).forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
-      return text.indexOf(q) !== -1;
-    });
-  }
-  renderMasterRows(filtered);
-}
-
-function renderMasterRows(voters) {
-  var tbody = document.getElementById('masterTableBody');
-  tbody.textContent = '';
-
-  voters.forEach(function(v) {
-    var tr = document.createElement('tr');
-
-    var tdName = document.createElement('td');
-    var nameText = document.createElement('div');
-    nameText.style.cssText = 'font-weight:600;color:#818cf8;cursor:pointer';
-    nameText.textContent = voterFullName(v) + ' \u25B8';
-    nameText.title = 'Click to expand details';
-    (function(voter, tableRow) {
-      nameText.onclick = function() {
-        var next = tableRow.nextElementSibling;
-        if (next && next.classList.contains('voter-detail-row')) {
-          next.remove();
-          nameText.textContent = voterFullName(voter) + ' \u25B8';
-          return;
-        }
-        nameText.textContent = voterFullName(voter) + ' \u25BE';
-        var detailTr = document.createElement('tr');
-        detailTr.className = 'voter-detail-row';
-        var detailTd = document.createElement('td');
-        detailTd.colSpan = 7;
-        detailTd.style.cssText = 'padding:0 8px 10px';
-        detailTd.appendChild(createVoterExpandPanel(voter));
-        detailTr.appendChild(detailTd);
-        tableRow.parentNode.insertBefore(detailTr, tableRow.nextSibling);
-      };
-    })(v, tr);
-    tdName.appendChild(nameText);
-    if (v.precinct) {
-      var precEl = document.createElement('div');
-      precEl.style.cssText = 'font-size:11px;color:#64748b;margin-top:2px';
-      precEl.textContent = 'Pct ' + v.precinct;
-      tdName.appendChild(precEl);
-    }
-    tr.appendChild(tdName);
-
-    var tdVid = document.createElement('td');
-    tdVid.style.cssText = 'color:#94a3b8;font-family:monospace;font-size:12px';
-    tdVid.textContent = voterIdDisplay(v) || '\u2014';
-    tr.appendChild(tdVid);
-
-    var tdAddr = document.createElement('td');
-    tdAddr.style.color = '#94a3b8';
-    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
-    tr.appendChild(tdAddr);
-
-    var tdParty = document.createElement('td');
-    if (v.party) {
-      var partyBadge = document.createElement('span');
-      partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-      partyBadge.textContent = v.party;
-      tdParty.appendChild(partyBadge);
-    }
-    tr.appendChild(tdParty);
-
-    var tdVoted = document.createElement('td');
-    tdVoted.appendChild(createVotedBadge(v));
-    tr.appendChild(tdVoted);
-
-    var tdPhone = document.createElement('td');
-    tdPhone.style.color = '#94a3b8';
-    tdPhone.textContent = v.phone || '';
-    tr.appendChild(tdPhone);
-
-    var tdLists = document.createElement('td');
-    (v.lists || []).forEach(function(l) {
-      var tag = document.createElement('span');
-      tag.className = 'source-tag ' + l.source_type;
-      if (l.source_type === 'captain') {
-        tag.textContent = l.source_name;
-      } else {
-        tag.textContent = l.list_name;
-      }
-      tag.title = l.list_name + (l.source_type === 'captain' ? ' (Captain: ' + l.source_name + ')' : ' (Your list)');
-      tdLists.appendChild(tag);
-    });
-    if ((v.lists || []).length > 1) {
-      var overlap = document.createElement('span');
-      overlap.className = 'overlap-badge';
-      overlap.textContent = v.lists.length + '\u00D7';
-      overlap.title = 'On ' + v.lists.length + ' lists';
-      tdLists.appendChild(overlap);
-    }
-    tr.appendChild(tdLists);
-
-    tbody.appendChild(tr);
-  });
 }
 
 // ===================== MODALS =====================
@@ -1822,7 +2281,6 @@ async function createList() {
 
 // ===================== HELPERS =====================
 
-// Build full voter name: First Middle Last Suffix
 function voterFullName(v) {
   var parts = [];
   if (v.first_name) parts.push(v.first_name);
@@ -1832,7 +2290,6 @@ function voterFullName(v) {
   return parts.join(' ') || 'Unknown';
 }
 
-// Get voter ID display string
 function voterIdDisplay(v) {
   if (v.state_file_id) return v.state_file_id;
   if (v.vanid) return v.vanid;
@@ -1840,7 +2297,6 @@ function voterIdDisplay(v) {
   return '';
 }
 
-// Create voted/not-voted badge element (only checks early_voted, not historical election participation)
 function createVotedBadge(v) {
   var badge = document.createElement('span');
   var hasVoted = v.early_voted === 1;
@@ -1936,7 +2392,6 @@ function buildPrintPage(title, subtitle, tableHeaders, rows) {
   setTimeout(function() { w.print(); }, 300);
 }
 
-// --- Master List Print & Download ---
 function printMasterList() {
   var title = (candidateData.candidate.name || '') + ' \u2014 Master Voter List';
   var subtitle = masterListData.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
@@ -1968,7 +2423,6 @@ function downloadMasterCSV() {
   triggerDownload(name, csv);
 }
 
-// --- Captain List Print & Download ---
 function printCaptainList(captainName) {
   var title = captainName + ' \u2014 Voter List';
   var subtitle = captainListVoters.length + ' voter' + (captainListVoters.length !== 1 ? 's' : '') + ' \u00B7 Printed ' + new Date().toLocaleString();
