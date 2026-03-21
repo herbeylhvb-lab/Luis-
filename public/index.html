@@ -851,12 +851,15 @@ tr:hover td{background:#1e293b80}
           </div>
           <div id="walkMap" style="height:450px;border-radius:8px;background:#1e293b"></div>
           <div id="walkMapLegend" style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#94a3b8;flex-wrap:wrap">
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px"></span>Active walker</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;margin-right:4px"></span>Active walker</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;margin-right:4px"></span>Stale (&gt;2min)</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span>Offline (&gt;5min)</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;margin-right:4px"></span>Not visited</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px"></span>Opened door</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span>No answer / negative</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px"></span>Support</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;margin-right:4px"></span>Undecided</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span>Oppose</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f97316;margin-right:4px"></span>Not Home</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;margin-right:4px"></span>Refused/Moved</span>
           </div>
         </div>
         <div class="card">
@@ -4186,19 +4189,32 @@ window.geocodeCurrentWalk = geocodeCurrentWalk;
 
 function initWalkMap() {
   walkMap = L.map('walkMap', { zoomControl: true }).setView([30.27, -97.74], 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap',
-    maxZoom: 19
-  }).addTo(walkMap);
+  // Satellite imagery (Esri World Imagery — free, no API key)
+  var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Tiles &copy; Esri'
+  });
+  var labelsLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var placeLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+  satelliteLayer.addTo(walkMap);
+  labelsLayer.addTo(walkMap);
+  placeLabels.addTo(walkMap);
+  L.control.layers({ 'Satellite': satelliteLayer, 'Street Map': streetLayer }, { 'Road Labels': labelsLayer, 'Place Names': placeLabels }, { position: 'topright', collapsed: true }).addTo(walkMap);
   updateAddrMarkers();
 }
 
 function getAddrColor(result) {
   if (!result || result === 'not_visited') return '#64748b';
-  // Green = opened door (answered)
-  if (result === 'supportive' || result === 'undecided' || result === 'come_back') return '#22c55e';
-  // Red = didn't open or negative
-  if (result === 'not_home' || result === 'opposed' || result === 'refused' || result === 'moved') return '#ef4444';
+  // Green = supporter
+  if (result === 'support' || result === 'lean_support') return '#22c55e';
+  // Yellow = undecided / come back
+  if (result === 'undecided' || result === 'come_back') return '#eab308';
+  // Red = oppose
+  if (result === 'oppose' || result === 'lean_oppose') return '#ef4444';
+  // Orange = not home (retry)
+  if (result === 'not_home') return '#f97316';
+  // Gray = refused/moved/deceased
+  if (result === 'refused' || result === 'moved' || result === 'deceased') return '#94a3b8';
   return '#3b82f6';
 }
 
