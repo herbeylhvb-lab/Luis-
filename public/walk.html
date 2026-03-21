@@ -2062,9 +2062,34 @@ function initMap() {
     bearing: 0
   }).setView([39.8283, -98.5795], 4); // Default center US
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // Satellite imagery (Esri World Imagery — free, no API key)
+  var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Tiles &copy; Esri'
+  });
+  // Street labels overlay on top of satellite
+  var labelsLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19
-  }).addTo(mapState.map);
+  });
+  var streetLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19
+  });
+  // Standard street map as fallback option
+  var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  });
+  // Default to satellite + labels
+  satelliteLayer.addTo(mapState.map);
+  labelsLayer.addTo(mapState.map);
+  streetLabels.addTo(mapState.map);
+  // Layer toggle control
+  L.control.layers({
+    'Satellite': satelliteLayer,
+    'Street Map': streetLayer
+  }, {
+    'Road Labels': labelsLayer,
+    'Place Names': streetLabels
+  }, { position: 'topright', collapsed: true }).addTo(mapState.map);
 
   mapState.initialized = true;
 
