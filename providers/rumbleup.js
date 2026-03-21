@@ -386,6 +386,8 @@ module.exports = {
   name: 'rumbleup',
   label: 'RumbleUp',
   responseContentType: 'application/json',
+  // Low-level API (for direct MMS project creation in server.js)
+  apiPost,
   // Credentials
   getCredentials,
   saveCredentials,

@@ -685,7 +685,8 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Contact has opted out. Cannot send messages.' });
   }
   try {
-    // MMS: if imageData provided, try to attach image to RumbleUp project
+    // MMS: create a new RumbleUp project with the image, send through it
+    let mmsActionId = null;
     if (imageData) {
       const base64Match = imageData.match(/^data:image\/(png|jpeg|jpg|gif);base64,(.+)$/);
       if (base64Match) {
@@ -699,38 +700,29 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
         }
 
         const creds = provider.getCredentials();
-        if (!creds.actionId) {
-          return res.status(400).json({ error: 'No RumbleUp Action/Project ID configured for MMS.' });
-        }
-
-        // Try approach 1: multipart form-data with all fields
+        // Create a new MMS project with ALL fields in one multipart request
         try {
           const form = new FormData();
+          form.append('name', 'MMS-' + Date.now());
+          form.append('message', body + '\nSTOP to opt-out');
           form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
-          const updateResult = await provider.updateProject(creds.actionId, form, { multipart: true, timeout: 30000 });
-          console.log('[reply] Multipart update response:', JSON.stringify(updateResult));
-        } catch (err1) {
-          console.error('[reply] Multipart upload failed:', err1.message);
-          // Try approach 2: base64 string in JSON body
-          try {
-            const b64String = base64Match[2];
-            const jsonResult = await provider.updateProject(creds.actionId, { media: b64String });
-            console.log('[reply] JSON base64 update response:', JSON.stringify(jsonResult));
-          } catch (err2) {
-            console.error('[reply] JSON base64 upload also failed:', err2.message);
+          // Use same campaign + proxy as existing project
+          if (creds.campaignId) form.append('campaignId', creds.campaignId);
+          form.append('proxy', 'All');
+
+          const result = await provider.apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
+          console.log('[reply] MMS project create response:', JSON.stringify(result));
+          mmsActionId = result.action || result.id || result.aid;
+          if (mmsActionId) {
+            console.log('[reply] MMS project created with action ID:', mmsActionId, 'type:', result.type, 'media:', result.media);
           }
+        } catch (err) {
+          console.error('[reply] MMS project creation failed:', err.message);
         }
-      } else {
-        console.error('[reply] imageData did not match expected base64 format');
       }
     }
 
-    await provider.sendMessage(to, body, channel);
-
-    // Remove MMS media after send so next sends aren't MMS
-    if (imageData && provider.disableMmsOnProject) {
-      provider.disableMmsOnProject(); // fire-and-forget
-    }
+    await provider.sendMessage(to, body, channel, mmsActionId);
 
     // Find active P2P session for this phone so reply appears in conversation view
     const replySessionMatch = db.prepare(`
@@ -744,8 +736,6 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     res.json({ success: true, mms: !!imageData });
   } catch (err) {
     console.error('Reply send error:', err.message);
-    // Try to clean up MMS if send failed
-    if (imageData && provider.disableMmsOnProject) provider.disableMmsOnProject();
     res.status(500).json({ error: 'Failed to send reply: ' + err.message });
   }
 }));
