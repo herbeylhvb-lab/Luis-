@@ -951,6 +951,15 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Parse apartment/unit from address string when unit field is empty
+function parseUnitFromAddress(address) {
+  if (!address) return { street: '', unit: '' };
+  var addr = address.trim();
+  var match = addr.match(/^(.+?)\s+((?:apt|apartment|unit|ste|suite|#|rm|room|fl|floor|bldg|building|lot|space|trlr|trailer)\s*\.?\s*\S+)$/i);
+  if (match) return { street: match[1].trim(), unit: match[2].trim() };
+  return { street: addr, unit: '' };
+}
+
 function showToast(message) {
   var toast = document.getElementById('successToast');
   toast.textContent = message;
@@ -1504,8 +1513,24 @@ function openDoor(idx) {
   walkState.selectedResult = null;
   walkState.surveyResponses = {};
 
-  document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
-  document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+  // Parse unit from address if unit field is empty
+  var displayUnit = a.unit || '';
+  var displayAddr = a.address || '';
+  if (!displayUnit) {
+    var parsed = parseUnitFromAddress(a.address);
+    if (parsed.unit) {
+      displayUnit = parsed.unit;
+      displayAddr = parsed.street;
+    }
+  }
+
+  var titleEl = document.getElementById('doorTitle');
+  if (displayUnit) {
+    titleEl.innerHTML = 'Door #' + (idx + 1) + ' <span style="background:#3b82f6;color:#fff;padding:2px 8px;border-radius:6px;font-size:16px;margin-left:6px;vertical-align:middle">' + escHtml(displayUnit) + '</span>';
+  } else {
+    titleEl.textContent = 'Door #' + (idx + 1);
+  }
+  document.getElementById('doorAddr').textContent = displayAddr + (displayUnit ? ' ' + displayUnit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
   document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
 
   // Show attempt info
@@ -1606,8 +1631,9 @@ function renderMemberList() {
     el.className = 'hh-member' + (m.status === 'talked' ? ' talked' : m.status === 'not_home' ? ' not-home' : '');
     el.dataset.idx = i;
 
-    var nameHtml = '<div><span class="hh-name">' + escHtml(m.name) + '</span>';
-    if (m.unit) nameHtml += '<span style="color:#60a5fa;font-size:12px;font-weight:600;margin-left:6px">' + escHtml(m.unit) + '</span>';
+    var nameHtml = '<div>';
+    if (m.unit) nameHtml += '<span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;margin-right:6px">' + escHtml(m.unit) + '</span>';
+    nameHtml += '<span class="hh-name">' + escHtml(m.name) + '</span>';
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
     nameHtml += '</div>';
