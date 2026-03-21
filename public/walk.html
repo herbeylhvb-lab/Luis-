@@ -1675,15 +1675,7 @@ function selectDisp(el) {
     m.result = el.dataset.result;
     m.status = 'talked';
 
-    // Mark all other pending members as not_home automatically
-    for (var i = 0; i < doorState.allMembers.length; i++) {
-      if (doorState.allMembers[i].status === 'pending') {
-        doorState.allMembers[i].status = 'not_home';
-        doorState.allMembers[i].result = 'not_home';
-      }
-    }
-
-    // Auto-go back to step 1 to show the updated list, then enable log
+    // Auto-go back to step 1 so volunteer can tap the next household member
     setTimeout(function() {
       showDoorStep(1);
       renderMemberList();
