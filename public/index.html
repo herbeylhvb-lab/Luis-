@@ -4058,9 +4058,18 @@ async function loadWalkDetail(id) {
     return '<div class="stat-card" style="padding:12px"><div class="label">' + c.label + '</div><div class="value" style="font-size:20px;' + c.color + '">' + c.val + '</div></div>';
   }).join('');
   document.getElementById('walkResultStats').innerHTML = statsHtml;
-  // Progress
-  const total = w.addresses.length;
-  const knocked = w.addresses.filter(a => a.result !== 'not_visited').length;
+  // Progress — count unique doors (address+unit), not individual voter rows
+  var doorMap = {};
+  for (var di = 0; di < w.addresses.length; di++) {
+    var da = w.addresses[di];
+    var dk = (da.address || '').trim().toLowerCase() + '||' + (da.unit || '').trim().toLowerCase();
+    if (!doorMap[dk]) doorMap[dk] = { knocked: false };
+    if (da.result && da.result !== 'not_visited') doorMap[dk].knocked = true;
+  }
+  var doorKeys = Object.keys(doorMap);
+  const total = doorKeys.length;
+  var knocked = 0;
+  for (var dj = 0; dj < doorKeys.length; dj++) { if (doorMap[doorKeys[dj]].knocked) knocked++; }
   const pct = total > 0 ? Math.round(knocked / total * 100) : 0;
   document.getElementById('walkProgress').style.width = pct + '%';
   document.getElementById('walkProgressLabel').textContent = knocked + ' / ' + total + ' doors knocked (' + pct + '%)';
