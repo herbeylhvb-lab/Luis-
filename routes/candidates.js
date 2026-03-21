@@ -816,7 +816,7 @@ router.get('/candidates/:id/walkers', (req, res) => {
   const walkers = db.prepare(`
     SELECT w.*,
       (SELECT COUNT(*) FROM walk_attempts wa WHERE wa.walker_id = w.id) as total_doors,
-      (SELECT COALESCE(SUM(CASE WHEN wa.result NOT IN ('not_home','moved','deceased','refused') THEN 1 ELSE 0 END),0) FROM walk_attempts wa WHERE wa.walker_id = w.id) as total_contacts,
+      (SELECT COALESCE(SUM(CASE WHEN wa.result NOT IN ('not_home','moved','deceased','refused','come_back') THEN 1 ELSE 0 END),0) FROM walk_attempts wa WHERE wa.walker_id = w.id) as total_contacts,
       (SELECT COUNT(DISTINCT wa.walk_id) FROM walk_attempts wa WHERE wa.walker_id = w.id) as walks_participated,
       (SELECT MAX(wa.attempted_at) FROM walk_attempts wa WHERE wa.walker_id = w.id) as last_active
     FROM walkers w WHERE w.candidate_id = ? ORDER BY w.created_at DESC
@@ -893,7 +893,7 @@ router.get('/walkers/:id/dashboard', (req, res) => {
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total_doors,
-      COALESCE(SUM(CASE WHEN result NOT IN ('not_home','moved','deceased','refused') THEN 1 ELSE 0 END),0) as total_contacts,
+      COALESCE(SUM(CASE WHEN result NOT IN ('not_home','moved','deceased','refused','come_back') THEN 1 ELSE 0 END),0) as total_contacts,
       COALESCE(SUM(CASE WHEN result IN ('support','lean_support') THEN 1 ELSE 0 END),0) as supporters_found,
       COUNT(DISTINCT walk_id) as walks_participated
     FROM walk_attempts WHERE walker_id = ?
@@ -903,7 +903,7 @@ router.get('/walkers/:id/dashboard', (req, res) => {
   const leaderboard = db.prepare(`
     SELECT w.id, w.name,
       COUNT(wa.id) as total_doors,
-      COALESCE(SUM(CASE WHEN wa.result NOT IN ('not_home','moved','deceased','refused') THEN 1 ELSE 0 END),0) as total_contacts,
+      COALESCE(SUM(CASE WHEN wa.result NOT IN ('not_home','moved','deceased','refused','come_back') THEN 1 ELSE 0 END),0) as total_contacts,
       COUNT(DISTINCT wa.walk_id) as walks_participated
     FROM walkers w
     LEFT JOIN walk_attempts wa ON wa.walker_id = w.id

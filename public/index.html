@@ -2214,7 +2214,7 @@ function scoreBadge(score) {
   return '<span class="badge ' + cls + '">' + score + '</span>';
 }
 function resultBadge(r) {
-  const colors = { not_visited:'badge-gray', not_home:'badge-yellow', supportive:'badge-green', undecided:'badge-yellow', opposed:'badge-red', moved:'badge-gray', deceased:'badge-gray', refused:'badge-red', come_back:'badge-blue' };
+  const colors = { not_visited:'badge-gray', not_home:'badge-yellow', support:'badge-green', lean_support:'badge-green', undecided:'badge-yellow', lean_oppose:'badge-red', oppose:'badge-red', moved:'badge-gray', deceased:'badge-gray', refused:'badge-red', come_back:'badge-blue' };
   return '<span class="badge ' + (colors[r]||'badge-gray') + '">' + escHtml((r||'').replace(/_/g,' ')) + '</span>';
 }
 function statusBadge(s) {
@@ -4225,8 +4225,8 @@ function updateAddrMarkers(addresses) {
   walkMapAddrMarkers = [];
   var bounds = [];
   addresses.forEach(function(a) {
-    var lat = a.lat || a.gps_lat;
-    var lng = a.lng || a.gps_lng;
+    var lat = a.lat;
+    var lng = a.lng;
     if (!lat || !lng) return;
     var color = getAddrColor(a.result);
     var resultLabel = (a.result || 'not_visited').replace(/_/g, ' ');

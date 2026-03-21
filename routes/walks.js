@@ -163,7 +163,7 @@ router.get('/walks/daily-report', (req, res) => {
     SELECT
       walker_name as name,
       COUNT(*) as doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as undecided,
       SUM(CASE WHEN result IN ('oppose', 'lean_oppose') THEN 1 ELSE 0 END) as oppose,
@@ -192,7 +192,7 @@ router.get('/walks/daily-report', (req, res) => {
     SELECT
       COUNT(*) as total_doors,
       COUNT(DISTINCT address_id) as unique_addresses,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as total_contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as total_undecided,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as total_not_home,
@@ -208,7 +208,7 @@ router.get('/walks/daily-report', (req, res) => {
     SELECT
       date(attempted_at) as day,
       COUNT(*) as doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       COUNT(DISTINCT walker_name) as walkers
     FROM walk_attempts
@@ -224,7 +224,7 @@ router.get('/walks/daily-report', (req, res) => {
       wa.walk_id,
       bw.name as walk_name,
       COUNT(*) as doors,
-      SUM(CASE WHEN wa.result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN wa.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN wa.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
@@ -252,7 +252,7 @@ router.get('/walks/leaderboard', (req, res) => {
     SELECT
       walker_name as name,
       COUNT(*) as total_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters_found,
       MIN(attempted_at) as first_door,
       MAX(attempted_at) as last_door,
@@ -278,7 +278,7 @@ router.get('/walks/leaderboard', (req, res) => {
     SELECT
       COUNT(*) as total_attempts,
       COUNT(DISTINCT address_id) as unique_doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as total_contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
@@ -523,9 +523,14 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
   if (!result) return res.status(400).json({ error: 'Result is required.' });
   if (!VALID_RESULTS.has(result)) return res.status(400).json({ error: 'Invalid result value.' });
 
-  // Verify walker is assigned to this walk (persistent walker_id takes priority)
+  // Verify walker is assigned to this walk (try walker_id first, fall back to walker_name)
   if (walker_id) {
-    const member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
+    let member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
+    if (!member && walker_name) {
+      // Walker may have joined via join code (no walker_id on row) — try by name and backfill
+      member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_name = ? AND walker_id IS NULL').get(req.params.walkId, walker_name);
+      if (member) db.prepare('UPDATE walk_group_members SET walker_id = ? WHERE id = ?').run(walker_id, member.id);
+    }
     if (!member) return res.status(403).json({ error: 'Not assigned to this walk.' });
   } else if (walker_name) {
     const member = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').get(req.params.walkId, walker_name);
@@ -546,8 +551,8 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      // No address coords to compare — GPS was provided with good accuracy
-      gps_verified = 1;
+      // No address coords to compare — only verify if accuracy is known and acceptable
+      gps_verified = (gps_accuracy != null && gps_accuracy <= MAX_GPS_ACCURACY) ? 1 : 0;
     }
   }
 
@@ -575,8 +580,9 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
     ).run(req.params.addrId, req.params.walkId, result, notes || '', walker_name || '', walker_id || null, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, survey_responses ? JSON.stringify(survey_responses) : null);
 
     // Update walker performance metrics
+    const NON_CONTACT = ['not_home', 'moved', 'refused', 'deceased', 'come_back'];
     if (walker_id) {
-      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(result) ? 1 : 0;
+      const contactInc = !NON_CONTACT.includes(result) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
@@ -586,7 +592,7 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
         WHERE walk_id = ? AND walker_id = ?
       `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_id);
     } else if (walker_name) {
-      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(result) ? 1 : 0;
+      const contactInc = !NON_CONTACT.includes(result) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
@@ -636,9 +642,13 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
     return res.status(400).json({ error: 'Members array is required.' });
   }
 
-  // Verify walker is assigned to this walk
+  // Verify walker is assigned to this walk (try walker_id first, fall back to walker_name)
   if (walker_id) {
-    const member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
+    let member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
+    if (!member && walker_name) {
+      member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_name = ? AND walker_id IS NULL').get(req.params.walkId, walker_name);
+      if (member) db.prepare('UPDATE walk_group_members SET walker_id = ? WHERE id = ?').run(walker_id, member.id);
+    }
     if (!member) return res.status(403).json({ error: 'Not assigned to this walk.' });
   } else if (walker_name) {
     const member = db.prepare('SELECT walker_name FROM walk_group_members WHERE walk_id = ? AND walker_name = ?').get(req.params.walkId, walker_name);
@@ -662,7 +672,7 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      gps_verified = 1;
+      gps_verified = (gps_accuracy != null && gps_accuracy <= MAX_GPS_ACCURACY) ? 1 : 0;
     }
   }
 
@@ -690,8 +700,9 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
     ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified);
 
     // Update walker performance
+    const NON_CONTACT_HH = ['not_home', 'moved', 'refused', 'deceased', 'come_back'];
     if (walker_id) {
-      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult) ? 1 : 0;
+      const contactInc = !NON_CONTACT_HH.includes(overallResult) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
@@ -701,7 +712,7 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
         WHERE walk_id = ? AND walker_id = ?
       `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_id);
     } else if (walker_name) {
-      const contactInc = !['not_home', 'moved', 'refused', 'deceased'].includes(overallResult) ? 1 : 0;
+      const contactInc = !NON_CONTACT_HH.includes(overallResult) ? 1 : 0;
       db.prepare(`
         UPDATE walk_group_members SET
           doors_knocked = doors_knocked + 1,
@@ -1463,7 +1474,7 @@ router.get('/walks/:id/attempt-stats', (req, res) => {
       COUNT(*) as total_attempts,
       COUNT(DISTINCT address_id) as unique_addresses,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home_count,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts_made,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts_made,
       COUNT(DISTINCT walker_name) as unique_walkers
     FROM walk_attempts WHERE walk_id = ?
   `).get(req.params.id);
@@ -1473,7 +1484,7 @@ router.get('/walks/:id/attempt-stats', (req, res) => {
     SELECT
       walker_name,
       COUNT(*) as attempts,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       MIN(attempted_at) as first_attempt,
       MAX(attempted_at) as last_attempt
     FROM walk_attempts WHERE walk_id = ? AND walker_name != ''
