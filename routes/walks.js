@@ -705,6 +705,15 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       WHERE id = ? AND walk_id = ?
     `).run(result, notes || '', knocked_at, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, req.params.addrId, req.params.walkId);
 
+    // Also update all other walk_address rows at the same address+unit so they don't show as "not_visited"
+    db.prepare(`
+      UPDATE walk_addresses SET
+        result = ?, knocked_at = ?, gps_verified = ?
+      WHERE walk_id = ? AND id != ?
+        AND LOWER(TRIM(address)) = LOWER(TRIM((SELECT address FROM walk_addresses WHERE id = ?)))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(COALESCE((SELECT unit FROM walk_addresses WHERE id = ?),'')))
+    `).run(result, knocked_at, gps_verified, req.params.walkId, req.params.addrId, req.params.addrId, req.params.addrId);
+
     // Record attempt in attempt history (with walker_id if available)
     db.prepare(
       'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -824,6 +833,16 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
         gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
       WHERE id = ? AND walk_id = ?
     `).run(overallResult, allNotes, knocked_at, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, req.params.addrId, req.params.walkId);
+
+    // Also update all other walk_address rows at the same address+unit so they don't show as "not_visited"
+    // (Multiple voters at the same door each have their own row)
+    db.prepare(`
+      UPDATE walk_addresses SET
+        result = ?, knocked_at = ?, gps_verified = ?
+      WHERE walk_id = ? AND id != ?
+        AND LOWER(TRIM(address)) = LOWER(TRIM((SELECT address FROM walk_addresses WHERE id = ?)))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(COALESCE((SELECT unit FROM walk_addresses WHERE id = ?),'')))
+    `).run(overallResult, knocked_at, gps_verified, req.params.walkId, req.params.addrId, req.params.addrId, req.params.addrId);
 
     // Record attempt
     db.prepare(
