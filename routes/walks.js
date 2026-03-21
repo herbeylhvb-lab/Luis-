@@ -93,11 +93,12 @@ async function geocodeAddress(address, city, zip) {
   try {
     const url1 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
     const res1 = await fetch(url1, { headers });
+    if (!res1.ok) { console.error('Nominatim strategy 1 HTTP', res1.status, 'for:', address); }
     const data1 = await res1.json();
     if (data1 && data1.length > 0) {
       return { lat: parseFloat(data1[0].lat), lng: parseFloat(data1[0].lon) };
     }
-  } catch (e) { /* fall through to next strategy */ }
+  } catch (e) { console.error('Nominatim strategy 1 error for:', address, '-', e.message); }
 
   // Strategy 2: Free-text query (catches addresses Nominatim can't parse structurally)
   await new Promise(r => setTimeout(r, 1100)); // respect rate limit
@@ -115,11 +116,12 @@ async function geocodeAddress(address, city, zip) {
       addressdetails: '1'
     });
     const res2 = await fetch(url2, { headers });
+    if (!res2.ok) { console.error('Nominatim strategy 2 HTTP', res2.status, 'for:', address); }
     const data2 = await res2.json();
     if (data2 && data2.length > 0) {
       return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
     }
-  } catch (e) { /* fall through */ }
+  } catch (e) { console.error('Nominatim strategy 2 error for:', address, '-', e.message); }
 
   // Strategy 3: Try without unit/apt numbers (e.g. "123 Main St Apt 4" → "123 Main St")
   const stripped = address.trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
@@ -136,37 +138,94 @@ async function geocodeAddress(address, city, zip) {
       if (data3 && data3.length > 0) {
         return { lat: parseFloat(data3[0].lat), lng: parseFloat(data3[0].lon) };
       }
-    } catch (e) { /* geocoding failure is non-fatal */ }
+    } catch (e) { console.error('Nominatim strategy 3 error for:', address, '-', e.message); }
   }
+
+  // Strategy 4: US Census Bureau Geocoder (free, no API key, no strict rate limit)
+  try {
+    let censusAddr = stripped || address.trim();
+    const censusParams = new URLSearchParams({
+      address: censusAddr,
+      city: (city || '').trim(),
+      state: GEOCODE_STATE || '',
+      zip: (zip || '').trim(),
+      benchmark: 'Public_AR_Current',
+      format: 'json'
+    });
+    const censusUrl = 'https://geocoding.geo.census.gov/geocoder/locations/address?' + censusParams;
+    const res4 = await fetch(censusUrl);
+    if (res4.ok) {
+      const data4 = await res4.json();
+      const matches = data4 && data4.result && data4.result.addressMatches;
+      if (matches && matches.length > 0) {
+        const coords = matches[0].coordinates;
+        return { lat: coords.y, lng: coords.x };
+      }
+    }
+  } catch (e) { console.error('Census geocoder error for:', address, '-', e.message); }
 
   return null;
 }
 
+// Track which walks are currently being geocoded to prevent duplicate runs
+const geocodingInProgress = {};
+
 // Geocode walk addresses in the background (non-blocking)
+// De-duplicates by unique address so apartments/households only geocode once
 // Nominatim requires max 1 request/second, so we batch with delays
 function geocodeWalkAddresses(walkId) {
-  const addresses = db.prepare(
+  // Prevent multiple concurrent geocode runs for the same walk
+  if (geocodingInProgress[walkId]) {
+    console.log('Geocoding already in progress for walk', walkId);
+    return;
+  }
+
+  const allMissing = db.prepare(
     'SELECT id, address, city, zip FROM walk_addresses WHERE walk_id = ? AND lat IS NULL'
   ).all(walkId);
 
-  if (addresses.length === 0) return;
+  if (allMissing.length === 0) return;
+
+  // De-duplicate: group rows by unique address+city+zip so we only geocode each physical address once
+  const groups = {};
+  for (const row of allMissing) {
+    const key = (row.address || '').trim().toLowerCase() + '||' + (row.city || '').trim().toLowerCase() + '||' + (row.zip || '').trim().toLowerCase();
+    if (!groups[key]) groups[key] = { address: row.address, city: row.city, zip: row.zip, ids: [] };
+    groups[key].ids.push(row.id);
+  }
+  const uniqueAddresses = Object.values(groups);
+  console.log('Geocoding walk', walkId, ':', allMissing.length, 'rows,', uniqueAddresses.length, 'unique addresses');
 
   const update = db.prepare('UPDATE walk_addresses SET lat = ?, lng = ? WHERE id = ?');
+  geocodingInProgress[walkId] = true;
 
   (async () => {
-    for (const addr of addresses) {
+    let resolved = 0;
+    let failed = 0;
+    for (const group of uniqueAddresses) {
       try {
-        const coords = await geocodeAddress(addr.address, addr.city, addr.zip);
+        const coords = await geocodeAddress(group.address, group.city, group.zip);
         if (coords) {
-          update.run(coords.lat, coords.lng, addr.id);
+          // Apply coordinates to ALL rows with this address
+          for (const id of group.ids) {
+            update.run(coords.lat, coords.lng, id);
+          }
+          resolved += group.ids.length;
+        } else {
+          failed += group.ids.length;
+          console.log('Geocode returned no results for:', group.address, group.city, group.zip);
         }
       } catch (e) {
-        console.error('Geocode error for address', addr.id, ':', e.message);
+        failed += group.ids.length;
+        console.error('Geocode error for', group.address, ':', e.message);
       }
       // Nominatim rate limit: 1 request per second
       await new Promise(r => setTimeout(r, 1100));
     }
-  })().catch(e => console.error('Geocode batch error:', e.message));
+    console.log('Geocoding complete for walk', walkId, ':', resolved, 'resolved,', failed, 'failed');
+  })().catch(e => console.error('Geocode batch error:', e.message)).finally(() => {
+    delete geocodingInProgress[walkId];
+  });
 }
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
@@ -1288,7 +1347,12 @@ router.post('/walks/:id/geocode', (req, res) => {
 
   if (missing.c === 0) return res.json({ message: 'All addresses already have coordinates.', pending: 0 });
 
-  geocodeWalkAddresses(parseInt(req.params.id));
+  const wid = parseInt(req.params.id);
+  if (geocodingInProgress[wid]) {
+    return res.json({ message: 'Geocoding already in progress — ' + missing.c + ' addresses remaining.', pending: missing.c, inProgress: true });
+  }
+
+  geocodeWalkAddresses(wid);
   res.json({ message: 'Geocoding started for ' + missing.c + ' addresses. Map will update as coordinates are resolved.', pending: missing.c });
 });
 
