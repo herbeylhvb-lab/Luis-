@@ -213,6 +213,8 @@ app.use((req, res, next) => {
   if (req.path === '/app') return next();
   // Allow event flyer images (needed for MMS — RumbleUp fetches these URLs)
   if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
+  // Allow temp MMS media (RumbleUp fetches these URLs to attach to projects)
+  if (req.path.startsWith('/api/mms-media/')) return next();
   // Allow voter check-in links (QR code destinations)
   if (req.path.startsWith('/v/')) return next();
   // Debug sync-status requires admin auth (contains phone numbers)
@@ -743,6 +745,31 @@ app.get('/api/rumbleup/projects', asyncHandler(async (req, res) => {
   }
 }));
 
+// --- Temporary media storage for MMS (in-memory, auto-expires after 10min) ---
+const tempMedia = new Map();
+function storeTempMedia(buffer, mimeType) {
+  const id = require('crypto').randomBytes(16).toString('hex');
+  tempMedia.set(id, { buffer, mimeType, created: Date.now() });
+  // Auto-cleanup after 10 minutes
+  setTimeout(() => tempMedia.delete(id), 10 * 60 * 1000);
+  return id;
+}
+
+// Public endpoint to serve temp media (RumbleUp fetches this URL)
+app.get('/api/mms-media/:id', (req, res) => {
+  const entry = tempMedia.get(req.params.id);
+  if (!entry) return res.status(404).send('Not found');
+  res.set('Content-Type', entry.mimeType || 'image/png');
+  res.set('Cache-Control', 'public, max-age=600');
+  res.send(entry.buffer);
+});
+
+function getPublicBaseUrl() {
+  let base = process.env.BASE_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'campaigntext-production.up.railway.app';
+  if (base && !base.startsWith('http')) base = 'https://' + base;
+  return base;
+}
+
 // --- Create MMS project with image upload ---
 app.post('/api/rumbleup/create-mms-project', asyncHandler(async (req, res) => {
   const provider = getProvider();
@@ -753,11 +780,14 @@ app.post('/api/rumbleup/create-mms-project', asyncHandler(async (req, res) => {
   if (!name || !message) return res.status(400).json({ error: 'Project name and message are required.' });
   if (!mediaBase64) return res.status(400).json({ error: 'Media file (base64) is required for MMS.' });
 
-  // Validate file size — RumbleUp limit is 750KB
   const mediaBuffer = Buffer.from(mediaBase64, 'base64');
   if (mediaBuffer.length > 750 * 1024) {
     return res.status(400).json({ error: 'Media file too large. RumbleUp limit is 750KB. Your file is ' + Math.round(mediaBuffer.length / 1024) + 'KB.' });
   }
+
+  // Store temporarily so RumbleUp can fetch it via URL
+  const tempId = storeTempMedia(mediaBuffer, mediaMimeType || 'image/png');
+  const mediaUrl = getPublicBaseUrl() + '/api/mms-media/' + tempId;
 
   const creds = provider.getCredentials();
   try {
@@ -767,18 +797,20 @@ app.post('/api/rumbleup/create-mms-project', asyncHandler(async (req, res) => {
       mediaBuffer,
       mediaFilename: mediaFilename || 'image.png',
       mediaMimeType: mediaMimeType || 'image/png',
+      mediaUrl,
       group,
       campaignId: campaignId || creds.campaignId,
       proxy: proxy || creds.phoneNumber
     });
 
-    // Extract the action/project ID from the response
     const projectId = result.action || result.id || result.aid || result.action_id;
     console.log('[rumbleup] MMS project created:', JSON.stringify(result));
     res.json({
       success: true,
       projectId,
+      approach: result._approach || 'unknown',
       type: result.type || 'MMS',
+      hasMedia: !!(result.media),
       raw: result
     });
   } catch (err) {
@@ -799,8 +831,12 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
   const creds = provider.getCredentials();
   const testMsg = message || 'MMS test from CampaignText\nSTOP to opt-out';
 
+  // Store temporarily for URL approach
+  const tempId = storeTempMedia(mediaBuffer, mediaMimeType || 'image/png');
+  const mediaUrl = getPublicBaseUrl() + '/api/mms-media/' + tempId;
+  console.log('[mms-test] Temp media URL:', mediaUrl);
+
   try {
-    // Step 1: Create MMS project with media via multipart
     console.log('[mms-test] Creating MMS project with', Math.round(mediaBuffer.length / 1024) + 'KB media...');
     const createResult = await provider.createMmsProject({
       name: 'MMS Test ' + new Date().toISOString().slice(0, 16),
@@ -808,6 +844,7 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
       mediaBuffer,
       mediaFilename: mediaFilename || 'test.png',
       mediaMimeType: mediaMimeType || 'image/png',
+      mediaUrl,
       campaignId: creds.campaignId,
       proxy: creds.phoneNumber
     });
@@ -815,14 +852,14 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
     const projectId = createResult.action || createResult.id || createResult.aid;
     console.log('[mms-test] Created project:', JSON.stringify(createResult));
 
-    // Step 2: Verify project has media
+    // Verify project has media
     let projectDetails = null;
     if (projectId) {
       projectDetails = await provider.getProject(projectId);
       console.log('[mms-test] Project details:', JSON.stringify(projectDetails));
     }
 
-    // Step 3: Send test message if phone provided
+    // Send test message if phone provided
     let testResult = null;
     if (testPhone && projectId) {
       testResult = await provider.sendTestMessage(projectId, testPhone, testMsg);
@@ -832,10 +869,13 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
     res.json({
       success: true,
       projectId,
+      approach: createResult._approach || 'unknown',
       createResult,
       projectDetails,
       hasMedia: !!(projectDetails && (projectDetails.media || projectDetails.media_url)),
+      allAttempts: createResult._allAttempts || null,
       testResult,
+      mediaUrl,
       note: testPhone ? 'Check your phone for the test MMS' : 'Project created — provide testPhone to send a test'
     });
   } catch (err) {
