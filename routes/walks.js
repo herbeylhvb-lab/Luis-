@@ -49,6 +49,21 @@ function buildHouseholdFromWalkAddresses(addresses) {
   }
 }
 
+// Parse apartment/unit number from an address string
+// e.g. "600 Jose Marti Blvd Apt 4" -> { street: "600 Jose Marti Blvd", unit: "Apt 4" }
+// e.g. "123 Main St #2B" -> { street: "123 Main St", unit: "#2B" }
+// e.g. "456 Oak Ave" -> { street: "456 Oak Ave", unit: "" }
+function parseAddressUnit(address) {
+  if (!address) return { street: '', unit: '' };
+  const addr = address.trim();
+  // Match common apartment/unit patterns at the end of the address
+  const match = addr.match(/^(.+?)\s+((?:apt|apartment|unit|ste|suite|#|rm|room|fl|floor|bldg|building|lot|space|trlr|trailer)\s*\.?\s*\S+)$/i);
+  if (match) {
+    return { street: match[1].trim(), unit: match[2].trim() };
+  }
+  return { street: addr, unit: '' };
+}
+
 // ===================== GEOCODING =====================
 
 // Geocode a single address using OpenStreetMap Nominatim (free, no API key)
@@ -1013,7 +1028,8 @@ router.post('/walks/from-precinct', (req, res) => {
     let i = 0;
     for (const v of voters) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++);
+      const parsed = parseAddressUnit(v.address);
+      insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++);
     }
     return i;
   });
@@ -1058,7 +1074,8 @@ router.post('/walks/from-voters', (req, res) => {
     let i = 0;
     for (const v of voters) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++);
+      const parsed = parseAddressUnit(v.address);
+      insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++);
     }
     return i;
   });
@@ -1637,7 +1654,8 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
     let i = 0;
     for (const v of selected) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
+      const parsed = parseAddressUnit(v.address);
+      insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
     }
 
     return { walkId, walkName, added: i, joinCode };
@@ -1731,7 +1749,8 @@ router.post('/walks/:id/refresh', (req, res) => {
     for (const v of freshVoters) {
       if (!existingVoterIds.has(v.id)) {
         const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-        insertAddr.run(req.params.id, v.address, '', v.city || '', v.zip || '', voterName, v.id, sortIdx++);
+        const parsed = parseAddressUnit(v.address);
+        insertAddr.run(req.params.id, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, sortIdx++);
         added++;
       }
     }
