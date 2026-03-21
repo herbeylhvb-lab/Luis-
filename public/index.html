@@ -4296,36 +4296,77 @@ async function geocodeCurrentWalk() {
   btn.disabled = true;
   btn.textContent = 'Mapping...';
   statusEl.textContent = '';
+  statusEl.style.color = '#94a3b8';
+
   try {
-    var data = await api('/api/walks/' + state.currentWalkId + '/geocode', { method: 'POST' });
-    statusEl.textContent = data.message || 'Done';
+    // First, reload fresh address data so we have latest lat/lng values
+    var freshData = await api('/api/walks/' + state.currentWalkId);
+    if (freshData.walk) state.walkAddresses = freshData.walk.addresses;
 
-    // Auto-open the map so the user can see houses appearing
-    if (!walkMapVisible) toggleWalkMap();
-
-    if (data.pending > 0) {
-      // Poll map updates as geocoding runs in the background
-      var pollCount = 0;
-      var pollInterval = setInterval(async function() {
-        try {
-          await fetchWalkerLocations();
-          // Also reload walk detail so state.walkAddresses gets updated coords
-          var detail = await api('/api/walks/' + state.currentWalkId);
-          if (detail.walk) state.walkAddresses = detail.walk.addresses;
-        } catch(e) { /* retry next interval */ }
-        pollCount++;
-        if (pollCount > 60) {
-          clearInterval(pollInterval);
-          statusEl.textContent = 'Geocoding complete';
-        }
-      }, 3000);
+    // Open the map so user can see results
+    if (!walkMapVisible) {
+      toggleWalkMap();
     } else {
-      // All addresses already geocoded — just refresh markers on the map
+      // Map already open — reset fit so it re-zooms to addresses
+      walkMapHasFit = false;
       updateAddrMarkers();
     }
+
+    // Check how many addresses already have coordinates
+    var withCoords = (state.walkAddresses || []).filter(function(a) { return a.lat && a.lng; }).length;
+    var totalAddrs = (state.walkAddresses || []).length;
+
+    if (withCoords === totalAddrs && totalAddrs > 0) {
+      // All addresses already have coordinates — just show them
+      statusEl.textContent = 'All ' + totalAddrs + ' addresses mapped';
+      btn.disabled = false;
+      btn.textContent = 'Map Houses';
+      return;
+    }
+
+    // Trigger geocoding for addresses without coordinates
+    var data = await api('/api/walks/' + state.currentWalkId + '/geocode', { method: 'POST' });
+    statusEl.textContent = data.message || 'Geocoding...';
+
+    if (data.pending > 0) {
+      // Poll for updates as geocoding runs in the background
+      var pollCount = 0;
+      var geocodePollInterval = setInterval(async function() {
+        try {
+          // Reload addresses to get newly geocoded coordinates
+          var detail = await api('/api/walks/' + state.currentWalkId);
+          if (detail.walk) {
+            state.walkAddresses = detail.walk.addresses;
+            // Allow map to re-zoom as new markers appear
+            walkMapHasFit = false;
+            updateAddrMarkers();
+            // Update status with progress
+            var mapped = state.walkAddresses.filter(function(a) { return a.lat && a.lng; }).length;
+            statusEl.textContent = 'Mapped ' + mapped + ' / ' + state.walkAddresses.length + ' addresses';
+            if (mapped >= state.walkAddresses.length) {
+              clearInterval(geocodePollInterval);
+              statusEl.textContent = 'All addresses mapped!';
+              statusEl.style.color = '#22c55e';
+              btn.disabled = false;
+              btn.textContent = 'Map Houses';
+            }
+          }
+        } catch(e) { /* retry next interval */ }
+        pollCount++;
+        if (pollCount > 120) {
+          clearInterval(geocodePollInterval);
+          statusEl.textContent = 'Geocoding may still be running — click Map Houses again to check';
+          btn.disabled = false;
+          btn.textContent = 'Map Houses';
+        }
+      }, 2000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Map Houses';
+    }
   } catch (e) {
-    statusEl.textContent = 'Failed to geocode';
-  } finally {
+    statusEl.textContent = 'Error: ' + (e.message || 'Failed to load map');
+    statusEl.style.color = '#ef4444';
     btn.disabled = false;
     btn.textContent = 'Map Houses';
   }

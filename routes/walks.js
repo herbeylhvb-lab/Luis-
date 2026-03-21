@@ -1278,7 +1278,7 @@ router.post('/walks/:id/geocode', (req, res) => {
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
   // Force mode: clear all existing coords so they get re-geocoded with improved logic
-  if (req.query.force === 'true' || req.body.force) {
+  if (req.query.force === 'true' || (req.body && req.body.force)) {
     db.prepare('UPDATE walk_addresses SET lat = NULL, lng = NULL WHERE walk_id = ?').run(req.params.id);
   }
 
