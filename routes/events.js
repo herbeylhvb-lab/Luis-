@@ -32,12 +32,12 @@ router.get('/events', (req, res) => {
 
 // Create event (now accepts flyer_image)
 router.post('/events', (req, res) => {
-  const { title, description, location, event_date, event_time, event_end_time, flyer_image, latitude, longitude, checkin_radius } = req.body;
+  const { title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'Title and date are required.' });
   const result = db.prepare(
-    'INSERT INTO events (title, description, location, event_date, event_time, event_end_time, flyer_image, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO events (title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(title, description || '', location || '', event_date, event_time || '', event_end_time || '',
-    flyer_image || null,
+    flyer_image || null, mms_project_id || null,
     latitude != null ? latitude : null, longitude != null ? longitude : null,
     checkin_radius != null ? checkin_radius : 500);
   res.json({ success: true, id: result.lastInsertRowid });
@@ -45,7 +45,7 @@ router.post('/events', (req, res) => {
 
 // Get event detail with RSVPs
 router.get('/events/:id', (req, res) => {
-  const event = db.prepare('SELECT id, title, description, location, event_date, event_time, event_end_time, status, created_at, latitude, longitude, checkin_radius, (flyer_image IS NOT NULL) as has_flyer FROM events WHERE id = ?').get(req.params.id);
+  const event = db.prepare('SELECT id, title, description, location, event_date, event_time, event_end_time, status, created_at, latitude, longitude, checkin_radius, mms_project_id, (flyer_image IS NOT NULL) as has_flyer FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
   event.rsvps = db.prepare('SELECT * FROM event_rsvps WHERE event_id = ? ORDER BY id').all(req.params.id);
   res.json({ event });
@@ -53,7 +53,7 @@ router.get('/events/:id', (req, res) => {
 
 // Update event (now accepts flyer_image)
 router.put('/events/:id', (req, res) => {
-  const { title, description, location, event_date, event_time, event_end_time, status, flyer_image, latitude, longitude, checkin_radius } = req.body;
+  const { title, description, location, event_date, event_time, event_end_time, status, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   // If flyer_image is explicitly provided, update it. Otherwise leave existing.
   let result;
   if (flyer_image !== undefined) {
@@ -62,8 +62,9 @@ router.put('/events/:id', (req, res) => {
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      flyer_image = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
+      flyer_image = ?, mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status, flyer_image,
+      mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
       checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   } else {
@@ -72,8 +73,9 @@ router.put('/events/:id', (req, res) => {
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
+      mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status,
+      mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
       checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   }

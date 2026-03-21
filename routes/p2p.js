@@ -491,29 +491,15 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         city: assignment.city || ''
       });
     }
-    // MMS: RumbleUp requires media at the project level, not per-message.
-    // If the session has a flyer image, attach it to the existing project before sending.
-    const session = db.prepare('SELECT media_url, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    let mmsEnabled = false;
-
-    if (!isReply && session && session.media_url && session.session_type === 'event' && provider.enableMmsOnProject) {
-      try {
-        let imageUrl = session.media_url;
-        if (imageUrl && !imageUrl.startsWith('http')) imageUrl = 'https://' + imageUrl;
-        await provider.enableMmsOnProject(imageUrl);
-        mmsEnabled = true;
-        console.log('[p2p-send] MMS enabled on existing project with image:', imageUrl);
-      } catch (mmsErr) {
-        console.error('[p2p-send] Failed to enable MMS, sending as SMS:', mmsErr.message);
-      }
+    // MMS: If the session has a rumbleup_action_id, send through that MMS project
+    // (image is pre-uploaded on RumbleUp dashboard, not via API)
+    const session = db.prepare('SELECT rumbleup_action_id, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
+    const mmsActionId = (!isReply && session && session.rumbleup_action_id) ? session.rumbleup_action_id : null;
+    if (mmsActionId) {
+      console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId);
     }
 
-    await provider.sendMessage(assignment.phone, message, 'sms');
-
-    // Remove media from project after send so subsequent non-MMS sends aren't affected
-    if (mmsEnabled && provider.disableMmsOnProject) {
-      provider.disableMmsOnProject(); // fire-and-forget
-    }
+    await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")

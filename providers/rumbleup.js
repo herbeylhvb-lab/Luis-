@@ -314,55 +314,6 @@ async function listReports() {
   return apiGet('/report/list');
 }
 
-// --- MMS helpers ---
-
-/**
- * Attach an image to the existing configured project so messages include it.
- * Downloads the image and uploads as binary multipart (docs say media is binary).
- */
-async function enableMmsOnProject(imageUrl) {
-  const creds = getCredentials();
-  if (!creds.actionId) throw new Error('No RumbleUp Action/Project ID configured.');
-
-  // Download the image
-  console.log('[rumbleup] Downloading image from:', imageUrl);
-  const imgResp = await fetch(imageUrl);
-  if (!imgResp.ok) throw new Error('Failed to download image (' + imgResp.status + '): ' + imageUrl);
-  const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
-  const buffer = Buffer.from(await imgResp.arrayBuffer());
-  console.log('[rumbleup] Image downloaded:', buffer.length, 'bytes,', contentType);
-
-  if (buffer.length > 750 * 1024) {
-    throw new Error('Image too large for MMS (' + Math.round(buffer.length / 1024) + 'KB). Max ~750KB.');
-  }
-
-  // Upload as multipart form-data to update endpoint
-  const ext = contentType.includes('png') ? '.png' : contentType.includes('gif') ? '.gif' : '.jpg';
-  const form = new FormData();
-  form.append('media', new Blob([buffer], { type: contentType }), 'flyer' + ext);
-
-  const result = await updateProject(creds.actionId, form, { multipart: true, timeout: 30000 });
-  console.log('[rumbleup] Media attached to project ' + creds.actionId + ':', JSON.stringify(result));
-  return creds.actionId;
-}
-
-/**
- * Remove MMS media from the existing project, reverting it to SMS-only.
- */
-async function disableMmsOnProject() {
-  const creds = getCredentials();
-  if (!creds.actionId) return;
-  try {
-    // Send empty media to clear it
-    const form = new FormData();
-    form.append('media', new Blob([], { type: 'application/octet-stream' }), 'empty');
-    await updateProject(creds.actionId, form, { multipart: true, timeout: 15000 });
-    console.log('[rumbleup] Removed media from project ' + creds.actionId);
-  } catch (err) {
-    console.error('[rumbleup] Failed to remove media from project:', err.message);
-  }
-}
-
 // --- Webhook handling ---
 
 function buildReply(text) {
@@ -416,8 +367,6 @@ module.exports = {
   sendToProject,
   sendWhatsApp,
   sendMessage,
-  enableMmsOnProject,
-  disableMmsOnProject,
   getNextContact,
   getMessageLog,
   // Reports

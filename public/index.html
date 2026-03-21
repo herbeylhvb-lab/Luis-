@@ -381,10 +381,9 @@ tr:hover td{background:#1e293b80}
           <div class="form-group"><label>Phone Number</label><input type="text" id="quickSendPhone" placeholder="956-xxx-xxxx"></div>
           <div class="form-group"><label>Message</label><input type="text" id="quickSendMsg" placeholder="Type your message..."></div>
         </div>
-        <div style="margin-bottom:12px">
-          <label style="font-size:13px;color:#94a3b8;display:block;margin-bottom:4px">Attach Image (MMS)</label>
-          <input type="file" id="quickSendImage" accept="image/png,image/jpeg,image/gif" style="font-size:13px;color:#e2e8f0">
-          <span style="font-size:11px;color:#64748b;margin-left:8px">PNG/JPG/GIF, max 750KB</span>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>MMS Project ID <span style="font-size:11px;color:#64748b;font-weight:400">(optional — create MMS project on RumbleUp dashboard first)</span></label>
+          <input type="text" id="quickSendMmsId" placeholder="e.g. 42 — leave blank for SMS only">
         </div>
         <button class="btn btn-success btn-sm" onclick="quickSendText()">Send</button>
         <span id="quickSendStatus" style="font-size:12px;color:#64748b;margin-left:8px"></span>
@@ -1523,7 +1522,12 @@ tr:hover td{background:#1e293b80}
           <div class="form-group">
             <label>Event Flyer (optional)</label>
             <input type="file" id="eventFlyer" accept="image/png,image/jpeg,image/webp" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
-            <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image. A unique QR code will be overlaid per voter when sending MMS invites.</div>
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image for display. For MMS sending, upload the image directly on RumbleUp and enter the project ID below.</div>
+          </div>
+          <div class="form-group">
+            <label>RumbleUp MMS Project ID <span style="font-size:11px;color:#64748b;font-weight:400">(optional)</span></label>
+            <input type="text" id="eventMmsProjectId" placeholder="e.g. 42 — create MMS project on RumbleUp first, then enter its ID here">
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Create an MMS project on RumbleUp's dashboard with your flyer image, then enter the project/action ID here. Event invites will be sent as MMS through that project.</div>
           </div>
           <div id="eventUploadProgress" style="display:none;margin-bottom:12px">
             <div style="font-size:13px;color:#94a3b8;margin-bottom:4px"><span id="eventUploadLabel">Uploading flyer...</span></div>
@@ -2706,28 +2710,17 @@ async function quickSendText() {
   var phone = document.getElementById('quickSendPhone').value.trim();
   var msg = document.getElementById('quickSendMsg').value.trim();
   var status = document.getElementById('quickSendStatus');
-  var imageInput = document.getElementById('quickSendImage');
+  var mmsId = (document.getElementById('quickSendMmsId').value || '').trim();
   if (!phone || !msg) { status.textContent = 'Phone and message required.'; status.style.color = '#ef4444'; return; }
   if (!state.credentials.connected) { alert('Set up messaging credentials first.'); return; }
   try {
-    // If image attached, upload it first to get a URL, then send as MMS
-    var imageDataUrl = null;
-    if (imageInput && imageInput.files && imageInput.files[0]) {
-      var file = imageInput.files[0];
-      if (file.size > 750 * 1024) { status.textContent = 'Image too large (max 750KB).'; status.style.color = '#ef4444'; return; }
-      status.textContent = 'Uploading image...'; status.style.color = '#f59e0b';
-      imageDataUrl = await new Promise(function(resolve) {
-        var reader = new FileReader();
-        reader.onload = function(e) { resolve(e.target.result); };
-        reader.readAsDataURL(file);
-      });
-    }
-    status.textContent = imageDataUrl ? 'Sending MMS...' : 'Sending...'; status.style.color = '#f59e0b';
-    await apiPost('/reply', { to: phone, body: msg, imageData: imageDataUrl });
-    status.textContent = imageDataUrl ? 'MMS Sent!' : 'Sent!';
+    status.textContent = mmsId ? 'Sending MMS...' : 'Sending...'; status.style.color = '#f59e0b';
+    var payload = { to: phone, body: msg };
+    if (mmsId) payload.mmsActionId = mmsId;
+    await apiPost('/reply', payload);
+    status.textContent = mmsId ? 'MMS Sent!' : 'Sent!';
     status.style.color = '#22c55e';
     document.getElementById('quickSendMsg').value = '';
-    if (imageInput) imageInput.value = '';
     setTimeout(function() { status.textContent = ''; }, 3000);
   } catch (e) { status.textContent = 'Failed: ' + (e.message || 'Error'); status.style.color = '#ef4444'; }
 }
@@ -5968,12 +5961,22 @@ async function loadEventDetail(id) {
   } else {
     flyerEl.innerHTML = '<div style="color:#64748b;font-size:12px">No flyer uploaded. Upload a flyer when creating an event to enable MMS with QR codes.</div>';
   }
-  // MMS indicator on invite section
+  // Store MMS project ID for use when sending invites
+  state.currentEventMmsProjectId = e.mms_project_id || null;
+  // MMS indicator on invite section — all values are from our own DB, not user input
   const mmsNote = document.getElementById('inviteMmsNote');
-  if (e.has_flyer) {
-    mmsNote.innerHTML = '<span class="badge" style="background:#2e1065;color:#c084fc">MMS</span> Invites will include your flyer with each voter\'s unique QR code overlaid.';
+  if (e.mms_project_id) {
+    var badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.style.cssText = 'background:#2e1065;color:#c084fc';
+    badge.textContent = 'MMS';
+    mmsNote.textContent = '';
+    mmsNote.appendChild(badge);
+    mmsNote.appendChild(document.createTextNode(' Invites sent as MMS via RumbleUp project #' + e.mms_project_id));
+  } else if (e.has_flyer) {
+    mmsNote.textContent = 'Flyer uploaded for display. To send as MMS, set a RumbleUp MMS Project ID when creating the event.';
   } else {
-    mmsNote.textContent = 'Select contacts to invite via SMS. Upload a flyer to enable MMS with QR codes.';
+    mmsNote.textContent = 'Invites will be sent as SMS. To include an image, create an MMS project on RumbleUp and set the Project ID on the event.';
   }
   document.getElementById('rsvpStats').innerHTML = Object.keys(counts).map(k =>
     '<div class="stat-card" style="padding:12px"><div class="label">' + k.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + counts[k] + '</div></div>'
@@ -6157,6 +6160,8 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
   const lng = parseFloat(document.getElementById('eventLng').value);
   const radius = parseInt(document.getElementById('eventRadius').value);
 
+  const mmsProjectId = (document.getElementById('eventMmsProjectId').value || '').trim();
+
   const payload = {
     title,
     location: document.getElementById('eventLocation').value.trim(),
@@ -6165,6 +6170,7 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
     event_end_time: document.getElementById('eventEndTime').value,
     description: document.getElementById('eventDesc').value.trim(),
     flyer_image: flyerBase64,
+    mms_project_id: mmsProjectId || null,
     latitude: isNaN(lat) ? null : lat,
     longitude: isNaN(lng) ? null : lng,
     checkin_radius: radius || 500

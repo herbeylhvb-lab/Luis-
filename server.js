@@ -44,7 +44,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { err
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
 // Bulk import paths get a higher body limit (50mb); all others get 2mb
-const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events', '/reply'];
+const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events'];
 const bulkJsonParserEarly = express.json({ limit: '50mb' });
 const defaultJsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
@@ -676,7 +676,7 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   const hasVolunteer = req.body && req.body.volunteerId;
   if (!hasAdminSession && !hasVolunteer) return res.status(401).json({ error: 'Authentication required.' });
   const provider = getProvider();
-  const { to, body, channel, imageData } = req.body;
+  const { to, body, channel, mmsActionId } = req.body;
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
   if (!to || !body) return res.status(400).json({ error: 'Recipient and message body required.' });
   // Check opt-out list before sending (TCPA compliance)
@@ -685,48 +685,13 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Contact has opted out. Cannot send messages.' });
   }
   try {
-    // MMS: create a new RumbleUp project with the image, send through it
-    let mmsActionId = null;
-    if (imageData) {
-      const base64Match = imageData.match(/^data:image\/(png|jpeg|jpg|gif);base64,(.+)$/);
-      if (base64Match) {
-        const imgBuffer = Buffer.from(base64Match[2], 'base64');
-        const contentType = 'image/' + base64Match[1];
-        const ext = base64Match[1] === 'png' ? '.png' : base64Match[1] === 'gif' ? '.gif' : '.jpg';
-        console.log('[reply] MMS image: ' + imgBuffer.length + ' bytes, ' + contentType);
-
-        if (imgBuffer.length > 750 * 1024) {
-          return res.status(400).json({ error: 'Image too large for MMS (max 750KB).' });
-        }
-
-        const creds = provider.getCredentials();
-        const proxyNum = creds.phoneNumber ? (creds.phoneNumber.replace(/\D/g, '').length === 10 ? '1' + creds.phoneNumber.replace(/\D/g, '') : creds.phoneNumber.replace(/\D/g, '')) : undefined;
-        // Try creating project with base64 media in JSON body
-        // (multipart uploads are ignored by both create and update endpoints)
-        try {
-          const b64Media = imgBuffer.toString('base64');
-          console.log('[reply] Sending base64 media in JSON, length:', b64Media.length);
-          const result = await provider.apiPost('/project/create', {
-            name: 'MMS-' + Date.now(),
-            message: body + '\nSTOP to opt-out',
-            media: b64Media,
-            campaignId: creds.campaignId || undefined,
-            proxy: proxyNum
-          });
-          console.log('[reply] MMS project create response:', JSON.stringify(result));
-          mmsActionId = result.action || result.id || result.aid;
-          if (mmsActionId) {
-            console.log('[reply] MMS project created with action ID:', mmsActionId, 'type:', result.type, 'media:', result.media);
-          }
-        } catch (err) {
-          console.error('[reply] MMS project creation failed:', err.message);
-        }
-      }
-    }
-
     // RumbleUp requires opt-out instructions in every message
     const sendBody = /stop|opt.?out|unsubscribe/i.test(body) ? body : body + '\nSTOP to opt-out';
-    await provider.sendMessage(to, sendBody, channel, mmsActionId);
+    // If mmsActionId provided, send through that pre-created MMS project (image is on the project)
+    if (mmsActionId) {
+      console.log('[reply] Sending MMS via pre-created project:', mmsActionId);
+    }
+    await provider.sendMessage(to, sendBody, channel, mmsActionId || null);
 
     // Find active P2P session for this phone so reply appears in conversation view
     const replySessionMatch = db.prepare(`
@@ -737,7 +702,7 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
       ORDER BY a.sent_at DESC LIMIT 1
     `).get(toDigits);
     db.prepare("INSERT INTO messages (phone, body, direction, session_id) VALUES (?, ?, 'outbound', ?)").run(toDigits || to, body, replySessionMatch ? replySessionMatch.session_id : null);
-    res.json({ success: true, mms: !!imageData });
+    res.json({ success: true, mms: !!mmsActionId });
   } catch (err) {
     console.error('Reply send error:', err.message);
     res.status(500).json({ error: 'Failed to send reply: ' + err.message });
@@ -1029,6 +994,7 @@ app.post('/api/events/:id/invite', (req, res) => {
   const { contactIds, list_id, messageTemplate, precinct_filter } = req.body;
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
+  const mms_project_id = req.body.mms_project_id || event.mms_project_id || null;
 
   // Gather contacts — from list or individual IDs
   let contacts = [];
@@ -1078,14 +1044,15 @@ app.post('/api/events/:id/invite', (req, res) => {
   if (existingSession) {
     sessionId = existingSession.id;
     joinCode = existingSession.join_code;
-    // Update media_url in case flyer was added/changed
+    // Update media_url and MMS project ID in case they were added/changed
     if (flyerUrl) db.prepare('UPDATE p2p_sessions SET media_url = ? WHERE id = ?').run(flyerUrl, sessionId);
+    if (mms_project_id) db.prepare('UPDATE p2p_sessions SET rumbleup_action_id = ? WHERE id = ?').run(mms_project_id, sessionId);
   } else {
     joinCode = generateJoinCode();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     const sessionResult = db.prepare(
-      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url, source_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl, req.params.id);
+      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url, source_id, rumbleup_action_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl, req.params.id, mms_project_id || null);
     sessionId = sessionResult.lastInsertRowid;
   }
 
