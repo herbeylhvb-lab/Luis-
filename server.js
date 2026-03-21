@@ -685,30 +685,43 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Contact has opted out. Cannot send messages.' });
   }
   try {
-    // MMS: if imageData provided, attach it to the project before sending
-    if (imageData && provider.enableMmsOnProject) {
-      // imageData is a base64 data URL — save as temp file and serve it, or upload directly
-      // Upload the binary to RumbleUp by writing to a temp buffer
+    // MMS: if imageData provided, try to attach image to RumbleUp project
+    if (imageData) {
       const base64Match = imageData.match(/^data:image\/(png|jpeg|jpg|gif);base64,(.+)$/);
       if (base64Match) {
         const imgBuffer = Buffer.from(base64Match[2], 'base64');
         const contentType = 'image/' + base64Match[1];
         const ext = base64Match[1] === 'png' ? '.png' : base64Match[1] === 'gif' ? '.gif' : '.jpg';
-        console.log('[reply] MMS image:', imgBuffer.length, 'bytes,', contentType);
+        console.log('[reply] MMS image: ' + imgBuffer.length + ' bytes, ' + contentType);
 
         if (imgBuffer.length > 750 * 1024) {
           return res.status(400).json({ error: 'Image too large for MMS (max 750KB).' });
         }
 
-        // Upload directly to RumbleUp project via multipart
         const creds = provider.getCredentials();
         if (!creds.actionId) {
           return res.status(400).json({ error: 'No RumbleUp Action/Project ID configured for MMS.' });
         }
-        const form = new FormData();
-        form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
-        await provider.updateProject(creds.actionId, form, { multipart: true, timeout: 30000 });
-        console.log('[reply] MMS media attached to project ' + creds.actionId);
+
+        // Try approach 1: multipart form-data with all fields
+        try {
+          const form = new FormData();
+          form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
+          const updateResult = await provider.updateProject(creds.actionId, form, { multipart: true, timeout: 30000 });
+          console.log('[reply] Multipart update response:', JSON.stringify(updateResult));
+        } catch (err1) {
+          console.error('[reply] Multipart upload failed:', err1.message);
+          // Try approach 2: base64 string in JSON body
+          try {
+            const b64String = base64Match[2];
+            const jsonResult = await provider.updateProject(creds.actionId, { media: b64String });
+            console.log('[reply] JSON base64 update response:', JSON.stringify(jsonResult));
+          } catch (err2) {
+            console.error('[reply] JSON base64 upload also failed:', err2.message);
+          }
+        }
+      } else {
+        console.error('[reply] imageData did not match expected base64 format');
       }
     }
 
