@@ -642,13 +642,11 @@ try {
   `);
 } catch (e) { /* indexes already exist */ }
 
-// Walk infrastructure indexes — created individually so one failure doesn't abort others
+// Walk infrastructure indexes — voter_id and phone exist at this point
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_voter_id ON walk_addresses(voter_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_universe_id ON walk_addresses(universe_id)"); } catch (e) {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_group_members_phone ON walk_group_members(phone)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_id ON walk_attempts(walker_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_walk ON walk_attempts(walker_id, walk_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_universes_status ON walk_universes(status)"); } catch (e) {}
+// Note: indexes for walk_attempts, walk_universes, and walk_addresses.universe_id
+// are created after those tables/columns exist (see below line ~885)
 
 // --- Broadcast campaigns table ---
 db.exec(`
@@ -879,6 +877,12 @@ db.exec(`
 addColumn("ALTER TABLE walk_group_members ADD COLUMN walker_id INTEGER DEFAULT NULL");
 // Track which walker knocked each door
 addColumn("ALTER TABLE walk_attempts ADD COLUMN walker_id INTEGER DEFAULT NULL");
+// Deferred indexes — these tables/columns are now defined above
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_universe_id ON walk_addresses(universe_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_id ON walk_attempts(walker_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_walk ON walk_attempts(walker_id, walk_id)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_universes_status ON walk_universes(status)"); } catch (e) {}
+
 // One-time migration: bump default max walkers from 4 to 10 (guarded by settings flag)
 try {
   const migrated = db.prepare("SELECT value FROM settings WHERE key = 'max_walkers_migrated'").get();

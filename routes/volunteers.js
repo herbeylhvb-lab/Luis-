@@ -3,7 +3,7 @@ const router = express.Router();
 const { randomBytes } = require('crypto');
 const db = require('../db');
 const { generateAlphaCode } = require('../utils');
-const { geocodeWalkAddresses } = require('./walks');
+const { geocodeWalkAddresses, parseAddressUnit } = require('./walks');
 
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 
@@ -223,12 +223,13 @@ router.post('/volunteers/create-walk', (req, res) => {
   ).run(walkName.trim(), '', joinCode);
   const walkId = walkResult.lastInsertRowid;
 
-  // Add addresses
-  const insAddr = db.prepare('INSERT INTO walk_addresses (walk_id, address, city, zip, voter_name, sort_order) VALUES (?, ?, ?, ?, ?, ?)');
+  // Add addresses — parse unit from address string for proper apartment grouping
+  const insAddr = db.prepare('INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
   let order = 0;
   for (const addr of addresses) {
     if (!addr.address || !addr.address.trim()) continue;
-    insAddr.run(walkId, addr.address.trim(), addr.city || '', addr.zip || '', addr.voter_name || '', order++);
+    const parsed = parseAddressUnit(addr.address.trim());
+    insAddr.run(walkId, parsed.street || addr.address.trim(), parsed.unit || '', addr.city || '', addr.zip || '', addr.voter_name || '', order++);
   }
 
   // Assign all active walkers (including this one)
