@@ -8,6 +8,7 @@ const { generateAlphaCode, normalizePhone } = require('../utils');
 // Count unique doors (address+unit) instead of individual voter rows
 // People living together at the same address count as ONE door
 function countDoors(addresses) {
+  if (!addresses || !addresses.length) return { total: 0, knocked: 0, remaining: 0 };
   var doors = {};
   for (var i = 0; i < addresses.length; i++) {
     var a = addresses[i];
@@ -31,6 +32,7 @@ function countDoors(addresses) {
 // Build household members from walk_addresses — groups by address+unit
 // so apartment residents only see people in their same unit, not the whole building
 function buildHouseholdFromWalkAddresses(addresses) {
+  if (!addresses || !addresses.length) return;
   const grouped = {};
   for (const addr of addresses) {
     const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
@@ -39,14 +41,29 @@ function buildHouseholdFromWalkAddresses(addresses) {
   }
   for (const addr of addresses) {
     const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
-    const others = grouped[key].filter(a => a.id !== addr.id && a.voter_name);
+    const others = grouped[key].filter(a => a.id !== addr.id && (a.voter_name || '').trim());
     addr.household = others.map(a => {
-      const parts = (a.voter_name || '').split(' ');
+      const parts = (a.voter_name || '').trim().split(' ');
       const firstName = parts[0] || '';
       const lastName = parts.slice(1).join(' ') || '';
       return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '' };
     });
   }
+}
+
+// Parse apartment/unit number from an address string
+// e.g. "600 Jose Marti Blvd Apt 4" -> { street: "600 Jose Marti Blvd", unit: "Apt 4" }
+// e.g. "123 Main St #2B" -> { street: "123 Main St", unit: "#2B" }
+// e.g. "456 Oak Ave" -> { street: "456 Oak Ave", unit: "" }
+function parseAddressUnit(address) {
+  if (!address) return { street: '', unit: '' };
+  const addr = address.trim();
+  // Match common apartment/unit patterns at the end of the address
+  const match = addr.match(/^(.+?)\s+((?:apt|apartment|unit|ste|suite|#|rm|room|fl|floor|bldg|building|lot|space|trlr|trailer)\s*\.?\s*\S+)$/i);
+  if (match) {
+    return { street: match[1].trim(), unit: match[2].trim() };
+  }
+  return { street: addr, unit: '' };
 }
 
 // ===================== GEOCODING =====================
@@ -1013,7 +1030,8 @@ router.post('/walks/from-precinct', (req, res) => {
     let i = 0;
     for (const v of voters) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++);
+      const parsed = parseAddressUnit(v.address);
+      insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++);
     }
     return i;
   });
@@ -1058,7 +1076,8 @@ router.post('/walks/from-voters', (req, res) => {
     let i = 0;
     for (const v of voters) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++);
+      const parsed = parseAddressUnit(v.address);
+      insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++);
     }
     return i;
   });
@@ -1159,7 +1178,7 @@ router.get('/walks/:id/live-status', (req, res) => {
   const members = db.prepare('SELECT walker_name, joined_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
 
   const allAddresses = db.prepare(
-    'SELECT id, address, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
   const doorProgress = countDoors(allAddresses);
@@ -1637,7 +1656,8 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
     let i = 0;
     for (const v of selected) {
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-      insert.run(walkId, v.address, '', v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
+      const parsed = parseAddressUnit(v.address);
+      insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++, universe.id);
     }
 
     return { walkId, walkName, added: i, joinCode };
@@ -1731,7 +1751,8 @@ router.post('/walks/:id/refresh', (req, res) => {
     for (const v of freshVoters) {
       if (!existingVoterIds.has(v.id)) {
         const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-        insertAddr.run(req.params.id, v.address, '', v.city || '', v.zip || '', voterName, v.id, sortIdx++);
+        const parsed = parseAddressUnit(v.address);
+        insertAddr.run(req.params.id, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, sortIdx++);
         added++;
       }
     }
