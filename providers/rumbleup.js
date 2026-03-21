@@ -182,14 +182,12 @@ async function listAccounts(params) {
 
 // --- Projects (Actions) ---
 
-async function createProject({ name, message, group, campaignId, proxy, media, type }) {
+async function createProject({ name, message, group, campaignId, proxy, type }) {
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;
   if (proxy) body.proxy = proxy;
   if (type) body.type = type; // SMS, MMS, or EVT
-  // media can be a URL string — RumbleUp may accept it in JSON body
-  if (media && typeof media === 'string') body.media = media;
   return apiPost('/project/create', body);
 }
 
@@ -316,28 +314,34 @@ async function listReports() {
   return apiGet('/report/list');
 }
 
-// --- MMS project creation ---
+// --- MMS helpers ---
 
 /**
- * Create an MMS project with an image URL. Returns the new project's action ID.
+ * Attach an image to the existing configured project so messages include it.
+ * Returns the action ID to send through (same as existing project).
  */
-async function createMmsProject({ name, message, imageUrl }) {
+async function enableMmsOnProject(imageUrl) {
   const creds = getCredentials();
-  const result = await createProject({
-    name,
-    message,
-    media: imageUrl,  // Pass URL as string — RumbleUp fetches it
-    type: 'MMS',
-    proxy: creds.phoneNumber || undefined,
-    campaignId: creds.campaignId || undefined
-  });
-  console.log('[rumbleup] createProject response:', JSON.stringify(result));
+  if (!creds.actionId) throw new Error('No RumbleUp Action/Project ID configured.');
 
-  // RumbleUp returns the new project with an action/id field
-  const actionId = result.action || result.id || result.aid;
-  if (!actionId) throw new Error('MMS project created but no action ID returned: ' + JSON.stringify(result));
-  console.log('[rumbleup] Created MMS project "' + name + '" with action ID ' + actionId);
-  return actionId;
+  // Update the existing project with the media URL
+  const result = await updateProject(creds.actionId, { media: imageUrl, type: 'MMS' });
+  console.log('[rumbleup] Attached media to existing project ' + creds.actionId + ':', JSON.stringify(result));
+  return creds.actionId;
+}
+
+/**
+ * Remove MMS media from the existing project, reverting it to SMS-only.
+ */
+async function disableMmsOnProject() {
+  const creds = getCredentials();
+  if (!creds.actionId) return;
+  try {
+    await updateProject(creds.actionId, { media: '', type: 'SMS' });
+    console.log('[rumbleup] Removed media from project ' + creds.actionId);
+  } catch (err) {
+    console.error('[rumbleup] Failed to remove media from project:', err.message);
+  }
 }
 
 // --- Webhook handling ---
@@ -391,7 +395,8 @@ module.exports = {
   sendToProject,
   sendWhatsApp,
   sendMessage,
-  createMmsProject,
+  enableMmsOnProject,
+  disableMmsOnProject,
   getNextContact,
   getMessageLog,
   // Reports
