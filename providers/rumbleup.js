@@ -212,29 +212,43 @@ async function createMmsProject({ name, message, mediaBuffer, mediaFilename, med
   if (campaignId) baseBody.campaignId = campaignId;
   if (proxy) baseBody.proxy = proxy;
 
-  // The working approach: JSON body with media as a publicly-accessible URL.
-  // RumbleUp fetches the image from the URL and attaches it to the project.
   if (!mediaUrl) throw new Error('MMS requires a public media URL. Ensure BASE_URL is configured.');
 
-  console.log('[mms] Creating project with media URL:', mediaUrl);
-  const result = await apiPost('/project/create', { ...baseBody, media: mediaUrl });
-  const projectId = result.action || result.id || result.aid;
-  console.log('[mms] Create result:', JSON.stringify(result));
+  // Step 1: Create the project first (as SMS — RumbleUp may not accept type+media together)
+  console.log('[mms] Step 1: Creating project...');
+  const createResult = await apiPost('/project/create', baseBody);
+  const projectId = createResult.action || createResult.id || createResult.aid;
+  console.log('[mms] Created project:', projectId, JSON.stringify(createResult));
+  if (!projectId) throw new Error('Failed to create project — no ID returned');
 
-  if (projectId) {
-    // Verify media was attached
-    const details = await getProject(projectId);
-    console.log('[mms] Project details:', JSON.stringify(details));
-    if (details.media) {
-      console.log('[mms] SUCCESS — media attached:', details.media);
-    } else {
-      console.log('[mms] WARNING — project created but media field empty. RumbleUp may still be processing.');
+  // Step 2: Update the project to add media via the update endpoint
+  // This two-step approach may work better since create + media in one call
+  // resulted in type:"SMS" and media:""
+  console.log('[mms] Step 2: Updating project', projectId, 'with media URL:', mediaUrl);
+  const updateResult = await apiPost('/project/update/' + projectId, { media: mediaUrl });
+  console.log('[mms] Update result:', JSON.stringify(updateResult));
+
+  // Step 3: Verify
+  const details = await getProject(projectId);
+  console.log('[mms] Final project details:', JSON.stringify(details));
+  if (details.media) {
+    console.log('[mms] SUCCESS — media attached:', details.media);
+  } else {
+    console.log('[mms] WARNING — media still empty after update. Trying create with type:MMS...');
+    // Fallback: Try creating a NEW project with explicit type:"MMS"
+    const mmsResult = await apiPost('/project/create', { ...baseBody, type: 'MMS', media: mediaUrl });
+    const mmsId = mmsResult.action || mmsResult.id || mmsResult.aid;
+    console.log('[mms] MMS-typed create result:', JSON.stringify(mmsResult));
+    if (mmsId) {
+      const mmsDetails = await getProject(mmsId);
+      console.log('[mms] MMS project details:', JSON.stringify(mmsDetails));
+      mmsDetails._projectId = mmsId;
+      return mmsDetails;
     }
-    details._projectId = projectId;
-    return details;
   }
 
-  return result;
+  details._projectId = projectId;
+  return details;
 }
 
 async function getProject(projectId) {
