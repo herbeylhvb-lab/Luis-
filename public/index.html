@@ -877,15 +877,18 @@ tr:hover td{background:#1e293b80}
           </div>
           <div id="walkMap" style="height:450px;border-radius:8px;background:#1e293b"></div>
           <div id="walkMapLegend" style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#94a3b8;flex-wrap:wrap">
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;margin-right:4px"></span>Active walker</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;margin-right:4px"></span>Stale (&gt;2min)</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span>Offline (&gt;5min)</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;margin-right:4px"></span>Not visited</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px"></span>Support</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;margin-right:4px"></span>Undecided</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span>Oppose</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f97316;margin-right:4px"></span>Not Home</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;margin-right:4px"></span>Refused/Moved</span>
+            <span style="font-weight:600;color:#e2e8f0">Walkers:</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Active</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Stale (&gt;2min)</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Offline (&gt;5min)</span>
+            <span style="margin-left:8px;font-weight:600;color:#e2e8f0">Doors:</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Not visited</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Support</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Undecided</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Oppose</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f97316;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Not Home</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Refused/Moved</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:6px;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px;font-size:7px;text-align:center;line-height:10px;color:#fff;font-weight:700"></span>Apartments</span>
           </div>
         </div>
         <div class="card">
@@ -4408,26 +4411,145 @@ function getAddrColor(result) {
   return '#3b82f6';
 }
 
+function createAdminHouseIcon(color, isDone) {
+  var dotSize = isDone ? 14 : 20;
+  var opacity = isDone ? 0.7 : 1;
+  var tapSize = 44;
+  var offset = (tapSize - dotSize) / 2;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + tapSize + 'px;height:' + tapSize + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:' + offset + 'px;left:' + offset + 'px;width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + opacity + '"></div></div>',
+    iconSize: [tapSize, tapSize],
+    iconAnchor: [tapSize / 2, tapSize / 2],
+    popupAnchor: [0, -tapSize / 2]
+  });
+}
+
+function createAdminApartmentIcon(color, unitCount, allDone) {
+  var size = 44;
+  var dotSize = allDone ? 22 : 28;
+  var offset = (size - dotSize) / 2;
+  var opacity = allDone ? 0.7 : 1;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + size + 'px;height:' + size + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:' + offset + 'px;left:' + offset + 'px;width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:6px;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + opacity + ';display:flex;align-items:center;justify-content:center">' +
+      '<span style="color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.5)">' + unitCount + '</span></div></div>',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
+function createAdminWalkerIcon(color, label) {
+  return L.divIcon({
+    className: '',
+    html: '<div style="display:flex;flex-direction:column;align-items:center;pointer-events:none">' +
+      '<div style="width:16px;height:16px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5);animation:walker-pulse 2s infinite"></div>' +
+      (label ? '<div style="background:rgba(30,41,59,0.9);color:#e2e8f0;font-size:9px;font-weight:700;padding:1px 4px;border-radius:4px;margin-top:1px;white-space:nowrap;border:1px solid #334155">' + escHtml(label) + '</div>' : '') +
+      '</div>',
+    iconSize: [16, 28],
+    iconAnchor: [8, 8],
+    popupAnchor: [0, -12]
+  });
+}
+
+function formatAdminResult(result) {
+  if (!result || result === 'not_visited') return 'Not visited';
+  return result.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
 function updateAddrMarkers(addresses) {
   if (!addresses) addresses = state.walkAddresses || [];
   // Clear existing address markers
   walkMapAddrMarkers.forEach(function(m) { walkMap.removeLayer(m); });
   walkMapAddrMarkers = [];
   var bounds = [];
+
+  // Group addresses by location to handle apartments/units at the same building
+  var locationGroups = {};
   addresses.forEach(function(a) {
-    var lat = a.lat;
-    var lng = a.lng;
-    if (!lat || !lng) return;
-    var color = getAddrColor(a.result);
-    var resultLabel = (a.result || 'not_visited').replace(/_/g, ' ');
-    var marker = L.circleMarker([lat, lng], {
-      radius: a.result === 'not_visited' ? 5 : 7,
-      fillColor: color, color: '#fff', weight: 1, opacity: 0.8, fillOpacity: 0.9
-    }).addTo(walkMap);
-    marker.bindPopup('<b>' + escHtml(a.address) + '</b><br>' + escHtml(a.voter_name || '') + '<br>Status: ' + resultLabel);
-    walkMapAddrMarkers.push(marker);
-    bounds.push([lat, lng]);
+    if (!a.lat || !a.lng) return;
+    var key = parseFloat(a.lat).toFixed(5) + ',' + parseFloat(a.lng).toFixed(5);
+    if (!locationGroups[key]) locationGroups[key] = [];
+    locationGroups[key].push(a);
   });
+
+  var groupKeys = Object.keys(locationGroups);
+  for (var g = 0; g < groupKeys.length; g++) {
+    var group = locationGroups[groupKeys[g]];
+    var firstAddr = group[0];
+
+    // Check if this group has distinct units (true apartment)
+    var distinctUnits = {};
+    for (var du = 0; du < group.length; du++) {
+      distinctUnits[(group[du].unit || '').trim().toLowerCase()] = true;
+    }
+    var isApartment = Object.keys(distinctUnits).length > 1;
+
+    if (group.length === 1 || !isApartment) {
+      // Single house marker
+      var allDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
+      var color = allDone ? '#22c55e' : getAddrColor(firstAddr.result);
+      var icon = createAdminHouseIcon(color, allDone);
+
+      var resultLabel = formatAdminResult(firstAddr.result);
+      var popupHtml = '<div style="font-size:13px;min-width:150px">' +
+        '<strong>' + escHtml(firstAddr.address) + '</strong>';
+      if (firstAddr.unit) popupHtml += ' <span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + escHtml(firstAddr.unit) + '</span>';
+      if (firstAddr.voter_name) popupHtml += '<br><span style="color:#e2e8f0;font-weight:600">' + escHtml(firstAddr.voter_name) + '</span>';
+      popupHtml += '<br><span style="color:' + color + ';font-weight:600">' + resultLabel + '</span>';
+      popupHtml += '</div>';
+
+      var marker = L.marker([firstAddr.lat, firstAddr.lng], { icon: icon, zIndexOffset: 1000 })
+        .bindPopup(popupHtml).addTo(walkMap);
+      walkMapAddrMarkers.push(marker);
+      bounds.push([firstAddr.lat, firstAddr.lng]);
+    } else {
+      // Apartment group marker
+      var doneCount = 0;
+      for (var u = 0; u < group.length; u++) {
+        if (group[u].result && group[u].result !== 'not_visited') doneCount++;
+      }
+      var allGroupDone = doneCount === group.length;
+      // Determine color: green if all done, amber if mixed, gray if none visited
+      var groupColor = allGroupDone ? '#22c55e' : (doneCount > 0 ? '#f59e0b' : '#64748b');
+      var groupIcon = createAdminApartmentIcon(groupColor, group.length, allGroupDone);
+
+      // Build popup with all units listed
+      group.sort(function(a, b) {
+        var aUnit = (a.unit || '').replace(/[^0-9]/g, '');
+        var bUnit = (b.unit || '').replace(/[^0-9]/g, '');
+        if (aUnit && bUnit) return parseInt(aUnit) - parseInt(bUnit);
+        return (a.unit || '').localeCompare(b.unit || '');
+      });
+
+      var groupPopup = '<div style="font-size:13px;min-width:180px;max-height:300px;overflow-y:auto">' +
+        '<strong style="font-size:14px">' + escHtml(firstAddr.address) + '</strong>' +
+        '<br><span style="color:#60a5fa;font-size:12px;font-weight:600">' + group.length + ' units &bull; ' + doneCount + ' done</span>' +
+        '<div style="margin-top:8px;border-top:1px solid #334155;padding-top:8px">';
+      for (var u3 = 0; u3 < group.length; u3++) {
+        var unitAddr = group[u3];
+        var unitDone = unitAddr.result && unitAddr.result !== 'not_visited';
+        var unitColor = getAddrColor(unitAddr.result);
+        var unitLabel = unitAddr.unit ? escHtml(unitAddr.unit) : 'Unit ' + (u3 + 1);
+        var unitStatus = formatAdminResult(unitAddr.result);
+        groupPopup += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #1e293b">' +
+          '<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + unitColor + ';margin-right:6px"></span>' +
+          '<span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + unitLabel + '</span>';
+        if (unitAddr.voter_name) groupPopup += ' <span style="color:#e2e8f0;font-size:12px;font-weight:600">' + escHtml(unitAddr.voter_name) + '</span>';
+        groupPopup += '</div><span style="font-size:11px;color:' + unitColor + '">' + unitStatus + '</span></div>';
+      }
+      groupPopup += '</div></div>';
+
+      var groupMarker = L.marker([firstAddr.lat, firstAddr.lng], { icon: groupIcon, zIndexOffset: 1100 })
+        .bindPopup(groupPopup, { maxWidth: 280, maxHeight: 350 }).addTo(walkMap);
+      walkMapAddrMarkers.push(groupMarker);
+      bounds.push([firstAddr.lat, firstAddr.lng]);
+    }
+  }
+
   if (bounds.length > 0 && !walkMapHasFit) {
     walkMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
     walkMapHasFit = true;
@@ -4453,6 +4575,12 @@ async function fetchWalkerLocations() {
   } catch(e) { /* polling failure, retry next interval */ }
 }
 
+function getWalkerColor(ageSec) {
+  if (ageSec < 120) return '#22c55e';  // Fresh - green
+  if (ageSec < 300) return '#eab308';  // Stale - yellow
+  return '#ef4444';                     // Dead - red
+}
+
 function updateWalkerMarkers(locations) {
   if (!walkMap) return;
   var now = new Date();
@@ -4461,32 +4589,33 @@ function updateWalkerMarkers(locations) {
     activeNames[loc.walker_name] = true;
     var updatedAt = new Date(loc.updated_at + 'Z');
     var ageSec = Math.floor((now - updatedAt) / 1000);
-    var cssClass = ageSec < 120 ? 'fresh' : ageSec < 300 ? 'stale' : 'dead';
+    var walkerColor = getWalkerColor(ageSec);
     var ageText = ageSec < 60 ? ageSec + 's ago' : Math.floor(ageSec / 60) + 'm ago';
+    var popupHtml = '<b>' + escHtml(loc.walker_name) + '</b><br>Accuracy: ' + Math.round(loc.accuracy || 0) + 'm<br>Last update: ' + ageText;
     if (walkMapMarkers[loc.walker_name]) {
-      // Update existing marker position
+      // Update existing — remove and re-add with new icon for color update
       var existing = walkMapMarkers[loc.walker_name];
-      existing.marker.setLatLng([loc.lat, loc.lng]);
-      existing.label.setLatLng([loc.lat, loc.lng]);
-      existing.marker.getElement().className = 'walker-marker ' + cssClass;
-      existing.marker.setPopupContent('<b>' + escHtml(loc.walker_name) + '</b><br>Accuracy: ' + Math.round(loc.accuracy || 0) + 'm<br>Last update: ' + ageText);
+      walkMap.removeLayer(existing.marker);
+      walkMap.removeLayer(existing.label);
+      var newIcon = createAdminWalkerIcon(walkerColor, loc.walker_name);
+      var newMarker = L.marker([loc.lat, loc.lng], { icon: newIcon, zIndexOffset: 1000 }).addTo(walkMap);
+      newMarker.bindPopup(popupHtml);
+      walkMapMarkers[loc.walker_name] = { marker: newMarker, label: newMarker }; // label is integrated into icon
     } else {
       // Create new marker
-      var icon = L.divIcon({ className: 'walker-marker ' + cssClass, iconSize: [16, 16], iconAnchor: [8, 8] });
+      var icon = createAdminWalkerIcon(walkerColor, loc.walker_name);
       var marker = L.marker([loc.lat, loc.lng], { icon: icon, zIndexOffset: 1000 }).addTo(walkMap);
-      marker.bindPopup('<b>' + escHtml(loc.walker_name) + '</b><br>Accuracy: ' + Math.round(loc.accuracy || 0) + 'm<br>Last update: ' + ageText);
-      var label = L.marker([loc.lat, loc.lng], {
-        icon: L.divIcon({ className: 'walker-label', html: escHtml(loc.walker_name), iconSize: [100, 16], iconAnchor: [-12, 8] }),
-        interactive: false, zIndexOffset: 999
-      }).addTo(walkMap);
-      walkMapMarkers[loc.walker_name] = { marker: marker, label: label };
+      marker.bindPopup(popupHtml);
+      walkMapMarkers[loc.walker_name] = { marker: marker, label: marker }; // label is integrated into icon
     }
   });
   // Remove markers for walkers no longer in the data
   Object.keys(walkMapMarkers).forEach(function(name) {
     if (!activeNames[name]) {
       walkMap.removeLayer(walkMapMarkers[name].marker);
-      walkMap.removeLayer(walkMapMarkers[name].label);
+      if (walkMapMarkers[name].label !== walkMapMarkers[name].marker) {
+        walkMap.removeLayer(walkMapMarkers[name].label);
+      }
       delete walkMapMarkers[name];
     }
   });
