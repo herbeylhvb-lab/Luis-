@@ -183,24 +183,27 @@ async function listAccounts(params) {
 // --- Projects (Actions) ---
 
 async function createProject({ name, message, group, campaignId, proxy, media, type }) {
-  // If media is provided (Buffer or readable), use multipart form-data upload.
+  // If media is provided, upload it with the project.
   // RumbleUp treats media as a project-level setting — all messages sent via
   // this project's action ID will include the image (MMS).
   if (media) {
+    // Strategy: send metadata as query params, media as multipart body.
+    // RumbleUp's API doesn't parse text fields from multipart form-data.
+    const qs = new URLSearchParams();
+    qs.append('name', name);
+    qs.append('message', message);
+    if (group) qs.append('group', String(group));
+    if (campaignId) qs.append('campaignId', String(campaignId));
+    if (proxy) qs.append('proxy', String(proxy));
+    if (type) qs.append('type', type);
+
     const form = new FormData();
-    form.append('name', name);
-    form.append('message', message);
-    if (group) form.append('group', String(group));
-    if (campaignId) form.append('campaignId', String(campaignId));
-    if (proxy) form.append('proxy', String(proxy));
-    if (type) form.append('type', type);
-    // media should be a { buffer, filename, mimeType } object or a Buffer
     if (Buffer.isBuffer(media)) {
       form.append('media', new Blob([media], { type: 'image/jpeg' }), 'image.jpg');
     } else if (media.buffer) {
       form.append('media', new Blob([media.buffer], { type: media.mimeType || 'image/jpeg' }), media.filename || 'image.jpg');
     }
-    return apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
+    return apiPost('/project/create?' + qs.toString(), form, null, { multipart: true, timeout: 30000 });
   }
   const body = { name, message };
   if (group) body.group = group;
