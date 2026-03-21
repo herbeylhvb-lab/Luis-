@@ -362,12 +362,16 @@ async function createMmsProject({ name, message, imageUrl }) {
     throw new Error('Image too large for MMS (' + Math.round(buffer.length / 1024) + 'KB). Max is 750KB.');
   }
 
+  // Pull proxy number from credentials so the new project gets a sending number
+  const creds = getCredentials();
   const ext = contentType.includes('png') ? '.png' : contentType.includes('gif') ? '.gif' : '.jpg';
   const result = await createProject({
     name,
     message,
     media: { buffer, filename: 'flyer' + ext, mimeType: contentType },
-    type: 'MMS'
+    type: 'MMS',
+    proxy: creds.phoneNumber || undefined,
+    campaignId: creds.campaignId || undefined
   });
 
   // RumbleUp returns the new project with an action/id field
