@@ -700,28 +700,19 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
         }
 
         const creds = provider.getCredentials();
-        // Two-step: 1) create project via JSON, 2) update with media via multipart
-        // RumbleUp ignores text fields in multipart AND query params on POST
+        const proxyNum = creds.phoneNumber ? (creds.phoneNumber.replace(/\D/g, '').length === 10 ? '1' + creds.phoneNumber.replace(/\D/g, '') : creds.phoneNumber.replace(/\D/g, '')) : undefined;
+        // Try creating project with base64 media in JSON body
+        // (multipart uploads are ignored by both create and update endpoints)
         try {
-          // Step 1: Create fresh project via JSON (proven to work)
-          const createResult = await provider.createProject({
+          const b64Media = imgBuffer.toString('base64');
+          console.log('[reply] Sending base64 media in JSON, length:', b64Media.length);
+          const result = await provider.apiPost('/project/create', {
             name: 'MMS-' + Date.now(),
             message: body + '\nSTOP to opt-out',
+            media: b64Media,
             campaignId: creds.campaignId || undefined,
-            proxy: creds.phoneNumber ? (creds.phoneNumber.replace(/\D/g, '').length === 10 ? '1' + creds.phoneNumber.replace(/\D/g, '') : creds.phoneNumber.replace(/\D/g, '')) : undefined
+            proxy: proxyNum
           });
-          console.log('[reply] Step 1 - project created:', JSON.stringify(createResult));
-          const newActionId = createResult.action || createResult.id || createResult.aid;
-          if (!newActionId) throw new Error('No action ID in response');
-
-          // Step 2: Update fresh project with media binary
-          const form = new FormData();
-          form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
-          const updateResult = await provider.updateProject(newActionId, form, { multipart: true, timeout: 30000 });
-          console.log('[reply] Step 2 - media update response:', JSON.stringify(updateResult));
-          console.log('[reply] Media field:', updateResult.media, '| Type field:', updateResult.type);
-
-          const result = updateResult;
           console.log('[reply] MMS project create response:', JSON.stringify(result));
           mmsActionId = result.action || result.id || result.aid;
           if (mmsActionId) {
