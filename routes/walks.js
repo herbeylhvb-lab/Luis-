@@ -1274,7 +1274,11 @@ router.get('/walks/:id/map-data', (req, res) => {
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
   const addresses = db.prepare(
-    'SELECT id, address, unit, city, zip, voter_name, result, assigned_walker, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.assigned_walker, wa.lat, wa.lng,
+            v.age as voter_age
+     FROM walk_addresses wa
+     LEFT JOIN voters v ON wa.voter_id = v.id
+     WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
   const locations = db.prepare(
