@@ -68,102 +68,98 @@ function parseAddressUnit(address) {
 
 // ===================== GEOCODING =====================
 
-// Geocode a single address using OpenStreetMap Nominatim (free, no API key)
-// Uses structured query params for house-level accuracy instead of free-text search
 // State is configurable via GEOCODE_STATE env var (defaults to empty for auto-detection)
 const GEOCODE_STATE = process.env.GEOCODE_STATE || '';
 
-async function geocodeAddress(address, city, zip) {
-  if (!address || !address.trim()) return null;
+// Census Bureau batch geocoder — processes up to 10,000 addresses in ONE request
+// Returns a map of input line -> { lat, lng }
+async function censusBatchGeocode(addressLines) {
+  // Census batch format: each line is "id,street,city,state,zip"
+  const csvLines = addressLines.map((a, i) => {
+    const street = (a.address || '').trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
+    return `${i},${street},${(a.city || '').trim()},${GEOCODE_STATE},${(a.zip || '').trim()}`;
+  });
+  const csvBody = csvLines.join('\n');
 
-  const headers = { 'User-Agent': 'CampaignTextBlockWalker/1.0' };
+  const form = new FormData();
+  form.append('benchmark', 'Public_AR_Current');
+  form.append('addressFile', new Blob([csvBody], { type: 'text/csv' }), 'addresses.csv');
 
-  // Strategy 1: Structured query (most accurate when Nominatim knows the address)
-  const params = {
-    street: address.trim(),
-    format: 'json',
-    limit: '1',
-    countrycodes: 'us',
-    addressdetails: '1'
-  };
-  if (city) params.city = city.trim();
-  if (zip) params.postalcode = zip.trim();
-  if (GEOCODE_STATE) params.state = GEOCODE_STATE;
+  const res = await fetch('https://geocoding.geo.census.gov/geocoder/locations/addressbatch', {
+    method: 'POST',
+    body: form
+  });
 
-  try {
-    const url1 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
-    const res1 = await fetch(url1, { headers });
-    if (!res1.ok) { console.error('Nominatim strategy 1 HTTP', res1.status, 'for:', address); }
-    const data1 = await res1.json();
-    if (data1 && data1.length > 0) {
-      return { lat: parseFloat(data1[0].lat), lng: parseFloat(data1[0].lon) };
-    }
-  } catch (e) { console.error('Nominatim strategy 1 error for:', address, '-', e.message); }
+  if (!res.ok) throw new Error('Census batch HTTP ' + res.status);
+  const text = await res.text();
+  const results = {};
 
-  // Strategy 2: Free-text query (catches addresses Nominatim can't parse structurally)
-  await new Promise(r => setTimeout(r, 1100)); // respect rate limit
-  try {
-    let q = address.trim();
-    if (city) q += ', ' + city.trim();
-    if (zip) q += ' ' + zip.trim();
-    if (GEOCODE_STATE) q += ', ' + GEOCODE_STATE;
-    q += ', USA';
-    const url2 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
-      q: q,
-      format: 'json',
-      limit: '1',
-      countrycodes: 'us',
-      addressdetails: '1'
-    });
-    const res2 = await fetch(url2, { headers });
-    if (!res2.ok) { console.error('Nominatim strategy 2 HTTP', res2.status, 'for:', address); }
-    const data2 = await res2.json();
-    if (data2 && data2.length > 0) {
-      return { lat: parseFloat(data2[0].lat), lng: parseFloat(data2[0].lon) };
-    }
-  } catch (e) { console.error('Nominatim strategy 2 error for:', address, '-', e.message); }
-
-  // Strategy 3: Try without unit/apt numbers (e.g. "123 Main St Apt 4" → "123 Main St")
-  const stripped = address.trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
-  if (stripped !== address.trim()) {
-    await new Promise(r => setTimeout(r, 1100));
-    try {
-      const params3 = { street: stripped, format: 'json', limit: '1', countrycodes: 'us' };
-      if (GEOCODE_STATE) params3.state = GEOCODE_STATE;
-      if (city) params3.city = city.trim();
-      if (zip) params3.postalcode = zip.trim();
-      const url3 = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params3);
-      const res3 = await fetch(url3, { headers });
-      const data3 = await res3.json();
-      if (data3 && data3.length > 0) {
-        return { lat: parseFloat(data3[0].lat), lng: parseFloat(data3[0].lon) };
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    // Format: "id","input address","match/no match","exact/non-exact","matched address","lon,lat","tiger line id","side"
+    const parts = line.split(/","/);
+    if (parts.length < 6) continue;
+    const id = parseInt(parts[0].replace(/"/g, ''));
+    const matchType = (parts[2] || '').replace(/"/g, '').trim();
+    if (matchType === 'Match') {
+      const coordStr = (parts[5] || '').replace(/"/g, '').trim();
+      const coords = coordStr.split(',');
+      if (coords.length === 2) {
+        const lng = parseFloat(coords[0]);
+        const lat = parseFloat(coords[1]);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          results[id] = { lat, lng };
+        }
       }
-    } catch (e) { console.error('Nominatim strategy 3 error for:', address, '-', e.message); }
+    }
   }
+  return results;
+}
 
-  // Strategy 4: US Census Bureau Geocoder (free, no API key, no strict rate limit)
+// Single-address geocoder using Census Bureau (fallback for small batches)
+async function geocodeAddressCensus(address, city, zip) {
+  if (!address || !address.trim()) return null;
+  const street = address.trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
   try {
-    let censusAddr = stripped || address.trim();
-    const censusParams = new URLSearchParams({
-      address: censusAddr,
+    const params = new URLSearchParams({
+      address: street,
       city: (city || '').trim(),
       state: GEOCODE_STATE || '',
       zip: (zip || '').trim(),
       benchmark: 'Public_AR_Current',
       format: 'json'
     });
-    const censusUrl = 'https://geocoding.geo.census.gov/geocoder/locations/address?' + censusParams;
-    const res4 = await fetch(censusUrl);
-    if (res4.ok) {
-      const data4 = await res4.json();
-      const matches = data4 && data4.result && data4.result.addressMatches;
-      if (matches && matches.length > 0) {
-        const coords = matches[0].coordinates;
-        return { lat: coords.y, lng: coords.x };
-      }
+    const res = await fetch('https://geocoding.geo.census.gov/geocoder/locations/address?' + params);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const matches = data && data.result && data.result.addressMatches;
+    if (matches && matches.length > 0) {
+      return { lat: matches[0].coordinates.y, lng: matches[0].coordinates.x };
     }
   } catch (e) { console.error('Census geocoder error for:', address, '-', e.message); }
+  return null;
+}
 
+// Nominatim single-address fallback (only used if Census fails, with proper rate limiting)
+async function geocodeAddressNominatim(address, city, zip) {
+  if (!address || !address.trim()) return null;
+  const headers = { 'User-Agent': 'CampaignTextBlockWalker/1.0' };
+  const street = address.trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
+
+  try {
+    const params = { street, format: 'json', limit: '1', countrycodes: 'us' };
+    if (city) params.city = city.trim();
+    if (zip) params.postalcode = zip.trim();
+    if (GEOCODE_STATE) params.state = GEOCODE_STATE;
+    const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
+    const res = await fetch(url, { headers });
+    if (res.status === 429) { console.log('Nominatim rate limited, skipping'); return null; }
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  } catch (e) { /* Nominatim failure is non-fatal */ }
   return null;
 }
 
@@ -171,8 +167,7 @@ async function geocodeAddress(address, city, zip) {
 const geocodingInProgress = {};
 
 // Geocode walk addresses in the background (non-blocking)
-// De-duplicates by unique address so apartments/households only geocode once
-// Nominatim requires max 1 request/second, so we batch with delays
+// Uses Census Bureau BATCH geocoder for speed, Nominatim as fallback
 function geocodeWalkAddresses(walkId) {
   // Prevent multiple concurrent geocode runs for the same walk
   if (geocodingInProgress[walkId]) {
@@ -186,7 +181,7 @@ function geocodeWalkAddresses(walkId) {
 
   if (allMissing.length === 0) return;
 
-  // De-duplicate: group rows by unique address+city+zip so we only geocode each physical address once
+  // De-duplicate: group rows by unique address+city+zip
   const groups = {};
   for (const row of allMissing) {
     const key = (row.address || '').trim().toLowerCase() + '||' + (row.city || '').trim().toLowerCase() + '||' + (row.zip || '').trim().toLowerCase();
@@ -202,27 +197,62 @@ function geocodeWalkAddresses(walkId) {
   (async () => {
     let resolved = 0;
     let failed = 0;
-    for (const group of uniqueAddresses) {
-      try {
-        const coords = await geocodeAddress(group.address, group.city, group.zip);
+
+    // Step 1: Try Census Bureau BATCH geocoder (all addresses in one request)
+    try {
+      console.log('Attempting Census Bureau batch geocode for', uniqueAddresses.length, 'addresses...');
+      const batchResults = await censusBatchGeocode(uniqueAddresses);
+      const matched = Object.keys(batchResults).length;
+      console.log('Census batch returned', matched, '/', uniqueAddresses.length, 'matches');
+
+      for (let i = 0; i < uniqueAddresses.length; i++) {
+        const coords = batchResults[i];
         if (coords) {
-          // Apply coordinates to ALL rows with this address
-          for (const id of group.ids) {
+          for (const id of uniqueAddresses[i].ids) {
             update.run(coords.lat, coords.lng, id);
           }
-          resolved += group.ids.length;
-        } else {
-          failed += group.ids.length;
-          console.log('Geocode returned no results for:', group.address, group.city, group.zip);
+          resolved += uniqueAddresses[i].ids.length;
         }
-      } catch (e) {
-        failed += group.ids.length;
-        console.error('Geocode error for', group.address, ':', e.message);
       }
-      // Nominatim rate limit: 1 request per second
-      await new Promise(r => setTimeout(r, 1100));
+    } catch (e) {
+      console.error('Census batch geocoding failed:', e.message, '— falling back to individual requests');
     }
-    console.log('Geocoding complete for walk', walkId, ':', resolved, 'resolved,', failed, 'failed');
+
+    // Step 2: For any addresses Census batch missed, try individual Census lookups
+    const stillMissing = uniqueAddresses.filter((group, i) => {
+      const hasCoords = db.prepare('SELECT lat FROM walk_addresses WHERE id = ? AND lat IS NOT NULL').get(group.ids[0]);
+      return !hasCoords;
+    });
+
+    if (stillMissing.length > 0) {
+      console.log('Individual geocoding for', stillMissing.length, 'remaining addresses...');
+      for (const group of stillMissing) {
+        try {
+          // Try Census individual first
+          let coords = await geocodeAddressCensus(group.address, group.city, group.zip);
+          // Fallback to Nominatim (with 2s delay to respect rate limit)
+          if (!coords) {
+            await new Promise(r => setTimeout(r, 2000));
+            coords = await geocodeAddressNominatim(group.address, group.city, group.zip);
+          }
+          if (coords) {
+            for (const id of group.ids) {
+              update.run(coords.lat, coords.lng, id);
+            }
+            resolved += group.ids.length;
+          } else {
+            failed += group.ids.length;
+          }
+        } catch (e) {
+          failed += group.ids.length;
+          console.error('Geocode error for', group.address, ':', e.message);
+        }
+        // Small delay between individual requests
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    console.log('Geocoding complete for walk', walkId, ':', resolved, 'resolved,', failed, 'failed out of', allMissing.length);
   })().catch(e => console.error('Geocode batch error:', e.message)).finally(() => {
     delete geocodingInProgress[walkId];
   });
