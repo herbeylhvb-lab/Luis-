@@ -2437,9 +2437,15 @@ async function testMmsSend() {
     var html = '';
     if (data.success) {
       html += '<span style="color:#22c55e;font-weight:600">Project created! ID: ' + (data.projectId || '?') + '</span><br>';
-      html += '<span style="color:#94a3b8">Has media: ' + (data.hasMedia ? 'YES' : 'NO — media may not have uploaded correctly') + '</span><br>';
-      if (data.testResult) html += '<span style="color:#22c55e">Test message sent — check your phone!</span>';
-      html += '<details style="margin-top:8px"><summary style="color:#64748b;cursor:pointer;font-size:12px">Raw API response</summary><pre style="font-size:11px;color:#94a3b8;max-height:200px;overflow:auto;background:#0f172a;padding:8px;border-radius:4px;margin-top:4px">' + JSON.stringify(data, null, 2) + '</pre></details>';
+      html += '<span style="color:#94a3b8">Type: ' + (data.projectType || '?') + ' | Media: ' + (data.mediaField || 'empty') + '</span><br>';
+      if (data.hasMedia) {
+        html += '<span style="color:#22c55e;font-weight:600">IMAGE ATTACHED!</span><br>';
+      } else {
+        html += '<span style="color:#eab308">No media detected — image may not have uploaded. Check raw response below.</span><br>';
+      }
+      if (data.testResult) html += '<span style="color:#22c55e">Test message sent — check your phone!</span><br>';
+      if (data.mediaUrl) html += '<span style="color:#64748b;font-size:11px">Media URL sent to RumbleUp: <a href="' + data.mediaUrl + '" target="_blank" style="color:#818cf8">' + data.mediaUrl + '</a></span><br>';
+      html += '<details open style="margin-top:8px"><summary style="color:#64748b;cursor:pointer;font-size:12px">Full API response</summary><pre style="font-size:11px;color:#94a3b8;max-height:300px;overflow:auto;background:#0f172a;padding:8px;border-radius:4px;margin-top:4px">' + JSON.stringify(data, null, 2) + '</pre></details>';
     } else {
       html += '<span style="color:#ef4444">Error: ' + (data.error || 'Unknown') + '</span>';
     }

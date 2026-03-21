@@ -849,15 +849,15 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
       proxy: creds.phoneNumber
     });
 
-    const projectId = createResult.action || createResult.id || createResult.aid;
-    console.log('[mms-test] Created project:', JSON.stringify(createResult));
+    // createMmsProject returns getProject() details which may use different ID keys
+    const projectId = createResult._projectId || createResult.action || createResult.id || createResult.aid;
+    console.log('[mms-test] Created project ID:', projectId, 'Full result keys:', Object.keys(createResult));
+    console.log('[mms-test] Full create result:', JSON.stringify(createResult));
 
-    // Verify project has media
-    let projectDetails = null;
-    if (projectId) {
-      projectDetails = await provider.getProject(projectId);
-      console.log('[mms-test] Project details:', JSON.stringify(projectDetails));
-    }
+    // Check all possible media-related fields
+    const mediaField = createResult.media || createResult.media_url || createResult.mediaUrl || null;
+    const projectType = createResult.type || createResult.project_type || null;
+    console.log('[mms-test] Media field:', mediaField, '| Type:', projectType);
 
     // Send test message if phone provided
     let testResult = null;
@@ -869,17 +869,29 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
     res.json({
       success: true,
       projectId,
-      approach: createResult._approach || 'unknown',
+      mediaField,
+      projectType,
+      hasMedia: !!mediaField,
       createResult,
-      projectDetails,
-      hasMedia: !!(projectDetails && (projectDetails.media || projectDetails.media_url)),
-      allAttempts: createResult._allAttempts || null,
       testResult,
       mediaUrl,
+      allKeys: Object.keys(createResult),
       note: testPhone ? 'Check your phone for the test MMS' : 'Project created — provide testPhone to send a test'
     });
   } catch (err) {
     console.error('[mms-test] Failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+// --- Check a RumbleUp project's details (for MMS debugging) ---
+app.get('/api/rumbleup/project/:id', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+  try {
+    const details = await provider.getProject(req.params.id);
+    res.json({ project: details, hasMedia: !!(details.media || details.media_url), allKeys: Object.keys(details) });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 }));
