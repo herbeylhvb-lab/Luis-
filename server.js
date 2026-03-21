@@ -884,6 +884,55 @@ app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
   }
 }));
 
+// --- Create a RumbleUp project (text only — user adds image on RumbleUp dashboard) ---
+app.post('/api/rumbleup/create-project', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  const { name, message } = req.body;
+  if (!name || !message) return res.status(400).json({ error: 'Project name and message required.' });
+
+  const creds = provider.getCredentials();
+  try {
+    const result = await provider.createProject({
+      name,
+      message,
+      campaignId: creds.campaignId,
+      proxy: creds.phoneNumber
+    });
+    const projectId = result.action || result.id || result.aid;
+    console.log('[rumbleup] Project created:', projectId, JSON.stringify(result));
+    res.json({
+      success: true,
+      projectId,
+      cid: result.cid,
+      link: result.link || (result.cid ? 'https://app.rumbleup.com/app/action/' + result.cid + '/' + projectId : null)
+    });
+  } catch (err) {
+    console.error('[rumbleup] Create project failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+// --- Send test message through an existing RumbleUp project ---
+app.post('/api/rumbleup/test-send', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  const { projectId, testPhone } = req.body;
+  if (!projectId) return res.status(400).json({ error: 'Project ID required.' });
+  if (!testPhone) return res.status(400).json({ error: 'Test phone number required.' });
+
+  try {
+    const result = await provider.sendTestMessage(projectId, testPhone);
+    console.log('[mms] Test send via project', projectId, ':', JSON.stringify(result));
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[mms] Test send failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
 // --- Check a RumbleUp project's details (for MMS debugging) ---
 app.get('/api/rumbleup/project/:id', asyncHandler(async (req, res) => {
   const provider = getProvider();
