@@ -75,9 +75,15 @@ const GEOCODE_STATE = process.env.GEOCODE_STATE || '';
 // Returns a map of input line -> { lat, lng }
 async function censusBatchGeocode(addressLines) {
   // Census batch format: each line is "id,street,city,state,zip"
+  // CSV-escape a field: wrap in quotes if it contains commas or quotes
+  function csvField(val) {
+    const s = (val || '').trim();
+    if (s.includes(',') || s.includes('"')) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
   const csvLines = addressLines.map((a, i) => {
     const street = (a.address || '').trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
-    return `${i},${street},${(a.city || '').trim()},${GEOCODE_STATE},${(a.zip || '').trim()}`;
+    return `${i},${csvField(street)},${csvField(a.city)},${GEOCODE_STATE},${csvField(a.zip)}`;
   });
   const csvBody = csvLines.join('\n');
 
