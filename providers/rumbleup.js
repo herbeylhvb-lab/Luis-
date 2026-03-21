@@ -161,12 +161,6 @@ function apiPost(path, body, creds, options = {}) {
   return apiRequest(path, body, creds, { ...options, method: 'POST' });
 }
 
-// --- Proxy Management ---
-
-async function getProxies() {
-  return apiGet('/proxy/get', {});
-}
-
 // --- Account ---
 
 async function testConnection(apiKey, apiSecret) {
@@ -189,12 +183,30 @@ async function listAccounts(params) {
 // --- Projects (Actions) ---
 
 async function createProject({ name, message, group, campaignId, proxy, media, type }) {
+  // If media is provided (Buffer or readable), use multipart form-data upload.
+  // RumbleUp treats media as a project-level setting — all messages sent via
+  // this project's action ID will include the image (MMS).
+  if (media) {
+    const form = new FormData();
+    form.append('name', name);
+    form.append('message', message);
+    if (group) form.append('group', String(group));
+    if (campaignId) form.append('campaignId', String(campaignId));
+    if (proxy) form.append('proxy', String(proxy));
+    if (type) form.append('type', type);
+    // media should be a { buffer, filename, mimeType } object or a Buffer
+    if (Buffer.isBuffer(media)) {
+      form.append('media', new Blob([media], { type: 'image/jpeg' }), 'image.jpg');
+    } else if (media.buffer) {
+      form.append('media', new Blob([media.buffer], { type: media.mimeType || 'image/jpeg' }), media.filename || 'image.jpg');
+    }
+    return apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
+  }
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;
   if (proxy) body.proxy = proxy;
   if (type) body.type = type; // SMS, MMS, or EVT
-  if (media) body.media = media;
   return apiPost('/project/create', body);
 }
 
@@ -268,30 +280,21 @@ async function getGroup(groupId) {
 
 // --- Messaging ---
 
-async function sendSms(to, body, mediaUrl) {
+async function sendSms(to, body, actionIdOverride) {
   const creds = getCredentials();
   if (!creds.apiKey || !creds.apiSecret) {
     throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
   }
-  if (!creds.actionId) {
+  const actionId = actionIdOverride || creds.actionId;
+  if (!actionId) {
     throw new Error('RumbleUp Action/Project ID not configured. Set it in Messaging Setup.');
   }
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
 
-  const payload = {
-    phone,
-    action: creds.actionId,
-    text: body
-  };
-
-  // MMS: use the file parameter on /message/send (supported per API docs)
-  if (mediaUrl) {
-    payload.file = mediaUrl;
-    console.log('[rumbleup] Sending MMS via /message/send file=' + mediaUrl);
-  }
-
-  return apiPost('/message/send', payload);
+  // Note: MMS media is set at the project level, not per-message.
+  // To send MMS, create a project with media attached and pass its action ID here.
+  return apiPost('/message/send', { phone, action: actionId, text: body });
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
@@ -299,7 +302,6 @@ async function sendToProject(phone, actionId, text, options = {}) {
   if (options.name) body.name = options.name;
   if (options.group) body.group = options.group;
   if (options.flags) body.flags = options.flags;
-  if (options.file || options.mediaUrl) body.file = options.file || options.mediaUrl;
   return apiPost('/message/send', body);
 }
 
@@ -307,9 +309,9 @@ async function sendWhatsApp(_to, _body) {
   throw new Error('RumbleUp does not support WhatsApp messaging.');
 }
 
-async function sendMessage(to, body, channel, mediaUrl) {
+async function sendMessage(to, body, channel, actionIdOverride) {
   if (channel === 'whatsapp') return sendWhatsApp(to, body);
-  return sendSms(to, body, mediaUrl);
+  return sendSms(to, body, actionIdOverride);
 }
 
 async function getNextContact(actionId) {
@@ -329,6 +331,39 @@ async function createReport(title, params) {
 
 async function listReports() {
   return apiGet('/report/list');
+}
+
+// --- MMS project creation ---
+
+/**
+ * Create an MMS project by downloading an image from a URL and uploading it
+ * to RumbleUp as the project's media. Returns the new project's action ID.
+ */
+async function createMmsProject({ name, message, imageUrl }) {
+  // Download image from URL
+  const resp = await fetch(imageUrl);
+  if (!resp.ok) throw new Error('Failed to download image from ' + imageUrl + ' (' + resp.status + ')');
+  const contentType = resp.headers.get('content-type') || 'image/jpeg';
+  const buffer = Buffer.from(await resp.arrayBuffer());
+
+  // Validate size (RumbleUp MMS limit ~750KB)
+  if (buffer.length > 750 * 1024) {
+    throw new Error('Image too large for MMS (' + Math.round(buffer.length / 1024) + 'KB). Max is 750KB.');
+  }
+
+  const ext = contentType.includes('png') ? '.png' : contentType.includes('gif') ? '.gif' : '.jpg';
+  const result = await createProject({
+    name,
+    message,
+    media: { buffer, filename: 'flyer' + ext, mimeType: contentType },
+    type: 'MMS'
+  });
+
+  // RumbleUp returns the new project with an action/id field
+  const actionId = result.action || result.id || result.aid;
+  if (!actionId) throw new Error('MMS project created but no action ID returned: ' + JSON.stringify(result));
+  console.log('[rumbleup] Created MMS project "' + name + '" with action ID ' + actionId);
+  return actionId;
 }
 
 // --- Webhook handling ---
@@ -377,13 +412,12 @@ module.exports = {
   importContacts,
   downloadContacts,
   getGroup,
-  // Proxy
-  getProxies,
   // Messaging
   sendSms,
   sendToProject,
   sendWhatsApp,
   sendMessage,
+  createMmsProject,
   getNextContact,
   getMessageLog,
   // Reports
@@ -397,7 +431,7 @@ module.exports = {
     { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your RumbleUp API key' },
     { key: 'apiSecret', label: 'API Secret', type: 'password', placeholder: 'Your RumbleUp API secret' },
     { key: 'actionId', label: 'Action / Project ID', type: 'text', placeholder: 'e.g. 125', hint: 'The project ID for sending messages. Find it in your RumbleUp dashboard.' },
-    { key: 'phoneNumber', label: 'Proxy Phone Number', type: 'text', placeholder: '+1234567890', hint: 'Your RumbleUp proxy number — required for MMS. Check /api/rumbleup/proxies to see available numbers.' },
-    { key: 'campaignId', label: 'TCR Campaign ID (for MMS)', type: 'text', placeholder: 'e.g. CSDF123', hint: 'Optional — your TCR campaign ID. May be required for MMS via /proxy/send.' }
+    { key: 'phoneNumber', label: 'Phone Number', type: 'text', placeholder: '+1234567890', hint: 'Your RumbleUp phone number (optional).' },
+    { key: 'campaignId', label: 'TCR Campaign ID', type: 'text', placeholder: 'e.g. CSDF123', hint: 'Optional — your TCR campaign ID for compliance.' }
   ]
 };

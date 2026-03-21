@@ -7,8 +7,6 @@ const { getProvider } = require('../providers');
 
 const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 'Too many send requests, slow down.' } });
 
-// Track sessions where MMS project creation failed to avoid hammering the API
-
 // ========== HELPERS ==========
 
 function getOnlineVolunteers(sessionId) {
@@ -493,25 +491,37 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         city: assignment.city || ''
       });
     }
-    // MMS: attach flyer image via /message/send file parameter
-    const session = db.prepare('SELECT media_url, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    let mediaUrl = null;
+    // MMS: RumbleUp requires media at the project level, not per-message.
+    // If the session has a flyer image, create/reuse an MMS project and send via its action ID.
+    const session = db.prepare('SELECT media_url, session_type, name, rumbleup_action_id FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
+    let actionIdOverride = null;
 
-    if (!isReply && session && session.media_url && session.session_type === 'event') {
-      let baseMediaUrl = session.media_url;
-      if (baseMediaUrl && !baseMediaUrl.startsWith('http')) baseMediaUrl = 'https://' + baseMediaUrl;
-
-      // Build per-contact flyer URL if QR token exists, otherwise use base flyer
-      const qrToken = assignment.qr_token;
-      if (qrToken && baseMediaUrl) {
-        mediaUrl = baseMediaUrl + '/' + qrToken + '.jpg';
+    if (!isReply && session && session.media_url && session.session_type === 'event' && provider.createMmsProject) {
+      // Use cached MMS action ID if available, otherwise create the MMS project
+      if (session.rumbleup_action_id) {
+        actionIdOverride = session.rumbleup_action_id;
       } else {
-        mediaUrl = baseMediaUrl;
+        try {
+          let imageUrl = session.media_url;
+          if (imageUrl && !imageUrl.startsWith('http')) imageUrl = 'https://' + imageUrl;
+
+          const mmsActionId = await provider.createMmsProject({
+            name: 'MMS: ' + (session.name || 'Event Flyer'),
+            message: message,
+            imageUrl
+          });
+          // Cache the action ID on the session so we don't recreate for every message
+          db.prepare('UPDATE p2p_sessions SET rumbleup_action_id = ? WHERE id = ?').run(String(mmsActionId), assignment.session_id);
+          actionIdOverride = mmsActionId;
+          console.log('[p2p-send] Created MMS project, action ID:', mmsActionId);
+        } catch (mmsErr) {
+          // Fall back to SMS if MMS project creation fails
+          console.error('[p2p-send] MMS project creation failed, sending as SMS:', mmsErr.message);
+        }
       }
-      console.log('[p2p-send] MMS mediaUrl:', mediaUrl);
     }
 
-    await provider.sendMessage(assignment.phone, message, 'sms', mediaUrl);
+    await provider.sendMessage(assignment.phone, message, 'sms', actionIdOverride);
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
