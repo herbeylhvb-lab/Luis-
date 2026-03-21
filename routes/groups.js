@@ -99,8 +99,8 @@ router.post('/groups/login', groupLoginLimiter, (req, res) => {
 router.get('/groups/:id/walks', (req, res) => {
   const walks = db.prepare(`
     SELECT id, name, description, status, join_code,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = block_walks.id) as total_addresses,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = block_walks.id AND result != 'not_visited') as completed_addresses
+      (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = block_walks.id) as total_addresses,
+      (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = block_walks.id AND result != 'not_visited') as completed_addresses
     FROM block_walks
     WHERE status IN ('pending', 'in_progress')
     ORDER BY created_at DESC

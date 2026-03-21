@@ -1163,10 +1163,8 @@ async function refreshWalkData() {
       }
     }
     if (changed) {
-      // Update progress
-      var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
-      walkState.walk.progress.knocked = knocked;
-      walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+      // Update progress — count unique doors, not individual voters
+      walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
       renderWalk();
     }
   } catch(e) { console.warn('Group refresh failed:', e.message); }
@@ -1447,6 +1445,24 @@ function getResultBadgeClass(result) {
     'deceased': 'badge-gray', 'come_back': 'badge-blue'
   };
   return map[result] || 'badge-gray';
+}
+
+// Count unique doors (address+unit) — people living together = 1 door
+function countUniqueDoors(addresses) {
+  var doors = {};
+  for (var i = 0; i < addresses.length; i++) {
+    var a = addresses[i];
+    var key = (a.address || '').trim().toLowerCase() + '||' + (a.unit || '').trim().toLowerCase();
+    if (!doors[key]) doors[key] = { knocked: false };
+    if (a.result && a.result !== 'not_visited') doors[key].knocked = true;
+  }
+  var keys = Object.keys(doors);
+  var total = keys.length;
+  var knocked = 0;
+  for (var j = 0; j < keys.length; j++) {
+    if (doors[keys[j]].knocked) knocked++;
+  }
+  return { total: total, knocked: knocked, remaining: total - knocked };
 }
 
 function formatResult(result) {
@@ -1806,10 +1822,8 @@ async function logDoor() {
     addr.notes = notes;
     addr.gps_verified = data.gps_verified || 0;
 
-    // Update progress
-    var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
-    walkState.walk.progress.knocked = knocked;
-    walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+    // Update progress — count unique doors, not individual voters
+    walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
 
     closeDoor();
     renderWalk();
@@ -2005,6 +2019,7 @@ var mapState = {
   currentView: 'list',
   initialized: false,
   hasFittedBounds: false,
+  _geocodeTriggered: false,
   compassMode: false,
   currentHeading: 0,
   compassHandler: null
@@ -2111,6 +2126,51 @@ function initMap() {
   setTimeout(function() { mapState.map.invalidateSize(); }, 100);
 }
 
+function buildAddressPopup(addr, myName) {
+  var popupContent = '<div style="font-size:13px;min-width:150px">' +
+    '<strong>' + escHtml(addr.address) + (addr.unit ? ' ' + escHtml(addr.unit) : '') + '</strong>';
+  if (addr.voter_name) {
+    popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name);
+    if (addr.voter_age) popupContent += ' <span style="color:#999">(age ' + addr.voter_age + ')</span>';
+    popupContent += '</span>';
+  }
+  if (addr.household && addr.household.length > 0) {
+    popupContent += '<br><span style="color:#888;font-size:11px">Also at address:</span>';
+    for (var h = 0; h < addr.household.length; h++) {
+      var m = addr.household[h];
+      popupContent += '<br><span style="color:#888;font-size:11px">&nbsp;&bull; ' + escHtml(m.first_name + ' ' + m.last_name);
+      if (m.age) popupContent += ' (' + escHtml(String(m.age)) + ')';
+      popupContent += '</span>';
+    }
+  }
+  var isDone = addr.result && addr.result !== 'not_visited';
+  if (isDone) {
+    popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
+  } else {
+    popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
+    if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
+  }
+  popupContent += '<br><a href="' + buildGoogleMapsUrl(addr.address + (addr.unit ? ' ' + addr.unit : ''), addr.city, addr.zip) + '" target="_blank" rel="noopener" style="color:#60a5fa;font-size:12px">&#x1F4CD; Google Maps</a>';
+  popupContent += '</div>';
+  return popupContent;
+}
+
+function createApartmentIcon(color, unitCount, allDone) {
+  var size = 44;
+  var dotSize = allDone ? 22 : 28;
+  var offset = (size - dotSize) / 2;
+  var opacity = allDone ? 0.7 : 1;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + size + 'px;height:' + size + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:' + offset + 'px;left:' + offset + 'px;width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:6px;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + opacity + ';display:flex;align-items:center;justify-content:center">' +
+      '<span style="color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.5)">' + unitCount + '</span></div></div>',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
 function createHouseIcon(color, isDone) {
   // Visual dot size
   var dotSize = isDone ? 14 : 20;
@@ -2203,60 +2263,118 @@ function renderMap(addresses, walkerLocations, progress) {
 
   var bounds = [];
 
-  // Add house markers
+  // Group addresses by location to handle apartments/units at the same building
+  var locationGroups = {};
   for (var i = 0; i < addresses.length; i++) {
     var addr = addresses[i];
     if (!addr.lat || !addr.lng) continue;
+    // Round to ~1m precision to group nearby points (same building)
+    var key = addr.lat.toFixed(5) + ',' + addr.lng.toFixed(5);
+    if (!locationGroups[key]) locationGroups[key] = [];
+    locationGroups[key].push(addr);
+  }
 
-    var color = getMarkerColor(addr, myName);
-    var isDone = addr.result && addr.result !== 'not_visited';
-    var icon = createHouseIcon(color, isDone);
+  // Add house markers — grouped for apartments, single for houses
+  var groupKeys = Object.keys(locationGroups);
+  for (var g = 0; g < groupKeys.length; g++) {
+    var group = locationGroups[groupKeys[g]];
+    var firstAddr = group[0];
 
-    var popupContent = '<div style="font-size:13px;min-width:150px">' +
-      '<strong>' + escHtml(addr.address) + (addr.unit ? ' ' + escHtml(addr.unit) : '') + '</strong>';
-    if (addr.voter_name) {
-      popupContent += '<br><span style="color:#666">' + escHtml(addr.voter_name);
-      if (addr.voter_age) popupContent += ' <span style="color:#999">(age ' + addr.voter_age + ')</span>';
-      popupContent += '</span>';
-    }
-    // Household members
-    if (addr.household && addr.household.length > 0) {
-      popupContent += '<br><span style="color:#888;font-size:11px">Also at address:</span>';
-      for (var h = 0; h < addr.household.length; h++) {
-        var m = addr.household[h];
-        popupContent += '<br><span style="color:#888;font-size:11px">&nbsp;&bull; ' + escHtml(m.first_name + ' ' + m.last_name);
-        if (m.age) popupContent += ' (' + escHtml(String(m.age)) + ')';
-        popupContent += '</span>';
-      }
-    }
-    if (isDone) {
-      popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
-    } else {
-      popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
-      if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
-    }
-    popupContent += '<br><a href="' + buildGoogleMapsUrl(addr.address + (addr.unit ? ' ' + addr.unit : ''), addr.city, addr.zip) + '" target="_blank" rel="noopener" style="color:#60a5fa;font-size:12px">&#x1F4CD; Google Maps</a>';
-    popupContent += '</div>';
+    if (group.length === 1) {
+      // Single address at this location — render normally
+      var color = getMarkerColor(firstAddr, myName);
+      var isDone = firstAddr.result && firstAddr.result !== 'not_visited';
+      var icon = createHouseIcon(color, isDone);
 
-    var marker = L.marker([addr.lat, addr.lng], { icon: icon, zIndexOffset: 1000 })
-      .bindPopup(popupContent);
+      var popupContent = buildAddressPopup(firstAddr, myName);
+      var marker = L.marker([firstAddr.lat, firstAddr.lng], { icon: icon, zIndexOffset: 1000 })
+        .bindPopup(popupContent);
 
-    // Clicking any marker opens the door panel for logging/updating responses
-    (function(address) {
-      marker.on('click', function() {
-        var localAddrs = walkState.walk.addresses;
-        for (var j = 0; j < localAddrs.length; j++) {
-          if (localAddrs[j].id === address.id) {
-            openDoor(j);
-            break;
+      (function(address) {
+        marker.on('click', function() {
+          var localAddrs = walkState.walk.addresses;
+          for (var j = 0; j < localAddrs.length; j++) {
+            if (localAddrs[j].id === address.id) {
+              openDoor(j);
+              break;
+            }
           }
-        }
-      });
-    })(addr);
+        });
+      })(firstAddr);
 
-    marker.addTo(mapState.map);
-    mapState.markers.push(marker);
-    bounds.push([addr.lat, addr.lng]);
+      marker.addTo(mapState.map);
+      mapState.markers.push(marker);
+      bounds.push([firstAddr.lat, firstAddr.lng]);
+    } else {
+      // Multiple units at this location (apartments) — show grouped marker
+      var doneCount = 0;
+      for (var u = 0; u < group.length; u++) {
+        if (group[u].result && group[u].result !== 'not_visited') doneCount++;
+      }
+      var allDone = doneCount === group.length;
+      var anyMine = false;
+      for (var u2 = 0; u2 < group.length; u2++) {
+        if (myName && group[u2].assigned_walker === myName && (!group[u2].result || group[u2].result === 'not_visited')) {
+          anyMine = true; break;
+        }
+      }
+      var groupColor = allDone ? '#22c55e' : (anyMine ? '#f59e0b' : '#3b82f6');
+      var groupIcon = createApartmentIcon(groupColor, group.length, allDone);
+
+      // Build popup with all units listed
+      var groupPopup = '<div style="font-size:13px;min-width:180px;max-height:300px;overflow-y:auto">' +
+        '<strong style="font-size:14px">' + escHtml(firstAddr.address) + '</strong>' +
+        '<br><span style="color:#60a5fa;font-size:12px;font-weight:600">' + group.length + ' units &bull; ' + doneCount + ' done</span>' +
+        '<div style="margin-top:8px;border-top:1px solid #334155;padding-top:8px">';
+
+      // Sort units naturally (Apt 1, Apt 2, ... Apt 10, not Apt 1, Apt 10, Apt 2)
+      group.sort(function(a, b) {
+        var aUnit = (a.unit || '').replace(/[^0-9]/g, '');
+        var bUnit = (b.unit || '').replace(/[^0-9]/g, '');
+        if (aUnit && bUnit) return parseInt(aUnit) - parseInt(bUnit);
+        return (a.unit || '').localeCompare(b.unit || '');
+      });
+
+      for (var u3 = 0; u3 < group.length; u3++) {
+        var unitAddr = group[u3];
+        var unitDone = unitAddr.result && unitAddr.result !== 'not_visited';
+        var unitColor = unitDone ? '#22c55e' : (myName && unitAddr.assigned_walker === myName ? '#f59e0b' : '#94a3b8');
+        var unitLabel = unitAddr.unit ? escHtml(unitAddr.unit) : 'Unit ' + (u3 + 1);
+        var unitStatus = unitDone ? formatResult(unitAddr.result) : 'Not visited';
+        groupPopup += '<div class="apt-unit-row" data-addr-id="' + unitAddr.id + '" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #1e293b;cursor:pointer">' +
+          '<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + unitColor + ';margin-right:6px"></span>' +
+          '<span style="font-weight:600">' + unitLabel + '</span>';
+        if (unitAddr.voter_name) groupPopup += ' <span style="color:#888;font-size:11px">' + escHtml(unitAddr.voter_name) + '</span>';
+        groupPopup += '</div><span style="font-size:11px;color:' + (unitDone ? '#22c55e' : '#f59e0b') + '">' + unitStatus + '</span></div>';
+      }
+      groupPopup += '</div></div>';
+
+      var groupMarker = L.marker([firstAddr.lat, firstAddr.lng], { icon: groupIcon, zIndexOffset: 1100 })
+        .bindPopup(groupPopup, { maxWidth: 280, maxHeight: 350 });
+
+      // When popup opens, attach click handlers to each unit row
+      (function(grp) {
+        groupMarker.on('popupopen', function() {
+          var rows = document.querySelectorAll('.apt-unit-row');
+          for (var r = 0; r < rows.length; r++) {
+            rows[r].addEventListener('click', function() {
+              var addrId = parseInt(this.getAttribute('data-addr-id'));
+              var localAddrs = walkState.walk.addresses;
+              for (var j = 0; j < localAddrs.length; j++) {
+                if (localAddrs[j].id === addrId) {
+                  openDoor(j);
+                  break;
+                }
+              }
+            });
+          }
+        });
+      })(group);
+
+      groupMarker.addTo(mapState.map);
+      mapState.markers.push(groupMarker);
+      bounds.push([firstAddr.lat, firstAddr.lng]);
+    }
   }
 
   // Add other walkers' locations
@@ -2291,29 +2409,47 @@ function renderMap(addresses, walkerLocations, progress) {
     mapState.hasFittedBounds = true;
   }
 
-  // Show geocode notice if addresses exist but none have coordinates
+  // Show geocode notice and auto-trigger geocoding for unmapped addresses
   var existingNotice = document.getElementById('geocodeNotice');
   if (existingNotice) existingNotice.remove();
 
   var addressesWithCoords = addresses.filter(function(a) { return a.lat && a.lng; }).length;
+  var unmappedCount = addresses.length - addressesWithCoords;
+
   if (addresses.length > 0 && addressesWithCoords === 0) {
+    // No addresses mapped yet — auto-trigger geocoding and show progress
     var notice = document.createElement('div');
     notice.id = 'geocodeNotice';
     notice.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(30,41,59,0.95);border:1px solid #f59e0b;border-radius:12px;padding:20px;text-align:center;max-width:300px';
     notice.innerHTML = '<div style="font-size:24px;margin-bottom:8px">&#x1F3E0;</div>' +
-      '<div style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:6px">' + addresses.length + ' addresses need mapping</div>' +
-      '<div style="font-size:12px;color:#94a3b8;margin-bottom:12px">House locations are being resolved. This may take a moment for large walks.</div>' +
-      '<button onclick="triggerGeocode()" style="padding:8px 16px;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Locate Houses on Map</button>';
+      '<div style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:6px">Locating ' + addresses.length + ' addresses...</div>' +
+      '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Houses will appear on the map as they are found.</div>' +
+      '<div style="background:#334155;border-radius:4px;height:6px;overflow:hidden"><div style="background:#f59e0b;height:100%;width:0%;transition:width 0.3s"></div></div>';
     document.getElementById('mapContainer').appendChild(notice);
-  } else if (addresses.length > 0 && addressesWithCoords < addresses.length) {
-    // Some but not all are geocoded — show a small indicator
+    // Auto-trigger geocoding
+    if (!mapState._geocodeTriggered) {
+      mapState._geocodeTriggered = true;
+      triggerGeocode();
+    }
+  } else if (addresses.length > 0 && unmappedCount > 0) {
+    // Some addresses still need mapping — show progress bar and keep polling fast
+    var pct = Math.round((addressesWithCoords / addresses.length) * 100);
     var partial = document.createElement('div');
     partial.id = 'geocodeNotice';
-    partial.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:6px 10px;font-size:11px;color:#94a3b8;cursor:pointer';
-    partial.textContent = addressesWithCoords + '/' + addresses.length + ' mapped';
-    partial.title = 'Click to map remaining addresses';
+    partial.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:8px 12px;font-size:11px;color:#94a3b8;cursor:pointer;min-width:140px';
+    partial.innerHTML = '<div>' + addressesWithCoords + '/' + addresses.length + ' mapped (' + pct + '%)</div>' +
+      '<div style="background:#334155;border-radius:3px;height:4px;margin-top:4px;overflow:hidden"><div style="background:#f59e0b;height:100%;width:' + pct + '%;transition:width 0.3s"></div></div>';
+    partial.title = 'Click to retry mapping remaining addresses';
     partial.onclick = function() { triggerGeocode(); };
     document.getElementById('mapContainer').appendChild(partial);
+    // Auto-trigger geocoding for remaining addresses
+    if (!mapState._geocodeTriggered) {
+      mapState._geocodeTriggered = true;
+      triggerGeocode();
+    }
+  } else if (addresses.length > 0 && unmappedCount === 0) {
+    // All mapped — reset trigger flag for next time
+    mapState._geocodeTriggered = false;
   }
 }
 
