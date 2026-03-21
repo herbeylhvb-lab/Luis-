@@ -205,128 +205,36 @@ async function createMmsProject({ name, message, mediaBuffer, mediaFilename, med
   if (!name || !message) throw new Error('MMS project requires name and message.');
   if (!mediaBuffer && !mediaUrl) throw new Error('MMS project requires a media file or URL.');
 
-  const baseBody = { name, message };
+  // RumbleUp requires opt-out instructions in every project message
+  const safeMessage = /stop|opt.?out|unsubscribe/i.test(message) ? message : message + '\nReply STOP to opt out.';
+  const baseBody = { name, message: safeMessage };
   if (group) baseBody.group = group;
   if (campaignId) baseBody.campaignId = campaignId;
   if (proxy) baseBody.proxy = proxy;
 
-  const approaches = [];
+  // The working approach: JSON body with media as a publicly-accessible URL.
+  // RumbleUp fetches the image from the URL and attaches it to the project.
+  if (!mediaUrl) throw new Error('MMS requires a public media URL. Ensure BASE_URL is configured.');
 
-  // Approach 1: JSON with media URL (if we have a public URL)
-  if (mediaUrl) {
-    approaches.push({
-      label: 'JSON + media URL',
-      fn: () => apiPost('/project/create', { ...baseBody, media: mediaUrl })
-    });
-  }
+  console.log('[mms] Creating project with media URL:', mediaUrl);
+  const result = await apiPost('/project/create', { ...baseBody, media: mediaUrl });
+  const projectId = result.action || result.id || result.aid;
+  console.log('[mms] Create result:', JSON.stringify(result));
 
-  // Approach 2: Manual multipart — build the raw body ourselves with proper boundaries
-  if (mediaBuffer) {
-    approaches.push({
-      label: 'manual multipart/form-data',
-      fn: () => {
-        const boundary = '----RumbleUpMMS' + Date.now();
-        const mime = mediaMimeType || 'image/png';
-        const fname = mediaFilename || 'image.png';
-        let parts = [];
-        // Text fields
-        for (const [k, v] of Object.entries(baseBody)) {
-          if (v === undefined || v === null) continue;
-          parts.push('--' + boundary + '\r\nContent-Disposition: form-data; name="' + k + '"\r\n\r\n' + v);
-        }
-        // File field
-        parts.push('--' + boundary + '\r\nContent-Disposition: form-data; name="media"; filename="' + fname + '"\r\nContent-Type: ' + mime + '\r\n\r\n');
-        // Build final buffer: text parts + file binary + closing boundary
-        const textPart = Buffer.from(parts.join('\r\n') + '\r\n', 'utf-8');
-        const closingBoundary = Buffer.from('\r\n--' + boundary + '--\r\n', 'utf-8');
-        const fullBody = Buffer.concat([textPart, mediaBuffer, closingBoundary]);
-
-        const creds = getCredentials();
-        return fetch(BASE_URL + '/project/create', {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader(creds.apiKey, creds.apiSecret),
-            'Content-Type': 'multipart/form-data; boundary=' + boundary
-          },
-          body: fullBody
-        }).then(async (resp) => {
-          const text = await resp.text();
-          if (!resp.ok) throw new Error('RumbleUp API error (' + resp.status + '): ' + text);
-          try { return JSON.parse(text); } catch { return { raw: text }; }
-        });
-      }
-    });
-  }
-
-  // Approach 3: JSON with base64 data URI
-  if (mediaBuffer) {
-    approaches.push({
-      label: 'JSON + base64 data URI',
-      fn: () => {
-        const mime = mediaMimeType || 'image/png';
-        const b64 = mediaBuffer.toString('base64');
-        return apiPost('/project/create', { ...baseBody, media: 'data:' + mime + ';base64,' + b64 });
-      }
-    });
-  }
-
-  // Approach 4: JSON with raw base64 (no data URI prefix)
-  if (mediaBuffer) {
-    approaches.push({
-      label: 'JSON + raw base64',
-      fn: () => {
-        const b64 = mediaBuffer.toString('base64');
-        return apiPost('/project/create', { ...baseBody, media: b64 });
-      }
-    });
-  }
-
-  // Try each approach; return first one that creates a project with media
-  const errors = [];
-  for (const approach of approaches) {
-    try {
-      console.log('[mms] Trying:', approach.label);
-      const result = await approach.fn();
-      const projectId = result.action || result.id || result.aid;
-      console.log('[mms] ' + approach.label + ' result:', JSON.stringify(result));
-
-      // Check if media was accepted
-      if (projectId && result.media) {
-        console.log('[mms] SUCCESS with ' + approach.label + ' — media:', result.media);
-        result._approach = approach.label;
-        return result;
-      }
-
-      // Project created but no media — verify by fetching project details
-      if (projectId) {
-        const details = await getProject(projectId);
-        console.log('[mms] Project details after ' + approach.label + ':', JSON.stringify(details));
-        if (details.media) {
-          console.log('[mms] SUCCESS (verified) with ' + approach.label);
-          details._approach = approach.label;
-          return details;
-        }
-        // Project exists but no media — keep trying other approaches but remember this one
-        errors.push({ approach: approach.label, note: 'Project #' + projectId + ' created but media empty', result });
-      } else {
-        errors.push({ approach: approach.label, note: 'No project ID in response', result });
-      }
-    } catch (err) {
-      console.log('[mms] ' + approach.label + ' failed:', err.message);
-      errors.push({ approach: approach.label, error: err.message });
+  if (projectId) {
+    // Verify media was attached
+    const details = await getProject(projectId);
+    console.log('[mms] Project details:', JSON.stringify(details));
+    if (details.media) {
+      console.log('[mms] SUCCESS — media attached:', details.media);
+    } else {
+      console.log('[mms] WARNING — project created but media field empty. RumbleUp may still be processing.');
     }
+    details._projectId = projectId;
+    return details;
   }
 
-  // If no approach got media attached, return the best result we have
-  const bestResult = errors.find(e => e.result);
-  if (bestResult) {
-    console.log('[mms] No approach attached media. Best result:', JSON.stringify(bestResult));
-    bestResult.result._approach = bestResult.approach + ' (no media)';
-    bestResult.result._allAttempts = errors;
-    return bestResult.result;
-  }
-
-  throw new Error('All MMS approaches failed: ' + errors.map(e => e.approach + ': ' + (e.error || e.note)).join('; '));
+  return result;
 }
 
 async function getProject(projectId) {
