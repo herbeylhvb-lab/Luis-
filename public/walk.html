@@ -103,6 +103,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .hh-member .hh-status{font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap}
 .hh-member .hh-status.talked{background:#052e16;color:#4ade80}
 .hh-member .hh-status.not-home{background:#1e293b;color:#94a3b8}
+.hh-nothome-btn{background:#334155;border:1px solid #475569;border-radius:6px;padding:4px 10px;color:#94a3b8;font-size:11px;cursor:pointer;white-space:nowrap}
+.hh-nothome-btn:active{background:#475569}
 .hh-nobody-btn{width:100%;padding:14px;border:2px solid #64748b;border-radius:10px;background:#1e293b;color:#e2e8f0;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px;transition:all 0.15s}
 .hh-nobody-btn:active{transform:scale(0.97)}
 .hh-nobody-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
@@ -1583,15 +1585,35 @@ function renderMemberList() {
     if (m.status === 'talked') {
       statusHtml = '<span class="hh-status talked">' + formatResult(m.result) + '</span>';
     } else if (m.status === 'not_home') {
-      statusHtml = '<span class="hh-status not-home">Not Home</span>';
+      statusHtml = '<span class="hh-status not-home">Not Home <span style="font-size:10px;opacity:0.7">(tap to undo)</span></span>';
     } else {
-      statusHtml = '<span class="hh-status" style="color:#60a5fa">Tap to log &#x27A4;</span>';
+      statusHtml = '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span class="hh-status" style="color:#60a5fa">Tap to log &#x27A4;</span>' +
+        '<button class="hh-nothome-btn" data-idx="' + i + '">Not Home</button>' +
+        '</div>';
     }
 
+    // Note: nameHtml and statusHtml are built from escaped user data (escHtml) and safe constants
     el.innerHTML = nameHtml + statusHtml;
 
+    // "Not Home" button click — mark just this person
+    var nhBtn = el.querySelector('.hh-nothome-btn');
+    if (nhBtn) {
+      (function(index) {
+        nhBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          doorState.allMembers[index].status = 'not_home';
+          doorState.allMembers[index].result = 'not_home';
+          renderMemberList();
+          document.getElementById('btnLogDoor').disabled = false;
+        });
+      })(i);
+    }
+
+    // Main card click — open disposition selector (or undo not_home)
     (function(index) {
-      el.addEventListener('click', function() {
+      el.addEventListener('click', function(e) {
+        if (e.target.classList && e.target.classList.contains('hh-nothome-btn')) return;
         selectMember(index);
       });
     })(i);
