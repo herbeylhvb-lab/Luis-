@@ -183,34 +183,42 @@ async function listAccounts(params) {
 // --- Projects (Actions) ---
 
 async function createProject({ name, message, group, campaignId, proxy, media, type }) {
-  // If media is provided, upload it with the project.
-  // RumbleUp treats media as a project-level setting — all messages sent via
-  // this project's action ID will include the image (MMS).
-  if (media) {
-    // Strategy: send metadata as query params, media as multipart body.
-    // RumbleUp's API doesn't parse text fields from multipart form-data.
-    const qs = new URLSearchParams();
-    qs.append('name', name);
-    qs.append('message', message);
-    if (group) qs.append('group', String(group));
-    if (campaignId) qs.append('campaignId', String(campaignId));
-    if (proxy) qs.append('proxy', String(proxy));
-    if (type) qs.append('type', type);
+  // If media is provided, use a two-step approach:
+  // 1. Create the project as JSON (proven to work)
+  // 2. Update it with the media file via multipart upload
+  const body = { name, message };
+  if (group) body.group = group;
+  if (campaignId) body.campaignId = campaignId;
+  if (proxy) body.proxy = proxy;
+  if (type) body.type = type; // SMS, MMS, or EVT
 
+  const result = await apiPost('/project/create', body);
+
+  if (media) {
+    const projectId = result.action || result.id || result.aid;
+    if (!projectId) {
+      console.error('[rumbleup] Project created but no ID returned, cannot attach media:', JSON.stringify(result));
+      return result;
+    }
+    // Upload media to the existing project via update endpoint
     const form = new FormData();
     if (Buffer.isBuffer(media)) {
       form.append('media', new Blob([media], { type: 'image/jpeg' }), 'image.jpg');
     } else if (media.buffer) {
       form.append('media', new Blob([media.buffer], { type: media.mimeType || 'image/jpeg' }), media.filename || 'image.jpg');
     }
-    return apiPost('/project/create?' + qs.toString(), form, null, { multipart: true, timeout: 30000 });
+    try {
+      const updated = await apiPost('/project/update/' + projectId, form, null, { multipart: true, timeout: 30000 });
+      console.log('[rumbleup] Media attached to project ' + projectId);
+      return updated;
+    } catch (err) {
+      console.error('[rumbleup] Failed to attach media to project ' + projectId + ':', err.message);
+      // Return the created project anyway — it'll send as SMS without the image
+      return result;
+    }
   }
-  const body = { name, message };
-  if (group) body.group = group;
-  if (campaignId) body.campaignId = campaignId;
-  if (proxy) body.proxy = proxy;
-  if (type) body.type = type; // SMS, MMS, or EVT
-  return apiPost('/project/create', body);
+
+  return result;
 }
 
 async function getProject(projectId) {
