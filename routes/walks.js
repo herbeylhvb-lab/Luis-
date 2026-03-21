@@ -8,6 +8,7 @@ const { generateAlphaCode, normalizePhone } = require('../utils');
 // Count unique doors (address+unit) instead of individual voter rows
 // People living together at the same address count as ONE door
 function countDoors(addresses) {
+  if (!addresses || !addresses.length) return { total: 0, knocked: 0, remaining: 0 };
   var doors = {};
   for (var i = 0; i < addresses.length; i++) {
     var a = addresses[i];
@@ -31,6 +32,7 @@ function countDoors(addresses) {
 // Build household members from walk_addresses — groups by address+unit
 // so apartment residents only see people in their same unit, not the whole building
 function buildHouseholdFromWalkAddresses(addresses) {
+  if (!addresses || !addresses.length) return;
   const grouped = {};
   for (const addr of addresses) {
     const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
@@ -39,9 +41,9 @@ function buildHouseholdFromWalkAddresses(addresses) {
   }
   for (const addr of addresses) {
     const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
-    const others = grouped[key].filter(a => a.id !== addr.id && a.voter_name);
+    const others = grouped[key].filter(a => a.id !== addr.id && (a.voter_name || '').trim());
     addr.household = others.map(a => {
-      const parts = (a.voter_name || '').split(' ');
+      const parts = (a.voter_name || '').trim().split(' ');
       const firstName = parts[0] || '';
       const lastName = parts.slice(1).join(' ') || '';
       return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '' };
@@ -1176,7 +1178,7 @@ router.get('/walks/:id/live-status', (req, res) => {
   const members = db.prepare('SELECT walker_name, joined_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
 
   const allAddresses = db.prepare(
-    'SELECT id, address, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
   const doorProgress = countDoors(allAddresses);
