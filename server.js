@@ -708,7 +708,7 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
             name: 'MMS-' + Date.now(),
             message: body + '\nSTOP to opt-out',
             campaignId: creds.campaignId || undefined,
-            proxy: creds.phoneNumber || undefined
+            proxy: creds.phoneNumber ? (creds.phoneNumber.replace(/\D/g, '').length === 10 ? '1' + creds.phoneNumber.replace(/\D/g, '') : creds.phoneNumber.replace(/\D/g, '')) : undefined
           });
           console.log('[reply] Step 1 - project created:', JSON.stringify(createResult));
           const newActionId = createResult.action || createResult.id || createResult.aid;
