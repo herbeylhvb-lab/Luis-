@@ -449,14 +449,16 @@ router.get('/walks/leaderboard', (req, res) => {
 });
 
 // List all block walks with stats (single query instead of N+1)
+// Count unique doors (address+unit) not individual voter rows
 router.get('/walks', (req, res) => {
   const walks = db.prepare(`
     SELECT b.*,
-      COUNT(wa.id) as totalAddresses,
-      SUM(CASE WHEN wa.result != 'not_visited' THEN 1 ELSE 0 END) as knocked
+      (SELECT COUNT(DISTINCT LOWER(TRIM(wa2.address)) || '||' || LOWER(TRIM(COALESCE(wa2.unit, ''))))
+       FROM walk_addresses wa2 WHERE wa2.walk_id = b.id) as totalAddresses,
+      (SELECT COUNT(DISTINCT LOWER(TRIM(wa2.address)) || '||' || LOWER(TRIM(COALESCE(wa2.unit, ''))))
+       FROM walk_addresses wa2
+       WHERE wa2.walk_id = b.id AND wa2.result != 'not_visited') as knocked
     FROM block_walks b
-    LEFT JOIN walk_addresses wa ON b.id = wa.walk_id
-    GROUP BY b.id
     ORDER BY b.id DESC
   `).all();
   res.json({ walks });
@@ -490,6 +492,7 @@ router.get('/walks/:id', (req, res) => {
     stats[a.result] = (stats[a.result] || 0) + 1;
   }
   walk.resultStats = stats;
+  walk.doorCounts = countDoors(walk.addresses);
   res.json({ walk });
 });
 
