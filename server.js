@@ -743,6 +743,107 @@ app.get('/api/rumbleup/projects', asyncHandler(async (req, res) => {
   }
 }));
 
+// --- Create MMS project with image upload ---
+app.post('/api/rumbleup/create-mms-project', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+  if (!provider.createMmsProject) return res.status(400).json({ error: 'MMS project creation not supported by this provider.' });
+
+  const { name, message, mediaBase64, mediaFilename, mediaMimeType, group, campaignId, proxy } = req.body;
+  if (!name || !message) return res.status(400).json({ error: 'Project name and message are required.' });
+  if (!mediaBase64) return res.status(400).json({ error: 'Media file (base64) is required for MMS.' });
+
+  // Validate file size — RumbleUp limit is 750KB
+  const mediaBuffer = Buffer.from(mediaBase64, 'base64');
+  if (mediaBuffer.length > 750 * 1024) {
+    return res.status(400).json({ error: 'Media file too large. RumbleUp limit is 750KB. Your file is ' + Math.round(mediaBuffer.length / 1024) + 'KB.' });
+  }
+
+  const creds = provider.getCredentials();
+  try {
+    const result = await provider.createMmsProject({
+      name,
+      message,
+      mediaBuffer,
+      mediaFilename: mediaFilename || 'image.png',
+      mediaMimeType: mediaMimeType || 'image/png',
+      group,
+      campaignId: campaignId || creds.campaignId,
+      proxy: proxy || creds.phoneNumber
+    });
+
+    // Extract the action/project ID from the response
+    const projectId = result.action || result.id || result.aid || result.action_id;
+    console.log('[rumbleup] MMS project created:', JSON.stringify(result));
+    res.json({
+      success: true,
+      projectId,
+      type: result.type || 'MMS',
+      raw: result
+    });
+  } catch (err) {
+    console.error('[rumbleup] MMS project create failed:', err.message);
+    res.status(500).json({ error: 'Failed to create MMS project: ' + err.message });
+  }
+}));
+
+// --- Test MMS: Create project with media and send test message ---
+app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  const { mediaBase64, mediaFilename, mediaMimeType, testPhone, message } = req.body;
+  if (!mediaBase64) return res.status(400).json({ error: 'Media file (base64) required.' });
+
+  const mediaBuffer = Buffer.from(mediaBase64, 'base64');
+  const creds = provider.getCredentials();
+  const testMsg = message || 'MMS test from CampaignText\nSTOP to opt-out';
+
+  try {
+    // Step 1: Create MMS project with media via multipart
+    console.log('[mms-test] Creating MMS project with', Math.round(mediaBuffer.length / 1024) + 'KB media...');
+    const createResult = await provider.createMmsProject({
+      name: 'MMS Test ' + new Date().toISOString().slice(0, 16),
+      message: testMsg,
+      mediaBuffer,
+      mediaFilename: mediaFilename || 'test.png',
+      mediaMimeType: mediaMimeType || 'image/png',
+      campaignId: creds.campaignId,
+      proxy: creds.phoneNumber
+    });
+
+    const projectId = createResult.action || createResult.id || createResult.aid;
+    console.log('[mms-test] Created project:', JSON.stringify(createResult));
+
+    // Step 2: Verify project has media
+    let projectDetails = null;
+    if (projectId) {
+      projectDetails = await provider.getProject(projectId);
+      console.log('[mms-test] Project details:', JSON.stringify(projectDetails));
+    }
+
+    // Step 3: Send test message if phone provided
+    let testResult = null;
+    if (testPhone && projectId) {
+      testResult = await provider.sendTestMessage(projectId, testPhone, testMsg);
+      console.log('[mms-test] Test send result:', JSON.stringify(testResult));
+    }
+
+    res.json({
+      success: true,
+      projectId,
+      createResult,
+      projectDetails,
+      hasMedia: !!(projectDetails && (projectDetails.media || projectDetails.media_url)),
+      testResult,
+      note: testPhone ? 'Check your phone for the test MMS' : 'Project created — provide testPhone to send a test'
+    });
+  } catch (err) {
+    console.error('[mms-test] Failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
 // --- Debug endpoint: test RumbleUp message log API directly ---
 app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
   const provider = getProvider();

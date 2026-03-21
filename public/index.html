@@ -259,6 +259,25 @@ tr:hover td{background:#1e293b80}
         <p style="color:#64748b;font-size:12px">If webhooks aren't set up, use the <strong style="color:#e2e8f0">Sync from RumbleUp</strong> button on the Inbox page to manually pull replies.</p>
       </div>
       <div class="card">
+        <h3>Test MMS Image Sending</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Upload an image, enter your phone number, and test MMS delivery through RumbleUp.</p>
+        <div class="form-group">
+          <label>Image File</label>
+          <input type="file" id="testMmsFile" accept="image/png,image/jpeg,image/gif" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
+          <div style="font-size:11px;color:#64748b;margin-top:4px">.png, .jpg, .gif — max 750KB</div>
+        </div>
+        <div class="form-group">
+          <label>Test Phone Number</label>
+          <input type="text" id="testMmsPhone" placeholder="+15125551234" style="max-width:260px">
+        </div>
+        <div class="form-group">
+          <label>Message (optional)</label>
+          <input type="text" id="testMmsMessage" placeholder="Test MMS from CampaignText" style="width:100%">
+        </div>
+        <button class="btn btn-primary" id="btnTestMms" onclick="testMmsSend()">Send Test MMS</button>
+        <div id="testMmsResult" style="margin-top:12px;font-size:13px;display:none"></div>
+      </div>
+      <div class="card">
         <h3>Email (SMTP) Configuration</h3>
         <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Configure email for mass campaigns. Use Gmail with an App Password.</p>
         <div id="smtpAlert"></div>
@@ -1564,15 +1583,19 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-group">
             <label>Event Flyer (optional)</label>
-            <input type="file" id="eventFlyer" accept="image/png,image/jpeg,image/webp" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
-            <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image for display. For MMS sending, upload the image directly on RumbleUp and enter the project ID below.</div>
+            <input type="file" id="eventFlyer" accept="image/png,image/jpeg,image/gif" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px;width:100%">
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image (.png, .jpg, .gif — max 750KB for MMS)</div>
           </div>
           <div class="form-group">
-            <label>Send Invites via Project <span style="font-size:11px;color:#64748b;font-weight:400">(optional — select MMS project to include flyer)</span></label>
-            <select id="eventMmsProjectId" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
-              <option value="">Default (SMS only)</option>
-            </select>
-            <div style="font-size:11px;color:#64748b;margin-top:4px">Create an MMS project on RumbleUp with your flyer, then select it here. Invites will include the image.</div>
+            <label>MMS Project <span style="font-size:11px;color:#64748b;font-weight:400">(optional — include flyer image in text invites)</span></label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="eventMmsProjectId" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+                <option value="">Default (SMS only)</option>
+              </select>
+              <button type="button" class="btn btn-secondary" id="btnCreateMmsProject" style="white-space:nowrap;font-size:12px;padding:8px 12px" onclick="createMmsProjectFromFlyer()">Create MMS Project</button>
+            </div>
+            <div id="mmsCreateStatus" style="font-size:12px;margin-top:6px;display:none"></div>
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Select an existing MMS project or click "Create MMS Project" to upload your flyer and auto-create one.</div>
           </div>
           <div id="eventUploadProgress" style="display:none;margin-bottom:12px">
             <div style="font-size:13px;color:#94a3b8;margin-bottom:4px"><span id="eventUploadLabel">Uploading flyer...</span></div>
@@ -2360,6 +2383,75 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
   });
 });
 
+// ===================== TEST MMS =====================
+async function testMmsSend() {
+  var fileInput = document.getElementById('testMmsFile');
+  var phoneInput = document.getElementById('testMmsPhone');
+  var msgInput = document.getElementById('testMmsMessage');
+  var resultEl = document.getElementById('testMmsResult');
+  var btn = document.getElementById('btnTestMms');
+
+  if (!fileInput.files || fileInput.files.length === 0) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span style="color:#ef4444">Select an image file first.</span>';
+    return;
+  }
+  if (!phoneInput.value.trim()) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span style="color:#ef4444">Enter a phone number to send the test to.</span>';
+    return;
+  }
+
+  var file = fileInput.files[0];
+  if (file.size > 750 * 1024) {
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span style="color:#ef4444">Image too large (' + Math.round(file.size / 1024) + 'KB). Max 750KB.</span>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<span style="color:#94a3b8">Creating MMS project and sending test... this may take 15-30 seconds.</span>';
+
+  try {
+    var base64 = await new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    var data = await api('/api/rumbleup/test-mms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mediaBase64: base64,
+        mediaFilename: file.name,
+        mediaMimeType: file.type,
+        testPhone: phoneInput.value.trim(),
+        message: msgInput.value.trim() || undefined
+      })
+    });
+
+    var html = '';
+    if (data.success) {
+      html += '<span style="color:#22c55e;font-weight:600">Project created! ID: ' + (data.projectId || '?') + '</span><br>';
+      html += '<span style="color:#94a3b8">Has media: ' + (data.hasMedia ? 'YES' : 'NO — media may not have uploaded correctly') + '</span><br>';
+      if (data.testResult) html += '<span style="color:#22c55e">Test message sent — check your phone!</span>';
+      html += '<details style="margin-top:8px"><summary style="color:#64748b;cursor:pointer;font-size:12px">Raw API response</summary><pre style="font-size:11px;color:#94a3b8;max-height:200px;overflow:auto;background:#0f172a;padding:8px;border-radius:4px;margin-top:4px">' + JSON.stringify(data, null, 2) + '</pre></details>';
+    } else {
+      html += '<span style="color:#ef4444">Error: ' + (data.error || 'Unknown') + '</span>';
+    }
+    resultEl.innerHTML = html;
+  } catch (err) {
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Unknown error') + '</span>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send Test MMS';
+  }
+}
+
 // ===================== MESSAGING SETUP =====================
 var providerState = { providers: [], active: '', fields: [], credentials: {} };
 
@@ -2798,6 +2890,92 @@ async function populateMmsDropdown(selectId) {
       }
     }
   };
+}
+
+// --- Create MMS project from flyer image ---
+async function createMmsProjectFromFlyer() {
+  var fileInput = document.getElementById('eventFlyer');
+  var statusEl = document.getElementById('mmsCreateStatus');
+  var btn = document.getElementById('btnCreateMmsProject');
+  var dropdown = document.getElementById('eventMmsProjectId');
+
+  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = '<span style="color:#ef4444">Please select a flyer image first.</span>';
+    return;
+  }
+
+  var file = fileInput.files[0];
+
+  // Validate file size (750KB limit for RumbleUp MMS)
+  if (file.size > 750 * 1024) {
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = '<span style="color:#ef4444">Image too large (' + Math.round(file.size / 1024) + 'KB). RumbleUp limit is 750KB. Please resize it.</span>';
+    return;
+  }
+
+  // Validate file type
+  var validTypes = ['image/png', 'image/jpeg', 'image/gif'];
+  if (validTypes.indexOf(file.type) === -1) {
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = '<span style="color:#ef4444">Unsupported image type. Use PNG, JPG, or GIF.</span>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  statusEl.style.display = 'block';
+  statusEl.innerHTML = '<span style="color:#94a3b8">Uploading image to RumbleUp and creating MMS project...</span>';
+
+  try {
+    // Read file as base64
+    var base64 = await new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    var eventTitle = document.getElementById('eventTitle').value || 'Event';
+    var eventMsg = document.getElementById('eventMessage') ? document.getElementById('eventMessage').value : '';
+    var projectName = 'MMS: ' + eventTitle + ' ' + new Date().toLocaleDateString();
+    var projectMessage = eventMsg || (eventTitle + '\nSTOP to opt-out');
+
+    var data = await api('/api/rumbleup/create-mms-project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: projectName,
+        message: projectMessage,
+        mediaBase64: base64,
+        mediaFilename: file.name,
+        mediaMimeType: file.type
+      })
+    });
+
+    if (data.success && data.projectId) {
+      statusEl.innerHTML = '<span style="color:#22c55e">MMS project created! ID: ' + data.projectId + '</span>';
+
+      // Add to dropdown and select it
+      var opt = document.createElement('option');
+      opt.value = data.projectId;
+      opt.textContent = projectName + ' [MMS] #' + data.projectId;
+      dropdown.insertBefore(opt, dropdown.lastElementChild || null);
+      dropdown.value = data.projectId;
+
+      // Refresh the cached projects list
+      _rumbleUpProjects = null;
+    } else {
+      statusEl.innerHTML = '<span style="color:#ef4444">Project created but no ID returned. Check RumbleUp dashboard.</span>';
+      console.log('[mms] Create response:', data);
+    }
+  } catch (err) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Unknown error') + '</span>';
+    console.error('[mms] Create error:', err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create MMS Project';
+  }
 }
 
 // Quick send from Send tab

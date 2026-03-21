@@ -191,6 +191,40 @@ async function createProject({ name, message, group, campaignId, proxy, type }) 
   return apiPost('/project/create', body);
 }
 
+/**
+ * Create an MMS project with media attached.
+ * The RumbleUp API expects ALL fields as multipart/form-data when media is included
+ * (media is typed as "string (binary)" in the OpenAPI spec).
+ *
+ * @param {Object} opts - Project options
+ * @param {string} opts.name - Project name (required)
+ * @param {string} opts.message - Message text (required)
+ * @param {Buffer} opts.mediaBuffer - Image/video file as a Buffer (required)
+ * @param {string} opts.mediaFilename - Filename with extension (e.g. "flyer.png")
+ * @param {string} opts.mediaMimeType - MIME type (e.g. "image/png")
+ * @param {string} [opts.group] - Contact group ID
+ * @param {string} [opts.campaignId] - TCR campaign ID
+ * @param {string} [opts.proxy] - Proxy phone number
+ * @returns {Promise<Object>} Created project response with action ID
+ */
+async function createMmsProject({ name, message, mediaBuffer, mediaFilename, mediaMimeType, group, campaignId, proxy }) {
+  if (!name || !message) throw new Error('MMS project requires name and message.');
+  if (!mediaBuffer) throw new Error('MMS project requires a media file.');
+
+  const form = new FormData();
+  form.append('name', name);
+  form.append('message', message);
+  if (group) form.append('group', group);
+  if (campaignId) form.append('campaignId', campaignId);
+  if (proxy) form.append('proxy', proxy);
+
+  // Media as a Blob with correct MIME type — this is the key difference from JSON approach
+  const blob = new Blob([mediaBuffer], { type: mediaMimeType || 'image/png' });
+  form.append('media', blob, mediaFilename || 'image.png');
+
+  return apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
+}
+
 async function getProject(projectId) {
   return apiGet('/project/get/' + projectId);
 }
@@ -350,6 +384,7 @@ module.exports = {
   listAccounts,
   // Projects
   createProject,
+  createMmsProject,
   getProject,
   updateProject,
   sendTestMessage,
