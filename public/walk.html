@@ -1881,6 +1881,19 @@ async function logDoor() {
     addr.notes = notes;
     addr.gps_verified = data.gps_verified || 0;
 
+    // Also update all other walk_address rows at the same door so they show as knocked too
+    var addrKey = (addr.address || '').trim().toLowerCase() + '||' + (addr.unit || '').trim().toLowerCase();
+    for (var si = 0; si < walkState.walk.addresses.length; si++) {
+      var sa = walkState.walk.addresses[si];
+      if (sa.id === addr.id) continue;
+      var saKey = (sa.address || '').trim().toLowerCase() + '||' + (sa.unit || '').trim().toLowerCase();
+      if (saKey === addrKey) {
+        sa.result = addr.result;
+        sa.knocked_at = new Date().toISOString();
+        sa.gps_verified = addr.gps_verified;
+      }
+    }
+
     // Update progress — count unique doors, not individual voters
     walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
 
