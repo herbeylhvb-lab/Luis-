@@ -700,17 +700,19 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
         }
 
         const creds = provider.getCredentials();
-        // Create a new MMS project with ALL fields in one multipart request
+        // Create MMS project: text fields as query params (RumbleUp ignores multipart text),
+        // media binary as multipart body
         try {
-          const form = new FormData();
-          form.append('name', 'MMS-' + Date.now());
-          form.append('message', body + '\nSTOP to opt-out');
-          form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
-          // Use same campaign + proxy as existing project
-          if (creds.campaignId) form.append('campaignId', creds.campaignId);
-          form.append('proxy', 'All');
+          const qs = new URLSearchParams();
+          qs.append('name', 'MMS-' + Date.now());
+          qs.append('message', body + '\nSTOP to opt-out');
+          if (creds.campaignId) qs.append('campaignId', creds.campaignId);
+          qs.append('proxy', 'All');
 
-          const result = await provider.apiPost('/project/create', form, null, { multipart: true, timeout: 30000 });
+          const form = new FormData();
+          form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
+
+          const result = await provider.apiPost('/project/create?' + qs.toString(), form, null, { multipart: true, timeout: 30000 });
           console.log('[reply] MMS project create response:', JSON.stringify(result));
           mmsActionId = result.action || result.id || result.aid;
           if (mmsActionId) {
