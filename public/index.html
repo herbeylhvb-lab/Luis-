@@ -9790,10 +9790,21 @@ async function loadAdminLists() {
 }
 // ---- My Universes Management ----
 async function loadMyUniverses() {
-  var data = await api('/api/admin-lists');
   var el = document.getElementById('myUniversesContainer');
+  try {
+    var data = await api('/api/admin-lists');
+  } catch (err) {
+    el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:24px 0">Failed to load universes: ' + (err.message || 'Unknown error') + '</p>';
+    return;
+  }
   el.textContent = '';
   var universes = (data.lists || []).filter(function(l) { return l.list_type === 'universe'; });
+  // Also include any lists that have "universe" or "targeted" in the name (in case they were created with wrong type)
+  var allLists = data.lists || [];
+  if (universes.length === 0) {
+    // Fall back to showing ALL lists if no universe-typed ones exist
+    universes = allLists;
+  }
   if (universes.length === 0) {
     var msg = document.createElement('p');
     msg.style.cssText = 'color:#64748b;text-align:center;padding:24px 0';
