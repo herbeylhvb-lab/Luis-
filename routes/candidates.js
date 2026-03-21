@@ -862,7 +862,11 @@ router.put('/walkers/:id', (req, res) => {
 router.delete('/walkers/:id', (req, res) => {
   const walker = db.prepare('SELECT name FROM walkers WHERE id = ?').get(req.params.id);
   if (!walker) return res.status(404).json({ error: 'Walker not found.' });
-  db.prepare('DELETE FROM walkers WHERE id = ?').run(req.params.id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM walk_group_members WHERE walker_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM walker_locations WHERE walker_name = ?').run(walker.name);
+    db.prepare('DELETE FROM walkers WHERE id = ?').run(req.params.id);
+  })();
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walker deleted: ' + walker.name);
   res.json({ success: true });
 });
