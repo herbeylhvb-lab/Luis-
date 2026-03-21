@@ -187,8 +187,8 @@ router.post('/volunteers/login', (req, res) => {
       })();
 
       walks = db.prepare(`SELECT bw.id, bw.name, bw.description, bw.status,
-        (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
-        (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses
+        (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
+        (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses
         FROM block_walks bw
         JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND (wgm.walker_id = ? OR wgm.walker_name = ?)
         WHERE bw.status != 'completed' ORDER BY bw.created_at DESC`).all(walkerId, vol.name);

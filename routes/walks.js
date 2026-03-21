@@ -4,6 +4,30 @@ const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { generateAlphaCode, normalizePhone } = require('../utils');
 
+// ===================== DOOR COUNTING =====================
+// Count unique doors (address+unit) instead of individual voter rows
+// People living together at the same address count as ONE door
+function countDoors(addresses) {
+  var doors = {};
+  for (var i = 0; i < addresses.length; i++) {
+    var a = addresses[i];
+    var key = (a.address || '').trim().toLowerCase() + '||' + (a.unit || '').trim().toLowerCase();
+    if (!doors[key]) {
+      doors[key] = { knocked: false };
+    }
+    if (a.result && a.result !== 'not_visited') {
+      doors[key].knocked = true;
+    }
+  }
+  var total = Object.keys(doors).length;
+  var knocked = 0;
+  var keys = Object.keys(doors);
+  for (var j = 0; j < keys.length; j++) {
+    if (doors[keys[j]].knocked) knocked++;
+  }
+  return { total: total, knocked: knocked, remaining: total - knocked };
+}
+
 // ===================== GEOCODING =====================
 
 // Geocode a single address using OpenStreetMap Nominatim (free, no API key)
@@ -226,7 +250,7 @@ router.get('/walks/daily-report', (req, res) => {
       COUNT(*) as doors,
       SUM(CASE WHEN wa.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN wa.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
+      (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
     LEFT JOIN block_walks bw ON wa.walk_id = bw.id
     WHERE wa.walker_name != '' AND date(wa.attempted_at) = ?
@@ -485,9 +509,7 @@ router.get('/walks/:id/volunteer', (req, res) => {
   for (const a of attemptCounts) countMap[a.address_id] = a.c;
   for (const addr of walk.addresses) addr.attempt_count = countMap[addr.id] || 0;
 
-  const total = walk.addresses.length;
-  const knocked = walk.addresses.filter(a => a.result !== 'not_visited').length;
-  walk.progress = { total, knocked, remaining: total - knocked };
+  walk.progress = countDoors(walk.addresses);
   res.json({ walk });
 });
 
@@ -885,10 +907,7 @@ router.get('/walks/:id/walker/:name', (req, res) => {
   for (const a of attemptCounts) countMap[a.address_id] = a.c;
   for (const addr of allAddresses) addr.attempt_count = countMap[addr.id] || 0;
 
-  const total = allAddresses.length;
-  const knocked = allAddresses.filter(a => a.result !== 'not_visited').length;
-
-  res.json({ walk, addresses: allAddresses, progress: { total, knocked, remaining: total - knocked } });
+  res.json({ walk, addresses: allAddresses, progress: countDoors(allAddresses) });
 });
 
 // Re-split addresses when group members change (only reassign unvisited ones)
@@ -1181,23 +1200,35 @@ router.get('/walks/:id/live-status', (req, res) => {
     'SELECT id, address, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
-  const total = allAddresses.length;
-  const knocked = allAddresses.filter(a => a.result !== 'not_visited').length;
+  const doorProgress = countDoors(allAddresses);
 
-  // Per-walker breakdown
+  // Per-walker breakdown (count unique doors per walker)
   const walkerStats = {};
   for (const m of members) {
     walkerStats[m.walker_name] = { total: 0, knocked: 0, remaining: 0 };
   }
+  const walkerDoors = {};
   for (const a of allAddresses) {
     if (a.assigned_walker && walkerStats[a.assigned_walker]) {
-      walkerStats[a.assigned_walker].total++;
+      const doorKey = (a.address || '').trim().toLowerCase() + '||' + (a.unit || '').trim().toLowerCase();
+      const wk = a.assigned_walker + '||' + doorKey;
+      if (!walkerDoors[wk]) {
+        walkerDoors[wk] = { knocked: false };
+        walkerStats[a.assigned_walker].total++;
+      }
       if (a.result !== 'not_visited') {
-        walkerStats[a.assigned_walker].knocked++;
-      } else {
-        walkerStats[a.assigned_walker].remaining++;
+        walkerDoors[wk].knocked = true;
       }
     }
+  }
+  for (const wName of Object.keys(walkerStats)) {
+    const ws = walkerStats[wName];
+    // Recount knocked from unique doors
+    ws.knocked = 0;
+    for (const dk of Object.keys(walkerDoors)) {
+      if (dk.startsWith(wName + '||') && walkerDoors[dk].knocked) ws.knocked++;
+    }
+    ws.remaining = ws.total - ws.knocked;
   }
 
   // Recent knocks (last 20) for live feed
@@ -1225,7 +1256,7 @@ router.get('/walks/:id/live-status', (req, res) => {
 
   res.json({
     walk,
-    progress: { total, knocked, remaining: total - knocked },
+    progress: doorProgress,
     members,
     walkerStats,
     recentKnocks,
@@ -1250,10 +1281,7 @@ router.get('/walks/:id/map-data', (req, res) => {
     'SELECT walker_name, lat, lng, accuracy, updated_at FROM walker_locations WHERE walk_id = ? ORDER BY updated_at DESC'
   ).all(req.params.id);
 
-  const total = addresses.length;
-  const knocked = addresses.filter(a => a.result !== 'not_visited').length;
-
-  res.json({ addresses, locations, progress: { total, knocked, remaining: total - knocked } });
+  res.json({ addresses, locations, progress: countDoors(addresses) });
 });
 
 // ===================== GEOCODE WALK ADDRESSES =====================
@@ -2009,10 +2037,7 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   for (const a of attemptCounts) countMap[a.address_id] = a.c;
   for (const addr of addresses) addr.attempt_count = countMap[addr.id] || 0;
 
-  const total = addresses.length;
-  const knocked = addresses.filter(a => a.result !== 'not_visited').length;
-
-  res.json({ walk, addresses, progress: { total, knocked, remaining: total - knocked } });
+  res.json({ walk, addresses, progress: countDoors(addresses) });
 });
 
 module.exports = router;

@@ -927,8 +927,8 @@ router.get('/walkers/:id/dashboard', (req, res) => {
 
   const walks = db.prepare(`
     SELECT bw.id, bw.name, bw.description, bw.status, bw.join_code,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
-      (SELECT COUNT(*) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses,
+      (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = bw.id) as total_addresses,
+      (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = bw.id AND result != 'not_visited') as completed_addresses,
       (SELECT COUNT(*) FROM walk_attempts WHERE walk_id = bw.id AND walker_id = ?) as my_doors
     FROM block_walks bw
     JOIN walk_group_members wgm ON wgm.walk_id = bw.id AND wgm.walker_id = ?

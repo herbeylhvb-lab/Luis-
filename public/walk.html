@@ -1163,10 +1163,8 @@ async function refreshWalkData() {
       }
     }
     if (changed) {
-      // Update progress
-      var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
-      walkState.walk.progress.knocked = knocked;
-      walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+      // Update progress — count unique doors, not individual voters
+      walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
       renderWalk();
     }
   } catch(e) { console.warn('Group refresh failed:', e.message); }
@@ -1447,6 +1445,24 @@ function getResultBadgeClass(result) {
     'deceased': 'badge-gray', 'come_back': 'badge-blue'
   };
   return map[result] || 'badge-gray';
+}
+
+// Count unique doors (address+unit) — people living together = 1 door
+function countUniqueDoors(addresses) {
+  var doors = {};
+  for (var i = 0; i < addresses.length; i++) {
+    var a = addresses[i];
+    var key = (a.address || '').trim().toLowerCase() + '||' + (a.unit || '').trim().toLowerCase();
+    if (!doors[key]) doors[key] = { knocked: false };
+    if (a.result && a.result !== 'not_visited') doors[key].knocked = true;
+  }
+  var keys = Object.keys(doors);
+  var total = keys.length;
+  var knocked = 0;
+  for (var j = 0; j < keys.length; j++) {
+    if (doors[keys[j]].knocked) knocked++;
+  }
+  return { total: total, knocked: knocked, remaining: total - knocked };
 }
 
 function formatResult(result) {
@@ -1806,10 +1822,8 @@ async function logDoor() {
     addr.notes = notes;
     addr.gps_verified = data.gps_verified || 0;
 
-    // Update progress
-    var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
-    walkState.walk.progress.knocked = knocked;
-    walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+    // Update progress — count unique doors, not individual voters
+    walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
 
     closeDoor();
     renderWalk();
