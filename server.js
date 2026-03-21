@@ -281,7 +281,9 @@ const _statsQuery = db.prepare(`
     (SELECT COUNT(*) FROM block_walks) as walks,
     (SELECT COUNT(*) FROM walk_addresses WHERE result != 'not_visited') as doorsKnocked,
     (SELECT COUNT(*) FROM voters) as voters,
-    (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents
+    (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents,
+    (SELECT COUNT(*) FROM voters WHERE support_level IN ('strong_support', 'lean_support')) as supporters,
+    (SELECT COUNT(*) FROM voters WHERE support_level = 'undecided') as undecided
 `);
 app.get('/api/stats', (req, res) => {
   res.json(_statsQuery.get());

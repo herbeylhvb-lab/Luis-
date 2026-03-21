@@ -216,6 +216,7 @@ tr:hover td{background:#1e293b80}
         <div class="stat-card"><div class="label">Total Sent</div><div class="value" id="statSent">0</div><div class="sub">Across all campaigns</div></div>
         <div class="stat-card"><div class="label">Responses</div><div class="value" id="statResponses">0</div><div class="sub" id="statResponseRate">0% response rate</div></div>
         <div class="stat-card"><div class="label">Contacts</div><div class="value" id="statContacts">0</div><div class="sub">Loaded in system</div></div>
+        <div class="stat-card"><div class="label">Supporters</div><div class="value" style="color:#818cf8" id="statSupporters">0</div><div class="sub" id="statSupportersSub">Identified</div></div>
         <div class="stat-card"><div class="label">Doors Knocked</div><div class="value" id="statDoors">0</div><div class="sub" id="statWalks">0 block walks</div></div>
         <div class="stat-card"><div class="label">Voter File</div><div class="value" id="statVoters">0</div><div class="sub">Voters loaded</div></div>
         <div class="stat-card"><div class="label">Events</div><div class="value" id="statEvents">0</div><div class="sub">Upcoming</div></div>
@@ -757,6 +758,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab active" data-walktab="walks-main">Walks</div>
         <div class="sub-tab" data-walktab="walks-scripts">Scripts</div>
         <div class="sub-tab" data-walktab="walks-universes">Distributed</div>
+        <div class="sub-tab" data-walktab="walks-daily">Daily Report</div>
         <div class="sub-tab" data-walktab="walks-leaderboard">Leaderboard</div>
       </div>
 
@@ -933,6 +935,42 @@ tr:hover td{background:#1e293b80}
       </div>
 
       <!-- LEADERBOARD TAB -->
+      <!-- DAILY REPORT TAB -->
+      <div class="walk-subtab" id="walks-daily" style="display:none">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+            <h3 style="margin-bottom:0">Daily Block Walk Report</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-xs btn-secondary" onclick="shiftDailyDate(-1)">&larr; Prev Day</button>
+              <input type="date" id="dailyReportDate" onchange="loadDailyReport()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
+              <button class="btn btn-xs btn-secondary" onclick="shiftDailyDate(1)">Next Day &rarr;</button>
+              <button class="btn btn-xs btn-primary" onclick="document.getElementById('dailyReportDate').value=new Date().toISOString().split('T')[0];loadDailyReport()">Today</button>
+            </div>
+          </div>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">See exactly how your team performed each day — doors hit, contacts made, supporters found.</p>
+          <!-- Day Totals -->
+          <div class="stats-grid" id="dailyTotals"></div>
+        </div>
+        <!-- Per-Walker Breakdown -->
+        <div class="card">
+          <h3>Worker Performance — <span id="dailyDateLabel" style="color:#818cf8"></span></h3>
+          <div class="table-wrap"><table><thead><tr><th>Walker</th><th>Doors</th><th>Contacts</th><th>Supporters</th><th>Undecided</th><th>Oppose</th><th>Not Home</th><th>Contact Rate</th><th>Doors/Hr</th><th>Hours</th></tr></thead><tbody id="dailyWalkersBody"><tr><td colspan="10" style="color:#64748b;text-align:center">Select a date above</td></tr></tbody></table></div>
+        </div>
+        <!-- Per-Walk Breakdown -->
+        <div class="card">
+          <h3>Walk Breakdown — <span id="dailyDateLabel2" style="color:#818cf8"></span></h3>
+          <div class="table-wrap"><table><thead><tr><th>Walk</th><th>Doors Hit</th><th>Total Doors</th><th>% Complete</th><th>Contacts</th><th>Supporters</th></tr></thead><tbody id="dailyWalksBody"><tr><td colspan="6" style="color:#64748b;text-align:center">Select a date above</td></tr></tbody></table></div>
+        </div>
+        <!-- Day-Over-Day History -->
+        <div class="card">
+          <h3>Progress Over Time</h3>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Day-by-day activity so you can track momentum.</p>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Doors</th><th>Contacts</th><th>Supporters</th><th>Walkers</th><th>Contact Rate</th></tr></thead><tbody id="dailyHistoryBody"></tbody></table></div>
+          <!-- Simple bar chart -->
+          <div id="dailyChart" style="margin-top:16px;height:120px;display:flex;align-items:flex-end;gap:2px;overflow-x:auto;padding:4px 0"></div>
+        </div>
+      </div>
+
       <div class="walk-subtab" id="walks-leaderboard" style="display:none">
         <div class="card">
           <h3>Canvasser Leaderboard</h3>
@@ -3320,6 +3358,8 @@ async function loadDashboard() {
     document.getElementById('statSent').textContent = data.sent || 0;
     document.getElementById('statResponses').textContent = data.responses || 0;
     document.getElementById('statContacts').textContent = data.contacts || 0;
+    document.getElementById('statSupporters').textContent = data.supporters || 0;
+    document.getElementById('statSupportersSub').textContent = (data.undecided || 0) + ' undecided';
     document.getElementById('statDoors').textContent = data.doorsKnocked || 0;
     document.getElementById('statWalks').textContent = (data.walks || 0) + ' block walks';
     document.getElementById('statVoters').textContent = data.voters || 0;
@@ -4244,6 +4284,7 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
     document.getElementById(target).style.display = '';
     if (target === 'walks-scripts') loadScripts();
     if (target === 'walks-universes') { loadUniverses(); loadWalkElectionDropdowns(); }
+    if (target === 'walks-daily') { document.getElementById('dailyReportDate').value = new Date().toISOString().split('T')[0]; loadDailyReport(); }
     if (target === 'walks-leaderboard') loadLeaderboard();
   });
 });
@@ -4432,6 +4473,119 @@ window.deleteUniverse = async function(id) {
 };
 
 // ===================== LEADERBOARD =====================
+// ===================== DAILY REPORT =====================
+function shiftDailyDate(delta) {
+  var input = document.getElementById('dailyReportDate');
+  var d = new Date(input.value);
+  d.setDate(d.getDate() + delta);
+  input.value = d.toISOString().split('T')[0];
+  loadDailyReport();
+}
+
+async function loadDailyReport() {
+  var date = document.getElementById('dailyReportDate').value;
+  if (!date) return;
+  var label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  document.getElementById('dailyDateLabel').textContent = label;
+  document.getElementById('dailyDateLabel2').textContent = label;
+  try {
+    var data = await api('/api/walks/daily-report?date=' + date);
+    var t = data.totals || {};
+    // Day totals cards
+    document.getElementById('dailyTotals').innerHTML =
+      '<div class="stat-card"><div class="label">Doors Hit</div><div class="value">' + (t.total_doors || 0) + '</div><div class="sub">' + (t.unique_addresses || 0) + ' unique</div></div>' +
+      '<div class="stat-card"><div class="label">Contacts Made</div><div class="value" style="color:#22c55e">' + (t.total_contacts || 0) + '</div><div class="sub">' + (t.contact_rate || 0) + '% rate</div></div>' +
+      '<div class="stat-card"><div class="label">Supporters Found</div><div class="value" style="color:#818cf8">' + (t.total_supporters || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Undecided</div><div class="value" style="color:#eab308">' + (t.total_undecided || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Not Home</div><div class="value" style="color:#64748b">' + (t.total_not_home || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Walkers Active</div><div class="value">' + (t.total_walkers || 0) + '</div><div class="sub">' + (t.total_walks || 0) + ' walk(s)</div></div>';
+
+    // Per-walker table
+    var wb = document.getElementById('dailyWalkersBody');
+    if (!data.walkers || data.walkers.length === 0) {
+      wb.innerHTML = '<tr><td colspan="10" style="color:#64748b;text-align:center">No activity on this day.</td></tr>';
+    } else {
+      wb.innerHTML = data.walkers.map(function(w, i) {
+        var hours = '';
+        if (w.first_knock && w.last_knock) {
+          var h = (new Date(w.last_knock) - new Date(w.first_knock)) / 3600000;
+          hours = h > 0 ? h.toFixed(1) + 'h' : '<1h';
+        }
+        var medal = i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : '';
+        return '<tr>' +
+          '<td><strong>' + medal + escHtml(w.name) + '</strong></td>' +
+          '<td>' + w.doors + '</td>' +
+          '<td style="color:#22c55e;font-weight:600">' + w.contacts + '</td>' +
+          '<td style="color:#818cf8">' + w.supporters + '</td>' +
+          '<td style="color:#eab308">' + w.undecided + '</td>' +
+          '<td style="color:#ef4444">' + w.oppose + '</td>' +
+          '<td style="color:#64748b">' + w.not_home + '</td>' +
+          '<td>' + w.contact_rate + '%</td>' +
+          '<td>' + w.doors_per_hour + '</td>' +
+          '<td>' + hours + '</td></tr>';
+      }).join('');
+    }
+
+    // Per-walk table
+    var wlb = document.getElementById('dailyWalksBody');
+    if (!data.walkBreakdown || data.walkBreakdown.length === 0) {
+      wlb.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No walks active this day.</td></tr>';
+    } else {
+      wlb.innerHTML = data.walkBreakdown.map(function(w) {
+        var pct = w.total_addresses > 0 ? Math.round(w.doors / w.total_addresses * 100) : 0;
+        var pctColor = pct >= 75 ? '#22c55e' : pct >= 40 ? '#eab308' : '#ef4444';
+        return '<tr>' +
+          '<td><strong>' + escHtml(w.walk_name || 'Walk #' + w.walk_id) + '</strong></td>' +
+          '<td>' + w.doors + '</td>' +
+          '<td>' + w.total_addresses + '</td>' +
+          '<td style="color:' + pctColor + ';font-weight:600">' + pct + '%</td>' +
+          '<td>' + w.contacts + '</td>' +
+          '<td style="color:#818cf8">' + w.supporters + '</td></tr>';
+      }).join('');
+    }
+
+    // Day-over-day history table
+    var hb = document.getElementById('dailyHistoryBody');
+    var history = data.history || [];
+    if (history.length === 0) {
+      hb.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No history yet.</td></tr>';
+    } else {
+      hb.innerHTML = history.map(function(h) {
+        var rate = h.doors > 0 ? Math.round(h.contacts / h.doors * 100) : 0;
+        var isToday = h.day === date;
+        var rowStyle = isToday ? 'background:rgba(129,140,248,0.1);font-weight:600' : '';
+        return '<tr style="' + rowStyle + '">' +
+          '<td>' + new Date(h.day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (isToday ? ' ★' : '') + '</td>' +
+          '<td>' + h.doors + '</td>' +
+          '<td>' + h.contacts + '</td>' +
+          '<td style="color:#818cf8">' + h.supporters + '</td>' +
+          '<td>' + h.walkers + '</td>' +
+          '<td>' + rate + '%</td></tr>';
+      }).join('');
+    }
+
+    // Simple bar chart
+    var chart = document.getElementById('dailyChart');
+    if (history.length > 0) {
+      var maxDoors = Math.max.apply(null, history.map(function(h) { return h.doors; }));
+      chart.innerHTML = history.map(function(h) {
+        var pct = maxDoors > 0 ? Math.round(h.doors / maxDoors * 100) : 0;
+        var isToday = h.day === date;
+        var color = isToday ? '#818cf8' : '#334155';
+        var dayLabel = new Date(h.day + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+        return '<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:28px" title="' + h.day + ': ' + h.doors + ' doors">' +
+          '<div style="font-size:10px;color:#94a3b8;margin-bottom:2px">' + h.doors + '</div>' +
+          '<div style="width:100%;max-width:32px;height:' + Math.max(pct, 4) + 'px;background:' + color + ';border-radius:4px 4px 0 0"></div>' +
+          '<div style="font-size:9px;color:#64748b;margin-top:2px">' + dayLabel + '</div></div>';
+      }).join('');
+    } else {
+      chart.innerHTML = '<div style="color:#64748b;font-size:13px;text-align:center;width:100%;padding:20px 0">No history yet</div>';
+    }
+  } catch (err) {
+    document.getElementById('dailyTotals').innerHTML = '<div style="color:#ef4444;padding:12px">Failed to load: ' + (err.message || 'Unknown error') + '</div>';
+  }
+}
+
 async function loadLeaderboard() {
   try {
     var data = await api('/api/walks/leaderboard');
