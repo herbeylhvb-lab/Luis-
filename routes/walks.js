@@ -119,15 +119,27 @@ function buildVotingHistorySQL(filters, params) {
     sql += ' AND (SELECT COUNT(*) FROM election_votes ev WHERE ev.voter_id = voters.id) >= ?';
     params.push(parseInt(filters.min_elections));
   }
-  // "voted in a specific election" — e.g. voted in last municipal
+  // "voted in specific election(s)" — supports multiple comma-separated elections (ANY match)
   if (filters.voted_in_election) {
-    sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
-    params.push(filters.voted_in_election);
+    const elections = filters.voted_in_election.split(',').map(e => e.trim()).filter(Boolean);
+    if (elections.length === 1) {
+      sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
+      params.push(elections[0]);
+    } else if (elections.length > 1) {
+      sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name IN (' + elections.map(() => '?').join(',') + '))';
+      elections.forEach(e => params.push(e));
+    }
   }
-  // "did NOT vote in a specific election" — low-propensity / lapsed voters
+  // "did NOT vote in specific election(s)" — supports multiple comma-separated elections
   if (filters.did_not_vote_in) {
-    sql += ' AND voters.id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
-    params.push(filters.did_not_vote_in);
+    const elections = filters.did_not_vote_in.split(',').map(e => e.trim()).filter(Boolean);
+    if (elections.length === 1) {
+      sql += ' AND voters.id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name = ?)';
+      params.push(elections[0]);
+    } else if (elections.length > 1) {
+      sql += ' AND voters.id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.election_name IN (' + elections.map(() => '?').join(',') + '))';
+      elections.forEach(e => params.push(e));
+    }
   }
   // "has any voting history at all" — filters out brand new registrants
   if (filters.has_voted) {
