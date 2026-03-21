@@ -2297,10 +2297,19 @@ function renderMap(addresses, walkerLocations, progress) {
     var group = locationGroups[groupKeys[g]];
     var firstAddr = group[0];
 
-    if (group.length === 1) {
-      // Single address at this location — render normally
-      var color = getMarkerColor(firstAddr, myName);
-      var isDone = firstAddr.result && firstAddr.result !== 'not_visited';
+    // Check if this group has distinct units (true apartment) vs same-address household
+    var distinctUnits = {};
+    for (var du = 0; du < group.length; du++) {
+      distinctUnits[(group[du].unit || '').trim().toLowerCase()] = true;
+    }
+    var isApartment = Object.keys(distinctUnits).length > 1;
+
+    if (group.length === 1 || !isApartment) {
+      // Single house (possibly with multiple household members) — render as house dot
+      // For households, check if ALL members are done
+      var allHouseholdDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
+      var color = allHouseholdDone ? '#22c55e' : getMarkerColor(firstAddr, myName);
+      var isDone = allHouseholdDone;
       var icon = createHouseIcon(color, isDone);
 
       var popupContent = buildAddressPopup(firstAddr, myName);
@@ -2330,12 +2339,16 @@ function renderMap(addresses, walkerLocations, progress) {
       }
       var allDone = doneCount === group.length;
       var anyMine = false;
+      var anyOther = false;
       for (var u2 = 0; u2 < group.length; u2++) {
         if (myName && group[u2].assigned_walker === myName && (!group[u2].result || group[u2].result === 'not_visited')) {
-          anyMine = true; break;
+          anyMine = true;
+        } else if (myName && group[u2].assigned_walker && group[u2].assigned_walker !== myName && (!group[u2].result || group[u2].result === 'not_visited')) {
+          anyOther = true;
         }
       }
-      var groupColor = allDone ? '#22c55e' : (anyMine ? '#f59e0b' : '#3b82f6');
+      // Use same color scheme as houses: green=done, amber=mine/unvisited, gray=other walker's
+      var groupColor = allDone ? '#22c55e' : (anyMine ? '#f59e0b' : (myName && anyOther ? '#64748b' : '#f59e0b'));
       var groupIcon = createApartmentIcon(groupColor, group.length, allDone);
 
       // Build popup with all units listed
