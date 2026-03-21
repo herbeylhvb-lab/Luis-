@@ -1335,29 +1335,41 @@ function renderAddressList() {
     num.textContent = idx + 1;
     card.appendChild(num);
 
-    // Address text
+    // Address text — show unit as a highlighted badge
     var addrText = document.createElement('div');
     addrText.className = 'addr-text';
-    var fullAddr = a.address + (a.unit ? ' ' + a.unit : '');
-    if (a.city) fullAddr += ', ' + a.city;
-    if (a.zip) fullAddr += ' ' + a.zip;
-    addrText.textContent = fullAddr;
+    if (a.unit) {
+      addrText.innerHTML = escHtml(a.address) + ' <span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:12px;font-weight:700">' + escHtml(a.unit) + '</span>' +
+        (a.city ? '<span style="font-weight:400;color:#94a3b8">, ' + escHtml(a.city) + '</span>' : '') +
+        (a.zip ? '<span style="font-weight:400;color:#94a3b8"> ' + escHtml(a.zip) + '</span>' : '');
+    } else {
+      var fullAddr = a.address;
+      if (a.city) fullAddr += ', ' + a.city;
+      if (a.zip) fullAddr += ' ' + a.zip;
+      addrText.textContent = fullAddr;
+    }
     card.appendChild(addrText);
 
-    // Voter name + age
+    // Voter name + unit/apt number + age
     if (a.voter_name) {
       var voter = document.createElement('div');
       voter.className = 'addr-voter';
-      voter.textContent = a.voter_name + (a.voter_age ? ' (age ' + a.voter_age + ')' : '');
+      var voterText = a.voter_name;
+      if (a.unit) voterText += ' \u2014 ' + a.unit;
+      if (a.voter_age) voterText += ' (age ' + a.voter_age + ')';
+      voter.textContent = voterText;
       card.appendChild(voter);
     }
 
-    // Household members
+    // Household members — show unit number next to each name
     if (a.household && a.household.length > 0) {
       var hh = document.createElement('div');
       hh.className = 'addr-household';
       hh.innerHTML = '<small style="color:#64748b">' + a.household.map(function(m) {
-        return escHtml(m.first_name + ' ' + m.last_name) + (m.age ? ' <span style="color:#94a3b8">('+escHtml(String(m.age))+')</span>' : '');
+        var text = escHtml(m.first_name + ' ' + m.last_name);
+        if (m.unit) text += ' <span style="color:#f59e0b;font-weight:600">' + escHtml(m.unit) + '</span>';
+        if (m.age) text += ' <span style="color:#94a3b8">('+escHtml(String(m.age))+')</span>';
+        return text;
       }).join(', ') + '</small>';
       card.appendChild(hh);
     }
@@ -1519,6 +1531,7 @@ function openDoor(idx) {
     doorState.allMembers.push({
       voter_id: a.voter_id || null,
       name: a.voter_name,
+      unit: a.unit || '',
       age: a.voter_age || null,
       isPrimary: true,
       status: 'pending',
@@ -1531,6 +1544,7 @@ function openDoor(idx) {
       doorState.allMembers.push({
         voter_id: m.voter_id || null,
         name: m.first_name + ' ' + m.last_name,
+        unit: m.unit || '',
         age: m.age || null,
         isPrimary: false,
         status: 'pending',
@@ -1593,6 +1607,7 @@ function renderMemberList() {
     el.dataset.idx = i;
 
     var nameHtml = '<div><span class="hh-name">' + escHtml(m.name) + '</span>';
+    if (m.unit) nameHtml += '<span style="color:#60a5fa;font-size:12px;font-weight:600;margin-left:6px">' + escHtml(m.unit) + '</span>';
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
     nameHtml += '</div>';
