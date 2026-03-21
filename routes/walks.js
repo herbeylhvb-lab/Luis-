@@ -175,11 +175,14 @@ function geocodeWalkAddresses(walkId) {
     return;
   }
 
+  // Set the flag FIRST to prevent race conditions with concurrent calls
+  geocodingInProgress[walkId] = true;
+
   const allMissing = db.prepare(
     'SELECT id, address, city, zip FROM walk_addresses WHERE walk_id = ? AND lat IS NULL'
   ).all(walkId);
 
-  if (allMissing.length === 0) return;
+  if (allMissing.length === 0) { delete geocodingInProgress[walkId]; return; }
 
   // De-duplicate: group rows by unique address+city+zip
   const groups = {};
@@ -192,7 +195,6 @@ function geocodeWalkAddresses(walkId) {
   console.log('Geocoding walk', walkId, ':', allMissing.length, 'rows,', uniqueAddresses.length, 'unique addresses');
 
   const update = db.prepare('UPDATE walk_addresses SET lat = ?, lng = ? WHERE id = ?');
-  geocodingInProgress[walkId] = true;
 
   (async () => {
     let resolved = 0;
@@ -589,6 +591,7 @@ router.get('/walks/:id/volunteer', (req, res) => {
   walk.addresses = db.prepare(
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
+            wa.assigned_walker,
             v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
@@ -871,7 +874,7 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
     // included in the members list. Don't auto-log "Not Home" for missing primary voters
     // as this could corrupt data if the members list was incomplete.
     if (addr.voter_id) {
-      const primaryMember = members.find(m => m.voter_id === addr.voter_id);
+      const primaryMember = members.find(m => parseInt(m.voter_id) === parseInt(addr.voter_id));
       if (!primaryMember) {
         // Primary voter wasn't in the members list — skip rather than assume not_home
         // The primary voter's contact will only be logged if explicitly included
@@ -1308,6 +1311,7 @@ router.get('/walks/:id/live-status', (req, res) => {
     .slice(0, 20)
     .map(a => ({
       address: a.address,
+      unit: a.unit || '',
       voter_name: a.voter_name,
       result: a.result,
       walker: a.assigned_walker,
@@ -1366,8 +1370,14 @@ router.post('/walks/:id/geocode', (req, res) => {
   const walk = db.prepare('SELECT id FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
+  const wid = parseInt(req.params.id);
+
   // Force mode: clear all existing coords so they get re-geocoded with improved logic
+  // But don't clear if geocoding is already in progress — that would destroy partial results
   if (req.query.force === 'true' || (req.body && req.body.force)) {
+    if (geocodingInProgress[wid]) {
+      return res.json({ message: 'Geocoding already in progress. Wait for it to finish before re-geocoding.', pending: 0, inProgress: true });
+    }
     db.prepare('UPDATE walk_addresses SET lat = NULL, lng = NULL WHERE walk_id = ?').run(req.params.id);
   }
 
@@ -1377,7 +1387,6 @@ router.post('/walks/:id/geocode', (req, res) => {
 
   if (missing.c === 0) return res.json({ message: 'All addresses already have coordinates.', pending: 0 });
 
-  const wid = parseInt(req.params.id);
   if (geocodingInProgress[wid]) {
     return res.json({ message: 'Geocoding already in progress — ' + missing.c + ' addresses remaining.', pending: missing.c, inProgress: true });
   }
@@ -1393,6 +1402,9 @@ router.post('/walks/:id/location', (req, res) => {
   const { walker_name, lat, lng, accuracy } = req.body;
   if (!walker_name || lat == null || lng == null) {
     return res.status(400).json({ error: 'walker_name, lat, and lng are required.' });
+  }
+  if (!isValidCoord(lat, lng)) {
+    return res.status(400).json({ error: 'Invalid coordinates.' });
   }
   const walk = db.prepare('SELECT id FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
@@ -2064,6 +2076,7 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   const addresses = db.prepare(
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
+            wa.assigned_walker,
             v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id

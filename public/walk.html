@@ -1832,13 +1832,13 @@ async function logDoor() {
         })
       });
       data = await res.json();
-      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
 
       // Update local state with overall result
       addr.result = data.result || walkState.selectedResult || 'not_home';
     } else {
       // No household members — use original endpoint
-      if (!walkState.selectedResult) return;
+      if (!walkState.selectedResult) { _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
 
       res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log', {
         method: 'POST',
@@ -1855,7 +1855,7 @@ async function logDoor() {
         })
       });
       data = await res.json();
-      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
 
       addr.result = walkState.selectedResult;
     }
@@ -2258,12 +2258,35 @@ async function regeocodeWalk() {
     var res = await fetch('/api/walks/' + walkState.walkId + '/geocode?force=true', { method: 'POST' });
     var data = await res.json();
     btn.textContent = data.message || 'Done';
+    if (data.pending === 0 || data.inProgress) {
+      // Nothing to do or already running — re-enable button
+      setTimeout(function() { btn.textContent = 'Fix Map Pins'; btn.disabled = false; }, 2000);
+      return;
+    }
     // Poll for updates as geocoding runs in background
     var pollCount = 0;
+    var lastMapped = 0;
+    var staleCount = 0;
     var pollInterval = setInterval(function() {
-      refreshMapData();
       pollCount++;
-      if (pollCount > 120) { clearInterval(pollInterval); btn.textContent = 'Fix Map Pins'; btn.disabled = false; }
+      fetch('/api/walks/' + walkState.walkId + '/map-data').then(function(r) { return r.json(); }).then(function(md) {
+        var total = md.addresses ? md.addresses.length : 0;
+        var mapped = md.addresses ? md.addresses.filter(function(a) { return a.lat && a.lng; }).length : 0;
+        if (mapped === lastMapped) { staleCount++; } else { staleCount = 0; lastMapped = mapped; }
+        var pct = total > 0 ? Math.round(mapped / total * 100) : 0;
+        btn.textContent = 'Mapping... ' + pct + '%';
+        // Refresh the map markers
+        if (mapState.map && mapState.currentView === 'map') {
+          renderMap(md.addresses, md.locations, md.progress);
+        }
+        if (mapped === total || staleCount > 10 || pollCount > 120) {
+          clearInterval(pollInterval);
+          btn.textContent = 'Fix Map Pins';
+          btn.disabled = false;
+        }
+      }).catch(function() {
+        // ignore poll errors
+      });
     }, 2000);
   } catch (e) {
     btn.textContent = 'Error - try again';
@@ -2400,10 +2423,12 @@ function renderMap(addresses, walkerLocations, progress) {
       var groupMarker = L.marker([firstAddr.lat, firstAddr.lng], { icon: groupIcon, zIndexOffset: 1100 })
         .bindPopup(groupPopup, { maxWidth: 280, maxHeight: 350 });
 
-      // When popup opens, attach click handlers to each unit row
+      // When popup opens, attach click handlers to each unit row within THIS popup only
       (function(grp) {
-        groupMarker.on('popupopen', function() {
-          var rows = document.querySelectorAll('.apt-unit-row');
+        groupMarker.on('popupopen', function(e) {
+          var popupEl = e.popup.getElement();
+          if (!popupEl) return;
+          var rows = popupEl.querySelectorAll('.apt-unit-row');
           for (var r = 0; r < rows.length; r++) {
             rows[r].addEventListener('click', function() {
               var addrId = parseInt(this.getAttribute('data-addr-id'));
