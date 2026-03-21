@@ -44,7 +44,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { err
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
 // Bulk import paths get a higher body limit (50mb); all others get 2mb
-const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events'];
+const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events', '/reply'];
 const bulkJsonParserEarly = express.json({ limit: '50mb' });
 const defaultJsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
@@ -676,7 +676,7 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   const hasVolunteer = req.body && req.body.volunteerId;
   if (!hasAdminSession && !hasVolunteer) return res.status(401).json({ error: 'Authentication required.' });
   const provider = getProvider();
-  const { to, body, channel } = req.body;
+  const { to, body, channel, imageData } = req.body;
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
   if (!to || !body) return res.status(400).json({ error: 'Recipient and message body required.' });
   // Check opt-out list before sending (TCPA compliance)
@@ -685,7 +685,40 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Contact has opted out. Cannot send messages.' });
   }
   try {
+    // MMS: if imageData provided, attach it to the project before sending
+    if (imageData && provider.enableMmsOnProject) {
+      // imageData is a base64 data URL — save as temp file and serve it, or upload directly
+      // Upload the binary to RumbleUp by writing to a temp buffer
+      const base64Match = imageData.match(/^data:image\/(png|jpeg|jpg|gif);base64,(.+)$/);
+      if (base64Match) {
+        const imgBuffer = Buffer.from(base64Match[2], 'base64');
+        const contentType = 'image/' + base64Match[1];
+        const ext = base64Match[1] === 'png' ? '.png' : base64Match[1] === 'gif' ? '.gif' : '.jpg';
+        console.log('[reply] MMS image:', imgBuffer.length, 'bytes,', contentType);
+
+        if (imgBuffer.length > 750 * 1024) {
+          return res.status(400).json({ error: 'Image too large for MMS (max 750KB).' });
+        }
+
+        // Upload directly to RumbleUp project via multipart
+        const creds = provider.getCredentials();
+        if (!creds.actionId) {
+          return res.status(400).json({ error: 'No RumbleUp Action/Project ID configured for MMS.' });
+        }
+        const form = new FormData();
+        form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
+        await provider.updateProject(creds.actionId, form, { multipart: true, timeout: 30000 });
+        console.log('[reply] MMS media attached to project ' + creds.actionId);
+      }
+    }
+
     await provider.sendMessage(to, body, channel);
+
+    // Remove MMS media after send so next sends aren't MMS
+    if (imageData && provider.disableMmsOnProject) {
+      provider.disableMmsOnProject(); // fire-and-forget
+    }
+
     // Find active P2P session for this phone so reply appears in conversation view
     const replySessionMatch = db.prepare(`
       SELECT a.session_id FROM p2p_assignments a
@@ -695,9 +728,11 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
       ORDER BY a.sent_at DESC LIMIT 1
     `).get(toDigits);
     db.prepare("INSERT INTO messages (phone, body, direction, session_id) VALUES (?, ?, 'outbound', ?)").run(toDigits || to, body, replySessionMatch ? replySessionMatch.session_id : null);
-    res.json({ success: true });
+    res.json({ success: true, mms: !!imageData });
   } catch (err) {
     console.error('Reply send error:', err.message);
+    // Try to clean up MMS if send failed
+    if (imageData && provider.disableMmsOnProject) provider.disableMmsOnProject();
     res.status(500).json({ error: 'Failed to send reply: ' + err.message });
   }
 }));
