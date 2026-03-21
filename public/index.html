@@ -4331,17 +4331,21 @@ async function geocodeCurrentWalk() {
     if (data.pending > 0) {
       // Poll for updates as geocoding runs in the background
       var pollCount = 0;
+      var lastMappedCount = withCoords;
       var geocodePollInterval = setInterval(async function() {
         try {
           // Reload addresses to get newly geocoded coordinates
           var detail = await api('/api/walks/' + state.currentWalkId);
           if (detail.walk) {
             state.walkAddresses = detail.walk.addresses;
-            // Allow map to re-zoom as new markers appear
-            walkMapHasFit = false;
-            updateAddrMarkers();
             // Update status with progress
             var mapped = state.walkAddresses.filter(function(a) { return a.lat && a.lng; }).length;
+            // Only re-zoom when new addresses get geocoded, not every poll
+            if (mapped > lastMappedCount) {
+              lastMappedCount = mapped;
+              walkMapHasFit = false;
+            }
+            updateAddrMarkers();
             statusEl.textContent = 'Mapped ' + mapped + ' / ' + state.walkAddresses.length + ' addresses';
             if (mapped >= state.walkAddresses.length) {
               clearInterval(geocodePollInterval);
