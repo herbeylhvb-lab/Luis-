@@ -382,8 +382,10 @@ tr:hover td{background:#1e293b80}
           <div class="form-group"><label>Message</label><input type="text" id="quickSendMsg" placeholder="Type your message..."></div>
         </div>
         <div class="form-group" style="margin-bottom:12px">
-          <label>MMS Project ID <span style="font-size:11px;color:#64748b;font-weight:400">(optional — create MMS project on RumbleUp dashboard first)</span></label>
-          <input type="text" id="quickSendMmsId" placeholder="e.g. 42 — leave blank for SMS only">
+          <label>Send via Project <span style="font-size:11px;color:#64748b;font-weight:400">(optional — select MMS project to include image)</span></label>
+          <select id="quickSendMmsId" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+            <option value="">Default (SMS only)</option>
+          </select>
         </div>
         <button class="btn btn-success btn-sm" onclick="quickSendText()">Send</button>
         <span id="quickSendStatus" style="font-size:12px;color:#64748b;margin-left:8px"></span>
@@ -1525,9 +1527,11 @@ tr:hover td{background:#1e293b80}
             <div style="font-size:11px;color:#64748b;margin-top:4px">Upload a flyer image for display. For MMS sending, upload the image directly on RumbleUp and enter the project ID below.</div>
           </div>
           <div class="form-group">
-            <label>RumbleUp MMS Project ID <span style="font-size:11px;color:#64748b;font-weight:400">(optional)</span></label>
-            <input type="text" id="eventMmsProjectId" placeholder="e.g. 42 — create MMS project on RumbleUp first, then enter its ID here">
-            <div style="font-size:11px;color:#64748b;margin-top:4px">Create an MMS project on RumbleUp's dashboard with your flyer image, then enter the project/action ID here. Event invites will be sent as MMS through that project.</div>
+            <label>Send Invites via Project <span style="font-size:11px;color:#64748b;font-weight:400">(optional — select MMS project to include flyer)</span></label>
+            <select id="eventMmsProjectId" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+              <option value="">Default (SMS only)</option>
+            </select>
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Create an MMS project on RumbleUp with your flyer, then select it here. Invites will include the image.</div>
           </div>
           <div id="eventUploadProgress" style="display:none;margin-bottom:12px">
             <div style="font-size:13px;color:#94a3b8;margin-bottom:4px"><span id="eventUploadLabel">Uploading flyer...</span></div>
@@ -2218,7 +2222,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'contacts') loadContacts();
     if (page === 'walks') { showWalkList(); loadWalks(); }
     if (page === 'voters') { showVoterList(); searchVoters(); loadPrecinctFilter(); loadCityFilter(); loadElectionFilter(); }
-    if (page === 'events') { showEventList(); loadEvents(); }
+    if (page === 'events') { showEventList(); loadEvents(); populateMmsDropdown('eventMmsProjectId'); }
     if (page === 'inbox') { switchInboxTab('needs-response'); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
@@ -2697,13 +2701,63 @@ function switchInboxTab(tab) {
   if (tab === 'needs-response') { loadPendingMessages(); }
   if (tab === 'all-messages') { loadInbox(); }
   if (tab === 'opted-out') { loadOptedOut(); }
-  if (tab === 'send') { loadAdminSessions(); }
+  if (tab === 'send') { loadAdminSessions(); populateMmsDropdown('quickSendMmsId'); }
 }
 document.getElementById('inboxSubTabs').addEventListener('click', function(e) {
   var tab = e.target.closest('.sub-tab');
   if (!tab) return;
   switchInboxTab(tab.dataset.inboxtab);
 });
+
+// Load RumbleUp projects into MMS dropdowns
+var _rumbleUpProjects = null;
+async function loadRumbleUpProjects() {
+  try {
+    if (_rumbleUpProjects === null) {
+      var data = await api('/api/rumbleup/projects');
+      _rumbleUpProjects = data.projects || [];
+    }
+    return _rumbleUpProjects;
+  } catch (e) { return []; }
+}
+async function populateMmsDropdown(selectId) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  var current = sel.value;
+  var projects = await loadRumbleUpProjects();
+  // Keep the default option, remove the rest
+  while (sel.options.length > 1) sel.remove(1);
+  projects.forEach(function(p) {
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    var label = p.name || ('Project ' + p.id);
+    if (p.type && p.type !== 'SMS') label += ' [' + p.type + ']';
+    if (p.status) label += ' (' + p.status + ')';
+    opt.textContent = label;
+    sel.appendChild(opt);
+  });
+  // Add manual entry option
+  var manualOpt = document.createElement('option');
+  manualOpt.value = '__manual__';
+  manualOpt.textContent = '— Enter ID manually —';
+  sel.appendChild(manualOpt);
+  if (current) sel.value = current;
+  // Handle manual entry
+  sel.onchange = function() {
+    if (sel.value === '__manual__') {
+      var id = prompt('Enter RumbleUp Project/Action ID:');
+      if (id && id.trim()) {
+        var opt = document.createElement('option');
+        opt.value = id.trim();
+        opt.textContent = 'Project #' + id.trim();
+        sel.insertBefore(opt, sel.lastElementChild);
+        sel.value = id.trim();
+      } else {
+        sel.value = '';
+      }
+    }
+  };
+}
 
 // Quick send from Send tab
 async function quickSendText() {

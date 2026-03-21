@@ -709,6 +709,38 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
   }
 }));
 
+// --- Fetch RumbleUp projects for MMS dropdown ---
+app.get('/api/rumbleup/projects', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.json({ projects: [] });
+  try {
+    const stats = await provider.getProjectStats({ days: 90 });
+    // Stats response may be an array of projects or an object with project data
+    let projects = [];
+    if (Array.isArray(stats)) {
+      projects = stats.map(p => ({
+        id: p.action || p.id || p.aid,
+        name: p.name || ('Project ' + (p.action || p.id)),
+        type: p.type || 'SMS',
+        status: p.status || '',
+        sent: p.sent || p.total_sent || 0
+      }));
+    } else if (stats && stats.data && Array.isArray(stats.data)) {
+      projects = stats.data.map(p => ({
+        id: p.action || p.id || p.aid,
+        name: p.name || ('Project ' + (p.action || p.id)),
+        type: p.type || 'SMS',
+        status: p.status || '',
+        sent: p.sent || p.total_sent || 0
+      }));
+    }
+    res.json({ projects });
+  } catch (err) {
+    console.error('[rumbleup] Failed to fetch projects:', err.message);
+    res.json({ projects: [], error: err.message });
+  }
+}));
+
 // --- Debug endpoint: test RumbleUp message log API directly ---
 app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
   const provider = getProvider();
