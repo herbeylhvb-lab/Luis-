@@ -28,6 +28,27 @@ function countDoors(addresses) {
   return { total: total, knocked: knocked, remaining: total - knocked };
 }
 
+// Build household members from walk_addresses — groups by address+unit
+// so apartment residents only see people in their same unit, not the whole building
+function buildHouseholdFromWalkAddresses(addresses) {
+  const grouped = {};
+  for (const addr of addresses) {
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(addr);
+  }
+  for (const addr of addresses) {
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    const others = grouped[key].filter(a => a.id !== addr.id && a.voter_name);
+    addr.household = others.map(a => {
+      const parts = (a.voter_name || '').split(' ');
+      const firstName = parts[0] || '';
+      const lastName = parts.slice(1).join(' ') || '';
+      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '' };
+    });
+  }
+}
+
 // ===================== GEOCODING =====================
 
 // Geocode a single address using OpenStreetMap Nominatim (free, no API key)
@@ -468,38 +489,8 @@ router.get('/walks/:id/volunteer', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
-  // Build household members for all addresses in batched queries (avoids N+1 problem)
-  const addrWithVoters = walk.addresses.filter(a => a.voter_id && a.address);
-  const householdMap = {};
-  if (addrWithVoters.length > 0) {
-    const excludeIds = new Set(addrWithVoters.map(a => a.voter_id));
-    const addrKeys = new Set(addrWithVoters.map(a => `${a.address}\0${a.city || ''}`));
-    const uniqueAddrs = [...addrKeys].map(k => { const [address, city] = k.split('\0'); return { address, city }; });
-
-    // Process in chunks of 400 to stay under SQLite's 999 parameter limit (2 params each)
-    const CHUNK = 400;
-    for (let i = 0; i < uniqueAddrs.length; i += CHUNK) {
-      const chunk = uniqueAddrs.slice(i, i + CHUNK);
-      const params = [];
-      chunk.forEach(a => { params.push(a.address, a.city); });
-      const rows = db.prepare(
-        `SELECT id, first_name, last_name, age, address, city FROM voters
-         WHERE (${chunk.map(() => '(address = ? AND city = ?)').join(' OR ')})
-         ORDER BY last_name, first_name`
-      ).all(...params);
-
-      for (const v of rows) {
-        if (excludeIds.has(v.id)) continue;
-        const key = `${v.address}\0${v.city || ''}`;
-        if (!householdMap[key]) householdMap[key] = [];
-        householdMap[key].push({ voter_id: v.id, first_name: v.first_name, last_name: v.last_name, age: v.age });
-      }
-    }
-  }
-  for (const addr of walk.addresses) {
-    const key = `${addr.address}\0${addr.city || ''}`;
-    addr.household = householdMap[key] || [];
-  }
+  // Build household members — group by address+unit so apartments only show people in the same unit
+  buildHouseholdFromWalkAddresses(walk.addresses);
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
@@ -867,37 +858,8 @@ router.get('/walks/:id/walker/:name', (req, res) => {
     addr.assigned_to_me = addr.assigned_walker === walkerName;
   }
 
-  // Build household members — batched to avoid N+1 queries (same pattern as /volunteer endpoint)
-  const addrWithVoters = allAddresses.filter(a => a.voter_id && a.address);
-  const householdMap = {};
-  if (addrWithVoters.length > 0) {
-    const excludeIds = new Set(addrWithVoters.map(a => a.voter_id));
-    const addrKeys = new Set(addrWithVoters.map(a => `${a.address}\0${a.city || ''}`));
-    const uniqueAddrs = [...addrKeys].map(k => { const [address, city] = k.split('\0'); return { address, city }; });
-
-    const CHUNK = 400;
-    for (let i = 0; i < uniqueAddrs.length; i += CHUNK) {
-      const chunk = uniqueAddrs.slice(i, i + CHUNK);
-      const params = [];
-      chunk.forEach(a => { params.push(a.address, a.city); });
-      const rows = db.prepare(
-        `SELECT id, first_name, last_name, age, address, city FROM voters
-         WHERE (${chunk.map(() => '(address = ? AND city = ?)').join(' OR ')})
-         ORDER BY last_name, first_name`
-      ).all(...params);
-
-      for (const v of rows) {
-        if (excludeIds.has(v.id)) continue;
-        const key = `${v.address}\0${v.city || ''}`;
-        if (!householdMap[key]) householdMap[key] = [];
-        householdMap[key].push({ voter_id: v.id, first_name: v.first_name, last_name: v.last_name, age: v.age });
-      }
-    }
-  }
-  for (const addr of allAddresses) {
-    const key = `${addr.address}\0${addr.city || ''}`;
-    addr.household = householdMap[key] || [];
-  }
+  // Build household members — group by address+unit so apartments only show people in the same unit
+  buildHouseholdFromWalkAddresses(allAddresses);
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
@@ -2003,37 +1965,8 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
     addr.knocked_by_me = myKnocks.has(addr.id);
   }
 
-  // Household members — batched to avoid N+1 queries (same pattern as /volunteer endpoint)
-  const addrWithVoters = addresses.filter(a => a.voter_id && a.address);
-  const householdMap = {};
-  if (addrWithVoters.length > 0) {
-    const excludeIds = new Set(addrWithVoters.map(a => a.voter_id));
-    const addrKeys = new Set(addrWithVoters.map(a => `${a.address}\0${a.city || ''}`));
-    const uniqueAddrs = [...addrKeys].map(k => { const [address, city] = k.split('\0'); return { address, city }; });
-
-    const CHUNK = 400;
-    for (let i = 0; i < uniqueAddrs.length; i += CHUNK) {
-      const chunk = uniqueAddrs.slice(i, i + CHUNK);
-      const params = [];
-      chunk.forEach(a => { params.push(a.address, a.city); });
-      const rows = db.prepare(
-        `SELECT id, first_name, last_name, age, address, city FROM voters
-         WHERE (${chunk.map(() => '(address = ? AND city = ?)').join(' OR ')})
-         ORDER BY last_name, first_name`
-      ).all(...params);
-
-      for (const v of rows) {
-        if (excludeIds.has(v.id)) continue;
-        const key = `${v.address}\0${v.city || ''}`;
-        if (!householdMap[key]) householdMap[key] = [];
-        householdMap[key].push({ voter_id: v.id, first_name: v.first_name, last_name: v.last_name, age: v.age });
-      }
-    }
-  }
-  for (const addr of addresses) {
-    const key = `${addr.address}\0${addr.city || ''}`;
-    addr.household = householdMap[key] || [];
-  }
+  // Build household members — group by address+unit so apartments only show people in the same unit
+  buildHouseholdFromWalkAddresses(addresses);
 
   // Attempt counts
   const attemptCounts = db.prepare('SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id').all(req.params.id);
