@@ -1559,11 +1559,13 @@ function openDoor(idx) {
   doorState.activeMemberIdx = -1;
   doorState.step = 1;
 
+  var doorFullAddr = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
   if (a.voter_name) {
     doorState.allMembers.push({
       voter_id: a.voter_id || null,
       name: a.voter_name,
       unit: a.unit || '',
+      addr: doorFullAddr,
       age: a.voter_age || null,
       isPrimary: true,
       status: 'pending',
@@ -1573,10 +1575,12 @@ function openDoor(idx) {
   if (a.household && a.household.length > 0) {
     for (var h = 0; h < a.household.length; h++) {
       var m = a.household[h];
+      var memberAddr = a.address + (m.unit ? ' ' + m.unit : a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
       doorState.allMembers.push({
         voter_id: m.voter_id || null,
         name: (m.first_name || '') + ' ' + (m.last_name || ''),
         unit: m.unit || '',
+        addr: memberAddr,
         age: m.age || null,
         isPrimary: false,
         status: 'pending',
@@ -1639,11 +1643,11 @@ function renderMemberList() {
     el.dataset.idx = i;
 
     var nameHtml = '<div>';
-    if (m.unit) nameHtml += '<span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:700;margin-right:6px">' + escHtml(m.unit) + '</span>';
     nameHtml += '<span class="hh-name">' + escHtml(m.name) + '</span>';
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
     nameHtml += '</div>';
+    if (m.addr) nameHtml += '<div style="font-size:11px;color:#94a3b8;margin-top:1px">' + escHtml(m.addr) + '</div>';
 
     var statusHtml = '';
     if (m.status === 'talked') {
