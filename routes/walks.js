@@ -694,12 +694,12 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
         result = ?, notes = ?, knocked_at = ?,
         gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
       WHERE id = ? AND walk_id = ?
-    `).run(result, notes || '', knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
+    `).run(result, notes || '', knocked_at, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, req.params.addrId, req.params.walkId);
 
     // Record attempt in attempt history (with walker_id if available)
     db.prepare(
       'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(req.params.addrId, req.params.walkId, result, notes || '', walker_name || '', walker_id || null, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, survey_responses ? JSON.stringify(survey_responses) : null);
+    ).run(req.params.addrId, req.params.walkId, result, notes || '', walker_name || '', walker_id || null, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, survey_responses ? JSON.stringify(survey_responses) : null);
 
     // Update walker performance metrics
     const NON_CONTACT = ['not_home', 'moved', 'refused', 'deceased', 'come_back'];
@@ -814,12 +814,12 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
         result = ?, notes = ?, knocked_at = ?,
         gps_lat = ?, gps_lng = ?, gps_accuracy = ?, gps_verified = ?
       WHERE id = ? AND walk_id = ?
-    `).run(overallResult, allNotes, knocked_at, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified, req.params.addrId, req.params.walkId);
+    `).run(overallResult, allNotes, knocked_at, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, req.params.addrId, req.params.walkId);
 
     // Record attempt
     db.prepare(
       'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat || null, gps_lng || null, gps_accuracy || null, gps_verified);
+    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified);
 
     // Update walker performance
     const NON_CONTACT_HH = ['not_home', 'moved', 'refused', 'deceased', 'come_back'];
@@ -2107,3 +2107,4 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
 
 module.exports = router;
 module.exports.geocodeWalkAddresses = geocodeWalkAddresses;
+module.exports.parseAddressUnit = parseAddressUnit;
