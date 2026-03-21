@@ -700,19 +700,28 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
         }
 
         const creds = provider.getCredentials();
-        // Create MMS project: text fields as query params (RumbleUp ignores multipart text),
-        // media binary as multipart body
+        // Two-step: 1) create project via JSON, 2) update with media via multipart
+        // RumbleUp ignores text fields in multipart AND query params on POST
         try {
-          const qs = new URLSearchParams();
-          qs.append('name', 'MMS-' + Date.now());
-          qs.append('message', body + '\nSTOP to opt-out');
-          if (creds.campaignId) qs.append('campaignId', creds.campaignId);
-          qs.append('proxy', 'All');
+          // Step 1: Create fresh project via JSON (proven to work)
+          const createResult = await provider.createProject({
+            name: 'MMS-' + Date.now(),
+            message: body + '\nSTOP to opt-out',
+            campaignId: creds.campaignId || undefined,
+            proxy: 'All'
+          });
+          console.log('[reply] Step 1 - project created:', JSON.stringify(createResult));
+          const newActionId = createResult.action || createResult.id || createResult.aid;
+          if (!newActionId) throw new Error('No action ID in response');
 
+          // Step 2: Update fresh project with media binary
           const form = new FormData();
           form.append('media', new Blob([imgBuffer], { type: contentType }), 'image' + ext);
+          const updateResult = await provider.updateProject(newActionId, form, { multipart: true, timeout: 30000 });
+          console.log('[reply] Step 2 - media update response:', JSON.stringify(updateResult));
+          console.log('[reply] Media field:', updateResult.media, '| Type field:', updateResult.type);
 
-          const result = await provider.apiPost('/project/create?' + qs.toString(), form, null, { multipart: true, timeout: 30000 });
+          const result = updateResult;
           console.log('[reply] MMS project create response:', JSON.stringify(result));
           mmsActionId = result.action || result.id || result.aid;
           if (mmsActionId) {
