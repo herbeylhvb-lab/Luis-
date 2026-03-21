@@ -385,6 +385,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <button class="disp-btn und" data-result="undecided" onclick="selectDisp(this)">&#x1F914; Undecided</button>
         <button class="disp-btn lean-opp" data-result="lean_oppose" onclick="selectDisp(this)">&#x1F44E; Lean Oppose</button>
         <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
+        <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
         <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
         <button class="disp-btn mov" data-result="moved" onclick="selectDisp(this)">&#x1F4E6; Moved</button>
         <button class="disp-btn dec" data-result="deceased" onclick="selectDisp(this)">&#x1F54A; Deceased</button>
@@ -587,6 +588,8 @@ async function registerWalker() {
 
     // Auto-login after a short delay so they can see their code
     setTimeout(function() {
+      btn.disabled = false;
+      btn.textContent = 'Sign Up';
       document.getElementById('walkerCodeInput').value = data.code;
       showLogin();
       walkerLogin();
@@ -1150,7 +1153,7 @@ function stopGroupRefresh() {
 
 // Lightweight refresh: fetch current address statuses and update local state
 async function refreshWalkData() {
-  if (!walkState.walkId || !walkState.walk) return;
+  if (!walkState.walkId || !walkState.walk || !walkState.walk.addresses) return;
   // Don't refresh while the door panel is open (would be jarring)
   if (document.getElementById('doorOverlay').classList.contains('open')) return;
   try {
@@ -1295,6 +1298,7 @@ function exitWalk() {
 
 function renderWalk() {
   var w = walkState.walk;
+  if (!w) return;
   document.getElementById('walkTitle').textContent = w.name;
 
   var knocked = w.progress.knocked;
@@ -1504,12 +1508,15 @@ function formatResult(result) {
 var doorState = {
   allMembers: [],      // [{voter_id, name, age, isPrimary, status: 'pending'|'talked'|'not_home', result: null}]
   activeMemberIdx: -1, // which member is being rated right now
-  step: 1              // 1 = who lives here, 2 = support level for selected person
+  step: 1,             // 1 = who lives here, 2 = support level for selected person
+  openAddrId: null     // address ID of the currently open door (stable across refreshes)
 };
 
 function openDoor(idx) {
+  if (!walkState.walk || !walkState.walk.addresses || idx < 0 || idx >= walkState.walk.addresses.length) return;
   var a = walkState.walk.addresses[idx];
   walkState.currentAddrIdx = idx;
+  doorState.openAddrId = a.id;
   walkState.selectedResult = null;
   walkState.surveyResponses = {};
 
@@ -1713,7 +1720,7 @@ function selectMember(idx) {
   showDoorStep(2);
 }
 
-function markAllNotHome() {
+async function markAllNotHome() {
   // Mark every member as not home and log immediately
   for (var i = 0; i < doorState.allMembers.length; i++) {
     doorState.allMembers[i].status = 'not_home';
@@ -1721,7 +1728,7 @@ function markAllNotHome() {
   }
   walkState.selectedResult = 'not_home';
   document.getElementById('btnLogDoor').disabled = false;
-  logDoor();
+  await logDoor();
 }
 
 function goBackToStep1() {
@@ -1794,7 +1801,14 @@ async function logDoor() {
   if (_logDoorInProgress) return;
   _logDoorInProgress = true;
 
-  var addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  // Resolve address by stored ID (stable) rather than index (can shift after group refresh)
+  var addr = null;
+  if (doorState.openAddrId != null && walkState.walk && walkState.walk.addresses) {
+    for (var ai = 0; ai < walkState.walk.addresses.length; ai++) {
+      if (walkState.walk.addresses[ai].id === doorState.openAddrId) { addr = walkState.walk.addresses[ai]; walkState.currentAddrIdx = ai; break; }
+    }
+  }
+  if (!addr) addr = walkState.walk.addresses[walkState.currentAddrIdx];
   var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
 
@@ -1929,7 +1943,7 @@ function updateWalkerMarkerPosition() {
     mapState.walkerMarker.setLatLng(latlng);
   } else {
     var meIcon = createWalkerIcon('#3b82f6', myName);
-    mapState.walkerMarker = L.marker(latlng, { icon: meIcon, zIndexOffset: -1000, interactive: false })
+    mapState.walkerMarker = L.marker(latlng, { icon: meIcon, zIndexOffset: 2000 })
       .bindPopup('<strong>' + escHtml(myName) + '</strong><br>Your current position');
     mapState.walkerMarker.addTo(mapState.map);
   }
@@ -2459,7 +2473,7 @@ function renderMap(addresses, walkerLocations, progress) {
       if (isMe) continue; // We show our own position from GPS, not the server data
 
       var wIcon = createWalkerIcon('#8b5cf6', loc.walker_name);
-      var wMarker = L.marker([loc.lat, loc.lng], { icon: wIcon, zIndexOffset: -1000, interactive: false })
+      var wMarker = L.marker([loc.lat, loc.lng], { icon: wIcon, zIndexOffset: 500, interactive: false })
         .bindPopup('<strong>' + escHtml(loc.walker_name) + '</strong><br><small>Last updated: ' + (loc.updated_at || 'just now') + '</small>');
       wMarker.addTo(mapState.map);
       mapState.otherWalkerMarkers.push(wMarker);
@@ -2470,7 +2484,7 @@ function renderMap(addresses, walkerLocations, progress) {
   // Show my position from live GPS
   if (walkState.gpsLat && walkState.gpsLng) {
     var meIcon = createWalkerIcon('#3b82f6', myName || 'You');
-    mapState.walkerMarker = L.marker([walkState.gpsLat, walkState.gpsLng], { icon: meIcon, zIndexOffset: -1000, interactive: false })
+    mapState.walkerMarker = L.marker([walkState.gpsLat, walkState.gpsLng], { icon: meIcon, zIndexOffset: 2000 })
       .bindPopup('<strong>' + escHtml(myName || 'You') + '</strong><br>Your current position');
     mapState.walkerMarker.addTo(mapState.map);
     bounds.push([walkState.gpsLat, walkState.gpsLng]);
