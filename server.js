@@ -733,7 +733,9 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
       }
     }
 
-    await provider.sendMessage(to, body, channel, mmsActionId);
+    // RumbleUp requires opt-out instructions in every message
+    const sendBody = /stop|opt.?out|unsubscribe/i.test(body) ? body : body + '\nSTOP to opt-out';
+    await provider.sendMessage(to, sendBody, channel, mmsActionId);
 
     // Find active P2P session for this phone so reply appears in conversation view
     const replySessionMatch = db.prepare(`
