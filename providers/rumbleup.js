@@ -195,8 +195,8 @@ async function getProject(projectId) {
   return apiGet('/project/get/' + projectId);
 }
 
-async function updateProject(projectId, updates) {
-  return apiPost('/project/update/' + projectId, updates);
+async function updateProject(projectId, updates, options = {}) {
+  return apiPost('/project/update/' + projectId, updates, null, options);
 }
 
 async function sendTestMessage(projectId, testPhone, message) {
@@ -318,15 +318,31 @@ async function listReports() {
 
 /**
  * Attach an image to the existing configured project so messages include it.
- * Returns the action ID to send through (same as existing project).
+ * Downloads the image and uploads as binary multipart (docs say media is binary).
  */
 async function enableMmsOnProject(imageUrl) {
   const creds = getCredentials();
   if (!creds.actionId) throw new Error('No RumbleUp Action/Project ID configured.');
 
-  // Update the existing project with the media URL
-  const result = await updateProject(creds.actionId, { media: imageUrl, type: 'MMS' });
-  console.log('[rumbleup] Attached media to existing project ' + creds.actionId + ':', JSON.stringify(result));
+  // Download the image
+  console.log('[rumbleup] Downloading image from:', imageUrl);
+  const imgResp = await fetch(imageUrl);
+  if (!imgResp.ok) throw new Error('Failed to download image (' + imgResp.status + '): ' + imageUrl);
+  const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
+  const buffer = Buffer.from(await imgResp.arrayBuffer());
+  console.log('[rumbleup] Image downloaded:', buffer.length, 'bytes,', contentType);
+
+  if (buffer.length > 750 * 1024) {
+    throw new Error('Image too large for MMS (' + Math.round(buffer.length / 1024) + 'KB). Max ~750KB.');
+  }
+
+  // Upload as multipart form-data to update endpoint
+  const ext = contentType.includes('png') ? '.png' : contentType.includes('gif') ? '.gif' : '.jpg';
+  const form = new FormData();
+  form.append('media', new Blob([buffer], { type: contentType }), 'flyer' + ext);
+
+  const result = await updateProject(creds.actionId, form, { multipart: true, timeout: 30000 });
+  console.log('[rumbleup] Media attached to project ' + creds.actionId + ':', JSON.stringify(result));
   return creds.actionId;
 }
 
@@ -337,7 +353,10 @@ async function disableMmsOnProject() {
   const creds = getCredentials();
   if (!creds.actionId) return;
   try {
-    await updateProject(creds.actionId, { media: '', type: 'SMS' });
+    // Send empty media to clear it
+    const form = new FormData();
+    form.append('media', new Blob([], { type: 'application/octet-stream' }), 'empty');
+    await updateProject(creds.actionId, form, { multipart: true, timeout: 15000 });
     console.log('[rumbleup] Removed media from project ' + creds.actionId);
   } catch (err) {
     console.error('[rumbleup] Failed to remove media from project:', err.message);
