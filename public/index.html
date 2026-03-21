@@ -3906,9 +3906,21 @@ async function loadWalkDetail(id) {
       assignWalkersWrap.appendChild(wkLabel);
     }
   } catch(e) { /* optional */ }
-  // Result stats
-  const results = ['not_visited','not_home','supportive','undecided','opposed','moved','refused','come_back'];
-  const statsHtml = results.map(r => '<div class="stat-card" style="padding:12px"><div class="label">' + r.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + (w.resultStats[r] || 0) + '</div></div>').join('');
+  // Result stats — use actual result codes from walker app
+  var rs = w.resultStats || {};
+  var statCards = [
+    { label: 'Not Visited', val: rs['not_visited'] || 0, color: '' },
+    { label: 'Support', val: (rs['support'] || 0) + (rs['lean_support'] || 0), color: 'color:#22c55e' },
+    { label: 'Undecided', val: rs['undecided'] || 0, color: 'color:#eab308' },
+    { label: 'Oppose', val: (rs['oppose'] || 0) + (rs['lean_oppose'] || 0), color: 'color:#ef4444' },
+    { label: 'Not Home', val: rs['not_home'] || 0, color: 'color:#64748b' },
+    { label: 'Refused', val: rs['refused'] || 0, color: '' },
+    { label: 'Moved', val: rs['moved'] || 0, color: '' },
+    { label: 'Come Back', val: rs['come_back'] || 0, color: '' }
+  ];
+  var statsHtml = statCards.map(function(c) {
+    return '<div class="stat-card" style="padding:12px"><div class="label">' + c.label + '</div><div class="value" style="font-size:20px;' + c.color + '">' + c.val + '</div></div>';
+  }).join('');
   document.getElementById('walkResultStats').innerHTML = statsHtml;
   // Progress
   const total = w.addresses.length;
@@ -3925,7 +3937,7 @@ async function loadWalkDetail(id) {
     if (a.zip) walkFullAddr += ' ' + escHtml(a.zip);
     return '<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + walkFullAddr + '">' + walkFullAddr + '</td><td>' + escHtml(a.unit) + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(a.voter_name) + '</td>' +
     '<td><select class="inline-select" onchange="updateDoorResult(' + a.id + ',this.value)" data-addr="' + a.id + '">' +
-    ['not_visited','not_home','supportive','undecided','opposed','moved','refused','come_back'].map(r => '<option value="' + r + '"' + (a.result === r ? ' selected' : '') + '>' + r.replace(/_/g,' ') + '</option>').join('') +
+    [['not_visited','Not Visited'],['not_home','Not Home'],['support','Support'],['lean_support','Lean Support'],['undecided','Undecided'],['lean_oppose','Lean Oppose'],['oppose','Oppose'],['moved','Moved'],['refused','Refused'],['deceased','Deceased'],['come_back','Come Back']].map(function(r) { return '<option value="' + r[0] + '"' + (a.result === r[0] ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('') +
     '</select></td><td><input type="text" class="inline-select" style="width:100%" value="' + escHtml(a.notes) + '" onchange="updateDoorNotes(' + a.id + ',this.value)"></td>' +
     '<td style="font-size:11px;color:#64748b;white-space:nowrap">' + (a.knocked_at ? new Date(a.knocked_at).toLocaleString() : '-') + '</td>' +
     '<td><button class="btn btn-danger btn-xs" onclick="deleteWalkAddr(' + a.id + ')">X</button></td></tr>';
