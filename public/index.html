@@ -809,6 +809,13 @@ tr:hover td{background:#1e293b80}
           <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Auto-populate a walk with all voter addresses from selected precincts. Each address links to the voter record for auto-logging contact results.</p>
           <div class="form-group"><label>Walk Name (optional)</label><input type="text" id="precinctWalkName" placeholder="Auto-generated from precinct names"></div>
           <div class="form-group">
+            <label>Race / District</label>
+            <select id="walkRaceFilter" onchange="onWalkRaceFilterChange()" style="margin-bottom:8px">
+              <option value="">Loading races...</option>
+            </select>
+            <p style="color:#64748b;font-size:11px;margin:0 0 8px">Choose a race to see only its precincts</p>
+          </div>
+          <div class="form-group">
             <label>Select Precincts</label>
             <input type="text" id="walkPrecinctSearch" placeholder="Search precincts..." oninput="filterWalkPrecincts()" style="margin-bottom:6px">
             <div style="display:flex;gap:6px;margin-bottom:6px">
@@ -4122,59 +4129,111 @@ document.getElementById('btnCreateWalk').addEventListener('click', async () => {
   loadWalks();
 });
 
+// Cache for race-precincts data
+var _walkRaceData = null;
+var _walkPrecinctCounts = {};
+
 document.getElementById('btnCreateFromPrecinct').addEventListener('click', async () => {
   var card = document.getElementById('precinctWalkCard');
   card.style.display = card.style.display === 'none' ? '' : 'none';
   if (card.style.display !== 'none') {
     try {
-      var data = await api('/api/voters-precincts');
-      var el = document.getElementById('walkPrecinctList');
-      if (data.precincts && data.precincts.length > 0) {
-        // Get voter counts per precinct
-        var countData = {};
-        try {
-          var statsResp = await api('/api/voters-touchpoints/stats');
-          (statsResp.precincts || []).forEach(function(p) { countData[p.precinct] = p.total_voters || 0; });
-        } catch(e) {}
-        el.textContent = '';
-        data.precincts.forEach(function(p) {
-          var item = document.createElement('label');
-          item.className = 'walk-precinct-item';
-          item.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer;border-bottom:1px solid #1e293b;font-size:13px;transition:background 0.15s;border-radius:4px;margin:1px 0';
-          item.addEventListener('mouseenter', function() { item.style.background = '#1e293b'; });
-          item.addEventListener('mouseleave', function() { if (!item.querySelector('input').checked) item.style.background = ''; });
-          var cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.className = 'walk-precinct-cb';
-          cb.value = p;
-          cb.style.cssText = 'width:20px;height:20px;accent-color:#f59e0b;flex-shrink:0;cursor:pointer';
-          cb.addEventListener('change', function() {
-            updateWalkPrecinctCount();
-            item.style.background = cb.checked ? '#1e293b' : '';
-          });
-          item.appendChild(cb);
-          var label = document.createElement('span');
-          label.style.cssText = 'flex:1;color:#e2e8f0;font-weight:600;min-width:0';
-          label.textContent = p;
-          item.appendChild(label);
-          var count = document.createElement('span');
-          count.style.cssText = 'font-size:12px;color:#64748b';
-          count.textContent = (countData[p] || 0) + ' voters';
-          item.appendChild(count);
-          el.appendChild(item);
+      // Load race-precincts mapping and voter counts in parallel
+      var [raceData, precinctData] = await Promise.all([
+        api('/api/voters/race-precincts'),
+        api('/api/voters-precincts')
+      ]);
+      _walkRaceData = raceData.races || [];
+      // Build counts map from the precincts endpoint (already has counts)
+      _walkPrecinctCounts = {};
+      if (precinctData.precincts) {
+        precinctData.precincts.forEach(function(p, i) {
+          _walkPrecinctCounts[p] = precinctData.counts[i] || 0;
         });
-      } else {
-        el.textContent = '';
-        var msg = document.createElement('span');
-        msg.style.cssText = 'color:#f59e0b;font-size:13px';
-        msg.textContent = 'No precinct data yet. Import the county voter file to get precincts.';
-        el.appendChild(msg);
       }
+      // Populate race dropdown - only show races that have data
+      var sel = document.getElementById('walkRaceFilter');
+      sel.innerHTML = '<option value="">-- Choose a Race --</option>';
+      var racesWithData = _walkRaceData.filter(function(r) { return r.precincts && r.precincts.length > 0; });
+      racesWithData.forEach(function(r) {
+        var opt = document.createElement('option');
+        opt.value = r.race;
+        var totalVoters = r.precincts.reduce(function(sum, p) { return sum + (_walkPrecinctCounts[p] || 0); }, 0);
+        opt.textContent = r.race + ' (' + r.precincts.length + ' precincts, ' + totalVoters + ' voters)';
+        sel.appendChild(opt);
+      });
+      // Also add an "All Precincts" option
+      var allOpt = document.createElement('option');
+      allOpt.value = '__all__';
+      var allTotal = Object.values(_walkPrecinctCounts).reduce(function(a, b) { return a + b; }, 0);
+      allOpt.textContent = 'All Precincts (' + precinctData.precincts.length + ' precincts, ' + allTotal + ' voters)';
+      sel.appendChild(allOpt);
+      // Show empty precinct list until race is chosen
+      renderWalkPrecinctList([]);
+      document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Select a race above to see precincts</span>';
     } catch (e) {}
     // Load election dropdowns for voting history filters
     loadWalkElectionDropdowns();
   }
 });
+
+function onWalkRaceFilterChange() {
+  var val = document.getElementById('walkRaceFilter').value;
+  if (!val) {
+    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Select a race above to see precincts</span>';
+    updateWalkPrecinctCount();
+    return;
+  }
+  var precincts;
+  if (val === '__all__') {
+    precincts = Object.keys(_walkPrecinctCounts);
+  } else {
+    var race = _walkRaceData.find(function(r) { return r.race === val; });
+    precincts = race ? race.precincts : [];
+  }
+  renderWalkPrecinctList(precincts);
+}
+
+function renderWalkPrecinctList(precincts) {
+  var el = document.getElementById('walkPrecinctList');
+  el.textContent = '';
+  if (!precincts || precincts.length === 0) {
+    el.innerHTML = '<span style="color:#f59e0b;font-size:13px">No precincts found.</span>';
+    updateWalkPrecinctCount();
+    return;
+  }
+  // Sort by voter count descending (most populated first)
+  var sorted = precincts.slice().sort(function(a, b) {
+    return (_walkPrecinctCounts[b] || 0) - (_walkPrecinctCounts[a] || 0);
+  });
+  sorted.forEach(function(p) {
+    var item = document.createElement('label');
+    item.className = 'walk-precinct-item';
+    item.style.cssText = 'display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer;border-bottom:1px solid #1e293b;font-size:13px;transition:background 0.15s;border-radius:4px;margin:1px 0';
+    item.addEventListener('mouseenter', function() { item.style.background = '#1e293b'; });
+    item.addEventListener('mouseleave', function() { if (!item.querySelector('input').checked) item.style.background = ''; });
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'walk-precinct-cb';
+    cb.value = p;
+    cb.style.cssText = 'width:20px;height:20px;accent-color:#f59e0b;flex-shrink:0;cursor:pointer';
+    cb.addEventListener('change', function() {
+      updateWalkPrecinctCount();
+      item.style.background = cb.checked ? '#1e293b' : '';
+    });
+    item.appendChild(cb);
+    var label = document.createElement('span');
+    label.style.cssText = 'flex:1;color:#e2e8f0;font-weight:600;min-width:0';
+    label.textContent = p;
+    item.appendChild(label);
+    var count = document.createElement('span');
+    count.style.cssText = 'font-size:12px;color:#64748b';
+    count.textContent = (_walkPrecinctCounts[p] || 0) + ' voters';
+    item.appendChild(count);
+    el.appendChild(item);
+  });
+  updateWalkPrecinctCount();
+}
 
 function filterWalkPrecincts() {
   var search = (document.getElementById('walkPrecinctSearch').value || '').toLowerCase();
