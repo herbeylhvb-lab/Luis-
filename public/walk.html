@@ -2181,15 +2181,25 @@ function initMap() {
   labelsLayer.addTo(mapState.map);
   streetLabels.addTo(mapState.map);
   // Layer toggle control
-  // Precinct boundary overlay
+  // Precinct boundary overlay with voter counts from DB
   var precinctLayer = L.layerGroup();
-  fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }).then(function(data) {
-    L.geoJSON(data, {
+  Promise.all([
+    fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }),
+    fetch('/api/voters-precincts').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var geoData = results[0], voterData = results[1];
+    var voterCounts = {};
+    if (voterData.precincts) {
+      voterData.precincts.forEach(function(p, i) { voterCounts[p] = voterData.counts[i] || 0; });
+    }
+    L.geoJSON(geoData, {
       style: function() {
         return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' };
       },
       onEachFeature: function(feature, layer) {
-        layer.bindTooltip('Pct ' + feature.properties.precinct, {
+        var pct = feature.properties.precinct;
+        var count = voterCounts[pct] || 0;
+        layer.bindTooltip('Pct ' + pct + (count ? ' (' + count + ')' : ''), {
           permanent: true, direction: 'center', className: 'precinct-label',
           offset: [0, 0]
         });
