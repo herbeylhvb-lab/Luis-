@@ -213,8 +213,6 @@ app.use((req, res, next) => {
   if (req.path === '/app') return next();
   // Allow event flyer images (needed for MMS — RumbleUp fetches these URLs)
   if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
-  // Allow temp MMS media (RumbleUp fetches these URLs to attach to projects)
-  if (req.path.startsWith('/api/mms-media/')) return next();
   // Allow voter check-in links (QR code destinations)
   if (req.path.startsWith('/v/')) return next();
   // Debug sync-status requires admin auth (contains phone numbers)
@@ -745,144 +743,9 @@ app.get('/api/rumbleup/projects', asyncHandler(async (req, res) => {
   }
 }));
 
-// --- Temporary media storage for MMS (in-memory, auto-expires after 10min) ---
-const tempMedia = new Map();
-function storeTempMedia(buffer, mimeType) {
-  const id = require('crypto').randomBytes(16).toString('hex');
-  tempMedia.set(id, { buffer, mimeType, created: Date.now() });
-  // Auto-cleanup after 10 minutes
-  setTimeout(() => tempMedia.delete(id), 10 * 60 * 1000);
-  return id;
-}
-
-// Public endpoint to serve temp media (RumbleUp fetches this URL)
-app.get('/api/mms-media/:id', (req, res) => {
-  const entry = tempMedia.get(req.params.id);
-  if (!entry) return res.status(404).send('Not found');
-  res.set('Content-Type', entry.mimeType || 'image/png');
-  res.set('Cache-Control', 'public, max-age=600');
-  res.send(entry.buffer);
-});
-
-function getPublicBaseUrl() {
-  let base = process.env.BASE_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'campaigntext-production.up.railway.app';
-  if (base && !base.startsWith('http')) base = 'https://' + base;
-  return base;
-}
-
-// --- Create MMS project with image upload ---
-app.post('/api/rumbleup/create-mms-project', asyncHandler(async (req, res) => {
-  const provider = getProvider();
-  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
-  if (!provider.createMmsProject) return res.status(400).json({ error: 'MMS project creation not supported by this provider.' });
-
-  const { name, message, mediaBase64, mediaFilename, mediaMimeType, group, campaignId, proxy } = req.body;
-  if (!name || !message) return res.status(400).json({ error: 'Project name and message are required.' });
-  if (!mediaBase64) return res.status(400).json({ error: 'Media file (base64) is required for MMS.' });
-
-  const mediaBuffer = Buffer.from(mediaBase64, 'base64');
-  if (mediaBuffer.length > 750 * 1024) {
-    return res.status(400).json({ error: 'Media file too large. RumbleUp limit is 750KB. Your file is ' + Math.round(mediaBuffer.length / 1024) + 'KB.' });
-  }
-
-  // Store temporarily so RumbleUp can fetch it via URL
-  const tempId = storeTempMedia(mediaBuffer, mediaMimeType || 'image/png');
-  const mediaUrl = getPublicBaseUrl() + '/api/mms-media/' + tempId;
-
-  const creds = provider.getCredentials();
-  try {
-    const result = await provider.createMmsProject({
-      name,
-      message,
-      mediaBuffer,
-      mediaFilename: mediaFilename || 'image.png',
-      mediaMimeType: mediaMimeType || 'image/png',
-      mediaUrl,
-      group,
-      campaignId: campaignId || creds.campaignId,
-      proxy: proxy || creds.phoneNumber
-    });
-
-    const projectId = result.action || result.id || result.aid || result.action_id;
-    console.log('[rumbleup] MMS project created:', JSON.stringify(result));
-    res.json({
-      success: true,
-      projectId,
-      approach: result._approach || 'unknown',
-      type: result.type || 'MMS',
-      hasMedia: !!(result.media),
-      raw: result
-    });
-  } catch (err) {
-    console.error('[rumbleup] MMS project create failed:', err.message);
-    res.status(500).json({ error: 'Failed to create MMS project: ' + err.message });
-  }
-}));
-
-// --- Test MMS: Create project with media and send test message ---
-app.post('/api/rumbleup/test-mms', asyncHandler(async (req, res) => {
-  const provider = getProvider();
-  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
-
-  const { mediaBase64, mediaFilename, mediaMimeType, testPhone, message } = req.body;
-  if (!mediaBase64) return res.status(400).json({ error: 'Media file (base64) required.' });
-
-  const mediaBuffer = Buffer.from(mediaBase64, 'base64');
-  const creds = provider.getCredentials();
-  const testMsg = message || 'MMS test from CampaignText\nSTOP to opt-out';
-
-  // Store temporarily for URL approach
-  const tempId = storeTempMedia(mediaBuffer, mediaMimeType || 'image/png');
-  const mediaUrl = getPublicBaseUrl() + '/api/mms-media/' + tempId;
-  console.log('[mms-test] Temp media URL:', mediaUrl);
-
-  try {
-    console.log('[mms-test] Creating MMS project with', Math.round(mediaBuffer.length / 1024) + 'KB media...');
-    const createResult = await provider.createMmsProject({
-      name: 'MMS Test ' + new Date().toISOString().slice(0, 16),
-      message: testMsg,
-      mediaBuffer,
-      mediaFilename: mediaFilename || 'test.png',
-      mediaMimeType: mediaMimeType || 'image/png',
-      mediaUrl,
-      campaignId: creds.campaignId,
-      proxy: creds.phoneNumber
-    });
-
-    // createMmsProject returns getProject() details which may use different ID keys
-    const projectId = createResult._projectId || createResult.action || createResult.id || createResult.aid;
-    console.log('[mms-test] Created project ID:', projectId, 'Full result keys:', Object.keys(createResult));
-    console.log('[mms-test] Full create result:', JSON.stringify(createResult));
-
-    // Check all possible media-related fields
-    const mediaField = createResult.media || createResult.media_url || createResult.mediaUrl || null;
-    const projectType = createResult.type || createResult.project_type || null;
-    console.log('[mms-test] Media field:', mediaField, '| Type:', projectType);
-
-    // Send test message if phone provided
-    let testResult = null;
-    if (testPhone && projectId) {
-      testResult = await provider.sendTestMessage(projectId, testPhone, testMsg);
-      console.log('[mms-test] Test send result:', JSON.stringify(testResult));
-    }
-
-    res.json({
-      success: true,
-      projectId,
-      mediaField,
-      projectType,
-      hasMedia: !!mediaField,
-      createResult,
-      testResult,
-      mediaUrl,
-      allKeys: Object.keys(createResult),
-      note: testPhone ? 'Check your phone for the test MMS' : 'Project created — provide testPhone to send a test'
-    });
-  } catch (err) {
-    console.error('[mms-test] Failed:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-}));
+// (Dead MMS media upload code removed — RumbleUp API doesn't support programmatic media upload.
+// MMS images must be uploaded on RumbleUp's dashboard. Our system creates the project via API
+// and sends messages through it; the image is attached on RumbleUp's side.)
 
 // --- Create a RumbleUp project (text only — user adds image on RumbleUp dashboard) ---
 app.post('/api/rumbleup/create-project', asyncHandler(async (req, res) => {
@@ -1334,7 +1197,7 @@ app.post('/api/events/:id/invite', (req, res) => {
   inviteTx();
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Event invites queued for ' + event.title + ': ' + queued + ' contacts' + (onlineVols.length > 0 ? ' (assigned to ' + onlineVols.length + ' volunteers)' : ' (waiting for volunteers)'));
-  res.json({ success: true, sent: queued, joinCode, sessionId, p2p: true, volunteersOnline: onlineVols.length });
+  res.json({ success: true, queued: queued, sent: queued, joinCode, sessionId, p2p: true, volunteersOnline: onlineVols.length });
 });
 
 // --- Sentiment analysis ---
