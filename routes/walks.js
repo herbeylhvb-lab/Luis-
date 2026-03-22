@@ -1439,6 +1439,8 @@ router.get('/walks/:id/map-data', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
+  buildHouseholdFromWalkAddresses(addresses);
+
   const locations = db.prepare(
     'SELECT walker_name, lat, lng, accuracy, updated_at FROM walker_locations WHERE walk_id = ? ORDER BY updated_at DESC'
   ).all(req.params.id);
