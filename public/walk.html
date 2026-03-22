@@ -2281,7 +2281,7 @@ function createWalkerIcon(color, label) {
 function getMarkerColor(addr, myName) {
   if (!addr.result || addr.result === 'not_visited') return '#64748b'; // Gray — unvisited
   switch (addr.result) {
-    case 'support':      return '#22c55e'; // Green — strong support
+    case 'support':      return '#3b82f6'; // Blue — strong support
     case 'lean_support': return '#86efac'; // Light green — lean support
     case 'undecided':    return '#facc15'; // Yellow — undecided
     case 'lean_oppose':  return '#fb923c'; // Orange — lean oppose
@@ -2535,7 +2535,7 @@ function renderMap(addresses, walkerLocations, progress) {
     legend.id = 'mapLegend';
     legend.style.cssText = 'position:absolute;bottom:10px;left:10px;z-index:1000;background:rgba(15,23,42,0.9);border:1px solid #334155;border-radius:8px;padding:8px 10px;font-size:11px;color:#e2e8f0;line-height:1.6';
     var items = [
-      ['#22c55e', 'Support'], ['#86efac', 'Lean Sup'], ['#facc15', 'Undecided'],
+      ['#3b82f6', 'Support'], ['#86efac', 'Lean Sup'], ['#facc15', 'Undecided'],
       ['#fb923c', 'Lean Opp'], ['#ef4444', 'Oppose'], ['#22c55e', 'Not Open'],
       ['#64748b', 'Unvisited']
     ];
