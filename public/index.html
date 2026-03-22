@@ -161,6 +161,7 @@ tr:hover td{background:#1e293b80}
 .walker-marker.stale{background:#eab308}
 .walker-marker.dead{background:#ef4444}
 @keyframes walker-pulse{0%,100%{box-shadow:0 0 4px rgba(34,197,94,.4)}50%{box-shadow:0 0 12px rgba(34,197,94,.8)}}
+@keyframes flagPulse{0%,100%{box-shadow:0 0 4px rgba(239,68,68,.4)}50%{box-shadow:0 0 12px rgba(239,68,68,.9)}}
 .walker-label{font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:nowrap}
 .addr-dot{width:8px;height:8px;border-radius:50%;border:1px solid rgba(255,255,255,.3)}
 </style>
@@ -878,6 +879,7 @@ tr:hover td{background:#1e293b80}
           <div style="font-size:12px;color:#64748b;margin-bottom:16px" id="walkProgressLabel">0 / 0 doors knocked</div>
           <button class="btn btn-sm" id="btnShowWalkMap" style="background:#7c3aed;color:#fff" onclick="toggleWalkMap()">Show Live Map</button>
           <button class="btn btn-sm" id="btnGeocodeWalk" style="background:#2563eb;color:#fff;margin-left:8px" onclick="geocodeCurrentWalk()">Map Houses</button>
+          <span id="walkFlaggedBadge" style="display:none;margin-left:8px;background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;cursor:pointer" onclick="scrollToFlaggedOnMap()" title="Click to show flagged addresses on map">⚠ <span id="walkFlaggedCount">0</span> flagged</span>
           <button class="btn btn-sm" id="btnPrintWalk" style="background:#059669;color:#fff;margin-left:8px" onclick="printCurrentWalk()">&#x1F5A8; Print Walk List</button>
           <button class="btn btn-sm" id="btnRefreshTurf" style="background:#b45309;color:#fff;margin-left:8px;display:none" onclick="refreshCurrentTurf()">&#x1F504; Refresh Turf</button>
           <span id="geocodeStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
@@ -4061,6 +4063,15 @@ async function loadWalkDetail(id) {
   document.getElementById('walkDetailName').textContent = w.name;
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
   document.getElementById('walkDetailStatus').value = w.status;
+  // Show flagged address count badge
+  var flaggedCount = (w.addresses || []).filter(function(a) { return a.geo_flagged; }).length;
+  var flagBadge = document.getElementById('walkFlaggedBadge');
+  if (flaggedCount > 0) {
+    flagBadge.style.display = '';
+    document.getElementById('walkFlaggedCount').textContent = flaggedCount;
+  } else {
+    flagBadge.style.display = 'none';
+  }
   // Populate script dropdown
   try {
     var scriptData = await api('/api/walk-scripts');
@@ -4751,6 +4762,19 @@ function createAdminHouseIcon(color, isDone) {
   });
 }
 
+function createFlaggedHouseIcon() {
+  var tapSize = 44;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + tapSize + 'px;height:' + tapSize + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:6px;left:6px;width:32px;height:32px;border-radius:50%;background:#ef4444;border:3px solid #fbbf24;box-shadow:0 0 8px rgba(239,68,68,0.7);display:flex;align-items:center;justify-content:center;animation:flagPulse 1.5s infinite">' +
+      '<span style="font-size:16px">⚠</span></div></div>',
+    iconSize: [tapSize, tapSize],
+    iconAnchor: [tapSize / 2, tapSize / 2],
+    popupAnchor: [0, -tapSize / 2]
+  });
+}
+
 function createAdminApartmentIcon(color, unitCount, allDone) {
   var size = 44;
   var dotSize = allDone ? 22 : 28;
@@ -4817,15 +4841,25 @@ function updateAddrMarkers(addresses) {
       // Single house marker
       var allDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
       var color = getAddrColor(firstAddr.result);
-      var icon = createAdminHouseIcon(color, allDone);
+      var icon = firstAddr.geo_flagged ? createFlaggedHouseIcon() : createAdminHouseIcon(color, allDone);
 
       var resultLabel = formatAdminResult(firstAddr.result);
-      var popupHtml = '<div style="font-size:13px;min-width:150px">' +
+      var isFlagged = firstAddr.geo_flagged;
+      var popupHtml = '<div style="font-size:13px;min-width:180px">' +
         '<strong>' + escHtml(firstAddr.address) + '</strong>';
       if (firstAddr.unit) popupHtml += ' <span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + escHtml(firstAddr.unit) + '</span>';
       if (firstAddr.voter_name) popupHtml += '<br><span style="color:#e2e8f0;font-weight:600">' + escHtml(firstAddr.voter_name) + '</span>';
       popupHtml += '<br><span style="color:' + color + ';font-weight:600">' + resultLabel + '</span>';
-      popupHtml += '</div>';
+      if (isFlagged) popupHtml += '<br><span style="color:#ef4444;font-weight:700;font-size:11px">⚠ FLAGGED — bad location</span>';
+      popupHtml += '<div style="margin-top:6px;border-top:1px solid #334155;padding-top:6px;display:flex;gap:4px;flex-wrap:wrap">';
+      if (!isFlagged) {
+        popupHtml += '<button onclick="flagBadLocation(' + state.currentWalkId + ',' + firstAddr.id + ',this)" style="font-size:11px;padding:2px 6px;background:#ef4444;color:#fff;border:none;border-radius:3px;cursor:pointer">🚩 Flag Wrong</button>';
+      } else {
+        popupHtml += '<button onclick="unflagLocation(' + state.currentWalkId + ',' + firstAddr.id + ',this)" style="font-size:11px;padding:2px 6px;background:#22c55e;color:#fff;border:none;border-radius:3px;cursor:pointer">✓ Unflag</button>';
+        popupHtml += '<button onclick="regeocodeAddress(' + state.currentWalkId + ',' + firstAddr.id + ',this)" style="font-size:11px;padding:2px 6px;background:#3b82f6;color:#fff;border:none;border-radius:3px;cursor:pointer">🔄 Re-geocode</button>';
+      }
+      popupHtml += '<button onclick="dragCorrectAddress(' + state.currentWalkId + ',' + firstAddr.id + ',' + firstAddr.lat + ',' + firstAddr.lng + ')" style="font-size:11px;padding:2px 6px;background:#f59e0b;color:#0f172a;border:none;border-radius:3px;cursor:pointer">📍 Move Pin</button>';
+      popupHtml += '</div></div>';
 
       var marker = L.marker([firstAddr.lat, firstAddr.lng], { icon: icon, zIndexOffset: 1000 })
         .bindPopup(popupHtml).addTo(walkMap);
@@ -4889,6 +4923,98 @@ function updateAddrMarkers(addresses) {
     walkMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
     walkMapHasFit = true;
   }
+}
+
+// ===================== FLAG / FIX BAD GEOCODES =====================
+var _dragCorrectMarker = null;
+
+async function flagBadLocation(walkId, addrId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Flagging...';
+  try {
+    await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/flag-location', {});
+    // Refresh map to show flagged icon
+    var data = await api('/api/walks/' + walkId);
+    state.walkAddresses = data.walk ? data.walk.addresses : [];
+    updateAddrMarkers();
+  } catch (e) { alert('Failed to flag: ' + (e.message || 'Error')); }
+}
+
+async function unflagLocation(walkId, addrId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Unflagging...';
+  try {
+    await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/unflag-location', {});
+    var data = await api('/api/walks/' + walkId);
+    state.walkAddresses = data.walk ? data.walk.addresses : [];
+    updateAddrMarkers();
+  } catch (e) { alert('Failed: ' + (e.message || 'Error')); }
+}
+
+async function regeocodeAddress(walkId, addrId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Re-geocoding...';
+  try {
+    var result = await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/regeocode', {});
+    if (result.success) {
+      var data = await api('/api/walks/' + walkId);
+      state.walkAddresses = data.walk ? data.walk.addresses : [];
+      updateAddrMarkers();
+    } else {
+      alert(result.message || 'Could not re-geocode. Try moving the pin manually.');
+    }
+  } catch (e) { alert('Failed: ' + (e.message || 'Error')); }
+}
+
+function dragCorrectAddress(walkId, addrId, lat, lng) {
+  // Close any open popups
+  walkMap.closePopup();
+  // Remove existing drag marker if any
+  if (_dragCorrectMarker) { walkMap.removeLayer(_dragCorrectMarker); _dragCorrectMarker = null; }
+  // Create a draggable marker at the current position
+  _dragCorrectMarker = L.marker([lat, lng], {
+    draggable: true,
+    zIndexOffset: 2000,
+    icon: L.divIcon({
+      className: '',
+      html: '<div style="width:44px;height:44px;position:relative"><div style="position:absolute;top:4px;left:4px;width:36px;height:36px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 0 12px rgba(245,158,11,0.8);display:flex;align-items:center;justify-content:center"><span style="font-size:18px">📍</span></div></div>',
+      iconSize: [44, 44], iconAnchor: [22, 22]
+    })
+  }).addTo(walkMap);
+  _dragCorrectMarker.bindPopup(
+    '<div style="font-size:13px;text-align:center;min-width:160px">' +
+    '<strong style="color:#f59e0b">Drag pin to correct location</strong><br>' +
+    '<button onclick="saveDragCorrection(' + walkId + ',' + addrId + ')" style="margin-top:6px;padding:4px 12px;background:#22c55e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700">✓ Save Location</button>' +
+    ' <button onclick="cancelDragCorrection()" style="margin-top:6px;padding:4px 12px;background:#64748b;color:#fff;border:none;border-radius:4px;cursor:pointer">Cancel</button>' +
+    '</div>', { closeOnClick: false, autoClose: false }
+  ).openPopup();
+}
+
+async function saveDragCorrection(walkId, addrId) {
+  if (!_dragCorrectMarker) return;
+  var latlng = _dragCorrectMarker.getLatLng();
+  try {
+    await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/fix-location', { lat: latlng.lat, lng: latlng.lng });
+    walkMap.removeLayer(_dragCorrectMarker);
+    _dragCorrectMarker = null;
+    // Refresh
+    var data = await api('/api/walks/' + walkId);
+    state.walkAddresses = data.walk ? data.walk.addresses : [];
+    updateAddrMarkers();
+  } catch (e) { alert('Failed to save: ' + (e.message || 'Error')); }
+}
+
+function cancelDragCorrection() {
+  if (_dragCorrectMarker) { walkMap.removeLayer(_dragCorrectMarker); _dragCorrectMarker = null; }
+}
+
+function scrollToFlaggedOnMap() {
+  // Open the map if not visible, then zoom to show all flagged addresses
+  if (!walkMapVisible) toggleWalkMap();
+  var flagged = (state.walkAddresses || []).filter(function(a) { return a.geo_flagged && a.lat && a.lng; });
+  if (flagged.length === 0) { alert('No flagged addresses with coordinates.'); return; }
+  var bounds = flagged.map(function(a) { return [a.lat, a.lng]; });
+  if (walkMap) walkMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
 }
 
 function startMapPolling() {

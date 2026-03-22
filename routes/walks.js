@@ -1370,7 +1370,7 @@ router.get('/walks/:id/live-status', (req, res) => {
   const members = db.prepare('SELECT walker_name, joined_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
 
   const allAddresses = db.prepare(
-    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng, geo_flagged FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
   const doorProgress = countDoors(allAddresses);
@@ -1495,6 +1495,64 @@ router.post('/walks/:id/geocode', (req, res) => {
 
   geocodeWalkAddresses(wid);
   res.json({ message: 'Geocoding started for ' + missing.c + ' addresses. Map will update as coordinates are resolved.', pending: missing.c });
+});
+
+// ===================== FLAG / FIX BAD GEOCODES =====================
+
+// Flag an address as having a bad geocode location
+router.post('/walks/:walkId/addresses/:addrId/flag-location', (req, res) => {
+  const addr = db.prepare('SELECT id, walk_id FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  db.prepare('UPDATE walk_addresses SET geo_flagged = 1 WHERE id = ?').run(addr.id);
+  res.json({ success: true, message: 'Location flagged as incorrect.' });
+});
+
+// Unflag an address
+router.post('/walks/:walkId/addresses/:addrId/unflag-location', (req, res) => {
+  const addr = db.prepare('SELECT id, walk_id FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  db.prepare('UPDATE walk_addresses SET geo_flagged = 0 WHERE id = ?').run(addr.id);
+  res.json({ success: true });
+});
+
+// Manually set lat/lng for an address (admin drag-correct)
+router.post('/walks/:walkId/addresses/:addrId/fix-location', (req, res) => {
+  const { lat, lng } = req.body;
+  if (lat == null || lng == null) return res.status(400).json({ error: 'lat and lng are required.' });
+  if (!isValidCoord(lat, lng)) return res.status(400).json({ error: 'Invalid coordinates.' });
+  const addr = db.prepare('SELECT id, walk_id FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  db.prepare('UPDATE walk_addresses SET lat = ?, lng = ?, geo_flagged = 0 WHERE id = ?').run(lat, lng, addr.id);
+  res.json({ success: true, message: 'Location updated.' });
+});
+
+// Re-geocode a single flagged address
+router.post('/walks/:walkId/addresses/:addrId/regeocode', async (req, res) => {
+  const addr = db.prepare('SELECT id, walk_id, address, city, zip FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  // Try all geocoders in order
+  let coords = null;
+  if (GOOGLE_GEOCODE_KEY) {
+    coords = await geocodeAddressGoogle(addr.address, addr.city, addr.zip);
+  }
+  if (!coords) {
+    coords = await geocodeAddressCensus(addr.address, addr.city, addr.zip);
+  }
+  if (!coords) {
+    coords = await geocodeAddressNominatim(addr.address, addr.city, addr.zip);
+  }
+  if (coords) {
+    db.prepare('UPDATE walk_addresses SET lat = ?, lng = ?, geo_flagged = 0 WHERE id = ?').run(coords.lat, coords.lng, addr.id);
+    res.json({ success: true, lat: coords.lat, lng: coords.lng, message: 'Re-geocoded successfully.' });
+  } else {
+    res.json({ success: false, message: 'Could not geocode this address. Try manually correcting it on the map.' });
+  }
+});
+
+// Get all flagged addresses for a walk
+router.get('/walks/:id/flagged-addresses', (req, res) => {
+  const rows = db.prepare('SELECT id, address, unit, city, zip, voter_name, lat, lng FROM walk_addresses WHERE walk_id = ? AND geo_flagged = 1').all(req.params.id);
+  res.json({ flagged: rows });
 });
 
 // ===================== WALKER LOCATION TRACKING =====================
