@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
+.precinct-label{background:rgba(0,0,0,0.6)!important;border:none!important;color:#f59e0b!important;font-size:11px!important;font-weight:700!important;padding:1px 4px!important;border-radius:3px!important;box-shadow:none!important}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh}
 a{color:#818cf8;text-decoration:none}
@@ -895,6 +896,21 @@ tr:hover td{background:#1e293b80}
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Undecided</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Oppose</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:6px;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px;font-size:7px;text-align:center;line-height:10px;color:#fff;font-weight:700"></span>Apartments</span>
+          </div>
+          <div id="mapPrecinctFilters" style="display:flex;gap:12px;margin-top:10px;align-items:end;flex-wrap:wrap">
+            <div style="flex:1;min-width:180px">
+              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Race / District</label>
+              <select id="mapRaceFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+                <option value="">All Voters</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:180px">
+              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Election Cycle</label>
+              <select id="mapElectionFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+                <option value="">All Elections</option>
+              </select>
+            </div>
+            <span id="mapPrecinctTotal" style="font-size:12px;color:#f59e0b;font-weight:600;white-space:nowrap"></span>
           </div>
         </div>
         <div class="card">
@@ -4337,6 +4353,9 @@ var walkMapMarkers = {};
 var walkMapAddrMarkers = [];
 var walkMapInterval = null;
 var walkMapVisible = false;
+var precinctLayer = null;
+var _precinctGeoLayer = null;
+var _precinctGeoData = null;
 var walkMapHasFit = false;
 
 function toggleWalkMap() {
@@ -4459,8 +4478,91 @@ function initWalkMap() {
   satelliteLayer.addTo(walkMap);
   labelsLayer.addTo(walkMap);
   placeLabels.addTo(walkMap);
-  L.control.layers({ 'Satellite': satelliteLayer, 'Street Map': streetLayer }, { 'Road Labels': labelsLayer, 'Place Names': placeLabels }, { position: 'topright', collapsed: true }).addTo(walkMap);
+  // Precinct boundary overlay with voter counts from DB
+  precinctLayer = L.layerGroup();
+  Promise.all([
+    fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }),
+    api('/api/voters-precincts'),
+    api('/api/voters/race-precincts'),
+    api('/api/walk-elections')
+  ]).then(function(results) {
+    var geoData = results[0], voterData = results[1], raceData = results[2], electionData = results[3];
+    _precinctGeoData = geoData;
+    var voterCounts = {};
+    if (voterData.precincts) {
+      voterData.precincts.forEach(function(p, i) { voterCounts[p] = voterData.counts[i] || 0; });
+    }
+    // Populate race dropdown
+    var raceSel = document.getElementById('mapRaceFilter');
+    (raceData.races || []).filter(function(r) { return r.precincts && r.precincts.length > 0; }).forEach(function(r) {
+      var opt = document.createElement('option');
+      opt.value = r.type + '|' + r.district;
+      opt.textContent = r.race;
+      raceSel.appendChild(opt);
+    });
+    // Populate election dropdown
+    var elSel = document.getElementById('mapElectionFilter');
+    (electionData.elections || []).forEach(function(e) {
+      var opt = document.createElement('option');
+      opt.value = e.election_name;
+      opt.textContent = e.election_name + ' (' + (e.voter_count || 0) + ')';
+      elSel.appendChild(opt);
+    });
+    // Render initial precinct layer
+    _precinctGeoLayer = renderPrecinctGeoLayer(geoData, voterCounts);
+    _precinctGeoLayer.addTo(precinctLayer);
+    var total = Object.values(voterCounts).reduce(function(a, b) { return a + b; }, 0);
+    document.getElementById('mapPrecinctTotal').textContent = total.toLocaleString() + ' voters';
+  }).catch(function() {});
+  L.control.layers({ 'Satellite': satelliteLayer, 'Street Map': streetLayer }, { 'Road Labels': labelsLayer, 'Place Names': placeLabels, 'Precinct Boundaries': precinctLayer }, { position: 'topright', collapsed: true }).addTo(walkMap);
   updateAddrMarkers();
+}
+
+function renderPrecinctGeoLayer(geoData, voterCounts) {
+  return L.geoJSON(geoData, {
+    style: function() {
+      return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' };
+    },
+    onEachFeature: function(feature, layer) {
+      var pct = feature.properties.precinct;
+      var count = voterCounts[pct] || 0;
+      layer.bindTooltip('Pct ' + pct + (count ? ' (' + count.toLocaleString() + ')' : ''), {
+        permanent: true, direction: 'center', className: 'precinct-label',
+        offset: [0, 0]
+      });
+      layer.on('click', function() {
+        layer.bindPopup('<div style="font-size:13px"><strong>Precinct ' + pct + '</strong><br>' + count.toLocaleString() + ' voters</div>').openPopup();
+      });
+    }
+  });
+}
+
+async function refreshMapPrecinctCounts() {
+  if (!_precinctGeoData) return;
+  var raceVal = document.getElementById('mapRaceFilter').value;
+  var electionVal = document.getElementById('mapElectionFilter').value;
+  var url = '/api/voters/precinct-counts?';
+  var params = [];
+  if (raceVal) {
+    var parts = raceVal.split('|');
+    params.push('race_col=' + encodeURIComponent(parts[0]));
+    params.push('race_val=' + encodeURIComponent(parts[1]));
+  }
+  if (electionVal) {
+    params.push('election=' + encodeURIComponent(electionVal));
+  }
+  try {
+    var data = await api(url + params.join('&'));
+    var counts = {};
+    (data.precincts || []).forEach(function(p) { counts[p.precinct] = p.count; });
+    // Remove old layer and add new one
+    var parent = null;
+    walkMap.eachLayer(function(l) { if (l === precinctLayer) parent = l; });
+    if (_precinctGeoLayer) precinctLayer.removeLayer(_precinctGeoLayer);
+    _precinctGeoLayer = renderPrecinctGeoLayer(_precinctGeoData, counts);
+    _precinctGeoLayer.addTo(precinctLayer);
+    document.getElementById('mapPrecinctTotal').textContent = (data.total || 0).toLocaleString() + ' voters';
+  } catch (e) {}
 }
 
 function getAddrColor(result) {

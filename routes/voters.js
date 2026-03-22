@@ -835,6 +835,33 @@ router.get('/voters/race-precincts', (req, res) => {
   res.json({ races });
 });
 
+// Precinct voter counts filtered by race/district column and optionally election participation
+router.get('/voters/precinct-counts', (req, res) => {
+  const { race_col, race_val, election } = req.query;
+  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
+
+  let sql = "SELECT precinct, COUNT(*) as cnt FROM voters WHERE precinct != '' AND precinct IS NOT NULL";
+  const params = [];
+
+  // Filter by race/district if specified
+  if (race_col && validCols.includes(race_col) && race_val) {
+    sql += ` AND ${race_col} = ?`;
+    params.push(race_val);
+  }
+
+  // Filter by election participation if specified
+  if (election) {
+    sql += ' AND id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)';
+    params.push(election);
+  }
+
+  sql += " AND precinct NOT GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9]*' GROUP BY precinct ORDER BY cnt DESC";
+
+  const rows = db.prepare(sql).all(...params);
+  const total = rows.reduce((s, r) => s + r.cnt, 0);
+  res.json({ precincts: rows.map(r => ({ precinct: r.precinct, count: r.cnt })), total });
+});
+
 // --- Wildcard :id routes MUST come after all static-segment routes above ---
 
 // Get voter detail with contact history and election votes

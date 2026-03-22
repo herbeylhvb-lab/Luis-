@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
 <style>
+.precinct-label{background:rgba(0,0,0,0.6)!important;border:none!important;color:#f59e0b!important;font-size:11px!important;font-weight:700!important;padding:1px 4px!important;border-radius:3px!important;box-shadow:none!important}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
 
@@ -2180,12 +2181,38 @@ function initMap() {
   labelsLayer.addTo(mapState.map);
   streetLabels.addTo(mapState.map);
   // Layer toggle control
+  // Precinct boundary overlay with voter counts from DB
+  var precinctLayer = L.layerGroup();
+  Promise.all([
+    fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }),
+    fetch('/api/voters-precincts').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var geoData = results[0], voterData = results[1];
+    var voterCounts = {};
+    if (voterData.precincts) {
+      voterData.precincts.forEach(function(p, i) { voterCounts[p] = voterData.counts[i] || 0; });
+    }
+    L.geoJSON(geoData, {
+      style: function() {
+        return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' };
+      },
+      onEachFeature: function(feature, layer) {
+        var pct = feature.properties.precinct;
+        var count = voterCounts[pct] || 0;
+        layer.bindTooltip('Pct ' + pct + (count ? ' (' + count + ')' : ''), {
+          permanent: true, direction: 'center', className: 'precinct-label',
+          offset: [0, 0]
+        });
+      }
+    }).addTo(precinctLayer);
+  }).catch(function() {});
   L.control.layers({
     'Satellite': satelliteLayer,
     'Street Map': streetLayer
   }, {
     'Road Labels': labelsLayer,
-    'Place Names': streetLabels
+    'Place Names': streetLabels,
+    'Precinct Boundaries': precinctLayer
   }, { position: 'topright', collapsed: true }).addTo(mapState.map);
 
   mapState.initialized = true;
