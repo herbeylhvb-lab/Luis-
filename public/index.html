@@ -787,6 +787,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-walktab="walks-universes">Distributed</div>
         <div class="sub-tab" data-walktab="walks-daily">Daily Report</div>
         <div class="sub-tab" data-walktab="walks-leaderboard">Leaderboard</div>
+        <div class="sub-tab" data-walktab="walks-precinctmap">Precinct Map</div>
       </div>
 
       <!-- WALK MAIN TAB -->
@@ -1034,6 +1035,34 @@ tr:hover td{background:#1e293b80}
         <div class="card">
           <h3>Top Canvassers</h3>
           <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Total Doors</th><th>Contacts</th><th>Supporters Found</th><th>Contact Rate</th><th>Doors/Hr</th><th>Walks</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- PRECINCT MAP TAB -->
+      <div class="walk-subtab" id="walks-precinctmap" style="display:none">
+        <div class="card">
+          <h3>Precinct Map</h3>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">View Cameron County voting precinct boundaries with voter counts from your database. Filter by race and election cycle.</p>
+          <div style="display:flex;gap:12px;margin-bottom:12px;align-items:end;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Race / District</label>
+              <select id="pctMapRaceFilter" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+                <option value="">All Voters</option>
+              </select>
+            </div>
+            <div style="flex:1;min-width:200px">
+              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Election Cycle</label>
+              <select id="pctMapElectionFilter" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+                <option value="">All Elections</option>
+              </select>
+            </div>
+            <span id="pctMapTotal" style="font-size:14px;color:#f59e0b;font-weight:700;white-space:nowrap"></span>
+          </div>
+          <div id="pctMap" style="height:550px;border-radius:8px;background:#1e293b"></div>
+          <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#94a3b8;flex-wrap:wrap">
+            <span><span style="display:inline-block;width:16px;height:3px;background:#f59e0b;margin-right:4px;vertical-align:middle"></span>Precinct boundary</span>
+            <span>Labels show precinct number and voter count</span>
+          </div>
         </div>
       </div>
 
@@ -4805,8 +4834,108 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
     if (target === 'walks-universes') { loadUniverses(); loadWalkElectionDropdowns(); }
     if (target === 'walks-daily') { document.getElementById('dailyReportDate').value = new Date().toISOString().split('T')[0]; loadDailyReport(); }
     if (target === 'walks-leaderboard') loadLeaderboard();
+    if (target === 'walks-precinctmap') initPctMap();
   });
 });
+
+// ===================== PRECINCT MAP =====================
+var pctMap = null;
+var _pctMapGeoData = null;
+var _pctMapGeoLayer = null;
+var _pctMapPrecinctLayer = null;
+
+async function initPctMap() {
+  if (pctMap) { pctMap.invalidateSize(); return; }
+  pctMap = L.map('pctMap', { zoomControl: true }).setView([26.0, -97.5], 10);
+  var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' });
+  var labelsLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var placeLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+  satelliteLayer.addTo(pctMap);
+  labelsLayer.addTo(pctMap);
+  placeLabels.addTo(pctMap);
+  _pctMapPrecinctLayer = L.layerGroup().addTo(pctMap);
+  L.control.layers({ 'Satellite': satelliteLayer, 'Street Map': streetLayer }, { 'Road Labels': labelsLayer, 'Place Names': placeLabels }, { position: 'topright', collapsed: true }).addTo(pctMap);
+
+  try {
+    var [geoData, voterData, raceData, electionData] = await Promise.all([
+      fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }),
+      api('/api/voters-precincts'),
+      api('/api/voters/race-precincts'),
+      api('/api/walk-elections')
+    ]);
+    _pctMapGeoData = geoData;
+    // Populate race dropdown
+    var raceSel = document.getElementById('pctMapRaceFilter');
+    (raceData.races || []).filter(function(r) { return r.precincts && r.precincts.length > 0; }).forEach(function(r) {
+      var opt = document.createElement('option');
+      opt.value = r.type + '|' + r.district;
+      opt.textContent = r.race;
+      raceSel.appendChild(opt);
+    });
+    // Populate election dropdown
+    var elSel = document.getElementById('pctMapElectionFilter');
+    (electionData.elections || []).forEach(function(e) {
+      var opt = document.createElement('option');
+      opt.value = e.election_name;
+      opt.textContent = e.election_name + ' (' + (e.voter_count || 0) + ')';
+      elSel.appendChild(opt);
+    });
+    // Initial render with all voters
+    var counts = {};
+    if (voterData.precincts) {
+      voterData.precincts.forEach(function(p, i) { counts[p] = voterData.counts[i] || 0; });
+    }
+    renderPctMapLayer(counts);
+    var total = Object.values(counts).reduce(function(a, b) { return a + b; }, 0);
+    document.getElementById('pctMapTotal').textContent = total.toLocaleString() + ' voters';
+    // Fit to precinct bounds
+    if (_pctMapGeoLayer) pctMap.fitBounds(_pctMapGeoLayer.getBounds(), { padding: [20, 20] });
+  } catch (e) {}
+  setTimeout(function() { pctMap.invalidateSize(); }, 200);
+}
+
+function renderPctMapLayer(voterCounts) {
+  if (_pctMapGeoLayer) _pctMapPrecinctLayer.removeLayer(_pctMapGeoLayer);
+  _pctMapGeoLayer = L.geoJSON(_pctMapGeoData, {
+    style: function() {
+      return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.08, fillColor: '#f59e0b' };
+    },
+    onEachFeature: function(feature, layer) {
+      var pct = feature.properties.precinct;
+      var count = voterCounts[pct] || 0;
+      layer.bindTooltip('Pct ' + pct + (count ? ' (' + count.toLocaleString() + ')' : ''), {
+        permanent: true, direction: 'center', className: 'precinct-label',
+        offset: [0, 0]
+      });
+      layer.on('click', function() {
+        layer.bindPopup('<div style="font-size:14px"><strong>Precinct ' + pct + '</strong><br><span style="font-size:18px;font-weight:700;color:#f59e0b">' + count.toLocaleString() + '</span> voters</div>').openPopup();
+      });
+    }
+  }).addTo(_pctMapPrecinctLayer);
+}
+
+async function refreshPctMapCounts() {
+  if (!_pctMapGeoData) return;
+  var raceVal = document.getElementById('pctMapRaceFilter').value;
+  var electionVal = document.getElementById('pctMapElectionFilter').value;
+  var params = [];
+  if (raceVal) {
+    var parts = raceVal.split('|');
+    params.push('race_col=' + encodeURIComponent(parts[0]));
+    params.push('race_val=' + encodeURIComponent(parts[1]));
+  }
+  if (electionVal) {
+    params.push('election=' + encodeURIComponent(electionVal));
+  }
+  try {
+    var data = await api('/api/voters/precinct-counts?' + params.join('&'));
+    var counts = {};
+    (data.precincts || []).forEach(function(p) { counts[p.precinct] = p.count; });
+    renderPctMapLayer(counts);
+    document.getElementById('pctMapTotal').textContent = (data.total || 0).toLocaleString() + ' voters';
+  } catch (e) {}
+}
 
 // ===================== CANVASSING SCRIPTS =====================
 var scriptElementCounter = 0;
