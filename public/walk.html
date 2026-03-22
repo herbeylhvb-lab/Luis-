@@ -2221,7 +2221,8 @@ function buildAddressPopup(addr, myName) {
   }
   var isDone = addr.result && addr.result !== 'not_visited';
   if (isDone) {
-    popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
+    var resultColor = getMarkerColor(addr, myName);
+    popupContent += '<br><span style="color:' + resultColor + ';font-weight:600">' + formatResult(addr.result) + '</span>';
   } else {
     popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
     if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
@@ -2278,8 +2279,25 @@ function createWalkerIcon(color, label) {
 }
 
 function getMarkerColor(addr, myName) {
-  if (addr.result && addr.result !== 'not_visited') return '#22c55e'; // Done - green
-  return '#f59e0b'; // Unvisited - amber
+  if (!addr.result || addr.result === 'not_visited') {
+    // Unvisited — amber if assigned to me, gray otherwise
+    if (myName && addr.assigned_walker === myName) return '#f59e0b';
+    return '#64748b';
+  }
+  // Color by result so supporters, opponents, etc. are visually distinct
+  switch (addr.result) {
+    case 'support':      return '#22c55e'; // Green — strong support
+    case 'lean_support': return '#86efac'; // Light green — lean support
+    case 'undecided':    return '#facc15'; // Yellow — undecided
+    case 'lean_oppose':  return '#fb923c'; // Orange — lean oppose
+    case 'oppose':       return '#ef4444'; // Red — oppose
+    case 'not_home':     return '#94a3b8'; // Gray — not home
+    case 'refused':      return '#64748b'; // Dark gray — refused
+    case 'moved':        return '#a78bfa'; // Purple — moved
+    case 'deceased':     return '#475569'; // Slate — deceased
+    case 'come_back':    return '#38bdf8'; // Sky blue — come back later
+    default:             return '#22c55e'; // Green fallback for any other contacted result
+  }
 }
 
 async function regeocodeWalk() {
@@ -2388,7 +2406,7 @@ function renderMap(addresses, walkerLocations, progress) {
       // Single house (possibly with multiple household members) — render as house dot
       // For households, check if ALL members are done
       var allHouseholdDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
-      var color = allHouseholdDone ? '#22c55e' : getMarkerColor(firstAddr, myName);
+      var color = getMarkerColor(firstAddr, myName);
       var isDone = allHouseholdDone;
       var icon = createHouseIcon(color, isDone);
 
@@ -2513,6 +2531,25 @@ function renderMap(addresses, walkerLocations, progress) {
   if (bounds.length > 0 && !mapState.hasFittedBounds) {
     mapState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
     mapState.hasFittedBounds = true;
+  }
+
+  // Map legend — show color key for results
+  var existingLegend = document.getElementById('mapLegend');
+  if (!existingLegend) {
+    var legend = document.createElement('div');
+    legend.id = 'mapLegend';
+    legend.style.cssText = 'position:absolute;bottom:10px;left:10px;z-index:1000;background:rgba(15,23,42,0.9);border:1px solid #334155;border-radius:8px;padding:8px 10px;font-size:11px;color:#e2e8f0;line-height:1.6';
+    var items = [
+      ['#22c55e', 'Support'], ['#86efac', 'Lean Sup'], ['#facc15', 'Undecided'],
+      ['#fb923c', 'Lean Opp'], ['#ef4444', 'Oppose'], ['#94a3b8', 'Not Home'],
+      ['#38bdf8', 'Come Back'], ['#64748b', 'Unvisited']
+    ];
+    var legendHtml = '';
+    for (var li = 0; li < items.length; li++) {
+      legendHtml += '<span style="display:inline-flex;align-items:center;margin-right:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + items[li][0] + ';margin-right:3px"></span>' + items[li][1] + '</span>';
+    }
+    legend.innerHTML = legendHtml;
+    document.getElementById('mapContainer').appendChild(legend);
   }
 
   // Show geocode notice and auto-trigger geocoding for unmapped addresses
