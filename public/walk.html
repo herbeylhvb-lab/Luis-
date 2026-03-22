@@ -894,11 +894,12 @@ async function optimizeRoute() {
 // Fetch optimized route for THIS walker only (uses current GPS)
 async function fetchWalkerRoute() {
   var url = '/api/walks/' + walkState.walkId + '/walker/' + encodeURIComponent(walkState.walkerName) + '/route';
-  if (walkState.gpsLat && walkState.gpsLng) {
+  if (walkState.gpsLat != null && walkState.gpsLng != null) {
     url += '?lat=' + walkState.gpsLat + '&lng=' + walkState.gpsLng;
   }
   var res = await fetch(url);
   var data = await res.json();
+  if (!res.ok) return data;
   if (data.mapsUrl) {
     walkState.mapsUrl = data.mapsUrl;
     document.getElementById('mapsLink').href = data.mapsUrl;
@@ -1812,7 +1813,8 @@ async function logDoor() {
       if (walkState.walk.addresses[ai].id === doorState.openAddrId) { addr = walkState.walk.addresses[ai]; walkState.currentAddrIdx = ai; break; }
     }
   }
-  if (!addr) addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  if (!addr && walkState.walk && walkState.walk.addresses) addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  if (!addr) { _logDoorInProgress = false; return; }
   var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
 
@@ -2219,7 +2221,8 @@ function buildAddressPopup(addr, myName) {
   }
   var isDone = addr.result && addr.result !== 'not_visited';
   if (isDone) {
-    popupContent += '<br><span style="color:green;font-weight:600">' + formatResult(addr.result) + '</span>';
+    var resultColor = getMarkerColor(addr, myName);
+    popupContent += '<br><span style="color:' + resultColor + ';font-weight:600">' + formatResult(addr.result) + '</span>';
   } else {
     popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
     if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
@@ -2276,8 +2279,20 @@ function createWalkerIcon(color, label) {
 }
 
 function getMarkerColor(addr, myName) {
-  if (addr.result && addr.result !== 'not_visited') return '#22c55e'; // Done - green
-  return '#f59e0b'; // Unvisited - amber
+  if (!addr.result || addr.result === 'not_visited') return '#64748b'; // Gray — unvisited
+  switch (addr.result) {
+    case 'support':      return '#3b82f6'; // Blue — strong support
+    case 'lean_support': return '#86efac'; // Light green — lean support
+    case 'undecided':    return '#facc15'; // Yellow — undecided
+    case 'lean_oppose':  return '#fb923c'; // Orange — lean oppose
+    case 'oppose':       return '#ef4444'; // Red — oppose
+    case 'not_home':     return '#22c55e'; // Green — walked, not open (got push card)
+    case 'come_back':    return '#22c55e'; // Green — walked, come back (got push card)
+    case 'refused':      return '#22c55e'; // Green — walked (got push card)
+    case 'moved':        return '#22c55e'; // Green — walked
+    case 'deceased':     return '#22c55e'; // Green — walked
+    default:             return '#22c55e'; // Green — walked
+  }
 }
 
 async function regeocodeWalk() {
@@ -2334,9 +2349,9 @@ async function refreshMapData() {
   try {
     var res = await fetch('/api/walks/' + walkState.walkId + '/map-data');
     var data = await res.json();
-    if (!res.ok) return;
+    if (!res.ok || !data || !data.addresses) return;
 
-    renderMap(data.addresses, data.locations, data.progress);
+    renderMap(data.addresses, data.locations || [], data.progress);
   } catch (e) {
     // silent
   } finally {
@@ -2362,9 +2377,9 @@ function renderMap(addresses, walkerLocations, progress) {
   var locationGroups = {};
   for (var i = 0; i < addresses.length; i++) {
     var addr = addresses[i];
-    if (!addr.lat || !addr.lng) continue;
+    if (addr.lat == null || addr.lng == null) continue;
     // Round to ~1m precision to group nearby points (same building)
-    var key = addr.lat.toFixed(5) + ',' + addr.lng.toFixed(5);
+    var key = Number(addr.lat).toFixed(5) + ',' + Number(addr.lng).toFixed(5);
     if (!locationGroups[key]) locationGroups[key] = [];
     locationGroups[key].push(addr);
   }
@@ -2386,7 +2401,7 @@ function renderMap(addresses, walkerLocations, progress) {
       // Single house (possibly with multiple household members) — render as house dot
       // For households, check if ALL members are done
       var allHouseholdDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
-      var color = allHouseholdDone ? '#22c55e' : getMarkerColor(firstAddr, myName);
+      var color = getMarkerColor(firstAddr, myName);
       var isDone = allHouseholdDone;
       var icon = createHouseIcon(color, isDone);
 
@@ -2511,6 +2526,25 @@ function renderMap(addresses, walkerLocations, progress) {
   if (bounds.length > 0 && !mapState.hasFittedBounds) {
     mapState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
     mapState.hasFittedBounds = true;
+  }
+
+  // Map legend — show color key for results
+  var existingLegend = document.getElementById('mapLegend');
+  if (!existingLegend) {
+    var legend = document.createElement('div');
+    legend.id = 'mapLegend';
+    legend.style.cssText = 'position:absolute;bottom:10px;left:10px;z-index:1000;background:rgba(15,23,42,0.9);border:1px solid #334155;border-radius:8px;padding:8px 10px;font-size:11px;color:#e2e8f0;line-height:1.6';
+    var items = [
+      ['#3b82f6', 'Support'], ['#86efac', 'Lean Sup'], ['#facc15', 'Undecided'],
+      ['#fb923c', 'Lean Opp'], ['#ef4444', 'Oppose'], ['#22c55e', 'Not Open'],
+      ['#64748b', 'Unvisited']
+    ];
+    var legendHtml = '';
+    for (var li = 0; li < items.length; li++) {
+      legendHtml += '<span style="display:inline-flex;align-items:center;margin-right:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + items[li][0] + ';margin-right:3px"></span>' + items[li][1] + '</span>';
+    }
+    legend.innerHTML = legendHtml;
+    document.getElementById('mapContainer').appendChild(legend);
   }
 
   // Show geocode notice and auto-trigger geocoding for unmapped addresses
