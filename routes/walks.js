@@ -1185,6 +1185,19 @@ router.post('/walks/from-precinct', (req, res) => {
     if (filters.exclude_contacted) {
       sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
     }
+    // Age filters
+    if (filters.min_age && parseInt(filters.min_age) > 0) {
+      sql += " AND birth_date != '' AND birth_date IS NOT NULL AND (strftime('%Y','now') - substr(birth_date,1,4)) >= ?";
+      params.push(parseInt(filters.min_age));
+    }
+    if (filters.max_age && parseInt(filters.max_age) > 0) {
+      sql += " AND birth_date != '' AND birth_date IS NOT NULL AND (strftime('%Y','now') - substr(birth_date,1,4)) <= ?";
+      params.push(parseInt(filters.max_age));
+    }
+    // Exclude early voters
+    if (filters.exclude_early_voted) {
+      sql += " AND (early_voted IS NULL OR early_voted = 0 OR early_voted = '')";
+    }
     // Voting history filters (nonpartisan targeting)
     sql += buildVotingHistorySQL(filters, params);
   }

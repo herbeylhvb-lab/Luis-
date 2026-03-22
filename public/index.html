@@ -811,23 +811,13 @@ tr:hover td{background:#1e293b80}
           <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Auto-populate a walk with all voter addresses from selected precincts. Each address links to the voter record for auto-logging contact results.</p>
           <div class="form-group"><label>Walk Name (optional)</label><input type="text" id="precinctWalkName" placeholder="Auto-generated from precinct names"></div>
           <div class="form-group">
-            <label>Race / District</label>
+            <label style="color:#f59e0b;font-weight:700;text-transform:uppercase;font-size:13px;letter-spacing:0.5px">&#127919; Step 1: Race / District</label>
             <select id="walkRaceFilter" onchange="onWalkRaceFilterChange()" style="margin-bottom:8px">
               <option value="">Loading races...</option>
             </select>
-            <p style="color:#64748b;font-size:11px;margin:0 0 8px">Choose a race to see only its precincts</p>
+            <p style="color:#64748b;font-size:11px;margin:0 0 8px">Choose a race, then set voter filters below to see precincts ranked by matching voters</p>
           </div>
-          <div class="form-group">
-            <label>Select Precincts</label>
-            <input type="text" id="walkPrecinctSearch" placeholder="Search precincts..." oninput="filterWalkPrecincts()" style="margin-bottom:6px">
-            <div style="display:flex;gap:6px;margin-bottom:6px">
-              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb:not([style*=none])').forEach(function(c){c.closest('.walk-precinct-item').style.display!=='none'&&(c.checked=true)})">Select All</button>
-              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb').forEach(function(c){c.checked=false})">Clear All</button>
-              <span id="walkPrecinctSelected" style="font-size:12px;color:#f59e0b;align-self:center;margin-left:auto">0 selected</span>
-            </div>
-            <div id="walkPrecinctList" style="max-height:250px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:4px;margin-top:4px"><span style="color:#64748b;font-size:13px">Loading precincts...</span></div>
-          </div>
-          <h4 style="font-size:13px;color:#f59e0b;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">Voter Filters</h4>
+          <h4 style="font-size:13px;color:#f59e0b;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">&#127919; Step 2: Voter Filters <span style="font-weight:400;text-transform:none;font-size:11px;color:#64748b">(set filters first, then see which precincts have the most matching voters)</span></h4>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
             <div class="form-group"><label>Party</label><select id="walkPrecinctParty"><option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
             <div class="form-group"><label>Support Level</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
@@ -845,6 +835,20 @@ tr:hover td{background:#1e293b80}
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctHasVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeContacted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeEarlyVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip early voters (already voted)</label>
+          </div>
+          <div style="margin-bottom:12px">
+            <button class="btn btn-sm" style="background:#f59e0b;color:#0f172a;font-weight:700" onclick="refreshWalkPrecinctCounts()">&#128270; Show Precincts with Matching Voters</button>
+            <span id="walkFilteredTotal" style="font-size:12px;color:#64748b;margin-left:8px"></span>
+          </div>
+          <h4 style="font-size:13px;color:#f59e0b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">&#127968; Step 3: Select Precincts <span style="font-weight:400;text-transform:none;font-size:11px;color:#64748b">(sorted by matching voter count)</span></h4>
+          <div class="form-group">
+            <input type="text" id="walkPrecinctSearch" placeholder="Search precincts..." oninput="filterWalkPrecincts()" style="margin-bottom:6px">
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb:not([style*=none])').forEach(function(c){c.closest('.walk-precinct-item').style.display!=='none'&&(c.checked=true)})">Select All</button>
+              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb').forEach(function(c){c.checked=false})">Clear All</button>
+              <span id="walkPrecinctSelected" style="font-size:12px;color:#f59e0b;align-self:center;margin-left:auto">0 selected</span>
+            </div>
+            <div id="walkPrecinctList" style="max-height:250px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:4px;margin-top:4px"><span style="color:#64748b;font-size:13px">Choose a race & set filters above, then click "Show Precincts"</span></div>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary btn-sm" id="btnBuildPrecinctWalk">Create Precinct Walk</button>
@@ -4219,20 +4223,21 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
         api('/api/voters-precincts')
       ]);
       _walkRaceData = raceData.races || [];
-      // Build counts map from the precincts endpoint (already has counts)
+      // Build counts map from the precincts endpoint (unfiltered totals)
       _walkPrecinctCounts = {};
       if (precinctData.precincts) {
         precinctData.precincts.forEach(function(p, i) {
           _walkPrecinctCounts[p] = precinctData.counts[i] || 0;
         });
       }
-      // Populate race dropdown - only show races that have data
+      // Populate race dropdown — store type|district as value for filtered queries
       var sel = document.getElementById('walkRaceFilter');
       sel.innerHTML = '<option value="">-- Choose a Race --</option>';
       var racesWithData = _walkRaceData.filter(function(r) { return r.precincts && r.precincts.length > 0; });
       racesWithData.forEach(function(r) {
         var opt = document.createElement('option');
-        opt.value = r.race;
+        opt.value = r.type + '|' + r.district;  // e.g. "state_rep|42"
+        opt.setAttribute('data-race-label', r.race);
         var totalVoters = r.precincts.reduce(function(sum, p) { return sum + (_walkPrecinctCounts[p] || 0); }, 0);
         opt.textContent = r.race + ' (' + r.precincts.length + ' precincts, ' + totalVoters + ' voters)';
         sel.appendChild(opt);
@@ -4243,9 +4248,9 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
       var allTotal = Object.values(_walkPrecinctCounts).reduce(function(a, b) { return a + b; }, 0);
       allOpt.textContent = 'All Precincts (' + precinctData.precincts.length + ' precincts, ' + allTotal + ' voters)';
       sel.appendChild(allOpt);
-      // Show empty precinct list until race is chosen
+      // Show message until user sets filters and clicks Show Precincts
       renderWalkPrecinctList([]);
-      document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Select a race above to see precincts</span>';
+      document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Choose a race & set filters above, then click "Show Precincts"</span>';
     } catch (e) {}
     // Load election dropdowns for voting history filters
     loadWalkElectionDropdowns();
@@ -4255,18 +4260,93 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
 function onWalkRaceFilterChange() {
   var val = document.getElementById('walkRaceFilter').value;
   if (!val) {
-    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Select a race above to see precincts</span>';
+    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Choose a race above, then set filters and click "Show Precincts"</span>';
+    document.getElementById('walkFilteredTotal').textContent = '';
     updateWalkPrecinctCount();
     return;
   }
-  var precincts;
-  if (val === '__all__') {
-    precincts = Object.keys(_walkPrecinctCounts);
-  } else {
-    var race = _walkRaceData.find(function(r) { return r.race === val; });
-    precincts = race ? race.precincts : [];
+  // Auto-refresh precinct list when race changes (uses current filters)
+  refreshWalkPrecinctCounts();
+}
+
+// Get the current walk filter values from the UI
+function getWalkFilterParams() {
+  var params = [];
+  var raceVal = document.getElementById('walkRaceFilter').value;
+  if (raceVal && raceVal !== '__all__' && raceVal.includes('|')) {
+    var parts = raceVal.split('|');
+    params.push('race_col=' + encodeURIComponent(parts[0]));
+    params.push('race_val=' + encodeURIComponent(parts[1]));
   }
-  renderWalkPrecinctList(precincts);
+  var party = document.getElementById('walkPrecinctParty').value;
+  if (party) params.push('party=' + encodeURIComponent(party));
+  var support = document.getElementById('walkPrecinctSupport').value;
+  if (support) params.push('support_level=' + encodeURIComponent(support));
+  // Multi-election checkboxes
+  var votedIn = Array.from(document.querySelectorAll('.walkPrecinctVotedIn-cb:checked')).map(function(cb) { return cb.value; });
+  if (votedIn.length > 0) params.push('voted_in=' + encodeURIComponent(votedIn.join(',')));
+  var didNotVote = Array.from(document.querySelectorAll('.walkPrecinctDidNotVote-cb:checked')).map(function(cb) { return cb.value; });
+  if (didNotVote.length > 0) params.push('did_not_vote=' + encodeURIComponent(didNotVote.join(',')));
+  var minElections = document.getElementById('walkPrecinctMinElections').value;
+  if (minElections && parseInt(minElections) > 0) params.push('min_elections=' + parseInt(minElections));
+  var minAge = document.getElementById('walkPrecinctMinAge').value;
+  if (minAge && parseInt(minAge) > 0) params.push('min_age=' + parseInt(minAge));
+  var maxAge = document.getElementById('walkPrecinctMaxAge').value;
+  if (maxAge && parseInt(maxAge) > 0) params.push('max_age=' + parseInt(maxAge));
+  if (document.getElementById('walkPrecinctHasVoted').checked) params.push('has_voted=1');
+  if (document.getElementById('walkPrecinctExcludeContacted').checked) params.push('exclude_contacted=1');
+  if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) params.push('exclude_early_voted=1');
+  return params;
+}
+
+// Fetch filtered precinct counts and re-render the precinct list
+async function refreshWalkPrecinctCounts() {
+  var raceVal = document.getElementById('walkRaceFilter').value;
+  if (!raceVal) {
+    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Choose a race first (Step 1)</span>';
+    return;
+  }
+  var params = getWalkFilterParams();
+  var listEl = document.getElementById('walkPrecinctList');
+  var totalEl = document.getElementById('walkFilteredTotal');
+  listEl.innerHTML = '<span style="color:#94a3b8;font-size:13px">Loading filtered counts...</span>';
+  try {
+    var data = await api('/api/voters/precinct-counts?' + params.join('&'));
+    // Get the precincts for this race to filter
+    var racePrecincts = null;
+    if (raceVal === '__all__') {
+      racePrecincts = null; // show all
+    } else {
+      var parts = raceVal.split('|');
+      var race = _walkRaceData.find(function(r) { return r.type === parts[0] && r.district === parts[1]; });
+      racePrecincts = race ? race.precincts : [];
+    }
+    // Update counts map with filtered data
+    _walkPrecinctCounts = {};
+    var precinctNames = [];
+    (data.precincts || []).forEach(function(p) {
+      // If a race is selected, only show precincts that belong to this race
+      if (racePrecincts && !racePrecincts.includes(p.precinct)) return;
+      _walkPrecinctCounts[p.precinct] = p.count;
+      precinctNames.push(p.precinct);
+    });
+    // Also include race precincts with 0 matching voters
+    if (racePrecincts) {
+      racePrecincts.forEach(function(p) {
+        if (!_walkPrecinctCounts.hasOwnProperty(p)) {
+          _walkPrecinctCounts[p] = 0;
+          precinctNames.push(p);
+        }
+      });
+    }
+    var filteredTotal = precinctNames.reduce(function(s, p) { return s + (_walkPrecinctCounts[p] || 0); }, 0);
+    totalEl.textContent = filteredTotal + ' matching voters across ' + precinctNames.length + ' precincts';
+    totalEl.style.color = filteredTotal > 0 ? '#22c55e' : '#ef4444';
+    renderWalkPrecinctList(precinctNames);
+  } catch (e) {
+    listEl.innerHTML = '<span style="color:#ef4444;font-size:13px">Error loading precincts: ' + (e.message || 'Unknown error') + '</span>';
+    totalEl.textContent = '';
+  }
 }
 
 function renderWalkPrecinctList(precincts) {
@@ -4302,8 +4382,9 @@ function renderWalkPrecinctList(precincts) {
     label.textContent = p;
     item.appendChild(label);
     var count = document.createElement('span');
-    count.style.cssText = 'font-size:12px;color:#64748b';
-    count.textContent = (_walkPrecinctCounts[p] || 0) + ' voters';
+    var voterCount = _walkPrecinctCounts[p] || 0;
+    count.style.cssText = 'font-size:12px;font-weight:600;color:' + (voterCount > 50 ? '#22c55e' : voterCount > 10 ? '#f59e0b' : '#64748b');
+    count.textContent = voterCount + ' voters';
     item.appendChild(count);
     el.appendChild(item);
   });
@@ -4381,6 +4462,11 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (didNotVote.length > 0) filters.did_not_vote_in = didNotVote.join(',');
     if (minElections && parseInt(minElections) > 0) filters.min_elections = parseInt(minElections);
     if (document.getElementById('walkPrecinctHasVoted').checked) filters.has_voted = true;
+    var minAge = document.getElementById('walkPrecinctMinAge').value;
+    var maxAge = document.getElementById('walkPrecinctMaxAge').value;
+    if (minAge && parseInt(minAge) > 0) filters.min_age = parseInt(minAge);
+    if (maxAge && parseInt(maxAge) > 0) filters.max_age = parseInt(maxAge);
+    if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) filters.exclude_early_voted = true;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
       name: document.getElementById('precinctWalkName').value.trim() || undefined,
