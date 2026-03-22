@@ -371,7 +371,10 @@ function buildVotingHistorySQL(filters, params) {
 // ===================== DAILY REPORT (must be before /walks/:id) =====================
 router.get('/walks/daily-report', (req, res) => {
   const date = req.query.date; // YYYY-MM-DD, defaults to today
-  const targetDate = date || new Date().toISOString().split('T')[0];
+  // Default to today in Central Time (UTC-6), not UTC
+  const now = new Date();
+  const centralNow = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const targetDate = date || centralNow.toISOString().split('T')[0];
 
   // Per-walker stats for the selected day
   const walkers = db.prepare(`
@@ -387,7 +390,7 @@ router.get('/walks/daily-report', (req, res) => {
       MAX(attempted_at) as last_knock,
       COUNT(DISTINCT walk_id) as walks_worked
     FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at) = ?
+    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ?
     GROUP BY walker_name
     ORDER BY doors DESC
   `).all(targetDate);
@@ -414,21 +417,21 @@ router.get('/walks/daily-report', (req, res) => {
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
     FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at) = ?
+    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ?
   `).get(targetDate);
   totals.contact_rate = totals.total_doors > 0 ? Math.round(totals.total_contacts / totals.total_doors * 100) : 0;
 
   // Day-over-day history (last 30 days with activity)
   const history = db.prepare(`
     SELECT
-      date(attempted_at) as day,
+      date(attempted_at, '-6 hours') as day,
       COUNT(*) as doors,
       SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       COUNT(DISTINCT walker_name) as walkers
     FROM walk_attempts
     WHERE walker_name != ''
-    GROUP BY date(attempted_at)
+    GROUP BY date(attempted_at, '-6 hours')
     ORDER BY day DESC
     LIMIT 30
   `).all();
@@ -444,14 +447,14 @@ router.get('/walks/daily-report', (req, res) => {
       (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
     LEFT JOIN block_walks bw ON wa.walk_id = bw.id
-    WHERE wa.walker_name != '' AND date(wa.attempted_at) = ?
+    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?
     GROUP BY wa.walk_id
     ORDER BY doors DESC
   `).all(targetDate);
 
   // Available dates (days with any activity)
   const activeDays = db.prepare(`
-    SELECT DISTINCT date(attempted_at) as day
+    SELECT DISTINCT date(attempted_at, '-6 hours') as day
     FROM walk_attempts
     WHERE walker_name != ''
     ORDER BY day DESC
