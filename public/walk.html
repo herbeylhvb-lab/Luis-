@@ -2221,8 +2221,7 @@ function buildAddressPopup(addr, myName) {
   }
   var isDone = addr.result && addr.result !== 'not_visited';
   if (isDone) {
-    var resultColor = getMarkerColor(addr, myName);
-    popupContent += '<br><span style="color:' + resultColor + ';font-weight:600">' + formatResult(addr.result) + '</span>';
+    popupContent += '<br><span style="color:#22c55e;font-weight:600">' + formatResult(addr.result) + '</span>';
   } else {
     popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
     if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
@@ -2279,25 +2278,8 @@ function createWalkerIcon(color, label) {
 }
 
 function getMarkerColor(addr, myName) {
-  if (!addr.result || addr.result === 'not_visited') {
-    // Unvisited — amber if assigned to me, gray otherwise
-    if (myName && addr.assigned_walker === myName) return '#f59e0b';
-    return '#64748b';
-  }
-  // Color by result so supporters, opponents, etc. are visually distinct
-  switch (addr.result) {
-    case 'support':      return '#22c55e'; // Green — strong support
-    case 'lean_support': return '#86efac'; // Light green — lean support
-    case 'undecided':    return '#facc15'; // Yellow — undecided
-    case 'lean_oppose':  return '#fb923c'; // Orange — lean oppose
-    case 'oppose':       return '#ef4444'; // Red — oppose
-    case 'not_home':     return '#94a3b8'; // Gray — not home
-    case 'refused':      return '#64748b'; // Dark gray — refused
-    case 'moved':        return '#a78bfa'; // Purple — moved
-    case 'deceased':     return '#475569'; // Slate — deceased
-    case 'come_back':    return '#38bdf8'; // Sky blue — come back later
-    default:             return '#22c55e'; // Green fallback for any other contacted result
-  }
+  if (!addr.result || addr.result === 'not_visited') return '#64748b'; // Gray — unvisited
+  return '#22c55e'; // Green — walked (any result, including not home)
 }
 
 async function regeocodeWalk() {
@@ -2540,9 +2522,7 @@ function renderMap(addresses, walkerLocations, progress) {
     legend.id = 'mapLegend';
     legend.style.cssText = 'position:absolute;bottom:10px;left:10px;z-index:1000;background:rgba(15,23,42,0.9);border:1px solid #334155;border-radius:8px;padding:8px 10px;font-size:11px;color:#e2e8f0;line-height:1.6';
     var items = [
-      ['#22c55e', 'Support'], ['#86efac', 'Lean Sup'], ['#facc15', 'Undecided'],
-      ['#fb923c', 'Lean Opp'], ['#ef4444', 'Oppose'], ['#94a3b8', 'Not Home'],
-      ['#38bdf8', 'Come Back'], ['#64748b', 'Unvisited']
+      ['#22c55e', 'Walked'], ['#64748b', 'Unvisited']
     ];
     var legendHtml = '';
     for (var li = 0; li < items.length; li++) {
