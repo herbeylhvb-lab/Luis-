@@ -898,7 +898,7 @@ tr:hover td{background:#1e293b80}
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Oppose</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:6px;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px;font-size:7px;text-align:center;line-height:10px;color:#fff;font-weight:700"></span>Apartments</span>
           </div>
-          <div id="mapPrecinctFilters" style="display:flex;gap:12px;margin-top:10px;align-items:end;flex-wrap:wrap">
+          <div id="mapPrecinctFilters" style="display:flex;gap:12px;margin-top:10px;align-items:end;flex-wrap:wrap;position:relative;z-index:10">
             <div style="flex:1;min-width:180px">
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Race / District</label>
               <select id="mapRaceFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
@@ -1043,22 +1043,23 @@ tr:hover td{background:#1e293b80}
         <div class="card">
           <h3>Precinct Map</h3>
           <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">View Cameron County precinct boundaries with voter counts. Use filters to narrow your target universe — counts update live on the map.</p>
+          <div id="pctMapFilters" style="position:relative;z-index:10">
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
             <div>
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Race / District</label>
-              <select id="pctMapRaceFilter" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+              <select id="pctMapRaceFilter" onchange="debouncedPctMapRefresh()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
                 <option value="">All Voters</option>
               </select>
             </div>
             <div>
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Party</label>
-              <select id="pctMapPartyFilter" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+              <select id="pctMapPartyFilter" onchange="debouncedPctMapRefresh()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
                 <option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option>
               </select>
             </div>
             <div>
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Support Level</label>
-              <select id="pctMapSupportFilter" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+              <select id="pctMapSupportFilter" onchange="debouncedPctMapRefresh()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
                 <option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option>
               </select>
             </div>
@@ -1066,27 +1067,28 @@ tr:hover td{background:#1e293b80}
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
             <div>
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Voted In Election</label>
-              <select id="pctMapVotedIn" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+              <select id="pctMapVotedIn" onchange="debouncedPctMapRefresh()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
                 <option value="">Any</option>
               </select>
             </div>
             <div>
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Did NOT Vote In</label>
-              <select id="pctMapDidNotVote" onchange="refreshPctMapCounts()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+              <select id="pctMapDidNotVote" onchange="debouncedPctMapRefresh()" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
                 <option value="">--</option>
               </select>
             </div>
             <div>
               <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Min Elections Voted</label>
-              <input type="number" id="pctMapMinElections" onchange="refreshPctMapCounts()" placeholder="e.g. 2" min="0" max="20" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
+              <input type="number" id="pctMapMinElections" onchange="debouncedPctMapRefresh()" placeholder="e.g. 2" min="0" max="20" style="width:100%;padding:8px 10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
             </div>
           </div>
           <div style="display:flex;gap:16px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="pctMapExcludeContacted" onchange="refreshPctMapCounts()" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
-            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="pctMapHasVoted" onchange="refreshPctMapCounts()" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
+            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="pctMapExcludeContacted" onchange="debouncedPctMapRefresh()" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
+            <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="pctMapHasVoted" onchange="debouncedPctMapRefresh()" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
             <span id="pctMapTotal" style="font-size:16px;color:#f59e0b;font-weight:700;margin-left:auto"></span>
           </div>
-          <div id="pctMap" style="height:550px;border-radius:8px;background:#1e293b"></div>
+          </div>
+          <div id="pctMap" style="height:550px;border-radius:8px;background:#1e293b;position:relative;z-index:1"></div>
           <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#94a3b8;flex-wrap:wrap">
             <span><span style="display:inline-block;width:16px;height:3px;background:#f59e0b;margin-right:4px;vertical-align:middle"></span>Precinct boundary</span>
             <span>Labels show precinct number and voter count</span>
@@ -4575,7 +4577,10 @@ function initWalkMap() {
   updateAddrMarkers();
 }
 
+var _walkMapLayersByPrecinct = {};
+
 function renderPrecinctGeoLayer(geoData, voterCounts) {
+  _walkMapLayersByPrecinct = {};
   return L.geoJSON(geoData, {
     style: function() {
       return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' };
@@ -4587,8 +4592,13 @@ function renderPrecinctGeoLayer(geoData, voterCounts) {
         permanent: true, direction: 'center', className: 'precinct-label',
         offset: [0, 0]
       });
+      layer._pctCount = count;
+      layer._pctId = pct;
+      _walkMapLayersByPrecinct[pct] = layer;
       layer.on('click', function() {
-        layer.bindPopup('<div style="font-size:13px"><strong>Precinct ' + pct + '</strong><br>' + count.toLocaleString() + ' voters</div>').openPopup();
+        var c = layer._pctCount || 0;
+        layer.unbindPopup();
+        layer.bindPopup('<div style="font-size:13px"><strong>Precinct ' + pct + '</strong><br>' + c.toLocaleString() + ' voters</div>').openPopup();
       });
     }
   });
@@ -4612,12 +4622,22 @@ async function refreshMapPrecinctCounts() {
     var data = await api(url + params.join('&'));
     var counts = {};
     (data.precincts || []).forEach(function(p) { counts[p.precinct] = p.count; });
-    // Remove old layer and add new one
-    var parent = null;
-    walkMap.eachLayer(function(l) { if (l === precinctLayer) parent = l; });
-    if (_precinctGeoLayer) precinctLayer.removeLayer(_precinctGeoLayer);
-    _precinctGeoLayer = renderPrecinctGeoLayer(_precinctGeoData, counts);
-    _precinctGeoLayer.addTo(precinctLayer);
+    // Update existing tooltips if layer exists, otherwise create fresh
+    if (_precinctGeoLayer && Object.keys(_walkMapLayersByPrecinct).length > 0) {
+      for (var pct in _walkMapLayersByPrecinct) {
+        var layer = _walkMapLayersByPrecinct[pct];
+        var c = counts[pct] || 0;
+        layer._pctCount = c;
+        var tooltip = layer.getTooltip();
+        if (tooltip) {
+          tooltip.setContent('Pct ' + pct + (c ? ' (' + c.toLocaleString() + ')' : ''));
+        }
+      }
+    } else {
+      if (_precinctGeoLayer) precinctLayer.removeLayer(_precinctGeoLayer);
+      _precinctGeoLayer = renderPrecinctGeoLayer(_precinctGeoData, counts);
+      _precinctGeoLayer.addTo(precinctLayer);
+    }
     document.getElementById('mapPrecinctTotal').textContent = (data.total || 0).toLocaleString() + ' voters';
   } catch (e) {}
 }
@@ -4925,8 +4945,11 @@ async function initPctMap() {
   setTimeout(function() { pctMap.invalidateSize(); }, 200);
 }
 
+var _pctMapLayersByPrecinct = {};
+
 function renderPctMapLayer(voterCounts) {
   if (_pctMapGeoLayer) _pctMapPrecinctLayer.removeLayer(_pctMapGeoLayer);
+  _pctMapLayersByPrecinct = {};
   _pctMapGeoLayer = L.geoJSON(_pctMapGeoData, {
     style: function() {
       return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.08, fillColor: '#f59e0b' };
@@ -4938,11 +4961,39 @@ function renderPctMapLayer(voterCounts) {
         permanent: true, direction: 'center', className: 'precinct-label',
         offset: [0, 0]
       });
+      layer._pctCount = count;
+      layer._pctId = pct;
+      _pctMapLayersByPrecinct[pct] = layer;
       layer.on('click', function() {
-        layer.bindPopup('<div style="font-size:14px"><strong>Precinct ' + pct + '</strong><br><span style="font-size:18px;font-weight:700;color:#f59e0b">' + count.toLocaleString() + '</span> voters</div>').openPopup();
+        var c = layer._pctCount || 0;
+        layer.unbindPopup();
+        layer.bindPopup('<div style="font-size:14px"><strong>Precinct ' + pct + '</strong><br><span style="font-size:18px;font-weight:700;color:#f59e0b">' + c.toLocaleString() + '</span> voters</div>').openPopup();
       });
     }
   }).addTo(_pctMapPrecinctLayer);
+}
+
+function updatePctMapCounts(voterCounts) {
+  // Update existing layer tooltips without destroying/recreating the layer
+  if (!_pctMapGeoLayer || Object.keys(_pctMapLayersByPrecinct).length === 0) {
+    renderPctMapLayer(voterCounts);
+    return;
+  }
+  for (var pct in _pctMapLayersByPrecinct) {
+    var layer = _pctMapLayersByPrecinct[pct];
+    var count = voterCounts[pct] || 0;
+    layer._pctCount = count;
+    var tooltip = layer.getTooltip();
+    if (tooltip) {
+      tooltip.setContent('Pct ' + pct + (count ? ' (' + count.toLocaleString() + ')' : ''));
+    }
+  }
+}
+
+var _pctMapRefreshTimer = null;
+function debouncedPctMapRefresh() {
+  if (_pctMapRefreshTimer) clearTimeout(_pctMapRefreshTimer);
+  _pctMapRefreshTimer = setTimeout(refreshPctMapCounts, 300);
 }
 
 async function refreshPctMapCounts() {
@@ -4972,7 +5023,7 @@ async function refreshPctMapCounts() {
     var data = await api('/api/voters/precinct-counts?' + params.join('&'));
     var counts = {};
     (data.precincts || []).forEach(function(p) { counts[p.precinct] = p.count; });
-    renderPctMapLayer(counts);
+    updatePctMapCounts(counts);
     document.getElementById('pctMapTotal').textContent = (data.total || 0).toLocaleString() + ' voters';
   } catch (e) {}
 }
