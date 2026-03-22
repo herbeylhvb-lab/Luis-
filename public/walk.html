@@ -894,11 +894,12 @@ async function optimizeRoute() {
 // Fetch optimized route for THIS walker only (uses current GPS)
 async function fetchWalkerRoute() {
   var url = '/api/walks/' + walkState.walkId + '/walker/' + encodeURIComponent(walkState.walkerName) + '/route';
-  if (walkState.gpsLat && walkState.gpsLng) {
+  if (walkState.gpsLat != null && walkState.gpsLng != null) {
     url += '?lat=' + walkState.gpsLat + '&lng=' + walkState.gpsLng;
   }
   var res = await fetch(url);
   var data = await res.json();
+  if (!res.ok) return data;
   if (data.mapsUrl) {
     walkState.mapsUrl = data.mapsUrl;
     document.getElementById('mapsLink').href = data.mapsUrl;
@@ -1812,7 +1813,8 @@ async function logDoor() {
       if (walkState.walk.addresses[ai].id === doorState.openAddrId) { addr = walkState.walk.addresses[ai]; walkState.currentAddrIdx = ai; break; }
     }
   }
-  if (!addr) addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  if (!addr && walkState.walk && walkState.walk.addresses) addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  if (!addr) { _logDoorInProgress = false; return; }
   var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
 
@@ -2334,9 +2336,9 @@ async function refreshMapData() {
   try {
     var res = await fetch('/api/walks/' + walkState.walkId + '/map-data');
     var data = await res.json();
-    if (!res.ok) return;
+    if (!res.ok || !data || !data.addresses) return;
 
-    renderMap(data.addresses, data.locations, data.progress);
+    renderMap(data.addresses, data.locations || [], data.progress);
   } catch (e) {
     // silent
   } finally {
@@ -2362,9 +2364,9 @@ function renderMap(addresses, walkerLocations, progress) {
   var locationGroups = {};
   for (var i = 0; i < addresses.length; i++) {
     var addr = addresses[i];
-    if (!addr.lat || !addr.lng) continue;
+    if (addr.lat == null || addr.lng == null) continue;
     // Round to ~1m precision to group nearby points (same building)
-    var key = addr.lat.toFixed(5) + ',' + addr.lng.toFixed(5);
+    var key = Number(addr.lat).toFixed(5) + ',' + Number(addr.lng).toFixed(5);
     if (!locationGroups[key]) locationGroups[key] = [];
     locationGroups[key].push(addr);
   }
