@@ -1289,6 +1289,12 @@ function renderListVoters() {
       evBadge.textContent = 'Not Voted';
     }
     nameRow.appendChild(evBadge);
+    if (v.age) {
+      var ageBadge2 = document.createElement('span');
+      ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
+      ageBadge2.textContent = v.age;
+      nameRow.appendChild(ageBadge2);
+    }
     info.appendChild(nameRow);
     var a = document.createElement('div');
     a.className = 'addr';
@@ -1491,6 +1497,12 @@ async function searchVoters() {
       evSearchBadge.textContent = 'Not Voted';
     }
     nameRow.appendChild(evSearchBadge);
+    if (v.age) {
+      var ageBadge = document.createElement('span');
+      ageBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
+      ageBadge.textContent = 'Age ' + v.age;
+      nameRow.appendChild(ageBadge);
+    }
     nameDiv.appendChild(nameRow);
 
     var addrEl = document.createElement('div');
