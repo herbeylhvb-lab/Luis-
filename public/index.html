@@ -911,20 +911,11 @@ tr:hover td{background:#1e293b80}
             </div>
             <div id="walkerStatusList" style="display:flex;flex-direction:column;gap:4px"></div>
           </div>
-          <div id="mapPrecinctFilters" style="display:flex;gap:12px;margin-top:10px;align-items:end;flex-wrap:wrap;position:relative;z-index:10">
-            <div style="flex:1;min-width:180px">
-              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Race / District</label>
-              <select id="mapRaceFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
-                <option value="">All Voters</option>
-              </select>
-            </div>
-            <div style="flex:1;min-width:180px">
-              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Election Cycle</label>
-              <select id="mapElectionFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
-                <option value="">All Elections</option>
-              </select>
-            </div>
-            <span id="mapPrecinctTotal" style="font-size:12px;color:#f59e0b;font-weight:600;white-space:nowrap"></span>
+          <!-- Race/District and Election filters moved to Precinct Map tab only -->
+          <div id="mapPrecinctFilters" style="display:none">
+            <select id="mapRaceFilter" onchange="refreshMapPrecinctCounts()"><option value="">All Voters</option></select>
+            <select id="mapElectionFilter" onchange="refreshMapPrecinctCounts()"><option value="">All Elections</option></select>
+            <span id="mapPrecinctTotal"></span>
           </div>
         </div>
         <div class="card">
