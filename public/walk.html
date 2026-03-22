@@ -1616,9 +1616,17 @@ function openDoor(idx) {
       }
     }
     document.getElementById('btnLogDoor').disabled = false;
-    // Already visited — show step 2 directly
-    showDoorStep(2);
-    document.getElementById('step2Title').textContent = 'Update result';
+    // If household members exist, show step 1 (member list) so each person can be marked individually
+    // Previously this jumped to step 2, which meant the disposition wasn't applied to any member
+    // and all members defaulted to not_home — ignoring the selected result
+    if (doorState.allMembers.length > 0) {
+      showDoorStep(1);
+      renderMemberList();
+    } else {
+      // No household — show step 2 directly
+      showDoorStep(2);
+      document.getElementById('step2Title').textContent = 'Update result';
+    }
   }
 
   document.getElementById('doorOverlay').classList.add('open');
