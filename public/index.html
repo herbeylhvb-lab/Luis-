@@ -883,11 +883,10 @@ tr:hover td{background:#1e293b80}
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Offline (&gt;5min)</span>
             <span style="margin-left:8px;font-weight:600;color:#e2e8f0">Doors:</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Not visited</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Support</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Walked</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Support</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Undecided</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Oppose</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f97316;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Not Home</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Refused/Moved</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:6px;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px;font-size:7px;text-align:center;line-height:10px;color:#fff;font-weight:700"></span>Apartments</span>
           </div>
         </div>
@@ -4406,18 +4405,11 @@ function initWalkMap() {
 }
 
 function getAddrColor(result) {
-  if (!result || result === 'not_visited') return '#64748b';
-  // Green = supporter
-  if (result === 'support' || result === 'lean_support') return '#22c55e';
-  // Yellow = undecided / come back
-  if (result === 'undecided' || result === 'come_back') return '#eab308';
-  // Red = oppose
-  if (result === 'oppose' || result === 'lean_oppose') return '#ef4444';
-  // Orange = not home (retry)
-  if (result === 'not_home') return '#f97316';
-  // Gray = refused/moved/deceased
-  if (result === 'refused' || result === 'moved' || result === 'deceased') return '#94a3b8';
-  return '#3b82f6';
+  if (!result || result === 'not_visited') return '#64748b'; // Gray = not visited
+  if (result === 'support' || result === 'lean_support') return '#3b82f6'; // Blue = supporter
+  if (result === 'oppose' || result === 'lean_oppose') return '#ef4444'; // Red = oppose
+  if (result === 'undecided' || result === 'come_back') return '#eab308'; // Yellow = undecided
+  return '#22c55e'; // Green = walked (not_home, refused, moved, deceased, etc.)
 }
 
 function createAdminHouseIcon(color, isDone) {
