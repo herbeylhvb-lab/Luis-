@@ -70,6 +70,36 @@ function parseAddressUnit(address) {
 
 // State is configurable via GEOCODE_STATE env var (defaults to empty for auto-detection)
 const GEOCODE_STATE = process.env.GEOCODE_STATE || '';
+const GOOGLE_GEOCODE_KEY = process.env.GOOGLE_GEOCODE_KEY || 'AIzaSyBa3ZS_FTVxIG4mJO0FMw-irC3fC_1txy8';
+
+// Google Geocoding API — most accurate, $5 per 1000 requests
+async function geocodeAddressGoogle(address, city, zip) {
+  if (!GOOGLE_GEOCODE_KEY || !address || !address.trim()) return null;
+  const street = address.trim().replace(/\s+(apt|unit|ste|suite|#)\s*\S+$/i, '').trim();
+  const parts = [street];
+  if (city) parts.push(city.trim());
+  if (GEOCODE_STATE) parts.push(GEOCODE_STATE);
+  if (zip) parts.push(zip.trim());
+  const fullAddress = parts.join(', ');
+
+  try {
+    const params = new URLSearchParams({
+      address: fullAddress,
+      key: GOOGLE_GEOCODE_KEY
+    });
+    const res = await fetch('https://maps.googleapis.com/maps/api/geocode/json?' + params);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      const loc = data.results[0].geometry.location;
+      return { lat: loc.lat, lng: loc.lng };
+    }
+    if (data.status === 'OVER_QUERY_LIMIT' || data.status === 'REQUEST_DENIED') {
+      console.error('Google Geocoding error:', data.status, data.error_message || '');
+    }
+  } catch (e) { console.error('Google geocoder error for:', address, '-', e.message); }
+  return null;
+}
 
 // Census Bureau batch geocoder — processes up to 10,000 addresses in ONE request
 // Returns a map of input line -> { lat, lng }
@@ -206,27 +236,48 @@ function geocodeWalkAddresses(walkId) {
     let resolved = 0;
     let failed = 0;
 
-    // Step 1: Try Census Bureau BATCH geocoder (all addresses in one request)
-    try {
-      console.log('Attempting Census Bureau batch geocode for', uniqueAddresses.length, 'addresses...');
-      const batchResults = await censusBatchGeocode(uniqueAddresses);
-      const matched = Object.keys(batchResults).length;
-      console.log('Census batch returned', matched, '/', uniqueAddresses.length, 'matches');
-
-      for (let i = 0; i < uniqueAddresses.length; i++) {
-        const coords = batchResults[i];
-        if (coords) {
-          for (const id of uniqueAddresses[i].ids) {
-            update.run(coords.lat, coords.lng, id);
+    // Step 1: Try Google Geocoding API (most accurate)
+    if (GOOGLE_GEOCODE_KEY) {
+      console.log('Geocoding', uniqueAddresses.length, 'addresses via Google Maps API...');
+      for (const group of uniqueAddresses) {
+        try {
+          const coords = await geocodeAddressGoogle(group.address, group.city, group.zip);
+          if (coords) {
+            for (const id of group.ids) {
+              update.run(coords.lat, coords.lng, id);
+            }
+            resolved += group.ids.length;
           }
-          resolved += uniqueAddresses[i].ids.length;
+        } catch (e) {
+          console.error('Google geocode error for', group.address, ':', e.message);
         }
+        // Small delay to stay within rate limits
+        await new Promise(r => setTimeout(r, 50));
       }
-    } catch (e) {
-      console.error('Census batch geocoding failed:', e.message, '— falling back to individual requests');
+      console.log('Google geocoding resolved', resolved, '/', allMissing.length, 'addresses');
+    } else {
+      // No Google key — fall back to Census Bureau BATCH geocoder
+      try {
+        console.log('No GOOGLE_GEOCODE_KEY set — using Census Bureau batch geocode for', uniqueAddresses.length, 'addresses...');
+        const batchResults = await censusBatchGeocode(uniqueAddresses);
+        const matched = Object.keys(batchResults).length;
+        console.log('Census batch returned', matched, '/', uniqueAddresses.length, 'matches');
+
+        for (let i = 0; i < uniqueAddresses.length; i++) {
+          const coords = batchResults[i];
+          if (coords) {
+            for (const id of uniqueAddresses[i].ids) {
+              update.run(coords.lat, coords.lng, id);
+            }
+            resolved += uniqueAddresses[i].ids.length;
+          }
+        }
+      } catch (e) {
+        console.error('Census batch geocoding failed:', e.message, '— falling back to individual requests');
+      }
     }
 
-    // Step 2: For any addresses Census batch missed, try individual Census lookups
+    // Step 2: For any addresses still missing, try individual fallbacks
     const stillMissing = uniqueAddresses.filter((group, i) => {
       const hasCoords = db.prepare('SELECT lat FROM walk_addresses WHERE id = ? AND lat IS NOT NULL').get(group.ids[0]);
       return !hasCoords;
@@ -236,9 +287,14 @@ function geocodeWalkAddresses(walkId) {
       console.log('Individual geocoding for', stillMissing.length, 'remaining addresses...');
       for (const group of stillMissing) {
         try {
-          // Try Census individual first
-          let coords = await geocodeAddressCensus(group.address, group.city, group.zip);
-          // Fallback to Nominatim (with 2s delay to respect rate limit)
+          // Try Google first (if key available), then Census, then Nominatim
+          let coords = null;
+          if (GOOGLE_GEOCODE_KEY) {
+            coords = await geocodeAddressGoogle(group.address, group.city, group.zip);
+          }
+          if (!coords) {
+            coords = await geocodeAddressCensus(group.address, group.city, group.zip);
+          }
           if (!coords) {
             await new Promise(r => setTimeout(r, 2000));
             coords = await geocodeAddressNominatim(group.address, group.city, group.zip);
