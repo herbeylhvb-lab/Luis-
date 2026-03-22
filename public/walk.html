@@ -2439,8 +2439,23 @@ function renderMap(addresses, walkerLocations, progress) {
         if (group[u].result && group[u].result !== 'not_visited') doneCount++;
       }
       var allDone = doneCount === group.length;
-      // Simple: green if all done, amber if any still unvisited
-      var groupColor = allDone ? '#22c55e' : '#f59e0b';
+      // Use the most meaningful result color for the group marker
+      // Priority: support/oppose results over non-contact results
+      var groupColor = '#f59e0b'; // amber = unvisited
+      if (doneCount > 0) {
+        var contactPriority = ['support', 'lean_support', 'oppose', 'lean_oppose', 'undecided'];
+        var bestResult = null;
+        for (var cp = 0; cp < contactPriority.length && !bestResult; cp++) {
+          for (var gu = 0; gu < group.length; gu++) {
+            if (group[gu].result === contactPriority[cp]) { bestResult = group[gu]; break; }
+          }
+        }
+        if (bestResult) {
+          groupColor = getMarkerColor(bestResult, myName);
+        } else {
+          groupColor = '#22c55e'; // green = walked but no contact results
+        }
+      }
       var groupIcon = createApartmentIcon(groupColor, group.length, allDone);
 
       // Build popup with all units listed
@@ -2460,7 +2475,7 @@ function renderMap(addresses, walkerLocations, progress) {
       for (var u3 = 0; u3 < group.length; u3++) {
         var unitAddr = group[u3];
         var unitDone = unitAddr.result && unitAddr.result !== 'not_visited';
-        var unitColor = unitDone ? '#22c55e' : (myName && unitAddr.assigned_walker === myName ? '#f59e0b' : '#94a3b8');
+        var unitColor = unitDone ? getMarkerColor(unitAddr, myName) : (myName && unitAddr.assigned_walker === myName ? '#f59e0b' : '#94a3b8');
         var unitLabel = unitAddr.unit ? escHtml(unitAddr.unit) : 'Unit ' + (u3 + 1);
         var unitStatus = unitDone ? formatResult(unitAddr.result) : 'Not visited';
         groupPopup += '<div class="apt-unit-row" data-addr-id="' + unitAddr.id + '" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #1e293b;cursor:pointer">' +
@@ -2470,7 +2485,7 @@ function renderMap(addresses, walkerLocations, progress) {
           groupPopup += ' <span style="color:#e2e8f0;font-size:12px;font-weight:600">' + escHtml(unitAddr.voter_name) + '</span>';
           if (unitAddr.voter_age) groupPopup += ' <span style="color:#999;font-size:11px">(age ' + escHtml(String(unitAddr.voter_age)) + ')</span>';
         }
-        groupPopup += '</div><span style="font-size:11px;color:' + (unitDone ? '#22c55e' : '#f59e0b') + '">' + unitStatus + '</span></div>';
+        groupPopup += '</div><span style="font-size:11px;color:' + (unitDone ? unitColor : '#f59e0b') + ';font-weight:600">' + unitStatus + '</span></div>';
       }
       groupPopup += '</div></div>';
 
