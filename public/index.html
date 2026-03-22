@@ -4492,7 +4492,7 @@ function updateAddrMarkers(addresses) {
     if (group.length === 1 || !isApartment) {
       // Single house marker
       var allDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
-      var color = allDone ? '#22c55e' : getAddrColor(firstAddr.result);
+      var color = getAddrColor(firstAddr.result);
       var icon = createAdminHouseIcon(color, allDone);
 
       var resultLabel = formatAdminResult(firstAddr.result);
@@ -4514,8 +4514,18 @@ function updateAddrMarkers(addresses) {
         if (group[u].result && group[u].result !== 'not_visited') doneCount++;
       }
       var allGroupDone = doneCount === group.length;
-      // Determine color: green if all done, amber if mixed, gray if none visited
-      var groupColor = allGroupDone ? '#22c55e' : (doneCount > 0 ? '#f59e0b' : '#64748b');
+      // Use the most meaningful result color for the group marker
+      var groupColor = '#64748b'; // gray = none visited
+      if (doneCount > 0) {
+        var contactPriority = ['support', 'lean_support', 'oppose', 'lean_oppose', 'undecided'];
+        var bestResult = null;
+        for (var cp = 0; cp < contactPriority.length && !bestResult; cp++) {
+          for (var gu = 0; gu < group.length; gu++) {
+            if (group[gu].result === contactPriority[cp]) { bestResult = group[gu].result; break; }
+          }
+        }
+        groupColor = bestResult ? getAddrColor(bestResult) : '#22c55e';
+      }
       var groupIcon = createAdminApartmentIcon(groupColor, group.length, allGroupDone);
 
       // Build popup with all units listed
