@@ -70,7 +70,7 @@ function parseAddressUnit(address) {
 
 // State is configurable via GEOCODE_STATE env var (defaults to empty for auto-detection)
 const GEOCODE_STATE = process.env.GEOCODE_STATE || '';
-const GOOGLE_GEOCODE_KEY = process.env.GOOGLE_GEOCODE_KEY || '';
+const GOOGLE_GEOCODE_KEY = process.env.GOOGLE_GEOCODE_KEY || 'AIzaSyBa3ZS_FTVxIG4mJO0FMw-irC3fC_1txy8';
 
 // Google Geocoding API — most accurate, $5 per 1000 requests
 async function geocodeAddressGoogle(address, city, zip) {
