@@ -835,24 +835,68 @@ router.get('/voters/race-precincts', (req, res) => {
   res.json({ races });
 });
 
-// Precinct voter counts filtered by race/district column and optionally election participation
+// Precinct voter counts with full filter support
 router.get('/voters/precinct-counts', (req, res) => {
-  const { race_col, race_val, election } = req.query;
+  const { race_col, race_val, election, party, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted } = req.query;
   const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   let sql = "SELECT precinct, COUNT(*) as cnt FROM voters WHERE precinct != '' AND precinct IS NOT NULL";
   const params = [];
 
-  // Filter by race/district if specified
+  // Race/district filter
   if (race_col && validCols.includes(race_col) && race_val) {
     sql += ` AND ${race_col} = ?`;
     params.push(race_val);
   }
 
-  // Filter by election participation if specified
+  // Party filter
+  if (party) {
+    if (party === 'NP') {
+      sql += " AND (party = '' OR party IS NULL OR party NOT IN ('D','R','I'))";
+    } else {
+      sql += ' AND party = ?';
+      params.push(party);
+    }
+  }
+
+  // Support level filter
+  if (support_level) {
+    sql += ' AND support_level = ?';
+    params.push(support_level);
+  }
+
+  // Election participation (legacy single param)
   if (election) {
     sql += ' AND id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)';
     params.push(election);
+  }
+
+  // Voted in specific election
+  if (voted_in) {
+    sql += ' AND id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)';
+    params.push(voted_in);
+  }
+
+  // Did NOT vote in specific election
+  if (did_not_vote) {
+    sql += ' AND id NOT IN (SELECT voter_id FROM election_votes WHERE election_name = ?)';
+    params.push(did_not_vote);
+  }
+
+  // Minimum elections voted in
+  if (min_elections && parseInt(min_elections) > 0) {
+    sql += ' AND id IN (SELECT voter_id FROM election_votes GROUP BY voter_id HAVING COUNT(DISTINCT election_name) >= ?)';
+    params.push(parseInt(min_elections));
+  }
+
+  // Only voters with voting history
+  if (has_voted === '1') {
+    sql += ' AND id IN (SELECT DISTINCT voter_id FROM election_votes)';
+  }
+
+  // Exclude already contacted
+  if (exclude_contacted === '1') {
+    sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
   }
 
   sql += " AND precinct NOT GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9]*' GROUP BY precinct ORDER BY cnt DESC";
