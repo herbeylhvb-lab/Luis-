@@ -720,7 +720,7 @@
       var now = Date.now();
       if (!window._lastVolSync || now - window._lastVolSync > 60000) {
         window._lastVolSync = now;
-        fetch('/api/sync-inbound', { method: 'POST' }).catch(function() {});
+        fetch('/api/sync-inbound', { method: 'POST' }).catch(function(err) { console.error('Sync inbound failed:', err); });
       }
       try {
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
