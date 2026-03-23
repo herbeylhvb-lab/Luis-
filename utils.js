@@ -66,11 +66,13 @@ function asyncHandler(fn) {
  * Replace merge tags ({firstName}, {lastName}, {city}) in a message template.
  * Used by WhatsApp send, P2P queue, and email send.
  */
-function personalizeTemplate(template, contact) {
+function personalizeTemplate(template, contact, options) {
   const c = contact || {};
+  const opts = options || {};
   const baseUrl = process.env.BASE_URL || 'https://villarrealjr.com';
+  const eventParam = opts.eventId ? '?e=' + opts.eventId : '';
   const checkinLink = c.qr_token
-    ? '\nCheck in here: ' + baseUrl + '/v/' + c.qr_token
+    ? '\nCheck in here: ' + baseUrl + '/v/' + c.qr_token + eventParam
     : '';
   const map = {
     '{firstName}': c.firstName || c.first_name || '',
