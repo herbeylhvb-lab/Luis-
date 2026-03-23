@@ -140,6 +140,7 @@ router.delete('/candidates/:id', requireAuth, (req, res) => {
   const deactivate = db.transaction(() => {
     db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
     db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
+    db.prepare('UPDATE walkers SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
     db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
     db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
     db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
@@ -196,8 +197,10 @@ router.get('/candidates/:id/captains', (req, res) => {
     JOIN captain_lists cl ON clv.list_id = cl.id
     JOIN captains c ON cl.captain_id = c.id
     JOIN voters v ON clv.voter_id = v.id
-    WHERE c.candidate_id = ?
-  `).get(req.params.id) || { total_voters: 0, total_voted: 0 };
+    WHERE c.candidate_id = ? OR EXISTS (
+      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+    )
+  `).get(req.params.id, req.params.id) || { total_voters: 0, total_voted: 0 };
 
   res.json({ captains, total_voters: totals.total_voters, total_voted: totals.total_voted });
 });
@@ -741,18 +744,49 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 5000, 10000);
   const offset = parseInt(req.query.offset) || 0;
 
-  // Gather all voter appearances from both admin and captain lists
-  const rows = db.prepare(`
-    SELECT v.id, v.first_name, v.last_name, v.middle_name, v.suffix,
-           v.address, v.city, v.zip, v.phone, v.party, v.party_score, v.precinct,
-           v.state_file_id, v.vanid, v.early_voted, v.early_voted_date,
-           source_name, source_type, list_name, added_at
-    FROM (
+  // Step 1: Get unique voter IDs with proper pagination
+  const allVoterIds = db.prepare(`
+    SELECT DISTINCT voter_id FROM (
+      SELECT alv.voter_id FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+      UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captains c ON cl.captain_id = c.id
+      WHERE c.candidate_id = ? OR EXISTS (
+        SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+      )
+    )
+  `).all(candidateIdParam, candidateIdParam, candidateIdParam);
+  const totalUniqueVoters = allVoterIds.length;
+
+  // Step 2: Get paginated voters with their info
+  const voterRows = db.prepare(`
+    SELECT v.* FROM voters v WHERE v.id IN (
+      SELECT DISTINCT voter_id FROM (
+        SELECT alv.voter_id FROM admin_list_voters alv
+        JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+        UNION
+        SELECT clv.voter_id FROM captain_list_voters clv
+        JOIN captain_lists cl ON clv.list_id = cl.id
+        JOIN captains c ON cl.captain_id = c.id
+        WHERE c.candidate_id = ? OR EXISTS (
+          SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+        )
+      )
+    )
+    ORDER BY v.last_name, v.first_name
+    LIMIT ? OFFSET ?
+  `).all(candidateIdParam, candidateIdParam, candidateIdParam, limit, offset);
+
+  // Step 3: Get source info for these voters
+  const voterIdSet = new Set(voterRows.map(v => v.id));
+  const sourceRows = voterIdSet.size > 0 ? db.prepare(`
+    SELECT voter_id, source_name, source_type, list_name, added_at FROM (
       SELECT alv.voter_id, 'My List' as source_name, 'admin' as source_type,
              al.name as list_name, alv.added_at
       FROM admin_list_voters alv
-      JOIN admin_lists al ON alv.list_id = al.id
-      WHERE al.candidate_id = ?
+      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
       UNION ALL
       SELECT clv.voter_id, c.name as source_name, 'captain' as source_type,
              cl.name as list_name, clv.added_at
@@ -762,51 +796,37 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
       WHERE c.candidate_id = ? OR EXISTS (
         SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
       )
-    ) sources
-    JOIN voters v ON sources.voter_id = v.id
-    ORDER BY v.last_name, v.first_name
-    LIMIT ? OFFSET ?
-  `).all(candidateIdParam, candidateIdParam, candidateIdParam, limit, offset);
+    ) WHERE voter_id IN (${voterRows.map(() => '?').join(',')})
+  `).all(candidateIdParam, candidateIdParam, candidateIdParam, ...voterRows.map(v => v.id)) : [];
 
-  // Group by voter_id — each voter gets an array of which lists they're on
+  // Build voter map with lists
   const voterMap = new Map();
-  for (const row of rows) {
-    if (!voterMap.has(row.id)) {
-      voterMap.set(row.id, {
-        id: row.id,
-        first_name: row.first_name,
-        last_name: row.last_name,
-        middle_name: row.middle_name,
-        suffix: row.suffix,
-        address: row.address,
-        city: row.city,
-        zip: row.zip,
-        phone: row.phone,
-        party: row.party,
-        party_score: row.party_score,
-        precinct: row.precinct,
-        state_file_id: row.state_file_id,
-        vanid: row.vanid,
-        early_voted: row.early_voted,
-        early_voted_date: row.early_voted_date,
-        lists: []
+  for (const v of voterRows) {
+    voterMap.set(v.id, {
+      id: v.id, first_name: v.first_name, last_name: v.last_name,
+      middle_name: v.middle_name, suffix: v.suffix,
+      address: v.address, city: v.city, zip: v.zip,
+      phone: v.phone, party: v.party, party_score: v.party_score,
+      precinct: v.precinct, state_file_id: v.state_file_id, vanid: v.vanid,
+      early_voted: v.early_voted, early_voted_date: v.early_voted_date,
+      lists: []
+    });
+  }
+  for (const s of sourceRows) {
+    if (voterMap.has(s.voter_id)) {
+      voterMap.get(s.voter_id).lists.push({
+        source_name: s.source_name, source_type: s.source_type,
+        list_name: s.list_name, added_at: s.added_at
       });
     }
-    voterMap.get(row.id).lists.push({
-      source_name: row.source_name,
-      source_type: row.source_type,
-      list_name: row.list_name,
-      added_at: row.added_at
-    });
   }
 
   const voters = Array.from(voterMap.values());
   attachElectionVotes(voters);
-  const totalAppearances = rows.length;
   const uniqueVoters = voters.length;
   const overlaps = voters.filter(v => v.lists.length > 1).length;
 
-  res.json({ voters, totalAppearances, uniqueVoters, overlaps });
+  res.json({ voters, totalUniqueVoters, uniqueVoters, overlaps });
 });
 
 // Assign a candidate's list to one of their captains
@@ -818,8 +838,10 @@ router.post('/candidates/:id/lists/:listId/assign', requireCandidateAuth, (req, 
     db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE id = ?').run(req.params.listId);
     return res.json({ success: true });
   }
-  // Verify captain belongs to this candidate
-  const captain = db.prepare('SELECT id, name FROM captains WHERE id = ? AND candidate_id = ?').get(captain_id, req.params.id);
+  // Verify captain belongs to this candidate (own or shared)
+  const captain = db.prepare(`SELECT c.id, c.name FROM captains c WHERE c.id = ? AND (c.candidate_id = ? OR EXISTS (
+    SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+  ))`).get(captain_id, req.params.id, req.params.id);
   if (!captain) return res.status(404).json({ error: 'Captain not found under this candidate.' });
   db.prepare('UPDATE admin_lists SET assigned_captain_id = ? WHERE id = ?').run(captain_id, req.params.listId);
   res.json({ success: true, captain_name: captain.name });
