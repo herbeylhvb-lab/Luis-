@@ -2027,15 +2027,15 @@ tr:hover td{background:#1e293b80}
         <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Find voters who haven't voted yet and create a list to text them.</p>
         <div class="form-row-3" style="margin-bottom:16px">
           <div class="form-group"><label>Support Level</label>
-            <select id="gotvSupportFilter" multiple style="height:100px">
-              <option value="strong_support" selected>Strong Support</option>
-              <option value="lean_support" selected>Lean Support</option>
-              <option value="supporter" selected>Supporter</option>
-              <option value="undecided">Undecided</option>
-              <option value="unknown">Unknown</option>
-              <option value="lean_oppose">Lean Oppose</option>
-              <option value="oppose">Oppose</option>
-            </select>
+            <div id="gotvSupportFilter" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px 8px;max-height:120px;overflow-y:auto">
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="strong_support" checked style="accent-color:#22c55e"> Strong Support</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="lean_support" checked style="accent-color:#22c55e"> Lean Support</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="supporter" checked style="accent-color:#22c55e"> Supporter</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="undecided" style="accent-color:#f59e0b"> Undecided</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="unknown" style="accent-color:#64748b"> Unknown</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="lean_oppose" style="accent-color:#ef4444"> Lean Oppose</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="oppose" style="accent-color:#ef4444"> Oppose</label>
+            </div>
           </div>
           <div class="form-group"><label>Precinct</label>
             <select id="gotvPrecinctFilter"><option value="">All Precincts</option></select>
@@ -12782,8 +12782,7 @@ async function loadGotvPrecincts() {
 }
 
 async function searchGotvChase() {
-  var supportSel = document.getElementById('gotvSupportFilter');
-  var support = Array.from(supportSel.selectedOptions).map(function(o) { return o.value; }).join(',');
+  var support = Array.from(document.querySelectorAll('.gotv-support-cb:checked')).map(function(cb) { return cb.value; }).join(',');
   var precinct = document.getElementById('gotvPrecinctFilter').value;
   var hasPhone = document.getElementById('gotvPhoneFilter').value;
   try {
@@ -12808,8 +12807,7 @@ async function searchGotvChase() {
 async function createChaseList() {
   var name = document.getElementById('gotvListName').value.trim();
   if (!name) { alert('Enter a name for the chase list.'); return; }
-  var supportSel = document.getElementById('gotvSupportFilter');
-  var supportLevels = Array.from(supportSel.selectedOptions).map(function(o) { return o.value; });
+  var supportLevels = Array.from(document.querySelectorAll('.gotv-support-cb:checked')).map(function(cb) { return cb.value; });
   var precinct = document.getElementById('gotvPrecinctFilter').value;
   var hasPhone = document.getElementById('gotvPhoneFilter').value === '1';
   try {
