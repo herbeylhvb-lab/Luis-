@@ -1769,6 +1769,18 @@ tr:hover td{background:#1e293b80}
             </div>
             <div id="inviteMmsCheckResult" style="margin-top:8px;font-size:13px;display:none"></div>
           </div>
+          <div class="card" style="margin-top:12px;background:#0f172a;border:1px solid #334155;padding:16px">
+            <h4 style="margin:0 0 8px 0;font-size:14px;color:#e2e8f0">Test Send Before Inviting</h4>
+            <p style="color:#94a3b8;font-size:12px;margin-bottom:10px">Send a test to your phone first to verify the message, image, and link look right.</p>
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+              <div class="form-group" style="flex:1;min-width:160px;margin:0">
+                <label style="font-size:12px">Your Phone</label>
+                <input type="text" id="inviteTestPhone" placeholder="956-xxx-xxxx" style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:14px;width:100%">
+              </div>
+              <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9;white-space:nowrap" onclick="testEventInviteSend()">Send Test MMS</button>
+            </div>
+            <div id="inviteTestResult" style="margin-top:8px;font-size:13px;display:none"></div>
+          </div>
           <div style="margin-top:12px">
             <button class="btn btn-sm btn-success" onclick="sendEventInvites()">Send Invites</button>
           </div>
@@ -7349,11 +7361,78 @@ async function checkInviteMmsProject() {
     } else {
       html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + (p.cid || '') + '/' + projectId + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
     }
+    if (p.message) {
+      html += '<br><span style="color:#94a3b8">Message: </span><span style="color:#cbd5e1">' + (p.message || '').replace(/\n/g, '<br>') + '</span>';
+    }
     html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + (p.link || '#') + '" target="_blank" style="color:#818cf8">' + (p.link || 'N/A') + '</a>';
     html += '</div>';
     resultEl.innerHTML = html;
   } catch (err) {
     resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+  }
+}
+
+// Test send from event invite section — checks project, confirms media, sends test
+async function testEventInviteSend() {
+  var resultEl = document.getElementById('inviteTestResult');
+  var projectId = (document.getElementById('inviteMmsProjectId').value || '').trim();
+  var phone = (document.getElementById('inviteTestPhone').value || '').trim();
+
+  resultEl.style.display = 'block';
+
+  if (!projectId || projectId === '__manual__') {
+    resultEl.innerHTML = '<span style="color:#ef4444">Select an MMS project above first.</span>';
+    return;
+  }
+  if (!phone) {
+    resultEl.innerHTML = '<span style="color:#ef4444">Enter your phone number to receive the test.</span>';
+    return;
+  }
+
+  resultEl.innerHTML = '<span style="color:#94a3b8">Checking project #' + projectId + '...</span>';
+
+  try {
+    // Step 1: Check project details and confirm it has media
+    var check = await api('/api/rumbleup/project/' + projectId);
+    var p = check.project || {};
+
+    var detailHtml = '<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:8px">';
+    detailHtml += '<strong style="color:#e2e8f0">' + (p.name || 'Project #' + projectId) + '</strong><br>';
+    detailHtml += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + (p.type || '?') + '</span>';
+    detailHtml += ' &nbsp;|&nbsp; <span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + (p.status || '?') + '</span>';
+    detailHtml += ' &nbsp;|&nbsp; <span style="color:#94a3b8">Image: </span>';
+
+    if (p.media) {
+      detailHtml += '<span style="color:#22c55e;font-weight:600">YES</span> <a href="' + p.media + '" target="_blank" style="color:#818cf8;font-size:11px">(view)</a>';
+    } else {
+      detailHtml += '<span style="color:#ef4444;font-weight:600">NO IMAGE</span>';
+    }
+    if (p.message) {
+      detailHtml += '<br><span style="color:#94a3b8">Message: </span><span style="color:#cbd5e1">' + (p.message || '').replace(/\n/g, '<br>') + '</span>';
+    }
+    detailHtml += '</div>';
+
+    // If no media, stop and warn
+    if (!p.media) {
+      detailHtml += '<span style="color:#ef4444">This project has no image attached. <a href="' + (p.link || 'https://app.rumbleup.com') + '" target="_blank" style="color:#818cf8">Upload image on RumbleUp first ↗</a></span>';
+      resultEl.innerHTML = detailHtml;
+      return;
+    }
+
+    // Step 2: Send the test
+    resultEl.innerHTML = detailHtml + '<span style="color:#94a3b8">Sending test to ' + phone + '...</span>';
+
+    var data = await apiPost('/api/rumbleup/test-send', { projectId: projectId, testPhone: phone });
+    if (data.success) {
+      resultEl.innerHTML = detailHtml +
+        '<span style="color:#22c55e;font-weight:600">Test sent! Check your phone.</span><br>' +
+        '<span style="color:#94a3b8;font-size:12px">Verify the image, message text, and any links look correct before sending invites.</span>';
+    } else {
+      resultEl.innerHTML = detailHtml +
+        '<span style="color:#ef4444">Send failed: ' + (data.error || 'Unknown error') + '</span>';
+    }
+  } catch (err) {
+    resultEl.innerHTML = '<span style="color:#ef4444">Error: ' + (err.message || 'Failed') + '</span>';
   }
 }
 
