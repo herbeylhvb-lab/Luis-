@@ -2149,6 +2149,24 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-row-3">
             <div class="form-group"><label>Email</label><input type="email" id="newCandidateEmail" placeholder="candidate@example.com"></div>
+            <div class="form-group"><label>Race / District</label>
+              <select id="newCandidateRaceType" onchange="loadCandidateRaceValues('newCandidateRaceType','newCandidateRaceValue')" style="margin-bottom:4px">
+                <option value="">No race assigned</option>
+                <option value="navigation_port">Navigation Port</option>
+                <option value="port_authority">Port Authority</option>
+                <option value="city_district">City District</option>
+                <option value="county_commissioner">County Commissioner</option>
+                <option value="justice_of_peace">Justice of Peace</option>
+                <option value="state_board_ed">State Board of Ed</option>
+                <option value="state_rep">State Rep</option>
+                <option value="state_senate">State Senate</option>
+                <option value="us_congress">US Congress</option>
+                <option value="school_district">School District</option>
+                <option value="college_district">College District</option>
+                <option value="hospital_district">Hospital District</option>
+              </select>
+              <select id="newCandidateRaceValue"><option value="">Select race type first</option></select>
+            </div>
             <div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-sm btn-success" onclick="createCandidate()">Create Candidate</button>&nbsp;<button class="btn btn-sm btn-secondary" onclick="hideAddCandidateForm()">Cancel</button></div>
           </div>
         </div>
@@ -9526,7 +9544,7 @@ async function loadCandidates() {
       var portalUrl = window.location.origin + '/candidate?code=' + c.code;
       var tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
-      tr.onclick = function() { showCandidateDetail(c.id, c.name, c.code); };
+      tr.onclick = function() { showCandidateDetail(c.id, c.name, c.code, c.race_type, c.race_value); };
 
       var tdName = document.createElement('td');
       var strong = document.createElement('strong');
@@ -9606,7 +9624,7 @@ async function loadCandidates() {
     candidates.forEach(function(c) {
       var card = document.createElement('div');
       card.className = 'mobile-candidate-card';
-      card.onclick = function() { showCandidateDetail(c.id, c.name, c.code); };
+      card.onclick = function() { showCandidateDetail(c.id, c.name, c.code, c.race_type, c.race_value); };
 
       var topRow = document.createElement('div');
       topRow.style.cssText = 'display:flex;align-items:center;gap:8px';
@@ -9663,17 +9681,43 @@ async function createCandidate() {
   var office = document.getElementById('newCandidateOffice').value.trim();
   var phone = document.getElementById('newCandidatePhone').value.trim();
   var email = document.getElementById('newCandidateEmail').value.trim();
+  var race_type = document.getElementById('newCandidateRaceType').value;
+  var race_value = document.getElementById('newCandidateRaceValue').value;
   try {
-    var data = await apiPost('/api/candidates', { name: name, office: office, phone: phone, email: email });
+    var data = await apiPost('/api/candidates', { name: name, office: office, phone: phone, email: email, race_type: race_type, race_value: race_value });
     showCandidateShareModal(name, data.code, true);
     hideAddCandidateForm();
     document.getElementById('newCandidateName').value = '';
     document.getElementById('newCandidateOffice').value = '';
     document.getElementById('newCandidatePhone').value = '';
     document.getElementById('newCandidateEmail').value = '';
+    document.getElementById('newCandidateRaceType').value = '';
+    document.getElementById('newCandidateRaceValue').innerHTML = '<option value="">Select race type first</option>';
     loadCandidates();
   } catch (e) { alert('Error: ' + (e.message || e)); }
 }
+
+// Load distinct values for a race/district column into a dropdown
+async function loadCandidateRaceValues(typeSelectId, valueSelectId) {
+  var raceType = document.getElementById(typeSelectId).value;
+  var valSel = document.getElementById(valueSelectId);
+  if (!raceType) { valSel.innerHTML = '<option value="">Select race type first</option>'; return; }
+  try {
+    var data = await api('/api/voters/filter-options');
+    var raceLabels = { navigation_port:'navigation_ports', port_authority:'port_authorities', city_district:'cities', county_commissioner:'county_commissioners', justice_of_peace:'justices_of_peace', state_board_ed:'state_boards_ed', state_rep:'state_reps', state_senate:'state_senates', us_congress:'us_congress', school_district:'school_districts', college_district:'college_districts', hospital_district:'hospital_districts' };
+    // Try exact key match or fallback to querying distinct values
+    var key = raceLabels[raceType];
+    var values = (key && data[key]) ? data[key] : [];
+    if (values.length === 0) {
+      // Fallback: get distinct values from race-precincts
+      var rp = await api('/api/voters/race-precincts');
+      values = rp.filter(function(r) { return r.type === raceType; }).map(function(r) { return r.district; });
+    }
+    valSel.innerHTML = '<option value="">All / None</option>' + values.map(function(v) { return '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>'; }).join('');
+  } catch (e) { valSel.innerHTML = '<option value="">Error loading</option>'; }
+}
+
+var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
 
 async function deactivateCandidate(id, name) {
   if (!confirm('Deactivate candidate "' + name + '" and all their captains?')) return;
@@ -9689,9 +9733,13 @@ async function activateCandidate(id, name) {
 }
 
 var _candidateDetailCode = null;
-async function showCandidateDetail(id, name, code) {
+var _candidateRaceType = '';
+var _candidateRaceValue = '';
+async function showCandidateDetail(id, name, code, raceType, raceValue) {
   _candidateDetailId = id;
   _candidateDetailCode = code || null;
+  if (raceType !== undefined) _candidateRaceType = raceType || '';
+  if (raceValue !== undefined) _candidateRaceValue = raceValue || '';
   var titleEl = document.getElementById('candidateDetailTitle');
   titleEl.textContent = name + ' \u2014 Detail';
   var editCandBtn = document.createElement('button');
@@ -10924,7 +10972,7 @@ function showCandidateShareModal(candidateName, candidateCode, isNew) {
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
-function renderAdminListVoterTable(voters, container) {
+function renderAdminListVoterTable(voters, container, raceType) {
   container.textContent = '';
   if (voters.length === 0) {
     var emptyDiv = document.createElement('div');
@@ -10937,7 +10985,9 @@ function renderAdminListVoterTable(voters, container) {
   table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
   var thead = document.createElement('thead');
   var headTr = document.createElement('tr');
-  ['ID', 'Voter', 'Address', 'Party', 'Voted', 'Phone'].forEach(function(h) {
+  var headers = ['ID', 'Voter', 'Address', 'Party', 'Voted', 'Phone'];
+  if (raceType) headers.push('In Race');
+  headers.forEach(function(h) {
     var th = document.createElement('th');
     th.style.cssText = 'text-align:left;padding:6px 8px;border-bottom:2px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase';
     th.textContent = h;
@@ -10975,6 +11025,16 @@ function renderAdminListVoterTable(voters, container) {
     tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
     tdPhone.textContent = v.phone || '';
     tr.appendChild(tdPhone);
+    if (raceType) {
+      var tdRace = document.createElement('td');
+      tdRace.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
+      var raceBadge = document.createElement('span');
+      raceBadge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;' + (v._in_race ? 'background:#166534;color:#86efac' : 'background:#7f1d1d;color:#fca5a5');
+      raceBadge.textContent = v._in_race ? '\u2713 Yes' : '\u2717 No';
+      tdRace.appendChild(raceBadge);
+      tr.appendChild(tdRace);
+      if (!v._in_race) tr.style.opacity = '0.6';
+    }
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -11056,18 +11116,65 @@ async function viewCandidateListVoters(candidateId, list) {
     var prefix = list.source === 'captain' ? 'Captain: ' + (list.captain_name || '') + '  \u00B7  ' : '';
     sub.textContent = prefix + voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
+    // Tag voters with in_race flag based on candidate's race
+    var rt = _candidateRaceType;
+    var rv = _candidateRaceValue;
+    if (rt && rv) {
+      allVoters.forEach(function(v) {
+        v._in_race = (v[rt] || '').toString().trim() === rv.toString().trim();
+      });
+    }
+
+    // Filter state
+    var _currentVotedStatus = 'all';
+    var _currentRaceFilter = 'all';
+    function applyFilters() {
+      var filtered = allVoters;
+      if (_currentVotedStatus !== 'all') filtered = filterVotersByStatus(filtered, _currentVotedStatus);
+      if (_currentRaceFilter === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
+      else if (_currentRaceFilter === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
+      renderAdminListVoterTable(filtered, listContainer, rt && rv ? rt : null);
+      var inCount = allVoters.filter(function(v) { return v._in_race; }).length;
+      var outCount = allVoters.length - inCount;
+      sub.textContent = prefix + filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '') + (rt && rv ? ' \u00B7 ' + inCount + ' in race, ' + outCount + ' not' : '');
+    }
+
     // Voted filter
     var filterWrap = document.createElement('div');
-    filterWrap.style.cssText = 'margin-bottom:10px';
+    filterWrap.style.cssText = 'margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap;align-items:center';
     var adminVotedFilter = createVotedFilter(function(status) {
-      var filtered = filterVotersByStatus(allVoters, status);
-      renderAdminListVoterTable(filtered, listContainer);
-      sub.textContent = prefix + filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '');
+      _currentVotedStatus = status;
+      applyFilters();
     });
     filterWrap.appendChild(adminVotedFilter);
+
+    // Race filter (only show if candidate has a race assigned)
+    if (rt && rv) {
+      var raceLabel = _raceTypeLabels[rt] || rt;
+      var raceFilterWrap = document.createElement('div');
+      raceFilterWrap.style.cssText = 'display:flex;gap:4px;align-items:center';
+      var rfLabel = document.createElement('span');
+      rfLabel.style.cssText = 'font-size:12px;color:#94a3b8;margin-right:4px';
+      rfLabel.textContent = raceLabel + ' ' + rv + ':';
+      raceFilterWrap.appendChild(rfLabel);
+      ['all','in','out'].forEach(function(val) {
+        var btn = document.createElement('button');
+        btn.className = 'btn btn-xs ' + (val === 'all' ? 'btn-primary' : 'btn-secondary');
+        btn.textContent = val === 'all' ? 'All' : val === 'in' ? 'In Race' : 'Not In Race';
+        btn.onclick = function() {
+          _currentRaceFilter = val;
+          raceFilterWrap.querySelectorAll('button').forEach(function(b) { b.className = 'btn btn-xs btn-secondary'; });
+          btn.className = 'btn btn-xs btn-primary';
+          applyFilters();
+        };
+        raceFilterWrap.appendChild(btn);
+      });
+      filterWrap.appendChild(raceFilterWrap);
+    }
+
     box.insertBefore(filterWrap, listContainer);
 
-    renderAdminListVoterTable(voters, listContainer);
+    renderAdminListVoterTable(voters, listContainer, rt && rv ? rt : null);
 
     // Show download button now that data is loaded
     dlBtn2.style.display = '';

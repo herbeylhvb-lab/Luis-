@@ -98,7 +98,7 @@ router.get('/candidates', requireAuth, (req, res) => {
 
 // Create candidate
 router.post('/candidates', requireAuth, (req, res) => {
-  const { name, office, phone, email } = req.body;
+  const { name, office, phone, email, race_type, race_value } = req.body;
   if (!name) return res.status(400).json({ error: 'Candidate name is required.' });
   let code;
   for (let i = 0; i < 10; i++) {
@@ -107,8 +107,8 @@ router.post('/candidates', requireAuth, (req, res) => {
     if (i === 9) return res.status(500).json({ error: 'Could not generate unique code.' });
   }
   const result = db.prepare(
-    'INSERT INTO candidates (name, office, code, phone, email) VALUES (?, ?, ?, ?, ?)'
-  ).run(name, office || '', code, phone || '', email || '');
+    'INSERT INTO candidates (name, office, code, phone, email, race_type, race_value) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(name, office || '', code, phone || '', email || '', race_type || '', race_value || '');
   // Auto-create a default "Main" list for the candidate
   db.prepare('INSERT INTO admin_lists (name, description, list_type, candidate_id) VALUES (?, ?, ?, ?)')
     .run('Main', 'Default list for ' + name, 'general', result.lastInsertRowid);
@@ -118,15 +118,17 @@ router.post('/candidates', requireAuth, (req, res) => {
 
 // Update candidate
 router.put('/candidates/:id', requireAuth, (req, res) => {
-  const { name, office, phone, email, is_active } = req.body;
+  const { name, office, phone, email, is_active, race_type, race_value } = req.body;
   const result = db.prepare(`UPDATE candidates SET
     name = COALESCE(?, name),
     office = COALESCE(?, office),
     phone = COALESCE(?, phone),
     email = COALESCE(?, email),
-    is_active = COALESCE(?, is_active)
+    is_active = COALESCE(?, is_active),
+    race_type = COALESCE(?, race_type),
+    race_value = COALESCE(?, race_value)
     WHERE id = ?`
-  ).run(name, office, phone, email, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+  ).run(name, office, phone, email, is_active !== undefined ? (is_active ? 1 : 0) : null, race_type, race_value, req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Candidate not found.' });
   res.json({ success: true });
 });
