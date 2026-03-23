@@ -527,12 +527,20 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
       }
     }
 
+    // If MMS project, ensure it's in live/sending mode before first send
+    if (mmsActionId && provider.goLive) {
+      try { await provider.goLive(mmsActionId); } catch (e) {
+        console.log('[p2p-send] goLive for project', mmsActionId, ':', e.message || 'ok');
+      }
+    }
+
     // Send with MMS fallback — if MMS project fails, retry as plain SMS
     try {
       await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
     } catch (sendErr) {
       if (mmsActionId) {
-        console.warn('[p2p-send] MMS send failed, falling back to SMS:', sendErr.message);
+        console.error('[p2p-send] MMS send FAILED for project ' + mmsActionId + ':', sendErr.message);
+        console.warn('[p2p-send] Falling back to plain SMS (no image)');
         await provider.sendMessage(assignment.phone, message, 'sms', null);
       } else {
         throw sendErr;

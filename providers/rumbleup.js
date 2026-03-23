@@ -286,7 +286,7 @@ async function sendSms(to, body, actionIdOverride) {
   if (!creds.apiKey || !creds.apiSecret) {
     throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
   }
-  const actionId = actionIdOverride || creds.actionId;
+  const actionId = String(actionIdOverride || creds.actionId || '');
   if (!actionId) {
     throw new Error('RumbleUp Action/Project ID not configured. Set it in Messaging Setup.');
   }
@@ -295,6 +295,7 @@ async function sendSms(to, body, actionIdOverride) {
 
   // Note: MMS media is set at the project level, not per-message.
   // To send MMS, create a project with media attached and pass its action ID here.
+  console.log('[sms] Sending via project', actionId, 'to', phone.substring(0, 6) + '****');
   return apiPost('/message/send', { phone, action: actionId, text: body });
 }
 
