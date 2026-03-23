@@ -5810,16 +5810,17 @@ function searchVotersDebounced() { clearTimeout(searchTimeout); searchTimeout = 
 window.searchVotersDebounced = searchVotersDebounced;
 
 async function searchVoters() {
-  const q = ((document.getElementById('voterSearch') || {}).value || '').trim();
-  const party = (document.getElementById('voterPartyFilter') || {}).value || '';
-  const support = (document.getElementById('voterSupportFilter') || {}).value || '';
-  const precinct = (document.getElementById('voterPrecinctFilter') || {}).value || '';
-  const earlyVoting = (document.getElementById('voterEarlyVotingFilter') || {}).value || '';
-  const city = (document.getElementById('voterCityFilter') || {}).value || '';
-  const zip = (document.getElementById('voterZipFilter') || {}).value || '';
-  const address = (document.getElementById('voterAddressFilter') || {}).value || '';
-  const election = (document.getElementById('voterElectionFilter') || {}).value || '';
-  const electionExclude = (document.getElementById('voterElectionExcludeFilter') || {}).value || '';
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  const q = gv('voterSearch').trim();
+  const party = gv('voterPartyFilter');
+  const support = gv('voterSupportFilter');
+  const precinct = gv('voterPrecinctFilter');
+  const earlyVoting = gv('voterEarlyVotingFilter');
+  const city = gv('voterCityFilter');
+  const zip = gv('voterZipFilter');
+  const address = gv('voterAddressFilter');
+  const election = gv('voterElectionFilter');
+  const electionExclude = gv('voterElectionExcludeFilter');
   let url = '/api/voters?';
   if (q) url += 'q=' + encodeURIComponent(q) + '&';
   if (party) url += 'party=' + party + '&';
@@ -6605,8 +6606,9 @@ window.importEarlyVoting = async function() {
 };
 
 window.extractRemainingVoters = async function() {
-  var precinct = (document.getElementById('voterPrecinctFilter') || {}).value || '';
-  var party = (document.getElementById('voterPartyFilter') || {}).value || '';
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  var precinct = gv('voterPrecinctFilter');
+  var party = gv('voterPartyFilter');
   var listName = prompt('Name for the GOTV list:', 'GOTV - Not Yet Voted (' + new Date().toISOString().split('T')[0] + ')');
   if (!listName) return;
   var statusEl = document.getElementById('evImportStatus');
@@ -11290,7 +11292,8 @@ function showNewListForm() {
 async function createAdminList() {
   var name = document.getElementById('newListName').value.trim();
   if (!name) { alert('List name is required.'); return; }
-  var listType = (document.getElementById('newListType') || {}).value || 'general';
+  var ltEl = document.getElementById('newListType');
+  var listType = ltEl ? ltEl.value : 'general';
   await apiPost('/api/admin-lists', { name: name, description: document.getElementById('newListDesc').value.trim(), list_type: listType });
   document.getElementById('newListForm').style.display = 'none';
   document.getElementById('newListName').value = '';
@@ -11490,11 +11493,12 @@ function triggerListSearchDebounced() {
   searchTimeout = setTimeout(function() { triggerListSearch(); }, 300);
 }
 function triggerListSearch() {
-  var q = (document.getElementById('adminListSearch') || {}).value || '';
-  var city = (document.getElementById('listCityFilter') || {}).value || '';
-  var zip = (document.getElementById('listZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('listPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('listAddressFilter') || {}).value || '';
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  var q = gv('adminListSearch');
+  var city = gv('listCityFilter');
+  var zip = gv('listZipFilter');
+  var precinct = gv('listPrecinctFilter');
+  var address = gv('listAddressFilter');
   var hasFilter = city || zip || precinct || address;
   if (q.trim().length < 2 && !hasFilter) { document.getElementById('adminListSearchResults').textContent = ''; return; }
   searchVotersForList(q, state.currentAdminListId, city, zip, precinct, address);
@@ -13034,7 +13038,7 @@ async function showVoterModal(voterId) {
 
     // View full profile button
     html += '<div style="margin-top:16px;text-align:center">';
-    html += '<button class="btn btn-sm btn-primary" onclick="document.getElementById(\'voterModalOverlay\').remove(); showPage(\'voters\'); showVoterDetail(' + v.id + ')">View Full Profile</button>';
+    html += '<button class="btn btn-sm btn-primary" onclick="document.getElementById(\'voterModalOverlay\').remove(); document.querySelector(\'[data-page=voters]\').click(); setTimeout(function(){ showVoterDetail(' + v.id + '); }, 200);">View Full Profile</button>';
     html += '</div>';
 
     box.innerHTML = html;
