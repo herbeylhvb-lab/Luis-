@@ -846,12 +846,18 @@ async function selectSubCaptainList(listId, listName, subCaptainId) {
 // Re-run search when a list is selected so Add buttons appear
 function refreshSearchResults() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
-  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
-  var city = (document.getElementById('capCityFilter') || {}).value || '';
-  var zip = (document.getElementById('capZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('capAddressFilter') || {}).value || '';
+  var phoneEl = document.getElementById('capPhoneFilter');
+  var phone = phoneEl ? phoneEl.value.trim() : '';
+  var vanidEl = document.getElementById('capVanidFilter');
+  var vanid = vanidEl ? vanidEl.value.trim() : '';
+  var cityEl = document.getElementById('capCityFilter');
+  var city = cityEl ? cityEl.value : '';
+  var zipEl = document.getElementById('capZipFilter');
+  var zip = zipEl ? zipEl.value.trim() : '';
+  var precinctEl = document.getElementById('capPrecinctFilter');
+  var precinct = precinctEl ? precinctEl.value.trim() : '';
+  var addressEl = document.getElementById('capAddressFilter');
+  var address = addressEl ? addressEl.value.trim() : '';
   if (q.length >= 2 || phone || vanid || city || zip || precinct || address) {
     searchVoters();
   }
@@ -1454,12 +1460,18 @@ function debouncedSearch() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
-  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
-  var city = (document.getElementById('capCityFilter') || {}).value || '';
-  var zip = (document.getElementById('capZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('capAddressFilter') || {}).value || '';
+  var phoneEl = document.getElementById('capPhoneFilter');
+  var phone = phoneEl ? phoneEl.value.trim() : '';
+  var vanidEl = document.getElementById('capVanidFilter');
+  var vanid = vanidEl ? vanidEl.value.trim() : '';
+  var cityEl = document.getElementById('capCityFilter');
+  var city = cityEl ? cityEl.value : '';
+  var zipEl = document.getElementById('capZipFilter');
+  var zip = zipEl ? zipEl.value.trim() : '';
+  var precinctEl = document.getElementById('capPrecinctFilter');
+  var precinct = precinctEl ? precinctEl.value.trim() : '';
+  var addressEl = document.getElementById('capAddressFilter');
+  var address = addressEl ? addressEl.value.trim() : '';
   var el = document.getElementById('searchResults');
   var hasFilter = phone || vanid || city || zip || precinct || address;
   if (q.length < 2 && !hasFilter) {
@@ -1484,7 +1496,24 @@ async function searchVoters() {
   if (zip) url += '&zip=' + encodeURIComponent(zip);
   if (precinct) url += '&precinct=' + encodeURIComponent(precinct);
   if (address) url += '&address=' + encodeURIComponent(address);
-  var data = await api(url);
+  var data;
+  try {
+    data = await api(url);
+  } catch (err) {
+    el.textContent = '';
+    var errDiv = document.createElement('div');
+    errDiv.className = 'empty-state';
+    errDiv.style.color = '#ef4444';
+    var errIcon = document.createElement('div');
+    errIcon.className = 'icon';
+    errIcon.textContent = '\u26A0\uFE0F';
+    errDiv.appendChild(errIcon);
+    var errP = document.createElement('p');
+    errP.textContent = 'Search failed: ' + (err.message || 'Unknown error');
+    errDiv.appendChild(errP);
+    el.appendChild(errDiv);
+    return;
+  }
   var voters = data.voters || [];
 
   el.textContent = '';
@@ -1496,7 +1525,8 @@ async function searchVoters() {
     noIcon.textContent = '\uD83D\uDE36';
     noResult.appendChild(noIcon);
     var noP = document.createElement('p');
-    noP.textContent = 'No voters found for "' + q + '"';
+    var searchDesc = q ? '"' + q + '"' : 'your filters';
+    noP.textContent = 'No voters found for ' + searchDesc + '. Search is limited to voters on your lists.';
     noResult.appendChild(noP);
     el.appendChild(noResult);
     return;
