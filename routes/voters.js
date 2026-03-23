@@ -1947,8 +1947,12 @@ router.post('/universe/build', (req, res) => {
         const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_precinct').run(listId);
         created.universe = { listId, added: added.changes };
       }
+      const basicHouseholdCount = (db.prepare(`
+        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+        FROM voters v INNER JOIN _univ_precinct up ON v.id = up.voter_id
+      `).get() || { c: 0 }).c;
       db.exec('DROP TABLE IF EXISTS _univ_precinct');
-      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, created, basicMode: true };
+      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, householdCount: basicHouseholdCount, created, basicMode: true };
     }
 
     // Step 2: universe — voted in last N years
@@ -2005,10 +2009,16 @@ router.post('/universe/build', (req, res) => {
       created.universe = { listId, added: added.changes };
     }
 
+    // Count unique households in the targeted list
+    const householdCount = (db.prepare(`
+      SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+      FROM voters v INNER JOIN _univ_targeted ut ON v.id = ut.voter_id
+    `).get() || { c: 0 }).c;
+
     // Cleanup
     db.exec('DROP TABLE IF EXISTS _univ_precinct; DROP TABLE IF EXISTS _univ_universe; DROP TABLE IF EXISTS _univ_targeted');
 
-    return { totalInPrecincts, universeCount, targetedCount, subUniverseCount, priorityCount, extraCount: subUniverseCount - priorityCount, created, basicMode: false };
+    return { totalInPrecincts, universeCount, targetedCount, subUniverseCount, priorityCount, extraCount: subUniverseCount - priorityCount, householdCount, created, basicMode: false };
   });
 
   const result = buildTx();
@@ -2023,6 +2033,7 @@ router.post('/universe/build', (req, res) => {
     total_in_precincts: result.totalInPrecincts,
     universe: result.universeCount,
     targeted: result.targetedCount,
+    households: result.householdCount || 0,
     sub_universe: result.subUniverseCount,
     priority: result.priorityCount,
     extra: result.extraCount,
@@ -2052,8 +2063,12 @@ router.post('/universe/preview', (req, res) => {
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _prev_precinct').get() || { c: 0 }).c;
 
     if (!hasElectionData) {
+      const basicHouseholdCount = (db.prepare(`
+        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+        FROM voters v INNER JOIN _prev_precinct pp ON v.id = pp.voter_id
+      `).get() || { c: 0 }).c;
       db.exec('DROP TABLE IF EXISTS _prev_precinct');
-      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, basicMode: true };
+      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, householdCount: basicHouseholdCount, basicMode: true };
     }
 
     db.exec('DROP TABLE IF EXISTS _prev_universe');
@@ -2074,9 +2089,26 @@ router.post('/universe/preview', (req, res) => {
       `).get(...elecNames) || { c: 0 }).c;
     }
 
+    // Count unique households based on address dedup
+    let householdCount = totalInPrecincts;
+    if (elecNames.length > 0) {
+      householdCount = (db.prepare(`
+        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+        FROM voters v
+        INNER JOIN election_votes ev ON v.id = ev.voter_id
+        WHERE ev.election_name IN (${elecNames.map(() => '?').join(',')}) AND v.id IN (SELECT voter_id FROM _prev_universe)
+      `).get(...elecNames) || { c: 0 }).c;
+    } else {
+      householdCount = (db.prepare(`
+        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+        FROM voters v
+        INNER JOIN _prev_universe pu ON v.id = pu.voter_id
+      `).get() || { c: 0 }).c;
+    }
+
     db.exec('DROP TABLE IF EXISTS _prev_precinct; DROP TABLE IF EXISTS _prev_universe');
 
-    return { totalInPrecincts, universeCount, targetedCount, basicMode: false };
+    return { totalInPrecincts, universeCount, targetedCount, householdCount, basicMode: false };
   });
 
   const r = previewTx();
@@ -2084,6 +2116,7 @@ router.post('/universe/preview', (req, res) => {
     total_in_precincts: r.totalInPrecincts,
     universe: r.universeCount,
     targeted: r.targetedCount,
+    households: r.householdCount || r.totalInPrecincts,
     basic_mode: r.basicMode || false
   });
 });
