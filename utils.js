@@ -7,7 +7,8 @@ const { randomBytes } = require('crypto');
 function phoneDigits(raw) {
   const digits = (raw || '').replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
-  return digits;
+  if (digits.length === 10) return digits;
+  return '';
 }
 
 /**
