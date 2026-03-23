@@ -390,6 +390,8 @@ async function loginCaptain() {
       return;
     }
     captainState.captain = data.captain;
+    if (data.captain.race_type) captainState.race_type = data.captain.race_type;
+    if (data.captain.race_value) captainState.race_value = data.captain.race_value;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = '';
     document.getElementById('captainGreeting').textContent = 'Welcome, ' + data.captain.name;
@@ -420,8 +422,11 @@ async function refreshSidebar() {
   var assignedLists = data.assigned_lists || [];
   captainState.captain.lists = lists;
   captainState.captain.assigned_lists = assignedLists;
+  captainState._cachedSubCaptainLists = subCaptainLists;
   if (data.team_members) captainState.captain.team_members = data.team_members;
   if (data.sub_captains) captainState.captain.sub_captains = data.sub_captains;
+  if (data.race_type) captainState.race_type = data.race_type;
+  if (data.race_value) captainState.race_value = data.race_value;
 
   // Separate my lists vs team-assigned lists
   var myLists = lists.filter(function(l) { return !l.team_member_name; });
@@ -867,6 +872,8 @@ function getListApiBase() {
 // Store current list voters for tab filtering and download
 var _currentListVoters = [];
 var _currentListTab = 'all';
+var _currentRaceTab = 'all';
+var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
 
 // Multi-select state
 var _selectedVoterIds = new Set();
@@ -1205,10 +1212,37 @@ function renderListVoters() {
   });
   el.appendChild(tabBar);
 
+  // Race filter bar (if candidate has a race assigned)
+  var rt = captainState.race_type;
+  var rv = captainState.race_value;
+  if (rt && rv) {
+    voters.forEach(function(v) { v._in_race = (v[rt] || '').toString().trim() === rv.toString().trim(); });
+    var inCount = voters.filter(function(v) { return v._in_race; }).length;
+    var outCount = voters.length - inCount;
+    var raceBar = document.createElement('div');
+    raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155';
+    var rlbl = document.createElement('span');
+    rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
+    rlbl.textContent = (_raceTypeLabels[rt] || rt) + ' ' + rv + ':';
+    raceBar.appendChild(rlbl);
+    [['all','All'],['in','In Race (' + inCount + ')'],['out','Not In Race (' + outCount + ')']].forEach(function(o) {
+      var btn = document.createElement('button');
+      var isActive = (_currentRaceTab || 'all') === o[0];
+      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:#818cf8;color:#fff;border-color:#818cf8' : 'background:#1e293b;color:#94a3b8');
+      btn.textContent = o[1];
+      btn.addEventListener('click', function() { _currentRaceTab = o[0]; renderListVoters(); });
+      raceBar.appendChild(btn);
+    });
+    el.appendChild(raceBar);
+  }
+
   // Filter voters by tab
   var filtered = voters;
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
   else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
+  // Apply race filter
+  if (rt && rv && _currentRaceTab === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
+  else if (rt && rv && _currentRaceTab === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
 
   // Prune selection to only include voters in the current filtered set
   filtered.forEach(function(v) { filteredIds.add(v.id); });
