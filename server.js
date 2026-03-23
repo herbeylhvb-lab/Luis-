@@ -193,6 +193,14 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/volunteers\/\d+\/dashboard/)) {
     return next();
   }
+  // Allow public portal pages (volunteer, walker, captain, candidate, group, scanner, checkin)
+  const publicPages = ['/volunteer', '/volunteer.html', '/walker', '/walker.html',
+    '/captain', '/captain.html', '/candidate', '/candidate.html',
+    '/group', '/group.html', '/scanner', '/scanner.html',
+    '/walk', '/walk.html', '/voter-checkin.html'];
+  if (publicPages.includes(req.path) || req.path.startsWith('/v/') || req.path.startsWith('/checkin/')) {
+    return next();
+  }
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check
