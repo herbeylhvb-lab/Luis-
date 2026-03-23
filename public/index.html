@@ -911,6 +911,7 @@ tr:hover td{background:#1e293b80}
           <button class="btn btn-sm" id="btnShowWalkMap" style="background:#7c3aed;color:#fff" onclick="toggleWalkMap()">Show Live Map</button>
           <button class="btn btn-sm" id="btnGeocodeWalk" style="background:#2563eb;color:#fff;margin-left:8px" onclick="geocodeCurrentWalk()">Map Houses</button>
           <span id="walkFlaggedBadge" style="display:none;margin-left:8px;background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;cursor:pointer" onclick="scrollToFlaggedOnMap()" title="Click to show flagged addresses on map">⚠ <span id="walkFlaggedCount">0</span> flagged</span>
+          <span id="walkOutsideBadge" style="display:none;margin-left:8px;background:#f59e0b;color:#0f172a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700" title="Voters registered in this precinct but address geocodes outside boundary">⚠ <span>0 outside precinct</span></span>
           <button class="btn btn-sm" id="btnPrintWalk" style="background:#059669;color:#fff;margin-left:8px" onclick="printCurrentWalk()">&#x1F5A8; Print Walk List</button>
           <button class="btn btn-sm" id="btnRefreshTurf" style="background:#b45309;color:#fff;margin-left:8px;display:none" onclick="refreshCurrentTurf()">&#x1F504; Refresh Turf</button>
           <span id="geocodeStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
@@ -4172,6 +4173,17 @@ async function loadWalkDetail(id) {
   } else {
     flagBadge.style.display = 'none';
   }
+  // Show outside-precinct count
+  var outsideCount = (w.addresses || []).filter(function(a) { return a.outside_precinct; }).length;
+  var outsideBadge = document.getElementById('walkOutsideBadge');
+  if (outsideBadge) {
+    if (outsideCount > 0) {
+      outsideBadge.style.display = '';
+      outsideBadge.querySelector('span').textContent = outsideCount + ' outside precinct';
+    } else {
+      outsideBadge.style.display = 'none';
+    }
+  }
   // Populate script dropdown
   try {
     var scriptData = await api('/api/walk-scripts');
@@ -4941,7 +4953,8 @@ function updateAddrMarkers(addresses) {
       // Single house marker
       var allDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
       var color = getAddrColor(firstAddr.result);
-      var icon = firstAddr.geo_flagged ? createFlaggedHouseIcon() : createAdminHouseIcon(color, allDone);
+      var isOutside = firstAddr.outside_precinct;
+      var icon = firstAddr.geo_flagged ? createFlaggedHouseIcon() : createAdminHouseIcon(isOutside ? '#f59e0b' : color, allDone);
 
       var resultLabel = formatAdminResult(firstAddr.result);
       var isFlagged = firstAddr.geo_flagged;
@@ -4950,6 +4963,7 @@ function updateAddrMarkers(addresses) {
       if (firstAddr.unit) popupHtml += ' <span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + escHtml(firstAddr.unit) + '</span>';
       if (firstAddr.voter_name) popupHtml += '<br><span style="color:#e2e8f0;font-weight:600">' + escHtml(firstAddr.voter_name) + '</span>';
       popupHtml += '<br><span style="color:' + color + ';font-weight:600">' + resultLabel + '</span>';
+      if (isOutside) popupHtml += '<br><span style="color:#f59e0b;font-weight:700;font-size:11px">⚠ Outside precinct boundary — voter registered here but address geocodes outside</span>';
       if (isFlagged) popupHtml += '<br><span style="color:#ef4444;font-weight:700;font-size:11px">⚠ FLAGGED — bad location</span>';
       popupHtml += '<div style="margin-top:6px;border-top:1px solid #334155;padding-top:6px;display:flex;gap:4px;flex-wrap:wrap">';
       if (!isFlagged) {

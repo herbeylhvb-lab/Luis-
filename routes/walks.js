@@ -1,8 +1,62 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
+const fs = require('fs');
+const path = require('path');
 const db = require('../db');
 const { generateAlphaCode, normalizePhone } = require('../utils');
+
+// ===================== PRECINCT BOUNDARIES =====================
+
+// Load precinct GeoJSON for point-in-polygon checks
+let _precinctFeatures = null;
+function getPrecinctFeatures() {
+  if (_precinctFeatures) return _precinctFeatures;
+  try {
+    const geojsonPath = path.join(__dirname, '..', 'public', 'cameron-precincts.geojson');
+    const data = JSON.parse(fs.readFileSync(geojsonPath, 'utf8'));
+    _precinctFeatures = data.features || [];
+    console.log('[walks] Loaded', _precinctFeatures.length, 'precinct boundaries from GeoJSON');
+  } catch (e) {
+    console.warn('[walks] Could not load precinct GeoJSON:', e.message);
+    _precinctFeatures = [];
+  }
+  return _precinctFeatures;
+}
+
+// Ray-casting point-in-polygon test
+function pointInPolygon(lat, lng, polygon) {
+  // polygon is an array of rings; first ring is the outer boundary
+  const ring = polygon[0];
+  if (!ring || ring.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][1], yi = ring[i][0]; // GeoJSON is [lng, lat]
+    const xj = ring[j][1], yj = ring[j][0];
+    if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Check if a point falls inside any of the given precinct polygons
+function pointInPrecincts(lat, lng, precinctIds) {
+  const features = getPrecinctFeatures();
+  const targetSet = new Set(precinctIds.map(String));
+  for (const f of features) {
+    if (!targetSet.has(String(f.properties.precinct))) continue;
+    const geom = f.geometry;
+    if (geom.type === 'Polygon') {
+      if (pointInPolygon(lat, lng, geom.coordinates)) return true;
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates) {
+        if (pointInPolygon(lat, lng, poly)) return true;
+      }
+    }
+  }
+  return false;
+}
 
 // ===================== DOOR COUNTING =====================
 // Count unique doors (address+unit) instead of individual voter rows
@@ -204,7 +258,8 @@ const geocodingInProgress = {};
 
 // Geocode walk addresses in the background (non-blocking)
 // Uses Census Bureau BATCH geocoder for speed, Nominatim as fallback
-function geocodeWalkAddresses(walkId) {
+// If sourcePrecincts is provided, removes addresses that geocode outside those precinct boundaries
+function geocodeWalkAddresses(walkId, sourcePrecincts) {
   // Prevent multiple concurrent geocode runs for the same walk
   if (geocodingInProgress[walkId]) {
     console.log('Geocoding already in progress for walk', walkId);
@@ -317,6 +372,28 @@ function geocodeWalkAddresses(walkId) {
     }
 
     console.log('Geocoding complete for walk', walkId, ':', resolved, 'resolved,', failed, 'failed out of', allMissing.length);
+
+    // Flag addresses that geocoded outside the source precinct boundaries
+    if (sourcePrecincts && sourcePrecincts.length > 0 && getPrecinctFeatures().length > 0) {
+      const geocoded = db.prepare(
+        'SELECT id, lat, lng, address FROM walk_addresses WHERE walk_id = ? AND lat IS NOT NULL'
+      ).all(walkId);
+      let flagged = 0;
+      const flagStmt = db.prepare('UPDATE walk_addresses SET outside_precinct = 1 WHERE id = ?');
+      const clearStmt = db.prepare('UPDATE walk_addresses SET outside_precinct = 0 WHERE id = ?');
+      for (const addr of geocoded) {
+        if (!pointInPrecincts(addr.lat, addr.lng, sourcePrecincts)) {
+          flagStmt.run(addr.id);
+          flagged++;
+        } else {
+          clearStmt.run(addr.id);
+        }
+      }
+      if (flagged > 0) {
+        console.log('[walks] Flagged', flagged, 'addresses outside precinct boundaries for walk', walkId,
+          '(precincts:', sourcePrecincts.join(','), ')');
+      }
+    }
   })().catch(e => console.error('Geocode batch error:', e.message)).finally(() => {
     delete geocodingInProgress[walkId];
   });
@@ -1042,6 +1119,7 @@ router.get('/walks/:id/walker/:name', (req, res) => {
   const allAddresses = db.prepare(
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.assigned_walker, wa.lat, wa.lng, wa.voter_id,
+            wa.outside_precinct,
             v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
@@ -1233,7 +1311,7 @@ router.post('/walks/from-precinct', (req, res) => {
     'Walk created from precincts [' + precincts.join(', ') + ']: ' + added + ' addresses'
   );
 
-  geocodeWalkAddresses(walkId);
+  geocodeWalkAddresses(walkId, precincts);
   res.json({ success: true, id: walkId, added, precincts });
 });
 
@@ -1370,7 +1448,7 @@ router.get('/walks/:id/live-status', (req, res) => {
   const members = db.prepare('SELECT walker_name, joined_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
 
   const allAddresses = db.prepare(
-    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng, geo_flagged FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng, geo_flagged, outside_precinct FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
   const doorProgress = countDoors(allAddresses);
@@ -1493,7 +1571,10 @@ router.post('/walks/:id/geocode', (req, res) => {
     return res.json({ message: 'Geocoding already in progress — ' + missing.c + ' addresses remaining.', pending: missing.c, inProgress: true });
   }
 
-  geocodeWalkAddresses(wid);
+  // Pass source precincts so out-of-boundary addresses get filtered after geocoding
+  const walkRow = db.prepare('SELECT source_precincts FROM block_walks WHERE id = ?').get(wid);
+  const srcPrecincts = (walkRow && walkRow.source_precincts) ? walkRow.source_precincts.split(',').map(s => s.trim()).filter(Boolean) : null;
+  geocodeWalkAddresses(wid, srcPrecincts);
   res.json({ message: 'Geocoding started for ' + missing.c + ' addresses. Map will update as coordinates are resolved.', pending: missing.c });
 });
 
@@ -2027,9 +2108,10 @@ router.post('/walks/:id/refresh', (req, res) => {
   });
   const result = refreshResult();
 
-  // Re-geocode any new addresses
+  // Re-geocode any new addresses (with precinct filtering if applicable)
   if (result.added > 0) {
-    geocodeWalkAddresses(parseInt(req.params.id));
+    const srcPrecincts = walk.source_precincts ? walk.source_precincts.split(',').map(s => s.trim()).filter(Boolean) : null;
+    geocodeWalkAddresses(parseInt(req.params.id), srcPrecincts);
   }
 
   // Re-split if group walk
