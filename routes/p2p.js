@@ -7,6 +7,9 @@ const { getProvider } = require('../providers');
 
 const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 'Too many send requests, slow down.' } });
 
+// Track which MMS projects have already been set to live mode (avoids repeated goLive calls)
+const goLiveCache = new Set();
+
 // ========== HELPERS ==========
 
 function getOnlineVolunteers(sessionId) {
@@ -505,10 +508,10 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   }
 
   try {
-    // MMS: If the session has a rumbleup_action_id, send through that MMS project
-    // (image is pre-uploaded on RumbleUp dashboard, not via API)
+    // Always use the session's rumbleup_action_id so messages come from the correct phone number.
+    // For initial sends this also delivers the MMS image; for replies it just ensures the same number.
     const session = db.prepare('SELECT rumbleup_action_id, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    const mmsActionId = (!isReply && session && session.rumbleup_action_id) ? session.rumbleup_action_id : null;
+    const mmsActionId = (session && session.rumbleup_action_id) ? session.rumbleup_action_id : null;
     if (mmsActionId) {
       console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId);
     }
@@ -529,21 +532,31 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
       }
     }
 
-    // If MMS project, ensure it's in live/sending mode before first send
+    // If MMS project, ensure it's in live/sending mode (only once per project)
     if (mmsActionId && provider.goLive) {
-      try { await provider.goLive(mmsActionId); } catch (e) {
-        console.log('[p2p-send] goLive for project', mmsActionId, ':', e.message || 'ok');
+      if (!goLiveCache.has(mmsActionId)) {
+        try { await provider.goLive(mmsActionId); } catch (e) {
+          console.log('[p2p-send] goLive for project', mmsActionId, ':', e.message || 'ok');
+        }
+        goLiveCache.add(mmsActionId);
       }
     }
 
-    // Send with MMS fallback — if MMS project fails, retry as plain SMS
+    // Send through the session's project — always use mmsActionId if set so the
+    // correct phone number is used, even if the MMS media part fails.
     try {
       await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
     } catch (sendErr) {
       if (mmsActionId) {
         console.error('[p2p-send] MMS send FAILED for project ' + mmsActionId + ':', sendErr.message);
-        console.warn('[p2p-send] Falling back to plain SMS (no image)');
-        await provider.sendMessage(assignment.phone, message, 'sms', null);
+        // Retry on the SAME project (keeps the correct phone number) without expecting MMS media
+        console.warn('[p2p-send] Retrying on same project as plain text');
+        try {
+          await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
+        } catch (retryErr) {
+          console.error('[p2p-send] Retry also failed:', retryErr.message);
+          throw retryErr;
+        }
       } else {
         throw sendErr;
       }
