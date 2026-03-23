@@ -784,6 +784,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cc_candidate ON captain_candidates(candidate_id);
 `);
 
+// Race/district assignment for candidates (e.g., race_type='navigation_port', race_value='1')
+addColumn("ALTER TABLE candidates ADD COLUMN race_type TEXT DEFAULT ''");
+addColumn("ALTER TABLE candidates ADD COLUMN race_value TEXT DEFAULT ''");
+
 // --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS walk_scripts (
