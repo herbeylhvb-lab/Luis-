@@ -151,7 +151,8 @@ router.post('/p2p/sessions', (req, res) => {
     const findContact = db.prepare('SELECT id FROM contacts WHERE phone = ?');
     const insertContact = db.prepare('INSERT INTO contacts (phone, first_name, last_name, city, email) VALUES (?, ?, ?, ?, ?)');
     for (const v of listVoters) {
-      const normalizedVoterPhone = phoneDigits(v.phone) || v.phone;
+      const normalizedVoterPhone = phoneDigits(v.phone);
+      if (!normalizedVoterPhone || normalizedVoterPhone.length !== 10) continue; // skip invalid phones
       // Skip already-contacted voters
       if (contactedSet && (contactedSet.has(v.voter_id) || contactedSet.has('phone:' + v.phone) || contactedSet.has('phone:' + normalizedVoterPhone))) {
         skippedContacted++;
@@ -396,7 +397,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   }
 
   // Skip opted-out contacts automatically (TCPA compliance)
-  const optedOutPhones = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
+  const optedOutPhones = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => phoneDigits(r.phone)));
   const pendingAll = db.prepare(`
     SELECT a.id, c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id
     WHERE a.volunteer_id IN (${volIdPlaceholders}) AND a.status = 'pending' ORDER BY a.id ASC
@@ -490,8 +491,9 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'This assignment belongs to another volunteer.' });
   }
 
-  // Idempotency: prevent double-sends of the initial message (but allow replies)
-  if (!isReply && (assignment.status === 'sent' || assignment.status === 'in_conversation' || assignment.status === 'completed')) {
+  // Atomic check-and-update to prevent double sends
+  const claimed = db.prepare("UPDATE p2p_assignments SET status = 'sending' WHERE id = ? AND status = 'pending'").run(assignmentId);
+  if (!isReply && claimed.changes === 0) {
     return res.json({ success: true, skipped: true, reason: 'Message already sent for this assignment.' });
   }
 

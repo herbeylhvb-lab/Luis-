@@ -8,6 +8,11 @@ const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message
 const QRCode = require('qrcode');
 const { asyncHandler, phoneDigits } = require('../utils');
 
+function requireAuth(req, res, next) {
+  if (req.session && req.session.userId) return next();
+  return res.status(401).json({ error: 'Authentication required.' });
+}
+
 // List all events (includes has_flyer flag, excludes full base64) — single query with RSVP stats
 router.get('/events', (req, res) => {
   const events = db.prepare(`
@@ -31,7 +36,7 @@ router.get('/events', (req, res) => {
 });
 
 // Create event (now accepts flyer_image)
-router.post('/events', (req, res) => {
+router.post('/events', requireAuth, (req, res) => {
   const { title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'Title and date are required.' });
   const result = db.prepare(
@@ -52,7 +57,7 @@ router.get('/events/:id', (req, res) => {
 });
 
 // Update event (now accepts flyer_image)
-router.put('/events/:id', (req, res) => {
+router.put('/events/:id', requireAuth, (req, res) => {
   const { title, description, location, event_date, event_time, event_end_time, status, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   // If flyer_image is explicitly provided, update it. Otherwise leave existing.
   let result;
@@ -91,7 +96,7 @@ router.put('/events/:id', (req, res) => {
 });
 
 // Delete event
-router.delete('/events/:id', (req, res) => {
+router.delete('/events/:id', requireAuth, (req, res) => {
   const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
   // Cascade: clean up associated P2P sessions (by source_id first, fallback to name match)
@@ -109,7 +114,7 @@ router.delete('/events/:id', (req, res) => {
 });
 
 // Bulk delete events
-router.post('/events/bulk-delete', bulkDeleteLimiter, (req, res) => {
+router.post('/events/bulk-delete', requireAuth, bulkDeleteLimiter, (req, res) => {
   const { ids } = req.body;
   if (!ids || !ids.length) return res.status(400).json({ error: 'No event IDs provided.' });
   const bulkDel = db.transaction((list) => {
@@ -253,7 +258,7 @@ router.post('/events/:id/rsvps', (req, res) => {
 });
 
 // Bulk invite from an admin list
-router.post('/events/:id/invite-from-list', (req, res) => {
+router.post('/events/:id/invite-from-list', requireAuth, (req, res) => {
   const { list_id, rsvp_status } = req.body;
   if (!list_id) return res.status(400).json({ error: 'list_id is required.' });
 

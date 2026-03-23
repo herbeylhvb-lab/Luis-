@@ -1864,6 +1864,8 @@ async function logDoor() {
       var members = [];
       for (var i = 0; i < doorState.allMembers.length; i++) {
         var m = doorState.allMembers[i];
+        // Only include members with an actual result (talked to or marked not_home)
+        if (m.status === 'pending') continue; // skip members not interacted with
         members.push({
           voter_id: m.voter_id,
           name: m.name,
@@ -2423,8 +2425,11 @@ function renderMap(addresses, walkerLocations, progress) {
 
   var myName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || '');
 
-  // Clear old markers
-  mapState.markers.forEach(function(m) { mapState.map.removeLayer(m); });
+  // Clear existing markers
+  for (var i = 0; i < mapState.markers.length; i++) {
+    mapState.markers[i].off();
+    mapState.markers[i].remove();
+  }
   mapState.markers = [];
   mapState.otherWalkerMarkers.forEach(function(m) { mapState.map.removeLayer(m); });
   mapState.otherWalkerMarkers = [];
@@ -2547,20 +2552,20 @@ function renderMap(addresses, walkerLocations, progress) {
       (function(grp) {
         groupMarker.on('popupopen', function(e) {
           var popupEl = e.popup.getElement();
-          if (!popupEl) return;
-          var rows = popupEl.querySelectorAll('.apt-unit-row');
-          for (var r = 0; r < rows.length; r++) {
-            rows[r].addEventListener('click', function() {
-              var addrId = parseInt(this.getAttribute('data-addr-id'));
-              var localAddrs = walkState.walk.addresses;
-              for (var j = 0; j < localAddrs.length; j++) {
-                if (localAddrs[j].id === addrId) {
-                  openDoor(j);
-                  break;
-                }
+          if (!popupEl || popupEl._aptListenersAttached) return;
+          popupEl._aptListenersAttached = true;
+          popupEl.addEventListener('click', function(ev) {
+            var row = ev.target.closest('.apt-unit-row');
+            if (!row) return;
+            var addrId = parseInt(row.getAttribute('data-addr-id'));
+            var localAddrs = walkState.walk.addresses;
+            for (var j = 0; j < localAddrs.length; j++) {
+              if (localAddrs[j].id === addrId) {
+                openDoor(j);
+                break;
               }
-            });
-          }
+            }
+          });
         });
       })(group);
 

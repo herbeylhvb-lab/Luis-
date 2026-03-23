@@ -715,6 +715,11 @@ router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res)
   const { voter_id, phone, email } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id is required.' });
 
+  const voterId = parseInt(voter_id, 10);
+  if (isNaN(voterId) || voterId <= 0) return res.status(400).json({ error: 'Invalid voter_id.' });
+
+  if (email && !email.includes('@')) return res.status(400).json({ error: 'Invalid email format.' });
+
   // Verify list belongs to this captain
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
@@ -726,14 +731,14 @@ router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res)
     if (phone) { updates.push('phone = ?'); params.push(normalizePhone(phone)); }
     if (email) { updates.push('email = ?'); params.push(email); }
     if (updates.length > 0) {
-      params.push(voter_id);
+      params.push(voterId);
       db.prepare(`UPDATE voters SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     }
   }
 
-  const existing = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, voter_id);
+  const existing = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, voterId);
   if (existing) return res.json({ success: true, already: true });
-  db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)').run(req.params.listId, voter_id);
+  db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)').run(req.params.listId, voterId);
   res.json({ success: true });
 });
 

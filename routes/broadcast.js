@@ -45,7 +45,7 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
   if (recipients.length === 0) return res.status(400).json({ error: 'No recipients with phone numbers found.' });
 
   // Filter out opted-out contacts
-  const optedOut = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
+  const optedOut = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => phoneDigits(r.phone)));
   // Dedup recipients by normalized phone + filter opted out
   const seenPhones = new Set();
   recipients = recipients.filter(r => {
@@ -75,6 +75,8 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
       // Personalize message (uses shared utility with anti-double-substitution protection)
       const personalMsg = personalizeTemplate(fullMsg, r);
 
+      if (!phoneDigits(r.phone)) { failed++; continue; }
+
       try {
         await provider.sendMessage(r.phone, personalMsg);
         db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'sms')").run(phoneDigits(r.phone), personalMsg);
@@ -95,7 +97,7 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
     }
   } finally {
     // Always update campaign record, even if an unexpected error aborts the loop
-    const status = (sent === 0 && failed > 0) ? 'failed' : 'completed';
+    const status = sent === 0 ? 'failed' : (failed > 0 ? 'partial' : 'completed');
     db.prepare('UPDATE broadcast_campaigns SET sent_count = ?, failed_count = ?, status = ? WHERE id = ?')
       .run(sent, failed, status, campaignId);
   }

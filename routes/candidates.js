@@ -44,10 +44,16 @@ function requireCandidateAuth(req, res, next) {
   return res.status(401).json({ error: 'Authentication required.' });
 }
 
+// Admin auth middleware
+function requireAuth(req, res, next) {
+  if (req.session && req.session.userId) return next();
+  return res.status(401).json({ error: 'Authentication required.' });
+}
+
 // ===================== ADMIN ENDPOINTS =====================
 
 // List all candidates with stats (batched queries instead of N+1)
-router.get('/candidates', (req, res) => {
+router.get('/candidates', requireAuth, (req, res) => {
   const candidates = db.prepare('SELECT * FROM candidates ORDER BY created_at DESC').all();
 
   // Batch: captain counts per candidate
@@ -91,7 +97,7 @@ router.get('/candidates', (req, res) => {
 });
 
 // Create candidate
-router.post('/candidates', (req, res) => {
+router.post('/candidates', requireAuth, (req, res) => {
   const { name, office, phone, email } = req.body;
   if (!name) return res.status(400).json({ error: 'Candidate name is required.' });
   let code;
@@ -111,7 +117,7 @@ router.post('/candidates', (req, res) => {
 });
 
 // Update candidate
-router.put('/candidates/:id', (req, res) => {
+router.put('/candidates/:id', requireAuth, (req, res) => {
   const { name, office, phone, email, is_active } = req.body;
   const result = db.prepare(`UPDATE candidates SET
     name = COALESCE(?, name),
@@ -126,7 +132,7 @@ router.put('/candidates/:id', (req, res) => {
 });
 
 // Delete (deactivate) candidate — also deactivates their captains
-router.delete('/candidates/:id', (req, res) => {
+router.delete('/candidates/:id', requireAuth, (req, res) => {
   const candidate = db.prepare('SELECT name FROM candidates WHERE id = ?').get(req.params.id);
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
   const deactivate = db.transaction(() => {
@@ -650,9 +656,11 @@ router.post('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, 
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const { voterIds } = req.body;
   if (!voterIds || !voterIds.length) return res.status(400).json({ error: 'No voters provided.' });
+  const validIds = voterIds.filter(id => Number.isInteger(id) && id > 0);
+  if (validIds.length !== voterIds.length) return res.status(400).json({ error: 'Invalid voter IDs.' });
   const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
   let added = 0;
-  for (const vid of voterIds) {
+  for (const vid of validIds) {
     const r = insert.run(req.params.listId, vid);
     added += r.changes;
   }
@@ -951,6 +959,8 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   if (!voterIds || !Array.isArray(voterIds) || voterIds.length === 0) {
     return res.status(400).json({ error: 'voterIds array is required.' });
   }
+  const validIds = voterIds.filter(id => Number.isInteger(id) && id > 0);
+  if (validIds.length !== voterIds.length) return res.status(400).json({ error: 'Invalid voter IDs.' });
   if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
   if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
 
@@ -973,14 +983,14 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   const doTransfer = db.transaction(() => {
     const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
     let transferred = 0;
-    for (const voterId of voterIds) {
+    for (const voterId of validIds) {
       const r = insert.run(targetListId, voterId);
       transferred += r.changes;
     }
 
     if (removeFromSource) {
       const del = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
-      for (const voterId of voterIds) {
+      for (const voterId of validIds) {
         del.run(sourceListId, voterId);
       }
     }
