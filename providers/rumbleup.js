@@ -288,7 +288,7 @@ async function getGroup(groupId) {
 
 // --- Messaging ---
 
-async function sendSms(to, body, actionIdOverride) {
+async function sendSms(to, body, actionIdOverride, options = {}) {
   const creds = getCredentials();
   if (!creds.apiKey || !creds.apiSecret) {
     throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
@@ -300,10 +300,15 @@ async function sendSms(to, body, actionIdOverride) {
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
 
-  // Note: MMS media is set at the project level, not per-message.
-  // To send MMS, create a project with media attached and pass its action ID here.
-  console.log('[sms] Sending via project', actionId, 'to', phone.substring(0, 6) + '****');
-  return apiPost('/message/send', { phone, action: actionId, text: body });
+  const payload = { phone, action: actionId, text: body };
+  // Include MMS media attachment if provided (RumbleUp 'file' field)
+  if (options.mediaUrl) {
+    payload.file = options.mediaUrl;
+    console.log('[sms] Sending MMS via project', actionId, 'with media to', phone.substring(0, 6) + '****');
+  } else {
+    console.log('[sms] Sending SMS via project', actionId, 'to', phone.substring(0, 6) + '****');
+  }
+  return apiPost('/message/send', payload);
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
@@ -318,9 +323,9 @@ async function sendWhatsApp(_to, _body) {
   throw new Error('RumbleUp does not support WhatsApp messaging.');
 }
 
-async function sendMessage(to, body, channel, actionIdOverride) {
+async function sendMessage(to, body, channel, actionIdOverride, options = {}) {
   if (channel === 'whatsapp') return sendWhatsApp(to, body);
-  return sendSms(to, body, actionIdOverride);
+  return sendSms(to, body, actionIdOverride, options);
 }
 
 async function getNextContact(actionId) {

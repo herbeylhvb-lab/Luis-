@@ -9,6 +9,8 @@ const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 
 
 // Track which MMS projects have already been set to live mode (avoids repeated goLive calls)
 const goLiveCache = new Set();
+// Cache MMS media URLs fetched from RumbleUp project details (avoids repeated API calls)
+const mediaUrlCache = new Map();
 
 // ========== HELPERS ==========
 
@@ -510,10 +512,33 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   try {
     // Always use the session's rumbleup_action_id so messages come from the correct phone number.
     // For initial sends this also delivers the MMS image; for replies it just ensures the same number.
-    const session = db.prepare('SELECT rumbleup_action_id, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
+    const session = db.prepare('SELECT rumbleup_action_id, session_type, name, media_url FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
     const mmsActionId = (session && session.rumbleup_action_id) ? session.rumbleup_action_id : null;
+    let mediaUrl = (session && session.media_url) ? session.media_url : null;
+
+    // If MMS project set but no local media URL, fetch it from RumbleUp project details
+    if (mmsActionId && !mediaUrl) {
+      if (mediaUrlCache.has(mmsActionId)) {
+        mediaUrl = mediaUrlCache.get(mmsActionId);
+      } else if (provider.getProject) {
+        try {
+          const proj = await provider.getProject(mmsActionId);
+          mediaUrl = proj.media || proj.media_url || proj.file || proj.image || null;
+          if (mediaUrl) {
+            mediaUrlCache.set(mmsActionId, mediaUrl);
+            console.log('[p2p-send] Fetched media URL from project', mmsActionId, ':', mediaUrl);
+          } else {
+            console.warn('[p2p-send] Project', mmsActionId, 'has no media. Keys:', Object.keys(proj).join(','));
+            mediaUrlCache.set(mmsActionId, null);
+          }
+        } catch (e) {
+          console.error('[p2p-send] Failed to fetch project details for', mmsActionId, ':', e.message);
+        }
+      }
+    }
+
     if (mmsActionId) {
-      console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId);
+      console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId, 'media:', mediaUrl ? 'YES' : 'NO');
     }
 
     // Auto-sync contact to RumbleUp before sending (ensures phone exists in their system)
@@ -547,14 +572,15 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     }
 
     // Send through the session's project — always use mmsActionId if set so the
-    // correct phone number is used, even if the MMS media part fails.
+    // correct phone number is used. Pass media URL as 'file' for MMS attachment.
+    const sendOpts = mediaUrl ? { mediaUrl } : {};
     try {
-      await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
+      await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId, sendOpts);
     } catch (sendErr) {
       if (mmsActionId) {
         console.error('[p2p-send] MMS send FAILED for project ' + mmsActionId + ':', sendErr.message);
-        // Retry on the SAME project (keeps the correct phone number) without expecting MMS media
-        console.warn('[p2p-send] Retrying on same project as plain text');
+        // Retry without media in case 'file' parameter caused the error
+        console.warn('[p2p-send] Retrying without media attachment');
         try {
           await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
         } catch (retryErr) {
