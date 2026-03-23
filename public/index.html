@@ -640,6 +640,16 @@ tr:hover td{background:#1e293b80}
             </div>
           </div>
           <div class="form-group"><label>Message Template</label><textarea id="p2pTemplate" rows="3" placeholder="Hi {firstName}! This is a volunteer with the campaign..."></textarea></div>
+          <div class="form-group">
+            <label>MMS Image Project <span style="font-weight:400;color:#64748b">(optional)</span></label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="p2pMmsProjectId" placeholder="RumbleUp Project ID" style="flex:1">
+              <button class="btn btn-sm" style="background:#334155;color:#e2e8f0;white-space:nowrap" onclick="checkP2pMmsProject()">Check Project</button>
+              <button class="btn btn-sm" style="background:#818cf8;color:#fff;white-space:nowrap" onclick="testP2pMmsSend()">Test Send</button>
+            </div>
+            <div id="p2pMmsStatus" style="font-size:12px;margin-top:6px"></div>
+            <div id="p2pMmsPreview" style="display:none;margin-top:8px"><img id="p2pMmsPreviewImg" style="max-width:200px;border-radius:8px;border:1px solid #334155"></div>
+          </div>
           <div class="form-group"><label>Contact Source</label>
             <select id="p2pContactSource" onchange="toggleP2pContactSource()" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
               <option value="list">From a List</option>
@@ -735,6 +745,10 @@ tr:hover td{background:#1e293b80}
         </div>
         <div class="card" id="p2pQueueCard">
           <div id="p2pContactInfo" style="margin-bottom:16px"></div>
+          <div id="p2pMmsImagePreview" style="display:none;margin-bottom:12px;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+            <div style="font-size:11px;color:#818cf8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">MMS Image Attached</div>
+            <img id="p2pMmsImage" style="max-width:100%;max-height:200px;border-radius:6px">
+          </div>
           <div class="form-group"><label>Message</label><textarea id="p2pMessage" rows="4" oninput="this.dataset.userEdited='1'"></textarea></div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-success" id="btnP2pSend">&#9654; Send</button>
@@ -3160,6 +3174,22 @@ async function loadAdminQueue() {
     phoneEl.textContent = a.phone || '';
     card.appendChild(phoneEl);
     if (a.city) { var cityEl = document.createElement('div'); cityEl.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:2px'; cityEl.textContent = a.city; card.appendChild(cityEl); }
+    // MMS image preview
+    if (qData.mediaUrl) {
+      var mmsBox = document.createElement('div');
+      mmsBox.style.cssText = 'margin-top:10px;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:8px';
+      mmsBox.innerHTML = '<div style="font-size:11px;color:#818cf8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">MMS Image Attached</div>';
+      var mmsImg = document.createElement('img');
+      mmsImg.src = qData.mediaUrl;
+      mmsImg.style.cssText = 'max-width:100%;max-height:180px;border-radius:6px';
+      mmsBox.appendChild(mmsImg);
+      card.appendChild(mmsBox);
+    } else if (qData.mmsProjectId) {
+      var mmsIndicator = document.createElement('div');
+      mmsIndicator.style.cssText = 'margin-top:8px;font-size:12px;color:#818cf8;padding:6px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px';
+      mmsIndicator.textContent = 'MMS image will be sent via RumbleUp project ' + qData.mmsProjectId;
+      card.appendChild(mmsIndicator);
+    }
     // Message preview
     var msgPrev = document.createElement('div');
     msgPrev.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:10px;font-size:13px;color:#94a3b8;line-height:1.5;white-space:pre-wrap';
@@ -7952,6 +7982,40 @@ function updateP2pListCount() {
   loadPrecinctFilter(sel.value, 'p2pPrecinctFilter');
 }
 
+async function checkP2pMmsProject() {
+  var projectId = document.getElementById('p2pMmsProjectId').value.trim();
+  var statusEl = document.getElementById('p2pMmsStatus');
+  var previewEl = document.getElementById('p2pMmsPreview');
+  if (!projectId) { statusEl.innerHTML = '<span style="color:#ef4444">Enter a project ID first.</span>'; previewEl.style.display = 'none'; return; }
+  statusEl.innerHTML = '<span style="color:#94a3b8">Checking project...</span>';
+  try {
+    var d = await api('/api/rumbleup/project/' + projectId);
+    if (d.error) { statusEl.innerHTML = '<span style="color:#ef4444">' + escHtml(d.error) + '</span>'; previewEl.style.display = 'none'; return; }
+    var p = d.project || {};
+    var hasMedia = p.media_url || p.mediaUrl;
+    statusEl.innerHTML = '<span style="color:#22c55e">Project: ' + escHtml(p.name || projectId) + '</span>' +
+      (hasMedia ? ' <span style="color:#818cf8">(has image)</span>' : ' <span style="color:#f59e0b">(no image — SMS only)</span>');
+    if (hasMedia) {
+      document.getElementById('p2pMmsPreviewImg').src = hasMedia;
+      previewEl.style.display = '';
+    } else { previewEl.style.display = 'none'; }
+  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Failed: ' + escHtml(e.message) + '</span>'; previewEl.style.display = 'none'; }
+}
+
+async function testP2pMmsSend() {
+  var projectId = document.getElementById('p2pMmsProjectId').value.trim();
+  if (!projectId) return alert('Enter a RumbleUp Project ID first.');
+  var phone = prompt('Enter your phone number to receive a test MMS:');
+  if (!phone) return;
+  var statusEl = document.getElementById('p2pMmsStatus');
+  statusEl.innerHTML = '<span style="color:#94a3b8">Sending test...</span>';
+  try {
+    var d = await apiPost('/api/rumbleup/test-send', { projectId: projectId, testPhone: phone });
+    if (d.error) { statusEl.innerHTML = '<span style="color:#ef4444">Test failed: ' + escHtml(d.error) + '</span>'; return; }
+    statusEl.innerHTML = '<span style="color:#22c55e">Test sent! Check your phone.</span>';
+  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Test failed: ' + escHtml(e.message) + '</span>'; }
+}
+
 document.getElementById('btnCreateP2pSession').addEventListener('click', async () => {
   const name = document.getElementById('p2pPageSessionName').value.trim();
   const message_template = document.getElementById('p2pTemplate').value.trim();
@@ -7959,7 +8023,8 @@ document.getElementById('btnCreateP2pSession').addEventListener('click', async (
   if (!name || !message_template) return alert('Session name and message template required.');
 
   const source = document.getElementById('p2pContactSource').value;
-  const body = { name, message_template, assignment_mode };
+  const mmsProjectId = document.getElementById('p2pMmsProjectId').value.trim() || null;
+  const body = { name, message_template, assignment_mode, mms_project_id: mmsProjectId };
 
   if (source === 'list') {
     const listId = document.getElementById('p2pListSelect').value;
@@ -7987,6 +8052,9 @@ document.getElementById('btnCreateP2pSession').addEventListener('click', async (
   prompt(msg, volLink);
   document.getElementById('p2pPageSessionName').value = '';
   document.getElementById('p2pTemplate').value = '';
+  document.getElementById('p2pMmsProjectId').value = '';
+  document.getElementById('p2pMmsStatus').innerHTML = '';
+  document.getElementById('p2pMmsPreview').style.display = 'none';
   loadP2pSessions();
 });
 
@@ -8016,6 +8084,7 @@ async function loadP2pSessions() {
         <div style="display:flex;gap:16px;font-size:13px;color:#94a3b8;align-items:center">
           <span>Code: <strong style="color:#818cf8">${s.join_code}</strong></span>
           <span>${s.sent}/${s.totalContacts} sent</span>
+          ${s.rumbleup_action_id ? '<span class="badge" style="background:#1e1b4b;color:#818cf8">MMS</span>' : ''}
           <span style="display:inline-flex;align-items:center;gap:5px;background:${s.onlineCount > 0 ? 'rgba(34,197,94,0.12)' : 'rgba(100,116,139,0.12)'};padding:3px 10px;border-radius:12px;font-weight:600;color:${s.onlineCount > 0 ? '#22c55e' : '#64748b'}">
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.onlineCount > 0 ? '#22c55e' : '#64748b'};${s.onlineCount > 0 ? 'box-shadow:0 0 6px #22c55e;animation:pulse-dot 2s infinite' : ''}"></span>
             ${s.onlineCount} online
@@ -8535,6 +8604,18 @@ async function loadVolunteerQueue() {
         <div style="font-size:16px;color:#e2e8f0;margin-bottom:4px"><strong>${escHtml(d.assignment.first_name)} ${escHtml(d.assignment.last_name)}</strong></div>
         <div style="font-size:13px;color:#94a3b8">${escHtml(d.assignment.phone)}${d.assignment.city ? ' · ' + escHtml(d.assignment.city) : ''}</div>
       `;
+      // Show MMS image preview if session has media
+      var mmsPreviewEl = document.getElementById('p2pMmsImagePreview');
+      if (d.mediaUrl) {
+        document.getElementById('p2pMmsImage').src = d.mediaUrl;
+        mmsPreviewEl.style.display = '';
+      } else if (d.mmsProjectId) {
+        // No direct URL but MMS project is set — show indicator
+        mmsPreviewEl.innerHTML = '<div style="font-size:12px;color:#818cf8;padding:6px 0">MMS image will be sent via RumbleUp project ' + escHtml(d.mmsProjectId) + '</div>';
+        mmsPreviewEl.style.display = '';
+      } else {
+        mmsPreviewEl.style.display = 'none';
+      }
       // Only set message if user hasn't edited it (prevent overwrite during polling)
       var msgEl = document.getElementById('p2pMessage');
       if (!msgEl.dataset.userEdited) {
