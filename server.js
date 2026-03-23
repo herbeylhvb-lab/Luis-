@@ -31,8 +31,9 @@ app.use(cors({
   origin: function(origin, callback) {
     // Allow same-origin requests (no origin header)
     if (!origin) return callback(null, true);
-    // If APP_URL is configured, enforce it; otherwise allow all origins (dev mode)
-    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Enforce APP_URL origin whitelist; reject unknown origins in production
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    if (ALLOWED_ORIGINS.length === 0 && process.env.NODE_ENV !== 'production') return callback(null, true);
     callback(null, false);
   }
 }));
@@ -116,11 +117,42 @@ app.get('/volunteer', (req, res) => res.sendFile(path.join(__dirname, 'public', 
 app.get('/walk', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walk.html')));
 app.get('/scanner', (req, res) => res.sendFile(path.join(__dirname, 'public', 'scanner.html')));
 app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkin.html')));
-app.get('/v/:token', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voter-checkin.html')));
+app.get('/v/:token', (req, res) => {
+  const eventId = req.query.e;
+  const voter = db.prepare("SELECT id, first_name, last_name, phone FROM voters WHERE qr_token = ?").get(req.params.token);
+
+  // Auto-check-in if we have a voter and event
+  if (voter && eventId) {
+    const event = db.prepare('SELECT id, title FROM events WHERE id = ?').get(eventId);
+    if (event) {
+      const existing = db.prepare('SELECT id FROM voter_checkins WHERE voter_id = ? AND event_id = ?').get(voter.id, event.id);
+      if (!existing) {
+        db.transaction(() => {
+          db.prepare('INSERT INTO voter_checkins (voter_id, event_id) VALUES (?, ?)').run(voter.id, event.id);
+          db.prepare(
+            'INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by) VALUES (?, ?, ?, ?, ?)'
+          ).run(voter.id, 'Event', 'Attended', 'Auto checked in via link: ' + event.title, 'Link Check-In');
+          db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+            voter.first_name + ' ' + voter.last_name + ' auto checked in to: ' + event.title
+          );
+          // Update RSVP status to attended
+          if (voter.phone) {
+            const normalizedPhone = voter.phone.replace(/\D/g, '');
+            db.prepare("UPDATE event_rsvps SET rsvp_status = 'attended', checked_in_at = datetime('now') WHERE event_id = ? AND contact_phone = ?")
+              .run(event.id, normalizedPhone);
+          }
+        })();
+      }
+    }
+  }
+
+  return res.redirect('https://villarrealjr.com');
+});
 app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'captain.html')));
 app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'candidate.html')));
 app.get('/group', (req, res) => res.sendFile(path.join(__dirname, 'public', 'group.html')));
 app.get('/walker', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walker.html')));
+app.get('/texter', (req, res) => res.sendFile(path.join(__dirname, 'public', 'texter.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -135,18 +167,17 @@ app.use((req, res, next) => {
   for (const p of publicApiPaths) {
     if (req.path.startsWith(p)) return next();
   }
-  // Allow volunteer walk endpoints (used by walk.html without admin auth)
+  // Allow volunteer walk endpoints
   if (req.path.match(/^\/api\/walks\/\d+\/volunteer/) ||
       req.path.match(/^\/api\/walks\/\d+\/walker\//) ||
-      req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//) ||
-      req.path.match(/^\/api\/walks\/\d+\/walkers$/) ||
       req.path.match(/^\/api\/walks\/\d+\/group/) ||
       req.path.match(/^\/api\/walks\/\d+\/addresses\/\d+\/log/) ||
       req.path.match(/^\/api\/walks\/\d+\/route/) ||
       req.path.match(/^\/api\/walks\/\d+\/location/) ||
-      req.path.match(/^\/api\/walks\/\d+\/live-status/) ||
       req.path.match(/^\/api\/walks\/\d+\/script/) ||
+      req.path.match(/^\/api\/walks\/\d+\/walkers/) ||
       req.path.match(/^\/api\/walks\/\d+\/map-data/) ||
+      req.path.match(/^\/api\/walks\/\d+\/live-status/) ||
       req.path.match(/^\/api\/walks\/\d+\/geocode/)) {
     return next();
   }
@@ -158,7 +189,14 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/p2p\/assignments\/\d+/) ||
       req.path === '/api/p2p/send' ||
       req.path === '/api/p2p/suggest-reply' ||
-      req.path === '/api/p2p/review-reply') {
+      req.path === '/api/p2p/review-reply' ||
+      req.path === '/api/texting-volunteers/login' ||
+      req.path.match(/^\/api\/texting-volunteers\/\d+\/dashboard/) ||
+      req.path === '/api/volunteers/login' ||
+      req.path === '/api/volunteers/register' ||
+      req.path === '/api/volunteers/create-walk' ||
+      req.path.match(/^\/api\/volunteers\/\d+\/dashboard/) ||
+      req.path === '/reply') {
     return next();
   }
   // Allow captain portal endpoints (used by captain.html without admin auth)
@@ -192,18 +230,11 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//)) {
     return next();
   }
-  // Allow volunteer portal endpoints (code-based auth, no admin session required)
-  if (req.path === '/api/volunteers/login' ||
-      req.path === '/api/volunteers/register' ||
-      req.path === '/api/volunteers/create-walk' ||
-      req.path.match(/^\/api\/volunteers\/\d+\/dashboard/)) {
-    return next();
-  }
   // Allow public portal pages (volunteer, walker, captain, candidate, group, scanner, checkin)
   const publicPages = ['/volunteer', '/volunteer.html', '/walker', '/walker.html',
     '/captain', '/captain.html', '/candidate', '/candidate.html',
     '/group', '/group.html', '/scanner', '/scanner.html',
-    '/walk', '/walk.html', '/voter-checkin.html'];
+    '/walk', '/walk.html', '/voter-checkin.html', '/texter', '/texter.html'];
   if (publicPages.includes(req.path) || req.path.startsWith('/v/') || req.path.startsWith('/checkin/')) {
     return next();
   }
@@ -219,8 +250,11 @@ app.use((req, res, next) => {
   if (req.path === '/' || req.path.startsWith('/site')) return next();
   // Allow /app (handles its own auth redirect)
   if (req.path === '/app') return next();
-  // Debug sync status requires auth (exposes provider info)
-  // if (req.path === '/api/debug/sync-status') return next();
+  // Allow event flyer images (needed for MMS — RumbleUp fetches these URLs)
+  if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
+  // Allow voter check-in links (QR code destinations)
+  if (req.path.startsWith('/v/')) return next();
+  // Debug sync-status requires admin auth (contains phone numbers)
   // Everything else requires auth
   requireAuth(req, res, next);
 });
@@ -244,6 +278,7 @@ app.use('/api', require('./routes/events'));
 app.use('/api', require('./routes/knowledge'));
 app.use('/api', require('./routes/ai'));
 app.use('/api', require('./routes/p2p'));
+app.use('/api', require('./routes/volunteers'));
 app.use('/api', require('./routes/captains'));
 app.use('/api', require('./routes/candidates'));
 app.use('/api', require('./routes/email'));
@@ -252,21 +287,13 @@ app.use('/api', require('./routes/groups'));
 app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
 app.use('/api', require('./routes/rumbleup'));
-app.use('/api', require('./routes/volunteers'));
-
-// --- TCPA: Bulk SMS endpoint removed ---
-app.post('/send', (req, res) => {
-  res.status(410).json({ error: 'Bulk SMS sending has been disabled for TCPA compliance. Use P2P sessions instead.' });
-});
 
 // --- Core endpoints ---
 
 app.get('/health', (req, res) => {
   try {
     db.prepare('SELECT 1').get();
-    const users = (db.prepare('SELECT COUNT(*) as c FROM users').get() || { c: 0 }).c;
-    const voters = (db.prepare('SELECT COUNT(*) as c FROM voters').get() || { c: 0 }).c;
-    res.json({ status: 'ok', uptime: process.uptime(), users, voters });
+    res.json({ status: 'ok' });
   } catch (_err) {
     res.status(503).json({ status: 'error', message: 'Database unavailable.' });
   }
@@ -291,7 +318,9 @@ const _statsQuery = db.prepare(`
     (SELECT COUNT(*) FROM block_walks) as walks,
     (SELECT COUNT(*) FROM walk_addresses WHERE result != 'not_visited') as doorsKnocked,
     (SELECT COUNT(*) FROM voters) as voters,
-    (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents
+    (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents,
+    (SELECT COUNT(*) FROM voters WHERE support_level IN ('strong_support', 'lean_support')) as supporters,
+    (SELECT COUNT(*) FROM voters WHERE support_level = 'undecided') as undecided
 `);
 app.get('/api/stats', (req, res) => {
   res.json(_statsQuery.get());
@@ -377,7 +406,7 @@ app.post('/test-connection', asyncHandler(async (req, res) => {
     }
     if (!apiKey || !apiSecret) return res.status(400).json({ error: 'Missing API key or secret.' });
     const result = await p.testConnection(apiKey, apiSecret);
-    p.saveCredentials({ apiKey, apiSecret, phoneNumber: req.body.phoneNumber, actionId: req.body.actionId });
+    p.saveCredentials({ apiKey, apiSecret, phoneNumber: req.body.phoneNumber, actionId: req.body.actionId, campaignId: req.body.campaignId });
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('Connection test failed:', err.message);
@@ -386,8 +415,17 @@ app.post('/test-connection', asyncHandler(async (req, res) => {
 }));
 
 // --- Incoming webhook (messaging provider) ---
-app.post('/incoming', webhookLimiter, (req, res) => {
-  console.log('[webhook /incoming] Received webhook:', JSON.stringify(req.body).substring(0, 500));
+app.post('/incoming', webhookLimiter, async (req, res) => {
+  const webhookType = (req.body && req.body.type) || 'unknown';
+  console.log('[webhook /incoming] type=' + webhookType + ' payload:', JSON.stringify(req.body).substring(0, 500));
+
+  // Skip non-message events — only block known non-message types
+  // RumbleUp may send "MESSAGE_RECEIVED", "MESSAGE", or other variants
+  const skipTypes = ['DELIVERY_RECEIPT', 'CONTACT_UPDATED', 'CONTACT', 'STATUS', 'PROXY_PROVISIONED'];
+  if (skipTypes.includes(webhookType)) {
+    return res.type('application/json').send('{"ok":true}');
+  }
+
   let provider;
   try {
     provider = getProvider();
@@ -408,11 +446,17 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   const Body = webhook.body;
   const channel = webhook.channel || 'sms';
   if (!From) {
+    console.warn('[webhook] No phone in payload, skipping');
     return res.type(replyType).send(provider.buildEmptyReply());
   }
+  console.log('[webhook] Processing message from ' + From + ': ' + (Body || '').substring(0, 100));
 
   // Normalize phone to 10-digit for matching against stored contacts
   const fromNormalized = phoneDigits(From);
+  if (!fromNormalized || fromNormalized.length < 10) {
+    console.log('[webhook] Invalid phone number, ignoring');
+    return res.type(replyType).send(provider.buildEmptyReply());
+  }
 
   try {
 
@@ -422,7 +466,9 @@ app.post('/incoming', webhookLimiter, (req, res) => {
     return res.type(replyType).send(provider.buildReply("You've been removed from our list. -- Campaign HQ"));
   }
 
-  const sentiment = analyzeSentiment(Body);
+  // Use fast keyword sentiment in webhook path (AI is too slow, risks timeout)
+  const sentiment = analyzeSentimentKeywords(Body);
+  // AI sentiment will be fire-and-forget AFTER message is inserted (see below)
 
   // Check if this is a survey response (only when the survey is actively running)
   const activeSend = db.prepare(`
@@ -524,24 +570,48 @@ app.post('/incoming', webhookLimiter, (req, res) => {
   }
 
   // Check if this is a reply to an active P2P session
+  // Contacts are now stored with normalized phones (10-digit), matching webhook format
   const p2pAssignment = db.prepare(`
     SELECT a.*, s.id as sid FROM p2p_assignments a
     JOIN p2p_sessions s ON a.session_id = s.id
     JOIN contacts c ON a.contact_id = c.id
-    WHERE (c.phone = ? OR REPLACE(REPLACE(REPLACE(c.phone,'+1',''),'+',''),'-','') = ?)
+    WHERE c.phone = ?
       AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
     ORDER BY a.sent_at DESC LIMIT 1
-  `).get(fromNormalized, fromNormalized);
+  `).get(fromNormalized);
 
-  if (p2pAssignment) {
-    db.transaction(() => {
-      db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
-      db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
-    })();
+  // Dedup: atomically check-and-insert using INSERT OR IGNORE with a unique-ish key
+  // First check (non-atomic but catches most duplicates cheaply)
+  const alreadyExists = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-2 minutes') LIMIT 1").get(fromNormalized, Body);
+  if (alreadyExists) {
+    console.log('[webhook] Skipping duplicate message from ' + fromNormalized);
     return res.type(replyType).send(provider.buildEmptyReply());
   }
 
-  db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, ?, 'inbound', ?, ?)").run(fromNormalized, Body, sentiment, channel);
+  if (p2pAssignment) {
+    const txResult = db.transaction(() => {
+      db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pAssignment.id);
+      const r = db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
+      return r.lastInsertRowid;
+    })();
+    const savedMsgId = txResult;
+    // Fire-and-forget AI sentiment update by exact row ID
+    analyzeSentimentAI(Body).then(aiSentiment => {
+      if (aiSentiment !== sentiment && savedMsgId) {
+        db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, savedMsgId);
+      }
+    }).catch(() => {});
+    return res.type(replyType).send(provider.buildEmptyReply());
+  }
+
+  const insResult = db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, ?, 'inbound', ?, ?)").run(fromNormalized, Body, sentiment, channel);
+  const savedMsgId = insResult.lastInsertRowid;
+  // Fire-and-forget AI sentiment update by exact row ID
+  analyzeSentimentAI(Body).then(aiSentiment => {
+    if (aiSentiment !== sentiment && savedMsgId) {
+      db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, savedMsgId);
+    }
+  }).catch(() => {});
   const autoReply = generateAutoReply(msgText);
   if (autoReply) {
     return res.type(replyType).send(provider.buildReply(autoReply));
@@ -550,20 +620,91 @@ app.post('/incoming', webhookLimiter, (req, res) => {
 
   } catch (err) {
     console.error('Webhook processing error:', err.message);
-    res.type(replyType).send(provider.buildEmptyReply());
+    if (!res.headersSent) res.type(replyType).send(provider.buildEmptyReply());
   }
 });
 
 // --- Messages & opt-outs ---
+// Pending messages: last inbound per phone with no outbound reply after it
+// Accessible by admin (session) or volunteers (X-Volunteer-Id header)
+app.get('/api/messages/pending', (req, res) => {
+  const isAdmin = req.session && req.session.userId;
+  const volId = req.headers['x-volunteer-id'];
+  const volCode = req.headers['x-volunteer-code'];
+  // Require both volunteer ID and their personal code to prevent ID spoofing
+  const isVol = volId && volCode &&
+    db.prepare('SELECT id FROM volunteers WHERE id = ? AND code = ?').get(volId, volCode);
+  if (!isAdmin && !isVol) return res.status(401).json({ error: 'Authentication required.' });
+
+  // For volunteers: only show messages for phones in their assignments
+  // For admin: show all pending messages
+  let volPhoneFilter = '';
+  let volPhoneParams = [];
+  if (isVol && !isAdmin) {
+    // Get all phones assigned to this volunteer across all sessions
+    const assignedPhones = db.prepare(`
+      SELECT DISTINCT c.phone FROM p2p_assignments pa
+      JOIN p2p_volunteers pv ON pa.session_id = pv.session_id AND pa.volunteer_id = pv.id
+      JOIN contacts c ON pa.contact_id = c.id
+      WHERE (pv.volunteer_id = ? OR pv.id = ?) AND pa.status IN ('sent','in_conversation','completed')
+    `).all(volId, volId).map(r => r.phone);
+    // Normalize and batch to avoid SQLite 999 variable limit
+    const allPhones = new Set();
+    for (const p of assignedPhones) {
+      const digits = phoneDigits(p);
+      if (digits) allPhones.add(digits);
+    }
+    if (allPhones.size === 0) return res.json({ messages: [] });
+    // Build phone filter using batched placeholders (safe for any size, no temp table race)
+    const phonesArr = [...allPhones];
+    volPhoneFilter = ' AND m.phone IN (' + phonesArr.map(() => '?').join(',') + ')';
+    volPhoneParams = phonesArr;
+  }
+
+  const pending = db.prepare(`
+    SELECT m.*,
+      COALESCE(
+        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE v.phone = m.phone AND v.phone != '' LIMIT 1),
+        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE c.phone = m.phone AND c.phone != '' LIMIT 1)
+      ) as contact_name
+    FROM messages m
+    WHERE m.direction = 'inbound'
+      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE m2.phone = m.phone AND m2.direction = 'inbound')
+      AND NOT EXISTS (
+        SELECT 1 FROM messages out_msg
+        WHERE out_msg.phone = m.phone AND out_msg.direction = 'outbound' AND out_msg.id > m.id
+      )
+      AND m.phone NOT IN (SELECT phone FROM opt_outs)
+      ${volPhoneFilter}
+    ORDER BY m.id DESC LIMIT 100
+  `).all(...volPhoneParams);
+  // Batch-load conversation history for all pending phones in one query
+  if (pending.length > 0) {
+    const phones = pending.map(m => m.phone);
+    const placeholders = phones.map(() => '?').join(',');
+    const allConvos = db.prepare(`SELECT phone, body, direction, timestamp, ROW_NUMBER() OVER (PARTITION BY phone ORDER BY COALESCE(timestamp, datetime('now')) DESC, id DESC) as rn FROM messages WHERE phone IN (${placeholders})`).all(...phones);
+    const convoMap = {};
+    for (const c of allConvos) {
+      if (c.rn > 5) continue; // limit 5 per phone
+      if (!convoMap[c.phone]) convoMap[c.phone] = [];
+      convoMap[c.phone].push({ body: c.body, direction: c.direction, timestamp: c.timestamp });
+    }
+    for (const msg of pending) {
+      msg.conversation = (convoMap[msg.phone] || []).reverse();
+    }
+  }
+  res.json({ messages: pending });
+});
+
 app.get('/api/messages', (req, res) => {
   const messages = db.prepare(`
     SELECT m.*,
-      COALESCE(v.first_name || ' ' || v.last_name, c.first_name || ' ' || c.last_name) as contact_name
+      COALESCE(
+        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE v.phone = m.phone AND v.phone != '' LIMIT 1),
+        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE c.phone = m.phone AND c.phone != '' LIMIT 1)
+      ) as contact_name
     FROM messages m
-    LEFT JOIN voters v ON m.phone = v.phone AND v.phone != '' AND v.phone IS NOT NULL
-    LEFT JOIN contacts c ON m.phone = c.phone AND c.phone != '' AND c.phone IS NOT NULL
     WHERE m.direction = 'inbound'
-    GROUP BY m.id
     ORDER BY m.id DESC LIMIT 200
   `).all();
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
@@ -572,8 +713,13 @@ app.get('/api/messages', (req, res) => {
 
 // --- Reply (SMS or WhatsApp) ---
 app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
+  // Require admin session or verified volunteer identity to prevent unauthenticated sends
+  const hasAdminSession = req.session && req.session.userId;
+  const hasVolunteer = req.body && req.body.volunteerId && req.body.volunteerCode &&
+    db.prepare('SELECT id FROM volunteers WHERE id = ? AND code = ?').get(req.body.volunteerId, req.body.volunteerCode);
+  if (!hasAdminSession && !hasVolunteer) return res.status(401).json({ error: 'Authentication required.' });
   const provider = getProvider();
-  const { to, body, channel } = req.body;
+  const { to, body, channel, mmsActionId } = req.body;
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
   if (!to || !body) return res.status(400).json({ error: 'Recipient and message body required.' });
   // Check opt-out list before sending (TCPA compliance)
@@ -582,12 +728,124 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Contact has opted out. Cannot send messages.' });
   }
   try {
-    await provider.sendMessage(to, body, channel);
-    db.prepare("INSERT INTO messages (phone, body, direction) VALUES (?, ?, 'outbound')").run(phoneDigits(to) || to, body);
-    res.json({ success: true });
+    // RumbleUp requires opt-out instructions in every message
+    const sendBody = /stop|opt.?out|unsubscribe/i.test(body) ? body : body + '\nSTOP to opt-out';
+    // If mmsActionId provided, send through that pre-created MMS project (image is on the project)
+    if (mmsActionId) {
+      console.log('[reply] Sending MMS via pre-created project:', mmsActionId);
+    }
+    await provider.sendMessage(to, sendBody, channel, mmsActionId || null);
+
+    // Find active P2P session for this phone so reply appears in conversation view
+    const replySessionMatch = db.prepare(`
+      SELECT a.session_id FROM p2p_assignments a
+      JOIN p2p_sessions s ON a.session_id = s.id
+      JOIN contacts c ON a.contact_id = c.id
+      WHERE c.phone = ? AND s.status = 'active' AND a.status IN ('sent','in_conversation')
+      ORDER BY a.sent_at DESC LIMIT 1
+    `).get(toDigits);
+    db.prepare("INSERT INTO messages (phone, body, direction, session_id) VALUES (?, ?, 'outbound', ?)").run(toDigits || to, body, replySessionMatch ? replySessionMatch.session_id : null);
+    res.json({ success: true, mms: !!mmsActionId });
   } catch (err) {
     console.error('Reply send error:', err.message);
-    res.status(500).json({ error: 'Failed to send reply: ' + err.message });
+    res.status(500).json({ error: 'Failed to send reply. Please try again.' });
+  }
+}));
+
+// --- Fetch RumbleUp projects for MMS dropdown ---
+app.get('/api/rumbleup/projects', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.json({ projects: [] });
+  try {
+    const stats = await provider.getProjectStats({ days: 90 });
+    // Stats response may be an array of projects or an object with project data
+    let projects = [];
+    if (Array.isArray(stats)) {
+      projects = stats.map(p => ({
+        id: p.action || p.id || p.aid,
+        name: p.name || ('Project ' + (p.action || p.id)),
+        type: p.type || 'SMS',
+        status: p.status || '',
+        sent: p.sent || p.total_sent || 0
+      }));
+    } else if (stats && stats.data && Array.isArray(stats.data)) {
+      projects = stats.data.map(p => ({
+        id: p.action || p.id || p.aid,
+        name: p.name || ('Project ' + (p.action || p.id)),
+        type: p.type || 'SMS',
+        status: p.status || '',
+        sent: p.sent || p.total_sent || 0
+      }));
+    }
+    res.json({ projects });
+  } catch (err) {
+    console.error('[rumbleup] Failed to fetch projects:', err.message);
+    res.json({ projects: [], error: err.message });
+  }
+}));
+
+// (Dead MMS media upload code removed — RumbleUp API doesn't support programmatic media upload.
+// MMS images must be uploaded on RumbleUp's dashboard. Our system creates the project via API
+// and sends messages through it; the image is attached on RumbleUp's side.)
+
+// --- Create a RumbleUp project (text only — user adds image on RumbleUp dashboard) ---
+app.post('/api/rumbleup/create-project', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  const { name, message } = req.body;
+  if (!name || !message) return res.status(400).json({ error: 'Project name and message required.' });
+
+  const creds = provider.getCredentials();
+  try {
+    const result = await provider.createProject({
+      name,
+      message,
+      campaignId: creds.campaignId,
+      proxy: creds.phoneNumber
+    });
+    const projectId = result.action || result.id || result.aid;
+    console.log('[rumbleup] Project created:', projectId, JSON.stringify(result));
+    res.json({
+      success: true,
+      projectId,
+      cid: result.cid,
+      link: result.link || (result.cid ? 'https://app.rumbleup.com/app/action/' + result.cid + '/' + projectId : null)
+    });
+  } catch (err) {
+    console.error('[rumbleup] Create project failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+// --- Send test message through an existing RumbleUp project ---
+app.post('/api/rumbleup/test-send', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+
+  const { projectId, testPhone } = req.body;
+  if (!projectId) return res.status(400).json({ error: 'Project ID required.' });
+  if (!testPhone) return res.status(400).json({ error: 'Test phone number required.' });
+
+  try {
+    const result = await provider.sendTestMessage(projectId, testPhone);
+    console.log('[mms] Test send via project', projectId, ':', JSON.stringify(result));
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[mms] Test send failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+// --- Check a RumbleUp project's details (for MMS debugging) ---
+app.get('/api/rumbleup/project/:id', asyncHandler(async (req, res) => {
+  const provider = getProvider();
+  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
+  try {
+    const details = await provider.getProject(req.params.id);
+    res.json({ project: details, hasMedia: !!(details.media || details.media_url), allKeys: Object.keys(details) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 }));
 
@@ -620,24 +878,22 @@ app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
   const inboundCount = db.prepare("SELECT COUNT(*) as cnt FROM messages WHERE direction = 'inbound'").get();
   const outboundTotal = db.prepare("SELECT COUNT(*) as cnt FROM messages WHERE direction = 'outbound'").get();
 
-  // Test RumbleUp API — query by action ID (the correct approach)
+  // Test RumbleUp API with first phone if available
   let apiTest = null;
-  const creds = provider.getCredentials();
-  if (creds.actionId && provider.getMessageLog) {
+  const testPhone = req.query.phone || sentPhones[0];
+  if (testPhone && provider.getMessageLog) {
     try {
-      const raw = await provider.getMessageLog({ action: String(creds.actionId) });
-      const msgs = raw.data || raw.messages || [];
-      const inbound = Array.isArray(msgs) ? msgs.filter(m => m.status === 'received' || (m.sender && m.sender !== 'api')) : [];
-      apiTest = { actionId: creds.actionId, totalMessages: Array.isArray(msgs) ? msgs.length : 0, inboundMessages: inbound.length, sampleInbound: inbound.slice(0, 3) };
+      const raw = await provider.getMessageLog({ phone: testPhone });
+      apiTest = { success: true, type: typeof raw, isArray: Array.isArray(raw), resultCount: Array.isArray(raw) ? raw.length : (raw ? 1 : 0) };
     } catch (err) {
-      apiTest = { actionId: creds.actionId, error: err.message };
+      apiTest = { phone: testPhone, error: err.message };
     }
   }
 
   res.json({
     phonesToCheck: sentPhones.length,
     breakdown: { p2p: p2pCount, survey: surveyCount, outbound: outboundCount },
-    samplePhones: sentPhones.slice(0, 5),
+    samplePhoneCount: Math.min(sentPhones.length, 5),
     lastSync: lastSyncRow?.value || null,
     dbCounts: { inbound: inboundCount?.cnt || 0, outbound: outboundTotal?.cnt || 0 },
     apiTest
@@ -645,8 +901,7 @@ app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
 }));
 
 // --- Sync inbound messages from RumbleUp ---
-// Fetches ALL messages from the RumbleUp action/project in one API call,
-// then filters for inbound (status === 'received') and imports new ones.
+// Cooldown: skip if last sync was < 4 seconds ago (prevents stacking from rapid polls)
 let _lastSyncTime = 0;
 app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   const now = Date.now();
@@ -657,188 +912,221 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
   if (!provider.getMessageLog) return res.status(400).json({ error: 'Provider does not support message log sync.' });
 
-  const creds = provider.getCredentials();
-  if (!creds.actionId) return res.status(400).json({ error: 'No Action/Project ID configured. Set it in Messaging Setup.' });
-
-  // Fetch ALL messages for this action in one call (RumbleUp returns both sent & received)
-  const params = { action: String(creds.actionId) };
-  const lastSyncRow = db.prepare("SELECT value FROM settings WHERE key = 'last_inbound_sync'").get();
-  if (lastSyncRow && lastSyncRow.value) params.since = lastSyncRow.value;
-
-  let allMessages = [];
+  // PRIORITY 1: Check P2P active conversations first (most important for reply detection)
+  // Extended to 30 days and raised cap to 100 phones to catch more replies
+  const phoneSet = new Set();
   try {
-    const result = await provider.getMessageLog(params);
-    allMessages = result.data || result.messages || (Array.isArray(result) ? result : []);
-    console.log('[sync-inbound] Fetched', allMessages.length, 'messages from RumbleUp action', creds.actionId);
-  } catch (err) {
-    console.error('[sync-inbound] API error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch messages from provider: ' + err.message });
+    db.prepare(`SELECT DISTINCT c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.status IN ('sent','in_conversation') AND a.sent_at > datetime('now', '-30 days')`)
+      .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
+  } catch (e) { /* table may not exist */ }
+
+  // PRIORITY 2: Active survey sends
+  db.prepare(`SELECT DISTINCT phone FROM survey_sends WHERE status IN ('sent', 'in_progress') AND sent_at > datetime('now', '-30 days')`)
+    .all().forEach(r => { if (r.phone) phoneSet.add(phoneDigits(r.phone)); });
+
+  // PRIORITY 3: Recent outbound — check all phones we've texted in last 14 days (cap at 100)
+  if (phoneSet.size < 100) {
+    db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'outbound' AND timestamp > datetime('now', '-14 days')`)
+      .all().forEach(r => { if (r.phone && phoneSet.size < 100) phoneSet.add(phoneDigits(r.phone)); });
   }
 
-  if (!Array.isArray(allMessages) || allMessages.length === 0) {
-    // Update sync time even if no messages (so we don't re-fetch old range)
-    db.prepare("INSERT INTO settings (key, value) VALUES ('last_inbound_sync', datetime('now')) ON CONFLICT(key) DO UPDATE SET value = datetime('now')").run();
-    return res.json({ synced: 0, checked: allMessages.length || 0, message: 'No new messages found.' });
-  }
+  const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
+
+  console.log('[sync-inbound] Phones to check:', sentPhones.length, '| P2P:', phoneSet.size, '| Sample:', sentPhones.slice(0, 3));
+
+  if (sentPhones.length === 0) return res.json({ synced: 0, checked: 0, message: 'No outbound messages to check replies for.' });
+
+  // Get the last sync timestamp
+  const lastSyncRow = db.prepare("SELECT value FROM settings WHERE key = 'last_inbound_sync'").get();
+  const lastSync = lastSyncRow ? lastSyncRow.value : null;
 
   let totalSynced = 0;
   const errors = [];
 
-  for (const msg of allMessages) {
-    try {
-      // RumbleUp: status 'received' = inbound, sender !== 'api' = inbound
-      const isInbound = msg.status === 'received' || (msg.sender && msg.sender !== 'api' && msg.sender !== 'system');
-      if (!isInbound) continue;
-
-      const msgPhone = phoneDigits(msg.phone || msg.from || '');
-      const msgBody = msg.text || msg.body || msg.message || '';
-      const msgTime = msg.sent_time || msg.update_time || msg.timestamp || msg.created || null;
-      const logId = msg.logid || null;
-
-      if (!msgPhone || !msgBody.trim()) continue;
-
-      // Dedup: check if we already have this exact message (phone + body + direction)
-      // Use timestamp if available for more precise matching (allows same text sent at different times)
-      const dedupQuery = msgTime
-        ? "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp = ? LIMIT 1"
-        : "SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' LIMIT 1";
-      const existing = msgTime
-        ? db.prepare(dedupQuery).get(msgPhone, msgBody, msgTime)
-        : db.prepare(dedupQuery).get(msgPhone, msgBody);
-      if (existing) continue;
-
-      // Check STOP keywords FIRST
-      const msgLower = msgBody.trim().toLowerCase();
-      if (STOP_KEYWORDS.includes(msgLower)) {
-        db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
-        const sentiment = analyzeSentiment(msgBody);
-        db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
-          .run(msgPhone, msgBody, sentiment, msgTime);
-        totalSynced++;
-        continue;
+  // Pre-load P2P session map for fast lookups (avoids N+1 queries per message)
+  const p2pPhoneMap = {};
+  try {
+    db.prepare(`
+      SELECT c.phone, a.id as assignment_id, s.id as session_id FROM p2p_assignments a
+      JOIN p2p_sessions s ON a.session_id = s.id
+      JOIN contacts c ON a.contact_id = c.id
+      WHERE s.status = 'active' AND a.status IN ('sent', 'in_conversation')
+    `).all().forEach(r => {
+      const digits = phoneDigits(r.phone);
+      if (digits) {
+        // Store ALL assignments per phone (not just last) to handle multi-session contacts
+        if (!p2pPhoneMap[digits]) p2pPhoneMap[digits] = [];
+        p2pPhoneMap[digits].push({ assignment_id: r.assignment_id, session_id: r.session_id });
       }
+    });
+  } catch (e) { /* table may not exist */ }
 
-      // Find P2P session for this phone
-      let p2pMatch = null;
+  // Pre-load active survey sends for fast matching
+  const surveyPhoneMap = {};
+  try {
+    db.prepare(`
+      SELECT ss.*, s.name as survey_name, s.completion_message FROM survey_sends ss
+      JOIN surveys s ON ss.survey_id = s.id
+      WHERE ss.status IN ('sent', 'in_progress') AND s.status = 'active'
+    `).all().forEach(r => {
+      const digits = phoneDigits(r.phone);
+      if (digits) surveyPhoneMap[digits] = r;
+    });
+  } catch (e) { /* table may not exist */ }
+
+  // Process phones in parallel batches of 15 for speed
+  const BATCH_SIZE = 15;
+  for (let i = 0; i < sentPhones.length; i += BATCH_SIZE) {
+    const batch = sentPhones.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(batch.map(async (phone) => {
       try {
-        p2pMatch = db.prepare(`
-          SELECT a.id as assignment_id, s.id as session_id FROM p2p_assignments a
-          JOIN p2p_sessions s ON a.session_id = s.id
-          JOIN contacts c ON a.contact_id = c.id
-          WHERE (c.phone = ? OR REPLACE(REPLACE(REPLACE(c.phone,'+1',''),'+',''),'-','') = ?)
-            AND s.status = 'active' AND a.status IN ('sent', 'in_conversation')
-          ORDER BY a.sent_at DESC LIMIT 1
-        `).get(msgPhone, msgPhone);
-      } catch (e) { /* p2p tables may not exist */ }
+        // Don't pass 'since' — RumbleUp may interpret timestamps differently
+        // and skip messages. Instead fetch all recent messages and dedup locally.
+        const result = await provider.getMessageLog({ phone });
 
-      // Insert the inbound message
-      const sentiment = analyzeSentiment(msgBody);
-      db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
-        .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
-      totalSynced++;
+        // DEBUG: Log raw API response shape for first phone
+        if (i === 0 && phone === batch[0]) {
+          console.log('[sync-inbound] Raw API response keys:', Object.keys(result || {}));
+          console.log('[sync-inbound] Raw API response (first 500 chars):', JSON.stringify(result).substring(0, 500));
+        }
 
-      // Route to survey if applicable
-      const activeSend = db.prepare(`
-        SELECT ss.*, s.name as survey_name, s.completion_message FROM survey_sends ss
-        JOIN surveys s ON ss.survey_id = s.id
-        WHERE ss.phone = ? AND ss.status IN ('sent', 'in_progress') AND s.status = 'active'
-        ORDER BY ss.sent_at DESC LIMIT 1
-      `).get(msgPhone);
+        // RumbleUp may return messages under different keys depending on API version
+        let messages = result.messages || result.data || result.logs || result || [];
+        // If result is an object with a single array value, use that
+        if (!Array.isArray(messages) && typeof messages === 'object' && messages !== null) {
+          const keys = Object.keys(messages);
+          const arrKey = keys.find(k => Array.isArray(messages[k]));
+          if (arrKey) messages = messages[arrKey];
+        }
+        if (!Array.isArray(messages)) {
+          console.log('[sync-inbound] Messages not an array for phone', phone, '| type:', typeof messages, '| keys:', Object.keys(messages || {}));
+          return;
+        }
+        if (messages.length > 0) {
+          console.log('[sync-inbound] Found', messages.length, 'messages for phone', phone, '| First msg keys:', Object.keys(messages[0]));
+        }
 
-      if (activeSend && activeSend.current_question_id) {
-        const question = db.prepare('SELECT * FROM survey_questions WHERE id = ?').get(activeSend.current_question_id);
-        if (question) {
-          const options = db.prepare('SELECT * FROM survey_options WHERE question_id = ? ORDER BY sort_order, id').all(question.id);
-          let matchedOption = null;
-          let responseText = msgBody.trim();
+      for (const msg of messages) {
+        // Only import inbound messages (sender === phone means incoming)
+        const isInbound = msg.status === 'received' || msg.sender === msg.phone || msg.sender === phone || msg.direction === 'inbound';
+        // DEBUG: Log message direction detection
+        if (i === 0 && phone === batch[0]) {
+          console.log('[sync-inbound] Msg:', { status: msg.status, sender: msg.sender, phone: msg.phone, direction: msg.direction, isInbound, body: (msg.text || msg.body || msg.message || '').substring(0, 50) });
+        }
+        if (!isInbound) continue;
 
-          if (question.question_type !== 'write_in' && options.length > 0) {
-            const t = responseText;
-            const tLower = t.toLowerCase();
-            matchedOption = options.find(o => o.option_key === t);
-            if (!matchedOption) {
-              const num = parseInt(t, 10);
-              if (!isNaN(num) && num >= 1 && num <= options.length) matchedOption = options[num - 1];
-            }
-            if (!matchedOption) matchedOption = options.find(o => o.option_text.toLowerCase() === tLower);
-            if (!matchedOption) matchedOption = options.find(o => tLower.includes(o.option_text.toLowerCase()) || o.option_text.toLowerCase().includes(tLower));
-            if (matchedOption) responseText = matchedOption.option_key;
+        const msgPhone = phoneDigits(msg.phone || msg.from || phone);
+        const msgBody = msg.text || msg.body || msg.message || '';
+        const msgTime = msg.timestamp || msg.created || msg.date || msg.sent_time || msg.update_time || null;
+
+        if (!msgBody.trim()) continue;
+
+        // Check for duplicate — use timestamp when available, otherwise check recent (last 24h) only
+        // This prevents dropping repeated common messages like "Yes", "Ok", "Thanks"
+        let existing;
+        if (msgTime) {
+          // Try exact timestamp match first, then fuzzy (±5 min) to catch webhook-inserted copies
+          existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp = ? LIMIT 1").get(msgPhone, msgBody, msgTime);
+          if (!existing) {
+            existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-5 minutes') LIMIT 1").get(msgPhone, msgBody);
           }
+        } else {
+          existing = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-1 day') LIMIT 1").get(msgPhone, msgBody);
+        }
+        if (existing) continue;
 
-          const existingResp = db.prepare('SELECT id FROM survey_responses WHERE send_id = ? AND question_id = ?').get(activeSend.id, question.id);
-          if (!existingResp) {
-            const nextQ = db.prepare('SELECT * FROM survey_questions WHERE survey_id = ? AND sort_order > ? ORDER BY sort_order, id LIMIT 1')
-              .get(activeSend.survey_id, question.sort_order);
-            db.prepare('INSERT INTO survey_responses (survey_id, send_id, question_id, phone, response_text, option_id) VALUES (?, ?, ?, ?, ?, ?)')
-              .run(activeSend.survey_id, activeSend.id, question.id, msgPhone, responseText, matchedOption ? matchedOption.id : null);
-            if (nextQ) {
-              db.prepare("UPDATE survey_sends SET current_question_id = ?, status = 'in_progress' WHERE id = ?").run(nextQ.id, activeSend.id);
-            } else {
-              db.prepare("UPDATE survey_sends SET status = 'completed', completed_at = datetime('now'), current_question_id = NULL WHERE id = ?").run(activeSend.id);
-              const thankYouMsg = activeSend.completion_message || 'Thank you for completing the survey! Your responses have been recorded.';
-              try {
-                await provider.sendMessage(msgPhone, thankYouMsg);
-                db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'sms')")
-                  .run(msgPhone, thankYouMsg);
-              } catch (replyErr) {
-                console.warn('Survey thank-you auto-reply failed:', replyErr.message);
+        // Check STOP keywords FIRST (before any routing)
+        const msgLower = msgBody.trim().toLowerCase();
+        if (STOP_KEYWORDS.includes(msgLower)) {
+          db.prepare('INSERT OR IGNORE INTO opt_outs (phone) VALUES (?)').run(msgPhone);
+          // Use fast keyword sentiment during sync (AI would be too slow for batch)
+          const sentiment = analyzeSentiment(msgBody);
+          db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')))")
+            .run(msgPhone, msgBody, sentiment, msgTime);
+          totalSynced++;
+          continue; // Don't route STOP messages to surveys or P2P
+        }
+
+        // Find P2P sessions for this phone using pre-loaded map (supports multi-session)
+        const p2pMatches = p2pPhoneMap[msgPhone] || p2pPhoneMap[msgPhone.slice(-10)] || [];
+        const p2pMatch = p2pMatches.length > 0 ? p2pMatches[0] : null;
+
+        // Insert the inbound message (with first session_id if P2P match found)
+        const sentiment = analyzeSentiment(msgBody);
+        db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel, timestamp, session_id) VALUES (?, ?, 'inbound', ?, 'sms', COALESCE(?, datetime('now')), ?)")
+          .run(msgPhone, msgBody, sentiment, msgTime, p2pMatch ? p2pMatch.session_id : null);
+        totalSynced++;
+        // Fire-and-forget AI sentiment upgrade (same as webhook path)
+        analyzeSentimentAI(msgBody).then(aiSentiment => {
+          if (aiSentiment !== sentiment) {
+            try { db.prepare("UPDATE messages SET sentiment = ? WHERE phone = ? AND body = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1").run(aiSentiment, msgPhone, msgBody); } catch(e) {}
+          }
+        }).catch(() => {});
+
+        // Update ALL matching P2P assignments to in_conversation (not just first)
+        for (const match of p2pMatches) {
+          db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ? AND status IN ('sent','in_conversation')").run(match.assignment_id);
+        }
+
+        // Route to survey if applicable (use pre-loaded map for speed)
+        const activeSend = surveyPhoneMap[msgPhone] || surveyPhoneMap[msgPhone.slice(-10)] || null;
+
+        if (activeSend && activeSend.current_question_id) {
+          const question = db.prepare('SELECT * FROM survey_questions WHERE id = ?').get(activeSend.current_question_id);
+          if (question) {
+            const options = db.prepare('SELECT * FROM survey_options WHERE question_id = ? ORDER BY sort_order, id').all(question.id);
+            let matchedOption = null;
+            let responseText = msgBody.trim();
+
+            if (question.question_type !== 'write_in' && options.length > 0) {
+              const t = responseText;
+              const tLower = t.toLowerCase();
+              matchedOption = options.find(o => o.option_key === t);
+              if (!matchedOption) {
+                const num = parseInt(t, 10);
+                if (!isNaN(num) && num >= 1 && num <= options.length) matchedOption = options[num - 1];
+              }
+              if (!matchedOption) matchedOption = options.find(o => o.option_text.toLowerCase() === tLower);
+              if (!matchedOption) matchedOption = options.find(o => tLower.includes(o.option_text.toLowerCase()) || o.option_text.toLowerCase().includes(tLower));
+              if (matchedOption) responseText = matchedOption.option_key;
+            }
+
+            const existingResp = db.prepare('SELECT id FROM survey_responses WHERE send_id = ? AND question_id = ?').get(activeSend.id, question.id);
+            if (!existingResp) {
+              const nextQ = db.prepare('SELECT * FROM survey_questions WHERE survey_id = ? AND sort_order > ? ORDER BY sort_order, id LIMIT 1')
+                .get(activeSend.survey_id, question.sort_order);
+              db.prepare('INSERT INTO survey_responses (survey_id, send_id, question_id, phone, response_text, option_id) VALUES (?, ?, ?, ?, ?, ?)')
+                .run(activeSend.survey_id, activeSend.id, question.id, msgPhone, responseText, matchedOption ? matchedOption.id : null);
+              if (nextQ) {
+                db.prepare("UPDATE survey_sends SET current_question_id = ?, status = 'in_progress' WHERE id = ?").run(nextQ.id, activeSend.id);
+              } else {
+                db.prepare("UPDATE survey_sends SET status = 'completed', completed_at = datetime('now'), current_question_id = NULL WHERE id = ?").run(activeSend.id);
+                // Send thank-you auto-reply
+                const thankYouMsg = activeSend.completion_message || 'Thank you for completing the survey! Your responses have been recorded.';
+                try {
+                  await provider.sendMessage(msgPhone, thankYouMsg);
+                  db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'sms')")
+                    .run(msgPhone, thankYouMsg);
+                } catch (replyErr) {
+                  console.warn('Survey thank-you auto-reply failed:', replyErr.message);
+                }
               }
             }
           }
         }
-      }
 
-      // Route to P2P if applicable
-      if (p2pMatch && !(activeSend && activeSend.current_question_id)) {
-        db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(p2pMatch.assignment_id);
+        // P2P assignment status already updated above (all matching sessions)
       }
     } catch (err) {
-      errors.push({ phone: msg.phone, error: err.message });
+      errors.push({ phone, error: err.message });
     }
+    }));
   }
 
   // Update last sync timestamp
   db.prepare("INSERT INTO settings (key, value) VALUES ('last_inbound_sync', datetime('now')) ON CONFLICT(key) DO UPDATE SET value = datetime('now')").run();
 
-  console.log('[sync-inbound] Synced', totalSynced, 'new inbound messages from', allMessages.length, 'total');
-  res.json({ synced: totalSynced, checked: allMessages.length, errors: errors.length > 0 ? errors : undefined });
-}));
-
-// --- WhatsApp bulk send (stub — provider does not yet support WhatsApp) ---
-app.post('/api/whatsapp/send', asyncHandler(async (req, res) => {
-  const provider = getProvider();
-  if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
-
-  const { contacts, messageTemplate, optOutFooter } = req.body;
-  if (!contacts || !contacts.length) return res.status(400).json({ error: 'No contacts provided.' });
-  if (!messageTemplate) return res.status(400).json({ error: 'Message template is required.' });
-
-  const fullMsg = messageTemplate + (optOutFooter ? '\n' + optOutFooter : '');
-
-  // Filter opted-out contacts
-  const optedOut = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
-  const eligible = contacts.filter(c => {
-    const d = phoneDigits(c.phone);
-    return d && !optedOut.has(d);
-  });
-
-  if (eligible.length === 0) return res.status(400).json({ error: 'All contacts have opted out.' });
-
-  let sent = 0, failed = 0;
-  const errors = [];
-  for (const c of eligible) {
-    const personalMsg = personalizeTemplate(fullMsg, c);
-    try {
-      await provider.sendMessage(c.phone, personalMsg, 'whatsapp');
-      db.prepare("INSERT INTO messages (phone, body, direction, channel) VALUES (?, ?, 'outbound', 'whatsapp')").run(phoneDigits(c.phone), personalMsg);
-      sent++;
-    } catch (err) {
-      failed++;
-      if (errors.length < 5) errors.push(c.phone + ': ' + (err.message || 'Unknown error'));
-    }
-  }
-
-  res.json({ success: true, sent, failed, total: eligible.length, errors });
+  res.json({ synced: totalSynced, checked: sentPhones.length, errors: errors.length > 0 ? errors : undefined });
 }));
 
 // --- Send event invites via P2P session (TCPA compliant) ---
@@ -846,6 +1134,7 @@ app.post('/api/events/:id/invite', (req, res) => {
   const { contactIds, list_id, messageTemplate, precinct_filter } = req.body;
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
+  const mms_project_id = req.body.mms_project_id || event.mms_project_id || null;
 
   // Gather contacts — from list or individual IDs
   let contacts = [];
@@ -863,10 +1152,11 @@ app.post('/api/events/:id/invite', (req, res) => {
     }
     contacts = db.prepare(listSql).all(...listParams);
   } else if (contactIds && contactIds.length > 0) {
-    const getC = db.prepare('SELECT * FROM contacts WHERE id = ?');
-    for (const cid of contactIds) {
-      const c = getC.get(cid);
-      if (c) contacts.push(c);
+    // Batch fetch contacts instead of N+1
+    for (let i = 0; i < contactIds.length; i += 900) {
+      const batch = contactIds.slice(i, i + 900);
+      const ph = batch.map(() => '?').join(',');
+      contacts.push(...db.prepare(`SELECT * FROM contacts WHERE id IN (${ph})`).all(...batch));
     }
   }
   if (contacts.length === 0) return res.status(400).json({ error: 'No contacts with phone numbers found.' });
@@ -880,66 +1170,132 @@ app.post('/api/events/:id/invite', (req, res) => {
     + '{checkin_link}'
     + '\nReply STOP to opt out.';
 
-  // Create a P2P session for the invites
-  const joinCode = generateJoinCode();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const sessionResult = db.prepare(
-    'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event');
-  const sessionId = sessionResult.lastInsertRowid;
+  // Create/reuse a P2P session for event invites
+  // Build public flyer URL — ensure https:// prefix
+  let baseUrl = process.env.BASE_URL || process.env.RAILWAY_PUBLIC_DOMAIN || 'campaigntext-production.up.railway.app';
+  if (baseUrl && !baseUrl.startsWith('http')) baseUrl = 'https://' + baseUrl;
+  const flyerUrl = event.flyer_image ? baseUrl + '/api/events/' + event.id + '/flyer' : null;
+
+  // Check for existing active event session first (don't create duplicates)
+  let sessionId;
+  const existingSession = db.prepare("SELECT id, join_code FROM p2p_sessions WHERE name = ? AND status = 'active' LIMIT 1")
+    .get('Event Invite: ' + event.title);
+  let joinCode;
+  if (existingSession) {
+    sessionId = existingSession.id;
+    joinCode = existingSession.join_code;
+    // Update media_url and MMS project ID in case they were added/changed
+    if (flyerUrl) db.prepare('UPDATE p2p_sessions SET media_url = ? WHERE id = ?').run(flyerUrl, sessionId);
+    if (mms_project_id) db.prepare('UPDATE p2p_sessions SET rumbleup_action_id = ? WHERE id = ?').run(mms_project_id, sessionId);
+  } else {
+    joinCode = generateJoinCode();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const sessionResult = db.prepare(
+      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, media_url, source_id, rumbleup_action_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run('Event Invite: ' + event.title, template, 'auto_split', joinCode, expiresAt, 'event', flyerUrl, req.params.id, mms_project_id || null);
+    sessionId = sessionResult.lastInsertRowid;
+  }
 
   // Queue contacts as P2P assignments + record RSVPs
   const insertAssign = db.prepare('INSERT INTO p2p_assignments (session_id, contact_id) VALUES (?, ?)');
   const rsvpInsert = db.prepare("INSERT OR IGNORE INTO event_rsvps (event_id, contact_phone, contact_name, rsvp_status) VALUES (?, ?, ?, 'invited')");
   const optedOutSet = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
-  // For list-based invites, ensure contacts table entries exist for P2P assignments
   const findContact = db.prepare('SELECT id FROM contacts WHERE phone = ?');
   const insertContact = db.prepare('INSERT INTO contacts (phone, first_name, last_name, city) VALUES (?, ?, ?, ?)');
+
+  // Find online volunteers to auto-assign contacts to
+  const onlineVols = db.prepare("SELECT id FROM p2p_volunteers WHERE session_id = ? AND is_online = 1").all(sessionId);
+  let volIndex = 0;
+
   let queued = 0;
   const inviteTx = db.transaction(() => {
     for (const c of contacts) {
-      if (optedOutSet.has(phoneDigits(c.phone))) continue;
-      // Ensure contact exists in contacts table for P2P assignment
+      const normalizedPhone = phoneDigits(c.phone) || c.phone;
+      if (optedOutSet.has(normalizedPhone)) continue;
+      // Ensure contact exists in contacts table
       let contactId = c.id;
       if (list_id) {
-        const existing = findContact.get(c.phone);
+        const existing = findContact.get(normalizedPhone);
         if (existing) { contactId = existing.id; }
         else {
-          const r = insertContact.run(c.phone, c.first_name || '', c.last_name || '', c.city || '');
+          const r = insertContact.run(normalizedPhone, c.first_name || '', c.last_name || '', c.city || '');
           contactId = r.lastInsertRowid;
         }
       }
-      try { insertAssign.run(sessionId, contactId); } catch (e) { if (!e.message.includes('UNIQUE')) throw e; }
-      rsvpInsert.run(req.params.id, c.phone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim());
+      // Skip if already assigned in this session
+      const alreadyAssigned = db.prepare('SELECT id FROM p2p_assignments WHERE session_id = ? AND contact_id = ?').get(sessionId, contactId);
+      if (alreadyAssigned) continue;
+
+      // Auto-assign to online volunteers round-robin, or leave unassigned for next volunteer
+      const volId = onlineVols.length > 0 ? onlineVols[volIndex % onlineVols.length].id : null;
+      if (volId) volIndex++;
+
+      db.prepare('INSERT INTO p2p_assignments (session_id, contact_id, volunteer_id) VALUES (?, ?, ?)').run(sessionId, contactId, volId);
+      rsvpInsert.run(req.params.id, normalizedPhone, ((c.first_name || '') + ' ' + (c.last_name || '')).trim());
       queued++;
     }
   });
   inviteTx();
 
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Event invite P2P session created for ' + event.title + ': ' + queued + ' contacts queued.');
-  res.json({ success: true, sent: queued, joinCode, sessionId, p2p: true });
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Event invites queued for ' + event.title + ': ' + queued + ' contacts' + (onlineVols.length > 0 ? ' (assigned to ' + onlineVols.length + ' volunteers)' : ' (waiting for volunteers)'));
+  res.json({ success: true, queued: queued, sent: queued, joinCode, sessionId, p2p: true, volunteersOnline: onlineVols.length });
 });
 
 // --- Sentiment analysis ---
-function analyzeSentiment(text) {
+// Keyword fallback for when AI is unavailable
+function analyzeSentimentKeywords(text) {
   const msg = (text || '').toLowerCase();
   const positiveWords = ['yes', 'sure', 'support', 'agree', 'thanks', 'thank', 'great', 'love', 'count me in', 'absolutely', 'interested', 'definitely', 'of course', 'wonderful', 'awesome', 'perfect', 'good', 'ok', 'okay', 'yep', 'yea', 'yeah'];
   const negativeWords = ['no', 'stop', 'disagree', 'oppose', 'hate', 'unsubscribe', 'leave me alone', 'not interested', 'remove', 'never', 'terrible', 'awful', 'worst', 'don\'t', 'wont', 'refuse', 'against', 'bad'];
+  // Use word-boundary matching to avoid false positives ("no" matching "know", "ok" matching "broke")
+  const words = new Set(msg.split(/\s+/));
+  const hasPhrase = (phrase) => msg.includes(phrase);
   let score = 0;
-  for (const word of positiveWords) { if (msg.includes(word)) score++; }
-  for (const word of negativeWords) { if (msg.includes(word)) score--; }
+  for (const word of positiveWords) { if (word.includes(' ') ? hasPhrase(word) : words.has(word)) score++; }
+  for (const word of negativeWords) { if (word.includes(' ') ? hasPhrase(word) : words.has(word)) score--; }
   if (score > 0) return 'positive';
   if (score < 0) return 'negative';
   return 'neutral';
 }
 
+// AI-powered sentiment analysis with keyword fallback
+async function analyzeSentimentAI(text) {
+  if (!text || !text.trim()) return 'neutral';
+  const apiKey = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_api_key'").get();
+  if (!apiKey || !apiKey.value) return analyzeSentimentKeywords(text);
+  try {
+    const Anthropic = require('@anthropic-ai/sdk').default;
+    const client = new Anthropic({ apiKey: apiKey.value });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 10,
+      system: 'You analyze text messages sent to a political campaign. Classify the sentiment as exactly one word: positive, negative, or neutral. Positive = supportive, interested, friendly, willing to help. Negative = opposed, hostile, annoyed, wants to be left alone. Neutral = questions, unclear intent, or informational. Reply with ONLY one word.',
+      messages: [{ role: 'user', content: text }]
+    });
+    const result = (response.content[0].text || '').trim().toLowerCase();
+    if (['positive', 'negative', 'neutral'].includes(result)) return result;
+    return analyzeSentimentKeywords(text);
+  } catch (err) {
+    console.warn('[sentiment] AI analysis failed, using keywords:', err.message);
+    return analyzeSentimentKeywords(text);
+  }
+}
+
+// Synchronous wrapper for webhook path (uses keywords, AI runs after)
+function analyzeSentiment(text) {
+  return analyzeSentimentKeywords(text);
+}
+
 function generateAutoReply(msg) {
-  // Check registration FIRST so "register to vote" matches registration, not polling
+  // Use word-boundary matching to avoid false positives (e.g., "sometime" matching "time")
+  const words = new Set(msg.split(/\s+/));
+  const hasWord = (keywords) => keywords.some(k => words.has(k));
+  // Don't auto-reply if there's an active P2P assignment (volunteer should handle it)
   if (['register','registration'].some(k => msg.includes(k)))
     return "Register or check your status at vote.org. Don't miss the deadline! -- Campaign HQ";
-  if (['poll','polling','vote','where','location'].some(k => msg.includes(k)))
+  if (hasWord(['poll','polling','precinct','location']) || (words.has('where') && words.has('vote')))
     return "Find your polling location at vote.gov. Polls open 7am-7pm on Election Day! -- Campaign HQ";
-  if (['time','open','close','hours','when'].some(k => msg.includes(k)))
+  if (hasWord(['hours']) || (words.has('when') && (words.has('vote') || words.has('polls') || words.has('open'))))
     return "Polls are open 7:00 AM - 7:00 PM on Election Day. Check vote.gov for early voting! -- Campaign HQ";
   return null;
 }
@@ -947,6 +1303,7 @@ function generateAutoReply(msg) {
 // --- Global error handler ---
 app.use((err, req, res, _next) => {
   console.error('Unhandled error:', err);
+  if (res.headersSent) return;
   res.status(500).json({ error: 'Internal server error.' });
 });
 
