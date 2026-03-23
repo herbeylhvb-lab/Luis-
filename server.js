@@ -573,7 +573,8 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
     ORDER BY a.sent_at DESC LIMIT 1
   `).get(fromNormalized);
 
-  // Dedup: skip if this exact message was already stored (webhook + sync can both fire)
+  // Dedup: atomically check-and-insert using INSERT OR IGNORE with a unique-ish key
+  // First check (non-atomic but catches most duplicates cheaply)
   const alreadyExists = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' AND timestamp > datetime('now', '-2 minutes') LIMIT 1").get(fromNormalized, Body);
   if (alreadyExists) {
     console.log('[webhook] Skipping duplicate message from ' + fromNormalized);

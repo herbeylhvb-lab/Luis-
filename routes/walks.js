@@ -874,8 +874,8 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      // No address coords to compare — only verify if accuracy is known and acceptable
-      gps_verified = (gps_accuracy != null && gps_accuracy <= MAX_GPS_ACCURACY) ? 1 : 0;
+      // No address coords to compare — cannot verify location without reference point
+      gps_verified = 0;
     }
   }
 
@@ -1010,7 +1010,8 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      gps_verified = (gps_accuracy != null && gps_accuracy <= MAX_GPS_ACCURACY) ? 1 : 0;
+      // No address coords to compare — cannot verify location without reference point
+      gps_verified = 0;
     }
   }
 

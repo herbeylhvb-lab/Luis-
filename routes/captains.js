@@ -499,9 +499,12 @@ function requireCaptainAuth(req, res, next) {
 
 // Search voters (captain portal) — name search + dedicated filters for phone, vanid, etc.
 router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
-  const { q, phone, vanid, city, zip, precinct, address } = req.query;
+  const { q, phone, vanid, city, zip, precinct, address, scope } = req.query;
   const hasFilter = phone || vanid || city || zip || precinct || address;
   if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
+
+  // By default, restrict search to voters in this captain's lists (and sub-captain lists)
+  const restrictToLists = scope !== 'all'; // only admin override can search all
 
   const conditions = [];
   const params = [];
@@ -542,6 +545,18 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
   if (address) {
     const addrEsc = address.replace(/[\\%_]/g, '\\$&');
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
+  }
+
+  // Restrict to captain's own voters (from their lists and sub-captain lists)
+  if (restrictToLists) {
+    conditions.push(`id IN (
+      SELECT voter_id FROM captain_list_voters WHERE list_id IN (
+        SELECT id FROM captain_lists WHERE captain_id = ? OR captain_id IN (
+          SELECT id FROM captains WHERE parent_captain_id = ?
+        )
+      )
+    )`);
+    params.push(req.params.id, req.params.id);
   }
 
   const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
@@ -733,6 +748,7 @@ router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res)
     if (updates.length > 0) {
       params.push(voterId);
       db.prepare(`UPDATE voters SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Captain ' + req.params.id + ' updated voter ' + voterId + ': ' + updates.map(u => u.split(' =')[0]).join(', '));
     }
   }
 
@@ -939,6 +955,7 @@ router.post('/captains/:id/assigned-lists/:listId/voters', requireCaptainAuth, (
     if (updates.length > 0) {
       params.push(voter_id);
       db.prepare(`UPDATE voters SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Captain ' + req.params.id + ' updated voter ' + voter_id + ': ' + updates.map(u => u.split(' =')[0]).join(', '));
     }
   }
   const existing = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, voter_id);

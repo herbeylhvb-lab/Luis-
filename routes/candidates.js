@@ -734,11 +734,13 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
 // Master list: all unique voters across ALL lists with source info
 router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   const candidateIdParam = req.params.id;
+  const limit = Math.min(parseInt(req.query.limit) || 5000, 10000);
+  const offset = parseInt(req.query.offset) || 0;
 
   // Gather all voter appearances from both admin and captain lists
   const rows = db.prepare(`
     SELECT v.id, v.first_name, v.last_name, v.middle_name, v.suffix,
-           v.address, v.city, v.zip, v.phone, v.party, v.precinct,
+           v.address, v.city, v.zip, v.phone, v.party, v.party_score, v.precinct,
            v.state_file_id, v.vanid, v.early_voted, v.early_voted_date,
            source_name, source_type, list_name, added_at
     FROM (
@@ -757,7 +759,8 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
     ) sources
     JOIN voters v ON sources.voter_id = v.id
     ORDER BY v.last_name, v.first_name
-  `).all(candidateIdParam, candidateIdParam);
+    LIMIT ? OFFSET ?
+  `).all(candidateIdParam, candidateIdParam, limit, offset);
 
   // Group by voter_id — each voter gets an array of which lists they're on
   const voterMap = new Map();
@@ -774,6 +777,7 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
         zip: row.zip,
         phone: row.phone,
         party: row.party,
+        party_score: row.party_score,
         precinct: row.precinct,
         state_file_id: row.state_file_id,
         vanid: row.vanid,
