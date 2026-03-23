@@ -254,7 +254,14 @@ async function syncContact(contactData) {
   // Always include the action ID so the contact is associated with the active project
   const creds = getCredentials();
   const data = { ...contactData };
-  if (creds.actionId && !data.action) {
+  // RumbleUp requires phone with US country code prefix (11 digits)
+  if (data.phone) {
+    const digits = data.phone.replace(/\D/g, '');
+    data.phone = digits.length === 10 ? '1' + digits : digits;
+  }
+  if (data.action) {
+    data.action = String(data.action);
+  } else if (creds.actionId) {
     data.action = String(creds.actionId);
   }
   return apiPost('/contact/sync', data);
