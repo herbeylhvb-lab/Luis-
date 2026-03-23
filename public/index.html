@@ -169,6 +169,7 @@ tr:hover td{background:#1e293b80}
 .walker-marker.stale{background:#eab308}
 .walker-marker.dead{background:#ef4444}
 @keyframes walker-pulse{0%,100%{box-shadow:0 0 4px rgba(34,197,94,.4)}50%{box-shadow:0 0 12px rgba(34,197,94,.8)}}
+@keyframes flagPulse{0%,100%{box-shadow:0 0 4px rgba(239,68,68,.4)}50%{box-shadow:0 0 12px rgba(239,68,68,.9)}}
 .walker-label{font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:nowrap}
 .addr-dot{width:8px;height:8px;border-radius:50%;border:1px solid rgba(255,255,255,.3)}
 </style>
@@ -819,23 +820,13 @@ tr:hover td{background:#1e293b80}
           <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Auto-populate a walk with all voter addresses from selected precincts. Each address links to the voter record for auto-logging contact results.</p>
           <div class="form-group"><label>Walk Name (optional)</label><input type="text" id="precinctWalkName" placeholder="Auto-generated from precinct names"></div>
           <div class="form-group">
-            <label>Race / District</label>
+            <label style="color:#f59e0b;font-weight:700;text-transform:uppercase;font-size:13px;letter-spacing:0.5px">&#127919; Step 1: Race / District</label>
             <select id="walkRaceFilter" onchange="onWalkRaceFilterChange()" style="margin-bottom:8px">
               <option value="">Loading races...</option>
             </select>
-            <p style="color:#64748b;font-size:11px;margin:0 0 8px">Choose a race to see only its precincts</p>
+            <p style="color:#64748b;font-size:11px;margin:0 0 8px">Choose a race, then set voter filters below to see precincts ranked by matching voters</p>
           </div>
-          <div class="form-group">
-            <label>Select Precincts</label>
-            <input type="text" id="walkPrecinctSearch" placeholder="Search precincts..." oninput="filterWalkPrecincts()" style="margin-bottom:6px">
-            <div style="display:flex;gap:6px;margin-bottom:6px">
-              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb:not([style*=none])').forEach(function(c){c.closest('.walk-precinct-item').style.display!=='none'&&(c.checked=true)})">Select All</button>
-              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb').forEach(function(c){c.checked=false})">Clear All</button>
-              <span id="walkPrecinctSelected" style="font-size:12px;color:#f59e0b;align-self:center;margin-left:auto">0 selected</span>
-            </div>
-            <div id="walkPrecinctList" style="max-height:250px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:4px;margin-top:4px"><span style="color:#64748b;font-size:13px">Loading precincts...</span></div>
-          </div>
-          <h4 style="font-size:13px;color:#f59e0b;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">Voter Filters</h4>
+          <h4 style="font-size:13px;color:#f59e0b;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">&#127919; Step 2: Voter Filters <span style="font-weight:400;text-transform:none;font-size:11px;color:#64748b">(set filters first, then see which precincts have the most matching voters)</span></h4>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
             <div class="form-group"><label>Party</label><select id="walkPrecinctParty"><option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
             <div class="form-group"><label>Support Level</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
@@ -853,6 +844,20 @@ tr:hover td{background:#1e293b80}
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctHasVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeContacted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeEarlyVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip early voters (already voted)</label>
+          </div>
+          <div style="margin-bottom:12px">
+            <button class="btn btn-sm" style="background:#f59e0b;color:#0f172a;font-weight:700" onclick="refreshWalkPrecinctCounts()">&#128270; Show Precincts with Matching Voters</button>
+            <span id="walkFilteredTotal" style="font-size:12px;color:#64748b;margin-left:8px"></span>
+          </div>
+          <h4 style="font-size:13px;color:#f59e0b;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.5px">&#127968; Step 3: Select Precincts <span style="font-weight:400;text-transform:none;font-size:11px;color:#64748b">(sorted by matching voter count)</span></h4>
+          <div class="form-group">
+            <input type="text" id="walkPrecinctSearch" placeholder="Search precincts..." oninput="filterWalkPrecincts()" style="margin-bottom:6px">
+            <div style="display:flex;gap:6px;margin-bottom:6px">
+              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb:not([style*=none])').forEach(function(c){c.closest('.walk-precinct-item').style.display!=='none'&&(c.checked=true)})">Select All</button>
+              <button class="btn btn-sm btn-secondary" onclick="document.querySelectorAll('.walk-precinct-cb').forEach(function(c){c.checked=false})">Clear All</button>
+              <span id="walkPrecinctSelected" style="font-size:12px;color:#f59e0b;align-self:center;margin-left:auto">0 selected</span>
+            </div>
+            <div id="walkPrecinctList" style="max-height:250px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:4px;margin-top:4px"><span style="color:#64748b;font-size:13px">Choose a race & set filters above, then click "Show Precincts"</span></div>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-primary btn-sm" id="btnBuildPrecinctWalk">Create Precinct Walk</button>
@@ -882,6 +887,7 @@ tr:hover td{background:#1e293b80}
           <div style="font-size:12px;color:#64748b;margin-bottom:16px" id="walkProgressLabel">0 / 0 doors knocked</div>
           <button class="btn btn-sm" id="btnShowWalkMap" style="background:#7c3aed;color:#fff" onclick="toggleWalkMap()">Show Live Map</button>
           <button class="btn btn-sm" id="btnGeocodeWalk" style="background:#2563eb;color:#fff;margin-left:8px" onclick="geocodeCurrentWalk()">Map Houses</button>
+          <span id="walkFlaggedBadge" style="display:none;margin-left:8px;background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;cursor:pointer" onclick="scrollToFlaggedOnMap()" title="Click to show flagged addresses on map">⚠ <span id="walkFlaggedCount">0</span> flagged</span>
           <button class="btn btn-sm" id="btnPrintWalk" style="background:#059669;color:#fff;margin-left:8px" onclick="printCurrentWalk()">&#x1F5A8; Print Walk List</button>
           <button class="btn btn-sm" id="btnRefreshTurf" style="background:#b45309;color:#fff;margin-left:8px;display:none" onclick="refreshCurrentTurf()">&#x1F504; Refresh Turf</button>
           <span id="geocodeStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
@@ -906,20 +912,18 @@ tr:hover td{background:#1e293b80}
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px"></span>Oppose</span>
             <span><span style="display:inline-block;width:10px;height:10px;border-radius:6px;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);margin-right:4px;font-size:7px;text-align:center;line-height:10px;color:#fff;font-weight:700"></span>Apartments</span>
           </div>
-          <div id="mapPrecinctFilters" style="display:flex;gap:12px;margin-top:10px;align-items:end;flex-wrap:wrap;position:relative;z-index:10">
-            <div style="flex:1;min-width:180px">
-              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Race / District</label>
-              <select id="mapRaceFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
-                <option value="">All Voters</option>
-              </select>
+          <div id="walkerStatusPanel" style="margin-top:10px;border:1px solid #334155;border-radius:8px;background:#0f172a;padding:10px;display:none">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:13px;font-weight:700;color:#e2e8f0">Walker Status</span>
+              <span id="walkerOnlineCount" style="font-size:11px;color:#64748b"></span>
             </div>
-            <div style="flex:1;min-width:180px">
-              <label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Election Cycle</label>
-              <select id="mapElectionFilter" onchange="refreshMapPrecinctCounts()" style="width:100%;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:13px">
-                <option value="">All Elections</option>
-              </select>
-            </div>
-            <span id="mapPrecinctTotal" style="font-size:12px;color:#f59e0b;font-weight:600;white-space:nowrap"></span>
+            <div id="walkerStatusList" style="display:flex;flex-direction:column;gap:4px"></div>
+          </div>
+          <!-- Race/District and Election filters moved to Precinct Map tab only -->
+          <div id="mapPrecinctFilters" style="display:none">
+            <select id="mapRaceFilter" onchange="refreshMapPrecinctCounts()"><option value="">All Voters</option></select>
+            <select id="mapElectionFilter" onchange="refreshMapPrecinctCounts()"><option value="">All Elections</option></select>
+            <span id="mapPrecinctTotal"></span>
           </div>
         </div>
         <div class="card">
@@ -4065,6 +4069,15 @@ async function loadWalkDetail(id) {
   document.getElementById('walkDetailName').textContent = w.name;
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
   document.getElementById('walkDetailStatus').value = w.status;
+  // Show flagged address count badge
+  var flaggedCount = (w.addresses || []).filter(function(a) { return a.geo_flagged; }).length;
+  var flagBadge = document.getElementById('walkFlaggedBadge');
+  if (flaggedCount > 0) {
+    flagBadge.style.display = '';
+    document.getElementById('walkFlaggedCount').textContent = flaggedCount;
+  } else {
+    flagBadge.style.display = 'none';
+  }
   // Populate script dropdown
   try {
     var scriptData = await api('/api/walk-scripts');
@@ -4227,20 +4240,21 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
         api('/api/voters-precincts')
       ]);
       _walkRaceData = raceData.races || [];
-      // Build counts map from the precincts endpoint (already has counts)
+      // Build counts map from the precincts endpoint (unfiltered totals)
       _walkPrecinctCounts = {};
       if (precinctData.precincts) {
         precinctData.precincts.forEach(function(p, i) {
           _walkPrecinctCounts[p] = precinctData.counts[i] || 0;
         });
       }
-      // Populate race dropdown - only show races that have data
+      // Populate race dropdown — store type|district as value for filtered queries
       var sel = document.getElementById('walkRaceFilter');
       sel.innerHTML = '<option value="">-- Choose a Race --</option>';
       var racesWithData = _walkRaceData.filter(function(r) { return r.precincts && r.precincts.length > 0; });
       racesWithData.forEach(function(r) {
         var opt = document.createElement('option');
-        opt.value = r.race;
+        opt.value = r.type + '|' + r.district;  // e.g. "state_rep|42"
+        opt.setAttribute('data-race-label', r.race);
         var totalVoters = r.precincts.reduce(function(sum, p) { return sum + (_walkPrecinctCounts[p] || 0); }, 0);
         opt.textContent = r.race + ' (' + r.precincts.length + ' precincts, ' + totalVoters + ' voters)';
         sel.appendChild(opt);
@@ -4251,9 +4265,9 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
       var allTotal = Object.values(_walkPrecinctCounts).reduce(function(a, b) { return a + b; }, 0);
       allOpt.textContent = 'All Precincts (' + precinctData.precincts.length + ' precincts, ' + allTotal + ' voters)';
       sel.appendChild(allOpt);
-      // Show empty precinct list until race is chosen
+      // Show message until user sets filters and clicks Show Precincts
       renderWalkPrecinctList([]);
-      document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Select a race above to see precincts</span>';
+      document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Choose a race & set filters above, then click "Show Precincts"</span>';
     } catch (e) {}
     // Load election dropdowns for voting history filters
     loadWalkElectionDropdowns();
@@ -4263,18 +4277,93 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
 function onWalkRaceFilterChange() {
   var val = document.getElementById('walkRaceFilter').value;
   if (!val) {
-    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Select a race above to see precincts</span>';
+    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Choose a race above, then set filters and click "Show Precincts"</span>';
+    document.getElementById('walkFilteredTotal').textContent = '';
     updateWalkPrecinctCount();
     return;
   }
-  var precincts;
-  if (val === '__all__') {
-    precincts = Object.keys(_walkPrecinctCounts);
-  } else {
-    var race = _walkRaceData.find(function(r) { return r.race === val; });
-    precincts = race ? race.precincts : [];
+  // Auto-refresh precinct list when race changes (uses current filters)
+  refreshWalkPrecinctCounts();
+}
+
+// Get the current walk filter values from the UI
+function getWalkFilterParams() {
+  var params = [];
+  var raceVal = document.getElementById('walkRaceFilter').value;
+  if (raceVal && raceVal !== '__all__' && raceVal.includes('|')) {
+    var parts = raceVal.split('|');
+    params.push('race_col=' + encodeURIComponent(parts[0]));
+    params.push('race_val=' + encodeURIComponent(parts[1]));
   }
-  renderWalkPrecinctList(precincts);
+  var party = document.getElementById('walkPrecinctParty').value;
+  if (party) params.push('party=' + encodeURIComponent(party));
+  var support = document.getElementById('walkPrecinctSupport').value;
+  if (support) params.push('support_level=' + encodeURIComponent(support));
+  // Multi-election checkboxes
+  var votedIn = Array.from(document.querySelectorAll('.walkPrecinctVotedIn-cb:checked')).map(function(cb) { return cb.value; });
+  if (votedIn.length > 0) params.push('voted_in=' + encodeURIComponent(votedIn.join(',')));
+  var didNotVote = Array.from(document.querySelectorAll('.walkPrecinctDidNotVote-cb:checked')).map(function(cb) { return cb.value; });
+  if (didNotVote.length > 0) params.push('did_not_vote=' + encodeURIComponent(didNotVote.join(',')));
+  var minElections = document.getElementById('walkPrecinctMinElections').value;
+  if (minElections && parseInt(minElections) > 0) params.push('min_elections=' + parseInt(minElections));
+  var minAge = document.getElementById('walkPrecinctMinAge').value;
+  if (minAge && parseInt(minAge) > 0) params.push('min_age=' + parseInt(minAge));
+  var maxAge = document.getElementById('walkPrecinctMaxAge').value;
+  if (maxAge && parseInt(maxAge) > 0) params.push('max_age=' + parseInt(maxAge));
+  if (document.getElementById('walkPrecinctHasVoted').checked) params.push('has_voted=1');
+  if (document.getElementById('walkPrecinctExcludeContacted').checked) params.push('exclude_contacted=1');
+  if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) params.push('exclude_early_voted=1');
+  return params;
+}
+
+// Fetch filtered precinct counts and re-render the precinct list
+async function refreshWalkPrecinctCounts() {
+  var raceVal = document.getElementById('walkRaceFilter').value;
+  if (!raceVal) {
+    document.getElementById('walkPrecinctList').innerHTML = '<span style="color:#64748b;font-size:13px">Choose a race first (Step 1)</span>';
+    return;
+  }
+  var params = getWalkFilterParams();
+  var listEl = document.getElementById('walkPrecinctList');
+  var totalEl = document.getElementById('walkFilteredTotal');
+  listEl.innerHTML = '<span style="color:#94a3b8;font-size:13px">Loading filtered counts...</span>';
+  try {
+    var data = await api('/api/voters/precinct-counts?' + params.join('&'));
+    // Get the precincts for this race to filter
+    var racePrecincts = null;
+    if (raceVal === '__all__') {
+      racePrecincts = null; // show all
+    } else {
+      var parts = raceVal.split('|');
+      var race = _walkRaceData.find(function(r) { return r.type === parts[0] && r.district === parts[1]; });
+      racePrecincts = race ? race.precincts : [];
+    }
+    // Update counts map with filtered data
+    _walkPrecinctCounts = {};
+    var precinctNames = [];
+    (data.precincts || []).forEach(function(p) {
+      // If a race is selected, only show precincts that belong to this race
+      if (racePrecincts && !racePrecincts.includes(p.precinct)) return;
+      _walkPrecinctCounts[p.precinct] = p.count;
+      precinctNames.push(p.precinct);
+    });
+    // Also include race precincts with 0 matching voters
+    if (racePrecincts) {
+      racePrecincts.forEach(function(p) {
+        if (!_walkPrecinctCounts.hasOwnProperty(p)) {
+          _walkPrecinctCounts[p] = 0;
+          precinctNames.push(p);
+        }
+      });
+    }
+    var filteredTotal = precinctNames.reduce(function(s, p) { return s + (_walkPrecinctCounts[p] || 0); }, 0);
+    totalEl.textContent = filteredTotal + ' matching voters across ' + precinctNames.length + ' precincts';
+    totalEl.style.color = filteredTotal > 0 ? '#22c55e' : '#ef4444';
+    renderWalkPrecinctList(precinctNames);
+  } catch (e) {
+    listEl.innerHTML = '<span style="color:#ef4444;font-size:13px">Error loading precincts: ' + (e.message || 'Unknown error') + '</span>';
+    totalEl.textContent = '';
+  }
 }
 
 function renderWalkPrecinctList(precincts) {
@@ -4310,8 +4399,9 @@ function renderWalkPrecinctList(precincts) {
     label.textContent = p;
     item.appendChild(label);
     var count = document.createElement('span');
-    count.style.cssText = 'font-size:12px;color:#64748b';
-    count.textContent = (_walkPrecinctCounts[p] || 0) + ' voters';
+    var voterCount = _walkPrecinctCounts[p] || 0;
+    count.style.cssText = 'font-size:12px;font-weight:600;color:' + (voterCount > 50 ? '#22c55e' : voterCount > 10 ? '#f59e0b' : '#64748b');
+    count.textContent = voterCount + ' voters';
     item.appendChild(count);
     el.appendChild(item);
   });
@@ -4389,6 +4479,11 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (didNotVote.length > 0) filters.did_not_vote_in = didNotVote.join(',');
     if (minElections && parseInt(minElections) > 0) filters.min_elections = parseInt(minElections);
     if (document.getElementById('walkPrecinctHasVoted').checked) filters.has_voted = true;
+    var minAge = document.getElementById('walkPrecinctMinAge').value;
+    var maxAge = document.getElementById('walkPrecinctMaxAge').value;
+    if (minAge && parseInt(minAge) > 0) filters.min_age = parseInt(minAge);
+    if (maxAge && parseInt(maxAge) > 0) filters.max_age = parseInt(maxAge);
+    if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) filters.exclude_early_voted = true;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
       name: document.getElementById('precinctWalkName').value.trim() || undefined,
@@ -4659,8 +4754,8 @@ function getAddrColor(result) {
 }
 
 function createAdminHouseIcon(color, isDone) {
-  var dotSize = isDone ? 14 : 20;
-  var opacity = isDone ? 0.7 : 1;
+  var dotSize = 14;
+  var opacity = isDone ? 0.6 : 1;
   var tapSize = 44;
   var offset = (tapSize - dotSize) / 2;
   return L.divIcon({
@@ -4673,11 +4768,24 @@ function createAdminHouseIcon(color, isDone) {
   });
 }
 
+function createFlaggedHouseIcon() {
+  var tapSize = 44;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + tapSize + 'px;height:' + tapSize + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:6px;left:6px;width:32px;height:32px;border-radius:50%;background:#ef4444;border:3px solid #fbbf24;box-shadow:0 0 8px rgba(239,68,68,0.7);display:flex;align-items:center;justify-content:center;animation:flagPulse 1.5s infinite">' +
+      '<span style="font-size:16px">⚠</span></div></div>',
+    iconSize: [tapSize, tapSize],
+    iconAnchor: [tapSize / 2, tapSize / 2],
+    popupAnchor: [0, -tapSize / 2]
+  });
+}
+
 function createAdminApartmentIcon(color, unitCount, allDone) {
   var size = 44;
-  var dotSize = allDone ? 22 : 28;
+  var dotSize = 20;
   var offset = (size - dotSize) / 2;
-  var opacity = allDone ? 0.7 : 1;
+  var opacity = allDone ? 0.6 : 1;
   return L.divIcon({
     className: '',
     html: '<div style="width:' + size + 'px;height:' + size + 'px;position:relative;cursor:pointer">' +
@@ -4739,15 +4847,25 @@ function updateAddrMarkers(addresses) {
       // Single house marker
       var allDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
       var color = getAddrColor(firstAddr.result);
-      var icon = createAdminHouseIcon(color, allDone);
+      var icon = firstAddr.geo_flagged ? createFlaggedHouseIcon() : createAdminHouseIcon(color, allDone);
 
       var resultLabel = formatAdminResult(firstAddr.result);
-      var popupHtml = '<div style="font-size:13px;min-width:150px">' +
+      var isFlagged = firstAddr.geo_flagged;
+      var popupHtml = '<div style="font-size:13px;min-width:180px">' +
         '<strong>' + escHtml(firstAddr.address) + '</strong>';
       if (firstAddr.unit) popupHtml += ' <span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + escHtml(firstAddr.unit) + '</span>';
       if (firstAddr.voter_name) popupHtml += '<br><span style="color:#e2e8f0;font-weight:600">' + escHtml(firstAddr.voter_name) + '</span>';
       popupHtml += '<br><span style="color:' + color + ';font-weight:600">' + resultLabel + '</span>';
-      popupHtml += '</div>';
+      if (isFlagged) popupHtml += '<br><span style="color:#ef4444;font-weight:700;font-size:11px">⚠ FLAGGED — bad location</span>';
+      popupHtml += '<div style="margin-top:6px;border-top:1px solid #334155;padding-top:6px;display:flex;gap:4px;flex-wrap:wrap">';
+      if (!isFlagged) {
+        popupHtml += '<button onclick="flagBadLocation(' + state.currentWalkId + ',' + firstAddr.id + ',this)" style="font-size:11px;padding:2px 6px;background:#ef4444;color:#fff;border:none;border-radius:3px;cursor:pointer">🚩 Flag Wrong</button>';
+      } else {
+        popupHtml += '<button onclick="unflagLocation(' + state.currentWalkId + ',' + firstAddr.id + ',this)" style="font-size:11px;padding:2px 6px;background:#22c55e;color:#fff;border:none;border-radius:3px;cursor:pointer">✓ Unflag</button>';
+        popupHtml += '<button onclick="regeocodeAddress(' + state.currentWalkId + ',' + firstAddr.id + ',this)" style="font-size:11px;padding:2px 6px;background:#3b82f6;color:#fff;border:none;border-radius:3px;cursor:pointer">🔄 Re-geocode</button>';
+      }
+      popupHtml += '<button onclick="dragCorrectAddress(' + state.currentWalkId + ',' + firstAddr.id + ',' + firstAddr.lat + ',' + firstAddr.lng + ')" style="font-size:11px;padding:2px 6px;background:#f59e0b;color:#0f172a;border:none;border-radius:3px;cursor:pointer">📍 Move Pin</button>';
+      popupHtml += '</div></div>';
 
       var marker = L.marker([firstAddr.lat, firstAddr.lng], { icon: icon, zIndexOffset: 1000 })
         .bindPopup(popupHtml).addTo(walkMap);
@@ -4813,6 +4931,98 @@ function updateAddrMarkers(addresses) {
   }
 }
 
+// ===================== FLAG / FIX BAD GEOCODES =====================
+var _dragCorrectMarker = null;
+
+async function flagBadLocation(walkId, addrId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Flagging...';
+  try {
+    await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/flag-location', {});
+    // Refresh map to show flagged icon
+    var data = await api('/api/walks/' + walkId);
+    state.walkAddresses = data.walk ? data.walk.addresses : [];
+    updateAddrMarkers();
+  } catch (e) { alert('Failed to flag: ' + (e.message || 'Error')); }
+}
+
+async function unflagLocation(walkId, addrId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Unflagging...';
+  try {
+    await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/unflag-location', {});
+    var data = await api('/api/walks/' + walkId);
+    state.walkAddresses = data.walk ? data.walk.addresses : [];
+    updateAddrMarkers();
+  } catch (e) { alert('Failed: ' + (e.message || 'Error')); }
+}
+
+async function regeocodeAddress(walkId, addrId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Re-geocoding...';
+  try {
+    var result = await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/regeocode', {});
+    if (result.success) {
+      var data = await api('/api/walks/' + walkId);
+      state.walkAddresses = data.walk ? data.walk.addresses : [];
+      updateAddrMarkers();
+    } else {
+      alert(result.message || 'Could not re-geocode. Try moving the pin manually.');
+    }
+  } catch (e) { alert('Failed: ' + (e.message || 'Error')); }
+}
+
+function dragCorrectAddress(walkId, addrId, lat, lng) {
+  // Close any open popups
+  walkMap.closePopup();
+  // Remove existing drag marker if any
+  if (_dragCorrectMarker) { walkMap.removeLayer(_dragCorrectMarker); _dragCorrectMarker = null; }
+  // Create a draggable marker at the current position
+  _dragCorrectMarker = L.marker([lat, lng], {
+    draggable: true,
+    zIndexOffset: 2000,
+    icon: L.divIcon({
+      className: '',
+      html: '<div style="width:44px;height:44px;position:relative"><div style="position:absolute;top:4px;left:4px;width:36px;height:36px;border-radius:50%;background:#f59e0b;border:3px solid #fff;box-shadow:0 0 12px rgba(245,158,11,0.8);display:flex;align-items:center;justify-content:center"><span style="font-size:18px">📍</span></div></div>',
+      iconSize: [44, 44], iconAnchor: [22, 22]
+    })
+  }).addTo(walkMap);
+  _dragCorrectMarker.bindPopup(
+    '<div style="font-size:13px;text-align:center;min-width:160px">' +
+    '<strong style="color:#f59e0b">Drag pin to correct location</strong><br>' +
+    '<button onclick="saveDragCorrection(' + walkId + ',' + addrId + ')" style="margin-top:6px;padding:4px 12px;background:#22c55e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700">✓ Save Location</button>' +
+    ' <button onclick="cancelDragCorrection()" style="margin-top:6px;padding:4px 12px;background:#64748b;color:#fff;border:none;border-radius:4px;cursor:pointer">Cancel</button>' +
+    '</div>', { closeOnClick: false, autoClose: false }
+  ).openPopup();
+}
+
+async function saveDragCorrection(walkId, addrId) {
+  if (!_dragCorrectMarker) return;
+  var latlng = _dragCorrectMarker.getLatLng();
+  try {
+    await apiPost('/api/walks/' + walkId + '/addresses/' + addrId + '/fix-location', { lat: latlng.lat, lng: latlng.lng });
+    walkMap.removeLayer(_dragCorrectMarker);
+    _dragCorrectMarker = null;
+    // Refresh
+    var data = await api('/api/walks/' + walkId);
+    state.walkAddresses = data.walk ? data.walk.addresses : [];
+    updateAddrMarkers();
+  } catch (e) { alert('Failed to save: ' + (e.message || 'Error')); }
+}
+
+function cancelDragCorrection() {
+  if (_dragCorrectMarker) { walkMap.removeLayer(_dragCorrectMarker); _dragCorrectMarker = null; }
+}
+
+function scrollToFlaggedOnMap() {
+  // Open the map if not visible, then zoom to show all flagged addresses
+  if (!walkMapVisible) toggleWalkMap();
+  var flagged = (state.walkAddresses || []).filter(function(a) { return a.geo_flagged && a.lat && a.lng; });
+  if (flagged.length === 0) { alert('No flagged addresses with coordinates.'); return; }
+  var bounds = flagged.map(function(a) { return [a.lat, a.lng]; });
+  if (walkMap) walkMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+}
+
 function startMapPolling() {
   if (walkMapInterval) clearInterval(walkMapInterval);
   fetchWalkerLocations();
@@ -4842,30 +5052,51 @@ function updateWalkerMarkers(locations) {
   if (!walkMap) return;
   var now = new Date();
   var activeNames = {};
+  var OFFLINE_THRESHOLD = 20 * 60; // 20 minutes in seconds
+  var onlineWalkers = [];
+  var offlineWalkers = [];
+
   locations.forEach(function(loc) {
     activeNames[loc.walker_name] = true;
     var updatedAt = new Date(loc.updated_at + 'Z');
     var ageSec = Math.floor((now - updatedAt) / 1000);
-    var walkerColor = getWalkerColor(ageSec);
     var ageText = ageSec < 60 ? ageSec + 's ago' : Math.floor(ageSec / 60) + 'm ago';
+
+    // If offline >20 min, remove from map but track in status list
+    if (ageSec >= OFFLINE_THRESHOLD) {
+      offlineWalkers.push({ name: loc.walker_name, ago: ageText, ageSec: ageSec });
+      // Remove marker if it exists
+      if (walkMapMarkers[loc.walker_name]) {
+        walkMap.removeLayer(walkMapMarkers[loc.walker_name].marker);
+        if (walkMapMarkers[loc.walker_name].label !== walkMapMarkers[loc.walker_name].marker) {
+          walkMap.removeLayer(walkMapMarkers[loc.walker_name].label);
+        }
+        delete walkMapMarkers[loc.walker_name];
+      }
+      return;
+    }
+
+    // Online — show on map
+    var walkerColor = getWalkerColor(ageSec);
+    var status = ageSec < 120 ? 'Active' : ageSec < 300 ? 'Stale' : 'Weak';
+    onlineWalkers.push({ name: loc.walker_name, ago: ageText, ageSec: ageSec, status: status, color: walkerColor });
     var popupHtml = '<b>' + escHtml(loc.walker_name) + '</b><br>Accuracy: ' + Math.round(loc.accuracy || 0) + 'm<br>Last update: ' + ageText;
     if (walkMapMarkers[loc.walker_name]) {
-      // Update existing — remove and re-add with new icon for color update
       var existing = walkMapMarkers[loc.walker_name];
       walkMap.removeLayer(existing.marker);
       walkMap.removeLayer(existing.label);
       var newIcon = createAdminWalkerIcon(walkerColor, loc.walker_name);
       var newMarker = L.marker([loc.lat, loc.lng], { icon: newIcon, zIndexOffset: 1000 }).addTo(walkMap);
       newMarker.bindPopup(popupHtml);
-      walkMapMarkers[loc.walker_name] = { marker: newMarker, label: newMarker }; // label is integrated into icon
+      walkMapMarkers[loc.walker_name] = { marker: newMarker, label: newMarker };
     } else {
-      // Create new marker
       var icon = createAdminWalkerIcon(walkerColor, loc.walker_name);
       var marker = L.marker([loc.lat, loc.lng], { icon: icon, zIndexOffset: 1000 }).addTo(walkMap);
       marker.bindPopup(popupHtml);
-      walkMapMarkers[loc.walker_name] = { marker: marker, label: marker }; // label is integrated into icon
+      walkMapMarkers[loc.walker_name] = { marker: marker, label: marker };
     }
   });
+
   // Remove markers for walkers no longer in the data
   Object.keys(walkMapMarkers).forEach(function(name) {
     if (!activeNames[name]) {
@@ -4875,6 +5106,43 @@ function updateWalkerMarkers(locations) {
       }
       delete walkMapMarkers[name];
     }
+  });
+
+  // Update walker status panel
+  updateWalkerStatusPanel(onlineWalkers, offlineWalkers);
+}
+
+function updateWalkerStatusPanel(online, offline) {
+  var panel = document.getElementById('walkerStatusPanel');
+  var listEl = document.getElementById('walkerStatusList');
+  var countEl = document.getElementById('walkerOnlineCount');
+  if (!panel || !listEl) return;
+
+  var total = online.length + offline.length;
+  if (total === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  countEl.textContent = online.length + ' online, ' + offline.length + ' offline';
+
+  listEl.textContent = '';
+  // Online walkers first, sorted by most recent
+  online.sort(function(a, b) { return a.ageSec - b.ageSec; });
+  online.forEach(function(w) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:#1e293b';
+    row.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + w.color + ';border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.4);flex-shrink:0"></span>' +
+      '<span style="flex:1;font-size:13px;font-weight:600;color:#e2e8f0">' + escHtml(w.name) + '</span>' +
+      '<span style="font-size:11px;color:' + w.color + ';font-weight:600">' + w.ago + '</span>';
+    listEl.appendChild(row);
+  });
+  // Offline walkers
+  offline.sort(function(a, b) { return a.ageSec - b.ageSec; });
+  offline.forEach(function(w) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:#0f172a;opacity:0.6';
+    row.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#475569;border:2px solid #64748b;flex-shrink:0"></span>' +
+      '<span style="flex:1;font-size:13px;font-weight:600;color:#64748b">' + escHtml(w.name) + '</span>' +
+      '<span style="font-size:11px;color:#ef4444;font-weight:600">Offline ' + w.ago + '</span>';
+    listEl.appendChild(row);
   });
 }
 

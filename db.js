@@ -848,6 +848,7 @@ db.exec(`
 
 // Track which voters are already assigned in a universe to avoid duplication
 addColumn("ALTER TABLE walk_addresses ADD COLUMN universe_id INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE walk_addresses ADD COLUMN geo_flagged INTEGER DEFAULT 0");
 
 // --- Walk performance metrics ---
 addColumn("ALTER TABLE walk_group_members ADD COLUMN doors_knocked INTEGER DEFAULT 0");

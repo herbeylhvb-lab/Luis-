@@ -70,7 +70,7 @@ function parseAddressUnit(address) {
 
 // State is configurable via GEOCODE_STATE env var (defaults to empty for auto-detection)
 const GEOCODE_STATE = process.env.GEOCODE_STATE || '';
-const GOOGLE_GEOCODE_KEY = process.env.GOOGLE_GEOCODE_KEY || 'AIzaSyBa3ZS_FTVxIG4mJO0FMw-irC3fC_1txy8';
+const GOOGLE_GEOCODE_KEY = process.env.GOOGLE_GEOCODE_KEY || '';
 
 // Google Geocoding API — most accurate, $5 per 1000 requests
 async function geocodeAddressGoogle(address, city, zip) {
@@ -371,7 +371,10 @@ function buildVotingHistorySQL(filters, params) {
 // ===================== DAILY REPORT (must be before /walks/:id) =====================
 router.get('/walks/daily-report', (req, res) => {
   const date = req.query.date; // YYYY-MM-DD, defaults to today
-  const targetDate = date || new Date().toISOString().split('T')[0];
+  // Default to today in Central Time (UTC-6), not UTC
+  const now = new Date();
+  const centralNow = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const targetDate = date || centralNow.toISOString().split('T')[0];
 
   // Per-walker stats for the selected day
   const walkers = db.prepare(`
@@ -387,7 +390,7 @@ router.get('/walks/daily-report', (req, res) => {
       MAX(attempted_at) as last_knock,
       COUNT(DISTINCT walk_id) as walks_worked
     FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at) = ?
+    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ?
     GROUP BY walker_name
     ORDER BY doors DESC
   `).all(targetDate);
@@ -414,21 +417,21 @@ router.get('/walks/daily-report', (req, res) => {
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
     FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at) = ?
+    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ?
   `).get(targetDate);
   totals.contact_rate = totals.total_doors > 0 ? Math.round(totals.total_contacts / totals.total_doors * 100) : 0;
 
   // Day-over-day history (last 30 days with activity)
   const history = db.prepare(`
     SELECT
-      date(attempted_at) as day,
+      date(attempted_at, '-6 hours') as day,
       COUNT(*) as doors,
       SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       COUNT(DISTINCT walker_name) as walkers
     FROM walk_attempts
     WHERE walker_name != ''
-    GROUP BY date(attempted_at)
+    GROUP BY date(attempted_at, '-6 hours')
     ORDER BY day DESC
     LIMIT 30
   `).all();
@@ -444,14 +447,14 @@ router.get('/walks/daily-report', (req, res) => {
       (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
     LEFT JOIN block_walks bw ON wa.walk_id = bw.id
-    WHERE wa.walker_name != '' AND date(wa.attempted_at) = ?
+    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?
     GROUP BY wa.walk_id
     ORDER BY doors DESC
   `).all(targetDate);
 
   // Available dates (days with any activity)
   const activeDays = db.prepare(`
-    SELECT DISTINCT date(attempted_at) as day
+    SELECT DISTINCT date(attempted_at, '-6 hours') as day
     FROM walk_attempts
     WHERE walker_name != ''
     ORDER BY day DESC
@@ -1182,6 +1185,19 @@ router.post('/walks/from-precinct', (req, res) => {
     if (filters.exclude_contacted) {
       sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
     }
+    // Age filters
+    if (filters.min_age && parseInt(filters.min_age) > 0) {
+      sql += " AND birth_date != '' AND birth_date IS NOT NULL AND (strftime('%Y','now') - substr(birth_date,1,4)) >= ?";
+      params.push(parseInt(filters.min_age));
+    }
+    if (filters.max_age && parseInt(filters.max_age) > 0) {
+      sql += " AND birth_date != '' AND birth_date IS NOT NULL AND (strftime('%Y','now') - substr(birth_date,1,4)) <= ?";
+      params.push(parseInt(filters.max_age));
+    }
+    // Exclude early voters
+    if (filters.exclude_early_voted) {
+      sql += " AND (early_voted IS NULL OR early_voted = 0 OR early_voted = '')";
+    }
     // Voting history filters (nonpartisan targeting)
     sql += buildVotingHistorySQL(filters, params);
   }
@@ -1354,7 +1370,7 @@ router.get('/walks/:id/live-status', (req, res) => {
   const members = db.prepare('SELECT walker_name, joined_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
 
   const allAddresses = db.prepare(
-    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng, geo_flagged FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
   const doorProgress = countDoors(allAddresses);
@@ -1479,6 +1495,64 @@ router.post('/walks/:id/geocode', (req, res) => {
 
   geocodeWalkAddresses(wid);
   res.json({ message: 'Geocoding started for ' + missing.c + ' addresses. Map will update as coordinates are resolved.', pending: missing.c });
+});
+
+// ===================== FLAG / FIX BAD GEOCODES =====================
+
+// Flag an address as having a bad geocode location
+router.post('/walks/:walkId/addresses/:addrId/flag-location', (req, res) => {
+  const addr = db.prepare('SELECT id, walk_id FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  db.prepare('UPDATE walk_addresses SET geo_flagged = 1 WHERE id = ?').run(addr.id);
+  res.json({ success: true, message: 'Location flagged as incorrect.' });
+});
+
+// Unflag an address
+router.post('/walks/:walkId/addresses/:addrId/unflag-location', (req, res) => {
+  const addr = db.prepare('SELECT id, walk_id FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  db.prepare('UPDATE walk_addresses SET geo_flagged = 0 WHERE id = ?').run(addr.id);
+  res.json({ success: true });
+});
+
+// Manually set lat/lng for an address (admin drag-correct)
+router.post('/walks/:walkId/addresses/:addrId/fix-location', (req, res) => {
+  const { lat, lng } = req.body;
+  if (lat == null || lng == null) return res.status(400).json({ error: 'lat and lng are required.' });
+  if (!isValidCoord(lat, lng)) return res.status(400).json({ error: 'Invalid coordinates.' });
+  const addr = db.prepare('SELECT id, walk_id FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  db.prepare('UPDATE walk_addresses SET lat = ?, lng = ?, geo_flagged = 0 WHERE id = ?').run(lat, lng, addr.id);
+  res.json({ success: true, message: 'Location updated.' });
+});
+
+// Re-geocode a single flagged address
+router.post('/walks/:walkId/addresses/:addrId/regeocode', async (req, res) => {
+  const addr = db.prepare('SELECT id, walk_id, address, city, zip FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  // Try all geocoders in order
+  let coords = null;
+  if (GOOGLE_GEOCODE_KEY) {
+    coords = await geocodeAddressGoogle(addr.address, addr.city, addr.zip);
+  }
+  if (!coords) {
+    coords = await geocodeAddressCensus(addr.address, addr.city, addr.zip);
+  }
+  if (!coords) {
+    coords = await geocodeAddressNominatim(addr.address, addr.city, addr.zip);
+  }
+  if (coords) {
+    db.prepare('UPDATE walk_addresses SET lat = ?, lng = ?, geo_flagged = 0 WHERE id = ?').run(coords.lat, coords.lng, addr.id);
+    res.json({ success: true, lat: coords.lat, lng: coords.lng, message: 'Re-geocoded successfully.' });
+  } else {
+    res.json({ success: false, message: 'Could not geocode this address. Try manually correcting it on the map.' });
+  }
+});
+
+// Get all flagged addresses for a walk
+router.get('/walks/:id/flagged-addresses', (req, res) => {
+  const rows = db.prepare('SELECT id, address, unit, city, zip, voter_name, lat, lng FROM walk_addresses WHERE walk_id = ? AND geo_flagged = 1').all(req.params.id);
+  res.json({ flagged: rows });
 });
 
 // ===================== WALKER LOCATION TRACKING =====================

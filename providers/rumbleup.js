@@ -192,63 +192,23 @@ async function createProject({ name, message, group, campaignId, proxy, type }) 
 }
 
 /**
- * Create an MMS project with media attached.
- * Tries multiple approaches since RumbleUp's API docs say "string (binary)" but
- * their parser rejects standard multipart/form-data.
- *
- * Strategy:
- *  1. JSON body with media as a public URL (if mediaUrl provided)
- *  2. Manual multipart/form-data with raw boundary construction
- *  3. JSON body with media as base64 data URI
+ * Create a project via API. Media must be uploaded on RumbleUp dashboard separately.
+ * RumbleUp's API does not support programmatic media upload.
  */
-async function createMmsProject({ name, message, mediaBuffer, mediaFilename, mediaMimeType, mediaUrl, group, campaignId, proxy }) {
-  if (!name || !message) throw new Error('MMS project requires name and message.');
-  if (!mediaBuffer && !mediaUrl) throw new Error('MMS project requires a media file or URL.');
+async function createMmsProject({ name, message, group, campaignId, proxy }) {
+  if (!name || !message) throw new Error('Project requires name and message.');
 
-  // RumbleUp requires opt-out instructions in every project message
   const safeMessage = /stop|opt.?out|unsubscribe/i.test(message) ? message : message + '\nReply STOP to opt out.';
-  const baseBody = { name, message: safeMessage };
-  if (group) baseBody.group = group;
-  if (campaignId) baseBody.campaignId = campaignId;
-  if (proxy) baseBody.proxy = proxy;
+  const body = { name, message: safeMessage };
+  if (group) body.group = group;
+  if (campaignId) body.campaignId = campaignId;
+  if (proxy) body.proxy = proxy;
 
-  if (!mediaUrl) throw new Error('MMS requires a public media URL. Ensure BASE_URL is configured.');
-
-  // Step 1: Create the project first (as SMS — RumbleUp may not accept type+media together)
-  console.log('[mms] Step 1: Creating project...');
-  const createResult = await apiPost('/project/create', baseBody);
-  const projectId = createResult.action || createResult.id || createResult.aid;
-  console.log('[mms] Created project:', projectId, JSON.stringify(createResult));
-  if (!projectId) throw new Error('Failed to create project — no ID returned');
-
-  // Step 2: Update the project to add media via the update endpoint
-  // This two-step approach may work better since create + media in one call
-  // resulted in type:"SMS" and media:""
-  console.log('[mms] Step 2: Updating project', projectId, 'with media URL:', mediaUrl);
-  const updateResult = await apiPost('/project/update/' + projectId, { media: mediaUrl });
-  console.log('[mms] Update result:', JSON.stringify(updateResult));
-
-  // Step 3: Verify
-  const details = await getProject(projectId);
-  console.log('[mms] Final project details:', JSON.stringify(details));
-  if (details.media) {
-    console.log('[mms] SUCCESS — media attached:', details.media);
-  } else {
-    console.log('[mms] WARNING — media still empty after update. Trying create with type:MMS...');
-    // Fallback: Try creating a NEW project with explicit type:"MMS"
-    const mmsResult = await apiPost('/project/create', { ...baseBody, type: 'MMS', media: mediaUrl });
-    const mmsId = mmsResult.action || mmsResult.id || mmsResult.aid;
-    console.log('[mms] MMS-typed create result:', JSON.stringify(mmsResult));
-    if (mmsId) {
-      const mmsDetails = await getProject(mmsId);
-      console.log('[mms] MMS project details:', JSON.stringify(mmsDetails));
-      mmsDetails._projectId = mmsId;
-      return mmsDetails;
-    }
-  }
-
-  details._projectId = projectId;
-  return details;
+  const result = await apiPost('/project/create', body);
+  const projectId = result.action || result.id || result.aid;
+  console.log('[mms] Project created:', projectId, '— upload image on RumbleUp dashboard');
+  result._projectId = projectId;
+  return result;
 }
 
 async function getProject(projectId) {

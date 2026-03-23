@@ -1495,10 +1495,19 @@ async function searchVoters() {
       var card = document.createElement('div');
       card.className = 'voter-card';
 
+      var nameRow = document.createElement('div');
+      nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
       var nameEl = document.createElement('div');
       nameEl.className = 'voter-name';
       nameEl.textContent = voterFullName(v);
-      card.appendChild(nameEl);
+      nameRow.appendChild(nameEl);
+      if (v.age) {
+        var ageBadge = document.createElement('span');
+        ageBadge.style.cssText = 'font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
+        ageBadge.textContent = 'Age ' + v.age;
+        nameRow.appendChild(ageBadge);
+      }
+      card.appendChild(nameRow);
 
       var vid = voterIdDisplay(v);
       if (vid) {
@@ -1699,8 +1708,14 @@ function renderListVoterRows(voters, content, listId) {
     })(v, row);
     infoDiv.appendChild(nameEl);
     var metaDiv = document.createElement('div');
-    metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
+    metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;align-items:center';
     metaDiv.appendChild(createVotedBadge(v));
+    if (v.age) {
+      var ageBadge2 = document.createElement('span');
+      ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
+      ageBadge2.textContent = 'Age ' + v.age;
+      metaDiv.appendChild(ageBadge2);
+    }
     infoDiv.appendChild(metaDiv);
     row.appendChild(infoDiv);
 

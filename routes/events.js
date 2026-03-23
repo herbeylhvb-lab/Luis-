@@ -12,7 +12,7 @@ const { asyncHandler, phoneDigits } = require('../utils');
 router.get('/events', (req, res) => {
   const events = db.prepare(`
     SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_time, e.event_end_time, e.status, e.created_at,
-      e.latitude, e.longitude, e.checkin_radius,
+      e.latitude, e.longitude, e.checkin_radius, e.mms_project_id,
       (e.flyer_image IS NOT NULL) as has_flyer,
       COUNT(er.id) as rsvp_total,
       SUM(CASE WHEN er.rsvp_status = 'confirmed' THEN 1 ELSE 0 END) as rsvp_confirmed,
@@ -80,6 +80,13 @@ router.put('/events/:id', (req, res) => {
       checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   }
   if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
+
+  // Propagate MMS project change to any active P2P sessions for this event
+  if (mms_project_id !== undefined) {
+    db.prepare("UPDATE p2p_sessions SET rumbleup_action_id = ? WHERE source_id = ? AND session_type = 'event' AND status = 'active'")
+      .run(mms_project_id || null, req.params.id);
+  }
+
   res.json({ success: true });
 });
 

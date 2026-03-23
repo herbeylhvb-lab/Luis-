@@ -482,15 +482,6 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   }
 
   try {
-    // Auto-sync contact to RumbleUp before sending (ensures phone exists in their system)
-    if (provider.syncContact) {
-      await provider.syncContact({
-        phone: phoneDigits(assignment.phone),
-        first_name: assignment.first_name || '',
-        last_name: assignment.last_name || '',
-        city: assignment.city || ''
-      });
-    }
     // MMS: If the session has a rumbleup_action_id, send through that MMS project
     // (image is pre-uploaded on RumbleUp dashboard, not via API)
     const session = db.prepare('SELECT rumbleup_action_id, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
@@ -499,7 +490,33 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
       console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId);
     }
 
-    await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
+    // Auto-sync contact to RumbleUp before sending (ensures phone exists in their system)
+    // Sync to the MMS project if applicable, otherwise default project
+    if (provider.syncContact) {
+      try {
+        await provider.syncContact({
+          phone: phoneDigits(assignment.phone),
+          first_name: assignment.first_name || '',
+          last_name: assignment.last_name || '',
+          city: assignment.city || '',
+          action: mmsActionId || undefined
+        });
+      } catch (syncErr) {
+        console.warn('[p2p-send] Contact sync failed, proceeding with send:', syncErr.message);
+      }
+    }
+
+    // Send with MMS fallback — if MMS project fails, retry as plain SMS
+    try {
+      await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
+    } catch (sendErr) {
+      if (mmsActionId) {
+        console.warn('[p2p-send] MMS send failed, falling back to SMS:', sendErr.message);
+        await provider.sendMessage(assignment.phone, message, 'sms', null);
+      } else {
+        throw sendErr;
+      }
+    }
     // Atomic: log message + update assignment status together
     db.transaction(() => {
       db.prepare("INSERT INTO messages (phone, body, direction, session_id, volunteer_name, channel) VALUES (?, ?, 'outbound', ?, ?, 'sms')")
