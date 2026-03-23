@@ -4,3 +4,9 @@ data/
 .env.*
 .DS_Store
 *.db
+*.pem
+*.key
+credentials.json
+*.log
+*.xlsx
+coverage/

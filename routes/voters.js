@@ -174,7 +174,7 @@ router.post('/voters/import', requireAuth, importLimiter, (req, res) => {
     res.json({ success: true, added });
   } catch (err) {
     console.error('Voter import error:', err);
-    res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+    res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
   }
 });
 
@@ -356,7 +356,7 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
     res.json({ success: true, ...results });
   } catch (err) {
     console.error('Voter file import error:', err);
-    res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+    res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
   }
 });
 

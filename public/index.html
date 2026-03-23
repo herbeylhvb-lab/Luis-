@@ -2250,7 +2250,6 @@ tr:hover td{background:#1e293b80}
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
 // ===================== STATE =====================
 let state = {
@@ -2556,21 +2555,21 @@ async function checkMmsProject() {
     var data = await api('/api/rumbleup/project/' + projectId);
     var p = data.project || {};
     var html = '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-top:4px">';
-    html += '<strong style="color:#e2e8f0">Project #' + projectId + ': ' + (p.name || '?') + '</strong><br>';
-    html += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + (p.type || '?') + '</span><br>';
-    html += '<span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + (p.status || '?') + '</span><br>';
+    html += '<strong style="color:#e2e8f0">Project #' + escHtml(projectId) + ': ' + escHtml(p.name || '?') + '</strong><br>';
+    html += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + escHtml(p.type || '?') + '</span><br>';
+    html += '<span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + escHtml(p.status || '?') + '</span><br>';
     html += '<span style="color:#94a3b8">Media: </span>';
     if (p.media) {
-      html += '<span style="color:#22c55e;font-weight:600">YES</span> — <a href="' + p.media + '" target="_blank" style="color:#818cf8">' + p.media + '</a>';
+      html += '<span style="color:#22c55e;font-weight:600">YES</span> — <a href="' + encodeURI(p.media) + '" target="_blank" style="color:#818cf8">' + escHtml(p.media) + '</a>';
     } else {
-      html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + (p.cid || '') + '/' + projectId + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
+      html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + encodeURIComponent(p.cid || '') + '/' + encodeURIComponent(projectId) + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
     }
-    html += '<br><span style="color:#94a3b8">Message: </span><span style="color:#e2e8f0">' + (p.message || '').replace(/\n/g, '<br>') + '</span>';
-    html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + (p.link || '#') + '" target="_blank" style="color:#818cf8">' + (p.link || 'N/A') + '</a>';
+    html += '<br><span style="color:#94a3b8">Message: </span><span style="color:#e2e8f0">' + escHtml(p.message || '').replace(/\n/g, '<br>') + '</span>';
+    html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + encodeURI(p.link || '#') + '" target="_blank" style="color:#818cf8">' + escHtml(p.link || 'N/A') + '</a>';
     html += '</div>';
     resultEl.innerHTML = html;
   } catch (err) {
-    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed to check project.</span>';
   }
 }
 
@@ -2599,10 +2598,10 @@ async function testMmsViaProject() {
       resultEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Test MMS sent via project #' + projectId + '! Check your phone.</span><br>' +
         '<span style="color:#94a3b8">Media: <a href="' + p.media + '" target="_blank" style="color:#818cf8">' + p.media + '</a></span>';
     } else {
-      resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (data.error || 'Unknown') + '</span>';
+      resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + escHtml(data.error || 'Unknown') + '</span>';
     }
   } catch (err) {
-    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + escHtml(err.message || 'Error') + '</span>';
   }
 }
 
@@ -3059,23 +3058,23 @@ async function checkEventMmsProject() {
     var data = await api('/api/rumbleup/project/' + projectId);
     var p = data.project || {};
     var html = '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-top:4px">';
-    html += '<strong style="color:#e2e8f0">Project #' + projectId + ': ' + (p.name || '?') + '</strong><br>';
-    html += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + (p.type || '?') + '</span><br>';
-    html += '<span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + (p.status || '?') + '</span><br>';
+    html += '<strong style="color:#e2e8f0">Project #' + escHtml(projectId) + ': ' + escHtml(p.name || '?') + '</strong><br>';
+    html += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + escHtml(p.type || '?') + '</span><br>';
+    html += '<span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + escHtml(p.status || '?') + '</span><br>';
     html += '<span style="color:#94a3b8">Media: </span>';
     if (p.media) {
-      html += '<span style="color:#22c55e;font-weight:600">YES</span> — <a href="' + p.media + '" target="_blank" style="color:#818cf8">View Image</a>';
+      html += '<span style="color:#22c55e;font-weight:600">YES</span> — <a href="' + encodeURI(p.media) + '" target="_blank" style="color:#818cf8">View Image</a>';
     } else {
-      html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + (p.cid || '') + '/' + projectId + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
+      html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + encodeURIComponent(p.cid || '') + '/' + encodeURIComponent(projectId) + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
     }
     if (p.message) {
-      html += '<br><span style="color:#94a3b8">Message: </span><span style="color:#cbd5e1">' + (p.message || '').replace(/\n/g, '<br>') + '</span>';
+      html += '<br><span style="color:#94a3b8">Message: </span><span style="color:#cbd5e1">' + escHtml(p.message || '').replace(/\n/g, '<br>') + '</span>';
     }
-    html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + (p.link || '#') + '" target="_blank" style="color:#818cf8">' + (p.link || 'N/A') + '</a>';
+    html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + encodeURI(p.link || '#') + '" target="_blank" style="color:#818cf8">' + escHtml(p.link || 'N/A') + '</a>';
     html += '</div>';
     resultEl.innerHTML = html;
   } catch (err) {
-    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed to check project.</span>';
   }
 }
 
@@ -4477,7 +4476,7 @@ async function refreshWalkPrecinctCounts() {
     totalEl.style.color = filteredTotal > 0 ? '#22c55e' : '#ef4444';
     renderWalkPrecinctList(precinctNames);
   } catch (e) {
-    listEl.innerHTML = '<span style="color:#ef4444;font-size:13px">Error loading precincts: ' + (e.message || 'Unknown error') + '</span>';
+    listEl.innerHTML = '<span style="color:#ef4444;font-size:13px">Error loading precincts: ' + escHtml(e.message || 'Unknown error') + '</span>';
     totalEl.textContent = '';
   }
 }
@@ -4609,7 +4608,7 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     document.getElementById('precinctWalkName').value = '';
     loadWalks();
   } catch (e) {
-    statusEl.innerHTML = '<span style="color:#ef4444">' + (e.message || 'Failed to create walk') + '</span>';
+    statusEl.innerHTML = '<span style="color:#ef4444">' + escHtml(e.message || 'Failed to create walk') + '</span>';
   }
 });
 
@@ -5554,7 +5553,7 @@ window.createUniverse = async function() {
     document.getElementById('newUnivName').value = '';
     loadUniverses();
   } catch (e) {
-    statusEl.innerHTML = '<span style="color:#ef4444">' + (e.message || 'Failed') + '</span>';
+    statusEl.innerHTML = '<span style="color:#ef4444">' + escHtml(e.message || 'Failed') + '</span>';
   }
 };
 
@@ -5715,7 +5714,7 @@ async function loadDailyReport() {
       chart.innerHTML = '<div style="color:#64748b;font-size:13px;text-align:center;width:100%;padding:20px 0">No history yet</div>';
     }
   } catch (err) {
-    document.getElementById('dailyTotals').innerHTML = '<div style="color:#ef4444;padding:12px">Failed to load: ' + (err.message || 'Unknown error') + '</div>';
+    document.getElementById('dailyTotals').innerHTML = '<div style="color:#ef4444;padding:12px">Failed to load: ' + escHtml(err.message || 'Unknown error') + '</div>';
   }
 }
 
@@ -7462,7 +7461,7 @@ async function checkInviteMmsProject() {
     html += '</div>';
     resultEl.innerHTML = html;
   } catch (err) {
-    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + escHtml(err.message || 'Error') + '</span>';
   }
 }
 
@@ -7526,7 +7525,7 @@ async function testEventInviteSend() {
         '<span style="color:#ef4444">Send failed: ' + (data.error || 'Unknown error') + '</span>';
     }
   } catch (err) {
-    resultEl.innerHTML = '<span style="color:#ef4444">Error: ' + (err.message || 'Failed') + '</span>';
+    resultEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(err.message || 'Failed') + '</span>';
   }
 }
 
@@ -11239,7 +11238,7 @@ async function loadMyUniverses() {
   try {
     var data = await api('/api/admin-lists');
   } catch (err) {
-    el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:24px 0">Failed to load universes: ' + (err.message || 'Unknown error') + '</p>';
+    el.innerHTML = '<p style="color:#ef4444;text-align:center;padding:24px 0">Failed to load universes: ' + escHtml(err.message || 'Unknown error') + '</p>';
     return;
   }
   el.textContent = '';
@@ -11673,9 +11672,9 @@ async function rumbleupLoadAccount() {
     if (!resp.ok) { el.textContent = 'Not connected. Configure credentials in Messaging Setup.'; return; }
     var data = await resp.json();
     el.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">' +
-      '<div><div style="color:#64748b;font-size:11px">Account</div><div style="color:#e2e8f0;font-weight:600">' + (data.name || '-') + '</div></div>' +
-      '<div><div style="color:#64748b;font-size:11px">Status</div><div style="color:' + (data.status === 'Active' ? '#10b981' : '#ef4444') + ';font-weight:600">' + (data.status || '-') + '</div></div>' +
-      '<div><div style="color:#64748b;font-size:11px">Balance</div><div style="color:#e2e8f0;font-weight:600">$' + (data.balance != null ? data.balance : '-') + '</div></div>' +
+      '<div><div style="color:#64748b;font-size:11px">Account</div><div style="color:#e2e8f0;font-weight:600">' + escHtml(data.name || '-') + '</div></div>' +
+      '<div><div style="color:#64748b;font-size:11px">Status</div><div style="color:' + (data.status === 'Active' ? '#10b981' : '#ef4444') + ';font-weight:600">' + escHtml(data.status || '-') + '</div></div>' +
+      '<div><div style="color:#64748b;font-size:11px">Balance</div><div style="color:#e2e8f0;font-weight:600">$' + escHtml(data.balance != null ? data.balance : '-') + '</div></div>' +
     '</div>';
   } catch (e) { el.textContent = 'Error loading account: ' + e.message; }
 }
@@ -11693,10 +11692,10 @@ async function rumbleupLoadProjects() {
     projects.forEach(function(p) {
       var statusColor = p.status === 'Live' ? '#10b981' : p.status === 'Draft' ? '#f59e0b' : '#94a3b8';
       html += '<tr style="border-bottom:1px solid #1e293b">' +
-        '<td style="padding:6px;color:#818cf8">' + p.action + '</td>' +
-        '<td style="padding:6px;color:#e2e8f0">' + (p.name || 'Untitled') + '</td>' +
-        '<td style="padding:6px;color:' + statusColor + ';font-weight:600">' + p.status + '</td>' +
-        '<td style="padding:6px;color:#94a3b8">' + (p.type || 'SMS') + '</td>' +
+        '<td style="padding:6px;color:#818cf8">' + escHtml(p.action) + '</td>' +
+        '<td style="padding:6px;color:#e2e8f0">' + escHtml(p.name || 'Untitled') + '</td>' +
+        '<td style="padding:6px;color:' + statusColor + ';font-weight:600">' + escHtml(p.status) + '</td>' +
+        '<td style="padding:6px;color:#94a3b8">' + escHtml(p.type || 'SMS') + '</td>' +
         '<td style="padding:6px;color:#e2e8f0">' + (p.sent || 0) + '</td>' +
         '<td style="padding:6px;color:#e2e8f0">' + (p.delivered || 0) + '</td>' +
         '<td style="padding:6px;color:#e2e8f0">' + (p.replies || 0) + '</td>' +
@@ -11795,7 +11794,7 @@ async function rumbleupLoadAdminLists() {
     var lists = data.lists || [];
     select.innerHTML = '<option value="">Select an admin list...</option>';
     lists.forEach(function(l) {
-      select.innerHTML += '<option value="' + l.id + '">' + l.name + ' (' + (l.voter_count || 0) + ' voters)</option>';
+      select.innerHTML += '<option value="' + escHtml(l.id) + '">' + escHtml(l.name) + ' (' + (l.voter_count || 0) + ' voters)</option>';
     });
   } catch (e) { /* ignore */ }
 }
@@ -11812,9 +11811,9 @@ async function rumbleupImportContacts() {
       body: JSON.stringify({ list_id: parseInt(listId) })
     });
     var data = await resp.json();
-    if (!resp.ok) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + (data.error || 'Import failed') + '</span>'; return; }
-    statusEl.innerHTML = '<span style="color:#10b981">Imported ' + (data.imported || 0) + ' contacts from "' + (data.listName || '') + '" to RumbleUp. Group: ' + (data.name || data.gid || 'created') + '</span>';
-  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>'; }
+    if (!resp.ok) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(data.error || 'Import failed') + '</span>'; return; }
+    statusEl.innerHTML = '<span style="color:#10b981">Imported ' + (data.imported || 0) + ' contacts from "' + escHtml(data.listName || '') + '" to RumbleUp. Group: ' + escHtml(data.name || data.gid || 'created') + '</span>';
+  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(e.message) + '</span>'; }
 }
 
 async function rumbleupSendTest() {
@@ -11833,9 +11832,9 @@ async function rumbleupSendTest() {
       body: JSON.stringify(body)
     });
     var data = await resp.json();
-    if (!resp.ok) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + (data.error || 'Send failed') + '</span>'; return; }
-    statusEl.innerHTML = '<span style="color:#10b981">Test message sent to ' + phone + '!</span>';
-  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>'; }
+    if (!resp.ok) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(data.error || 'Send failed') + '</span>'; return; }
+    statusEl.innerHTML = '<span style="color:#10b981">Test message sent to ' + escHtml(phone) + '!</span>';
+  } catch (e) { statusEl.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(e.message) + '</span>'; }
 }
 
 async function rumbleupGetLogs() {
@@ -11846,7 +11845,7 @@ async function rumbleupGetLogs() {
   try {
     var resp = await fetch('/api/rumbleup/messaging/logs?phone=' + phone);
     var data = await resp.json();
-    if (!resp.ok) { el.innerHTML = '<span style="color:#ef4444">Error: ' + (data.error || 'Failed') + '</span>'; return; }
+    if (!resp.ok) { el.innerHTML = '<span style="color:#ef4444">Error: ' + escHtml(data.error || 'Failed') + '</span>'; return; }
     var logs = data.data || [];
     if (logs.length === 0) { el.innerHTML = 'No messages found for this number.'; return; }
     var html = '<table style="width:100%;border-collapse:collapse">' +
@@ -11855,15 +11854,15 @@ async function rumbleupGetLogs() {
       var dir = (m.sender === 'rumbleup' || m.sender === m.proxy) ? 'OUT' : 'IN';
       var dirColor = dir === 'OUT' ? '#818cf8' : '#10b981';
       html += '<tr style="border-bottom:1px solid #1e293b">' +
-        '<td style="padding:4px;color:#94a3b8;white-space:nowrap">' + (m.sent_time || m.update_time || '-') + '</td>' +
+        '<td style="padding:4px;color:#94a3b8;white-space:nowrap">' + escHtml(m.sent_time || m.update_time || '-') + '</td>' +
         '<td style="padding:4px;color:' + dirColor + ';font-weight:600">' + dir + '</td>' +
-        '<td style="padding:4px;color:#e2e8f0">' + (m.status || '-') + '</td>' +
-        '<td style="padding:4px;color:#e2e8f0">' + (m.text || '').substring(0, 80) + '</td></tr>';
+        '<td style="padding:4px;color:#e2e8f0">' + escHtml(m.status || '-') + '</td>' +
+        '<td style="padding:4px;color:#e2e8f0">' + escHtml((m.text || '').substring(0, 80)) + '</td></tr>';
     });
     html += '</table>';
-    if (data.total) html += '<div style="color:#64748b;margin-top:8px">Total: ' + data.total + ' messages</div>';
+    if (data.total) html += '<div style="color:#64748b;margin-top:8px">Total: ' + escHtml(data.total) + ' messages</div>';
     el.innerHTML = html;
-  } catch (e) { el.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>'; }
+  } catch (e) { el.innerHTML = '<span style="color:#ef4444">Error loading logs.</span>'; }
 }
 
 window.createWalkFromList = async function() {
@@ -12101,10 +12100,10 @@ async function createUser() {
   const role = document.getElementById('newUserRole').value;
   const phone = document.getElementById('newUserPhone').value.trim();
   const password = document.getElementById('newUserPassword').value;
-  const confirm = document.getElementById('newUserPasswordConfirm').value;
+  const passwordConfirm = document.getElementById('newUserPasswordConfirm').value;
   if (!username || !password) return alert('Username and password are required.');
   if (password.length < 6) return alert('Password must be at least 6 characters.');
-  if (password !== confirm) return alert('Passwords do not match.');
+  if (password !== passwordConfirm) return alert('Passwords do not match.');
   try {
     const res = await fetch('/api/users', {
       method: 'POST',
@@ -12114,8 +12113,8 @@ async function createUser() {
     const data = await res.json();
     if (!res.ok) return alert(data.error || 'Failed to create user');
     // Ask if they want to share login credentials via text
-    if (phone && confirm('User created! Send login credentials via text to ' + phone + '?')) {
-      shareUserLoginDirect(displayName || username, username, password, phone);
+    if (phone && window.confirm('User created! Send login link via text to ' + phone + '?')) {
+      shareUserLoginLink(displayName || username, username, phone);
     }
     hideAddUserForm();
     document.getElementById('newUserUsername').value = '';
@@ -12172,10 +12171,10 @@ function shareUserLogin(dataset) {
   }
 }
 
-// Share login with password (called right after user creation)
-async function shareUserLoginDirect(name, username, password, phone) {
+// Share login link (called right after user creation — never sends password via SMS)
+async function shareUserLoginLink(name, username, phone) {
   var loginUrl = window.location.origin + '/login';
-  var msg = 'Hi ' + name + '! Your campaign dashboard login:\n\nUsername: ' + username + '\nPassword: ' + password + '\nLogin: ' + loginUrl;
+  var msg = 'Hi ' + name + '! Your campaign dashboard is ready.\n\nUsername: ' + username + '\nLogin: ' + loginUrl + '\n\nContact your admin for your password.';
   if (state.credentials && state.credentials.connected) {
     try {
       await apiPost('/reply', { to: phone, body: msg });
