@@ -243,7 +243,7 @@ async function geocodeAddressNominatim(address, city, zip) {
     if (GEOCODE_STATE) params.state = GEOCODE_STATE;
     const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
     const res = await fetch(url, { headers });
-    if (res.status === 429) { console.log('Nominatim rate limited, skipping'); return null; }
+    if (res.status === 429) { console.log('Nominatim rate limited, waiting 30s before continuing'); await new Promise(r => setTimeout(r, 30000)); return null; }
     if (!res.ok) return null;
     const data = await res.json();
     if (data && data.length > 0) {
@@ -314,7 +314,17 @@ function geocodeWalkAddresses(walkId, sourcePrecincts) {
       // No Google key — fall back to Census Bureau BATCH geocoder
       try {
         console.log('No GOOGLE_GEOCODE_KEY set — using Census Bureau batch geocode for', uniqueAddresses.length, 'addresses...');
-        const batchResults = await censusBatchGeocode(uniqueAddresses);
+        // Census batch geocoder has a limit of ~10,000 addresses; chunk into batches of 5000
+        let batchResults = {};
+        const CENSUS_BATCH_SIZE = 5000;
+        for (let bStart = 0; bStart < uniqueAddresses.length; bStart += CENSUS_BATCH_SIZE) {
+          const chunk = uniqueAddresses.slice(bStart, bStart + CENSUS_BATCH_SIZE);
+          const chunkResults = await censusBatchGeocode(chunk);
+          // Re-key results to global indices
+          for (const [localIdx, coords] of Object.entries(chunkResults)) {
+            batchResults[bStart + parseInt(localIdx)] = coords;
+          }
+        }
         const matched = Object.keys(batchResults).length;
         console.log('Census batch returned', matched, '/', uniqueAddresses.length, 'matches');
 
@@ -820,6 +830,7 @@ const VALID_RESULTS = new Set([
   'support', 'lean_support', 'undecided', 'lean_oppose',
   'oppose', 'not_home', 'refused', 'moved', 'deceased', 'come_back'
 ]);
+const VALID_RESULTS_SET = new Set(['support', 'lean_support', 'undecided', 'lean_oppose', 'oppose', 'not_home', 'refused', 'moved', 'deceased', 'come_back', 'not_visited']);
 
 const MAX_GPS_ACCURACY = 200; // ignore GPS worse than 200m
 
@@ -963,6 +974,12 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
     return res.status(400).json({ error: 'Members array is required.' });
   }
 
+  for (const m of members) {
+    if (m.result && !VALID_RESULTS_SET.has(m.result)) {
+      return res.status(400).json({ error: 'Invalid result: ' + m.result });
+    }
+  }
+
   // Verify walker is assigned to this walk (try walker_id first, fall back to walker_name)
   if (walker_id) {
     let member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
@@ -1027,8 +1044,8 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
 
     // Record attempt
     db.prepare(
-      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified);
+      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, req.body.survey_responses ? JSON.stringify(req.body.survey_responses) : null);
 
     // Update walker performance
     const NON_CONTACT_HH = ['not_home', 'moved', 'refused', 'deceased', 'come_back'];
@@ -1140,6 +1157,7 @@ router.post('/walks/join', (req, res) => {
   })();
 
   if (joinResult.full) return res.status(400).json({ error: 'Group is full (max ' + maxWalkers + ' walkers).' });
+  if (joinResult.duplicate) return res.status(400).json({ error: 'This phone number has already joined this walk.' });
 
   // Auto-split addresses among group members
   splitAddresses(walk.id);
