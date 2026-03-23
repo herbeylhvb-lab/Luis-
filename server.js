@@ -593,7 +593,7 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
       if (aiSentiment !== sentiment && savedMsgId) {
         db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, savedMsgId);
       }
-    }).catch(() => {});
+    }).catch(err => { console.error('AI sentiment error:', err.message); });
     return res.type(replyType).send(provider.buildEmptyReply());
   }
 
@@ -604,7 +604,7 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
     if (aiSentiment !== sentiment && savedMsgId) {
       db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, savedMsgId);
     }
-  }).catch(() => {});
+  }).catch(err => { console.error('AI sentiment error:', err.message); });
   const autoReply = generateAutoReply(msgText);
   if (autoReply) {
     return res.type(replyType).send(provider.buildReply(autoReply));
@@ -1054,7 +1054,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
           if (aiSentiment !== sentiment) {
             try { db.prepare("UPDATE messages SET sentiment = ? WHERE phone = ? AND body = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1").run(aiSentiment, msgPhone, msgBody); } catch(e) {}
           }
-        }).catch(() => {});
+        }).catch(err => { console.error('AI sentiment error:', err.message); });
 
         // Update ALL matching P2P assignments to in_conversation (not just first)
         for (const match of p2pMatches) {

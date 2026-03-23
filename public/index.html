@@ -266,7 +266,7 @@ tr:hover td{background:#1e293b80}
         <p style="color:#94a3b8;margin-bottom:12px;font-size:14px">To receive survey answers and text replies in real-time, configure this webhook URL in your RumbleUp dashboard:</p>
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:12px">
           <code id="webhookUrlDisplay" style="color:#22c55e;font-size:14px;word-break:break-all">https://campaigntext-production.up.railway.app/incoming</code>
-          <button class="btn btn-xs btn-secondary" style="margin-left:8px" onclick="navigator.clipboard.writeText(document.getElementById('webhookUrlDisplay').textContent)">Copy</button>
+          <button class="btn btn-xs btn-secondary" style="margin-left:8px" onclick="var b=this;navigator.clipboard.writeText(document.getElementById('webhookUrlDisplay').textContent).then(function(){b.textContent='Copied!'}).catch(function(){b.textContent='Failed'})">Copy</button>
         </div>
         <p style="color:#64748b;font-size:12px;margin-bottom:8px">In RumbleUp: Settings > Webhooks > Add endpoint > paste the URL above.</p>
         <p style="color:#64748b;font-size:12px">If webhooks aren't set up, use the <strong style="color:#e2e8f0">Sync from RumbleUp</strong> button on the Inbox page to manually pull replies.</p>
@@ -7690,8 +7690,12 @@ window.showQrCode = function() {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
-  overlay.innerHTML = '<div class="modal-box" style="position:relative"><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button><h3>Event QR Check-In</h3><p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Attendees scan this QR code to check in</p><canvas id="qrCanvas"></canvas><p style="font-size:12px;color:#64748b;margin:12px 0;word-break:break-all">' + escHtml(url) + '</p><div style="display:flex;gap:8px;justify-content:center"><button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\'' + url + '\');this.textContent=\'Copied!\'">Copy Link</button><button class="btn btn-primary btn-sm" onclick="printQr()">Print QR</button></div></div>';
+  overlay.innerHTML = '<div class="modal-box" style="position:relative"><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button><h3>Event QR Check-In</h3><p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Attendees scan this QR code to check in</p><canvas id="qrCanvas"></canvas><p style="font-size:12px;color:#64748b;margin:12px 0;word-break:break-all">' + escHtml(url) + '</p><div style="display:flex;gap:8px;justify-content:center"><button class="btn btn-secondary btn-sm" id="qrCopyLinkBtn">Copy Link</button><button class="btn btn-primary btn-sm" onclick="printQr()">Print QR</button></div></div>';
   document.body.appendChild(overlay);
+  document.getElementById('qrCopyLinkBtn').addEventListener('click', function() {
+    var btn = this;
+    navigator.clipboard.writeText(url).then(function() { btn.textContent = 'Copied!'; }).catch(function() { btn.textContent = 'Failed'; });
+  });
   if (typeof QRCode !== 'undefined') {
     QRCode.toCanvas(document.getElementById('qrCanvas'), url, { width: 256, margin: 2, color: { dark: '#000000', light: '#ffffff' } });
   }

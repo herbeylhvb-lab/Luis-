@@ -162,8 +162,8 @@ router.post('/volunteers/login', (req, res) => {
     if (!walker) walker = db.prepare('SELECT id FROM walkers WHERE name = ? AND phone = ?').get(vol.name, vol.phone);
     if (!walker) {
       // Create a walkers entry linked to this volunteer
-      const candidates = db.prepare('SELECT id FROM candidates WHERE is_active = 1 LIMIT 1').all();
-      const candId = candidates.length > 0 ? candidates[0].id : null;
+      const candidate = db.prepare('SELECT id FROM candidates WHERE is_active = 1 LIMIT 1').get();
+      const candId = candidate ? candidate.id : null;
       if (candId) {
         const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(candId, vol.name, vol.phone || '', vol.code);
         walker = { id: wResult.lastInsertRowid };
