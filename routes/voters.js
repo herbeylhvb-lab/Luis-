@@ -13,6 +13,14 @@ function triggerSync(req) {
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 const checkinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many check-in attempts. Please wait.' } });
+const voterCreateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many voter creation requests. Please wait.' } });
+const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many import requests. Please wait.' } });
+
+// Auth middleware for admin-only endpoints
+function requireAuth(req, res, next) {
+  if (req.session && req.session.userId) return next();
+  return res.status(401).json({ error: 'Authentication required.' });
+}
 
 // Search/list voters (with engagement scoring)
 router.get('/voters', (req, res) => {
@@ -134,7 +142,7 @@ router.get('/voters', (req, res) => {
 });
 
 // Add single voter
-router.post('/voters', (req, res) => {
+router.post('/voters', requireAuth, voterCreateLimiter, (req, res) => {
   const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, precinct } = req.body;
   if (!first_name && !last_name) return res.status(400).json({ error: 'At least first name or last name is required.' });
   const qr_token = generateQrToken();
@@ -145,7 +153,7 @@ router.post('/voters', (req, res) => {
 });
 
 // Bulk import voters
-router.post('/voters/import', (req, res) => {
+router.post('/voters/import', requireAuth, importLimiter, (req, res) => {
   try {
     const { voters } = req.body;
     if (!voters || !voters.length) return res.status(400).json({ error: 'No voters provided.' });
@@ -173,7 +181,7 @@ router.post('/voters/import', (req, res) => {
 // --- Import full county voter file (with election history) ---
 // Accepts voter records with election history columns. Upserts by VANID or CountyFileID.
 // Election history fields are stored in election_votes table.
-router.post('/voters/import-voter-file', (req, res) => {
+router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) => {
   try {
     const { voters } = req.body;
     if (!voters || !voters.length) return res.status(400).json({ error: 'No voters provided.' });
@@ -353,7 +361,7 @@ router.post('/voters/import-voter-file', (req, res) => {
 });
 
 // --- Import canvass data (match existing voters, log contacts, optionally create new) ---
-router.post('/voters/import-canvass', (req, res) => {
+router.post('/voters/import-canvass', requireAuth, importLimiter, (req, res) => {
   const { rows, create_new } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
 
@@ -471,7 +479,7 @@ router.post('/voters/import-canvass', (req, res) => {
 });
 
 // --- Enrich voter data from purchased lists ---
-router.post('/voters/enrich', (req, res) => {
+router.post('/voters/enrich', requireAuth, importLimiter, (req, res) => {
   const { rows, enrich_fields } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
 
@@ -1520,7 +1528,7 @@ function updateCustomFields(voterId, voterData, customCols) {
 // --- Universe Builder: Election History Import & Segmentation ---
 
 // Import election participation data (CSV with voter + which elections they voted in)
-router.post('/election-votes/import', (req, res) => {
+router.post('/election-votes/import', requireAuth, importLimiter, (req, res) => {
   const { rows, elections } = req.body;
   // Two modes:
   // A) `elections` array: each row is a voter, elections are column headers mapped to election names
@@ -1616,7 +1624,7 @@ router.post('/election-votes/import', (req, res) => {
 
 // Import turnout list from county (match by State File ID / registration_number / county_file_id / vanid)
 // For primaries: party_voted = 'R' or 'D'. For nonpartisan races: party_voted = '' (shown as blue tag).
-router.post('/election-votes/import-turnout', (req, res) => {
+router.post('/election-votes/import-turnout', requireAuth, importLimiter, (req, res) => {
   const { rows, election_name, election_date, election_type, party_voted } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
   if (!election_name) return res.status(400).json({ error: 'Election name is required.' });
