@@ -2128,11 +2128,12 @@ function showToast(msg, type) {
 
 async function removeVoterFromList(voterId) {
   if (!captainState.selectedListId) return;
-  await api(getListApiBase() + '/voters/' + voterId, {
-    method: 'DELETE'
-  });
-  await loadListVoters();
-  refreshSidebar();
+  if (!confirm('Remove this voter from the list?')) return;
+  try {
+    await api(getListApiBase() + '/voters/' + voterId, { method: 'DELETE' });
+    await loadListVoters();
+    refreshSidebar();
+  } catch (e) { alert('Failed to remove voter: ' + (e.message || 'Error')); }
 }
 
 // ===================== LIST MANAGEMENT =====================
@@ -2687,14 +2688,10 @@ async function addTeamMember() {
     body: JSON.stringify({ name: name.trim() })
   });
   if (data.success) {
-    // Refresh captain data to get updated team members
-    var loginData = await api('/api/captains/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: captainState.captain.code })
-    });
-    if (loginData.captain) {
-      captainState.captain = loginData.captain;
+    // Refresh captain data to get updated team members (without consuming login rate limit)
+    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
+    if (refreshData.captain) {
+      captainState.captain = refreshData.captain;
     }
     refreshSidebar();
 
@@ -2949,14 +2946,10 @@ async function removeTeamMember(memberId, name) {
   if (!confirm('Remove ' + name + ' from your team? Their captain code will be deactivated.')) return;
   var data = await api('/api/captains/' + captainState.captain.id + '/team/' + memberId, { method: 'DELETE' });
   if (data.success) {
-    // Refresh captain data
-    var loginData = await api('/api/captains/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: captainState.captain.code })
-    });
-    if (loginData.captain) {
-      captainState.captain = loginData.captain;
+    // Refresh captain data (without consuming login rate limit)
+    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
+    if (refreshData.captain) {
+      captainState.captain = refreshData.captain;
     }
     captainState.expandedTeamMember = null;
     refreshSidebar();

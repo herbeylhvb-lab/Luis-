@@ -437,6 +437,40 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   res.json({ success: true, captain });
 });
 
+// Refresh captain data without consuming login rate limit
+router.get('/captains/:id/refresh', requireCaptainAuth, (req, res) => {
+  const captain = db.prepare('SELECT * FROM captains WHERE id = ?').get(req.params.id);
+  if (!captain) return res.status(404).json({ error: 'Captain not found.' });
+  captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
+  if (captain.candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
+    if (cand) { captain.race_type = cand.race_type; captain.race_value = cand.race_value; }
+  }
+  captain.sub_captains = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id, name, code, is_active, created_at, parent_captain_id
+      FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id, c.name, c.code, c.is_active, c.created_at, c.parent_captain_id
+      FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
+    SELECT * FROM team_tree ORDER BY name
+  `).all(captain.id);
+  captain.lists = db.prepare(`
+    SELECT cl.*, COUNT(clv.id) as voter_count, ctm.name as team_member_name
+    FROM captain_lists cl
+    LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
+    LEFT JOIN captain_team_members ctm ON cl.team_member_id = ctm.id
+    WHERE cl.captain_id = ? GROUP BY cl.id ORDER BY cl.created_at DESC
+  `).all(captain.id);
+  captain.assigned_lists = db.prepare(`
+    SELECT al.id, al.name, al.description, al.list_type, COUNT(alv.id) as voter_count
+    FROM admin_lists al LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+    WHERE al.assigned_captain_id = ? GROUP BY al.id ORDER BY al.created_at DESC
+  `).all(captain.id);
+  res.json({ success: true, captain });
+});
+
 // Admin bulk-upload voters to a captain's list by identifier
 // Checks if voters are already on ANY of this captain's lists (de-duplicates)
 router.post('/captains/:id/lists/:listId/bulk-upload', (req, res) => {
@@ -552,12 +586,17 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
   }
 
-  // Restrict to captain's own voters (from their lists and sub-captain lists)
+  // Restrict to captain's own voters (from their lists and full descendant tree)
   if (restrictToLists) {
     conditions.push(`id IN (
       SELECT voter_id FROM captain_list_voters WHERE list_id IN (
         SELECT id FROM captain_lists WHERE captain_id = ? OR captain_id IN (
-          SELECT id FROM captains WHERE parent_captain_id = ?
+          WITH RECURSIVE team_tree AS (
+            SELECT id FROM captains WHERE parent_captain_id = ?
+            UNION ALL
+            SELECT c.id FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+          )
+          SELECT id FROM team_tree
         )
       )
     )`);
@@ -790,30 +829,13 @@ router.post('/captains/:id/lists/:listId/import-csv', requireCaptainAuth, (req, 
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
 
-  // Pre-build lookup maps
-  const allVoters = db.prepare(
-    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters"
-  ).all();
-
-  // Phone map: digits -> array of voters (array to detect ambiguity)
-  const phoneMap = {};
-  for (const v of allVoters) {
-    const d = phoneDigits(v.phone);
-    if (d.length >= 7) {
-      if (!phoneMap[d]) phoneMap[d] = [];
-      phoneMap[d].push(v);
-    }
-  }
-
-  // Registration number map: trimmed string -> voter
-  const regMap = {};
-  for (const v of allVoters) {
-    if (v.registration_number && v.registration_number.trim()) {
-      regMap[v.registration_number.trim()] = v;
-    }
-  }
-
-  // Name + address query (LIMIT 3 to detect ambiguity)
+  // Per-row indexed lookups (no bulk load into memory)
+  const findByPhone = db.prepare(
+    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE phone = ? LIMIT 3"
+  );
+  const findByReg = db.prepare(
+    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE registration_number = ? LIMIT 1"
+  );
   const findByNameAddr = db.prepare(
     "SELECT id, first_name, last_name, phone, address, city, zip, party FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 3"
   );
@@ -827,16 +849,16 @@ router.post('/captains/:id/lists/:listId/import-csv', requireCaptainAuth, (req, 
       let candidates = [];
       let matchMethod = '';
 
-      // Tier 1: Phone match
+      // Tier 1: Phone match (indexed lookup)
       const digits = phoneDigits(row.phone);
-      if (digits.length >= 7 && phoneMap[digits]) {
-        candidates = phoneMap[digits];
-        matchMethod = 'phone';
+      if (digits.length >= 7) {
+        candidates = findByPhone.all(digits);
+        if (candidates.length > 0) matchMethod = 'phone';
       }
 
-      // Tier 2: Registration number match
+      // Tier 2: Registration number match (indexed lookup)
       if (candidates.length === 0 && row.registration_number && row.registration_number.trim()) {
-        const found = regMap[row.registration_number.trim()];
+        const found = findByReg.get(row.registration_number.trim());
         if (found) {
           candidates = [found];
           matchMethod = 'registration';
