@@ -3803,7 +3803,7 @@ async function loadDashboard() {
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
   loadSentimentStats();
-  initPaFilters();
+  await initPaFilters();
   loadPrecinctAnalytics();
   // Early voting dashboard stat
   try {
@@ -3832,6 +3832,7 @@ async function loadPrecinctAnalytics() {
     if (raceKey && _racePrecinctMap[raceKey]) {
       var allowed = _racePrecinctMap[raceKey];
       precincts = precincts.filter(function(p) { return allowed.indexOf(p.precinct) !== -1; });
+      precincts.sort(function(a, b) { return b.total_voters - a.total_voters; });
       var totalV = precincts.reduce(function(s,p){ return s + p.total_voters; }, 0);
       subtitle.textContent = raceKey + ' — ' + precincts.length + ' precincts, ' + totalV.toLocaleString() + ' voters';
     } else {
@@ -3881,35 +3882,39 @@ async function initPaFilters() {
     var races = data.races || [];
     _racePrecinctMap = {};
     var raceSel = document.getElementById('paRaceSelect');
-    raceSel.textContent = '';
-    var defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = 'All Precincts';
-    raceSel.appendChild(defaultOpt);
-    races.forEach(function(r) {
-      _racePrecinctMap[r.race] = r.precincts;
-      var opt = document.createElement('option');
-      opt.value = r.race;
-      opt.textContent = r.race + ' (' + r.precincts.length + ' precincts)';
-      raceSel.appendChild(opt);
-    });
-  } catch (e) {}
+    if (raceSel) {
+      raceSel.replaceChildren();
+      var defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = 'All Precincts';
+      raceSel.appendChild(defaultOpt);
+      races.forEach(function(r) {
+        _racePrecinctMap[r.race] = r.precincts;
+        var opt = document.createElement('option');
+        opt.value = r.race;
+        opt.textContent = r.race + ' (' + r.precincts.length + ' precincts)';
+        raceSel.appendChild(opt);
+      });
+    }
+  } catch (e) { console.error('initPaFilters race error:', e); }
   try {
     var listsData = await api('/api/admin-lists');
     var universes = (listsData.lists || []).filter(function(l) { return l.list_type === 'universe'; });
     var univSel = document.getElementById('paUniverseSelect');
-    univSel.textContent = '';
-    var defaultOpt2 = document.createElement('option');
-    defaultOpt2.value = '';
-    defaultOpt2.textContent = 'All Voters';
-    univSel.appendChild(defaultOpt2);
-    universes.forEach(function(u) {
-      var opt = document.createElement('option');
-      opt.value = u.id;
-      opt.textContent = u.name + ' (' + u.voterCount + ' voters)';
-      univSel.appendChild(opt);
-    });
-  } catch (e) {}
+    if (univSel) {
+      univSel.replaceChildren();
+      var defaultOpt2 = document.createElement('option');
+      defaultOpt2.value = '';
+      defaultOpt2.textContent = 'All Voters';
+      univSel.appendChild(defaultOpt2);
+      universes.forEach(function(u) {
+        var opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.name + ' (' + u.voterCount + ' voters)';
+        univSel.appendChild(opt);
+      });
+    }
+  } catch (e) { console.error('initPaFilters universe error:', e); }
 }
 
 window.applyPaRace = function() {

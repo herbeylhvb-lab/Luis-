@@ -24,15 +24,15 @@ app.use(compression());
 const ALLOWED_ORIGINS = [
   process.env.APP_URL,
 ].filter(Boolean);
-if (ALLOWED_ORIGINS.length === 0) console.warn('[WARN] APP_URL env var not set — CORS will allow all origins. Set APP_URL in production.');
+if (ALLOWED_ORIGINS.length === 0) console.warn('[WARN] APP_URL env var not set — CORS will only allow same-origin requests. Set APP_URL in production.');
 
 app.use(cors({
   credentials: true,
   origin: function(origin, callback) {
     // Allow same-origin requests (no origin header)
     if (!origin) return callback(null, true);
-    // If APP_URL is configured, enforce it; otherwise allow all origins
-    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Only allow configured origins
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(null, false);
   }
 }));
@@ -198,8 +198,8 @@ app.use((req, res, next) => {
   if (req.path === '/' || req.path.startsWith('/site')) return next();
   // Allow /app (handles its own auth redirect)
   if (req.path === '/app') return next();
-  // Allow debug sync status (read-only diagnostic)
-  if (req.path === '/api/debug/sync-status') return next();
+  // Debug sync status requires auth (exposes provider info)
+  // if (req.path === '/api/debug/sync-status') return next();
   // Everything else requires auth
   requireAuth(req, res, next);
 });

@@ -798,8 +798,12 @@ router.get('/voters/columns', (req, res) => {
 });
 
 // --- Filter options for universe builder (dynamic distinct values) ---
+const ALLOWED_FILTER_COLS = new Set(['gender','city_district','school_district','college_district','navigation_port','port_authority','state_rep','state_senate','us_congress','voter_status','precinct','city']);
 router.get('/voters/filter-options', (req, res) => {
-  const opt = (col) => db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
+  const opt = (col) => {
+    if (!ALLOWED_FILTER_COLS.has(col)) return [];
+    return db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
+  };
   res.json({
     genders: opt('gender'),
     cities: opt('city_district'),
@@ -816,8 +820,10 @@ router.get('/voters/filter-options', (req, res) => {
 });
 
 // Race-to-precinct mapping: which precincts fall under each district/race
+const ALLOWED_RACE_COLS = new Set(['city_district','school_district','college_district','navigation_port','port_authority','state_rep','state_senate','us_congress']);
 router.get('/voters/race-precincts', (req, res) => {
   const mapCol = (col, label) => {
+    if (!ALLOWED_RACE_COLS.has(col)) return [];
     const rows = db.prepare(`SELECT ${col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
       FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
       GROUP BY ${col} ORDER BY ${col}`).all();
@@ -1318,13 +1324,14 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
-  const listId = req.query.list_id ? parseInt(req.query.list_id) : null;
-  const voterFilter = listId
-    ? `AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ${listId})`
-    : '';
-  const voterFilterShort = listId
-    ? `AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ${listId})`
-    : '';
+  const listId = req.query.list_id ? parseInt(req.query.list_id, 10) : null;
+  if (req.query.list_id && (isNaN(listId) || listId <= 0)) {
+    return res.status(400).json({ error: 'Invalid list_id parameter.' });
+  }
+
+  const listFilter = listId ? 'AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)' : '';
+  const listFilterJoin = listId ? 'AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)' : '';
+  const params = listId ? [listId] : [];
 
   // Get all precincts with voter counts and party breakdown
   const precinctRows = db.prepare(`
@@ -1335,32 +1342,32 @@ router.get('/analytics/precincts', (req, res) => {
       SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other,
       SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
-    FROM voters WHERE precinct != '' ${voterFilterShort}
-    GROUP BY precinct ORDER BY precinct
-  `).all();
+    FROM voters WHERE precinct != '' ${listFilter}
+    GROUP BY precinct ORDER BY total_voters DESC
+  `).all(...params);
 
   // Compute touchpoints per precinct using JOINs (scalable to 300K+)
   const contactsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vc.id) as c FROM voter_contacts vc
-    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != '' ${voterFilter}
+    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != '' ${listFilterJoin}
     GROUP BY v.precinct
-  `).all();
+  `).all(...params);
   const contactMap = {};
   for (const r of contactsByPct) contactMap[r.precinct] = r.c;
 
   const checkinsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vck.id) as c FROM voter_checkins vck
-    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != '' ${voterFilter}
+    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != '' ${listFilterJoin}
     GROUP BY v.precinct
-  `).all();
+  `).all(...params);
   const checkinMap = {};
   for (const r of checkinsByPct) checkinMap[r.precinct] = r.c;
 
   const captainByPct = db.prepare(`
     SELECT v.precinct, COUNT(clv.id) as c FROM captain_list_voters clv
-    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != '' ${voterFilter}
+    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != '' ${listFilterJoin}
     GROUP BY v.precinct
-  `).all();
+  `).all(...params);
   const captainMap = {};
   for (const r of captainByPct) captainMap[r.precinct] = r.c;
 
