@@ -442,6 +442,29 @@ function buildVotingHistorySQL(filters, params) {
     sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted = ?)';
     params.push(filters.party_voted);
   }
+  // VAN-style party score filter (D/DD/DDD, R/RR/RRR, SWING, NONE)
+  if (filters.party_score) {
+    const ps = filters.party_score;
+    if (ps === 'NONE') {
+      sql += " AND (voters.party_score = '' OR voters.party_score IS NULL)";
+    } else if (ps === 'SWING') {
+      sql += " AND voters.party_score = 'SWING'";
+    } else if (ps === 'DD') {
+      // DD+ means DD or DDD
+      sql += " AND voters.party_score IN ('DD','DDD')";
+    } else if (ps === 'D') {
+      // D+ means any Dem primary voter
+      sql += " AND voters.party_score IN ('D','DD','DDD')";
+    } else if (ps === 'RR') {
+      sql += " AND voters.party_score IN ('RR','RRR')";
+    } else if (ps === 'R') {
+      sql += " AND voters.party_score IN ('R','RR','RRR')";
+    } else {
+      // Exact match (DDD, RRR)
+      sql += ' AND voters.party_score = ?';
+      params.push(ps);
+    }
+  }
   // "voter score range" — if you've scored voters 0-100
   if (filters.min_voter_score != null && parseInt(filters.min_voter_score) > 0) {
     sql += ' AND voters.voter_score >= ?';
@@ -1263,7 +1286,7 @@ router.post('/walks/from-precinct', (req, res) => {
   const params = [...precincts];
 
   if (filters) {
-    if (filters.party) { filters.party_voted = filters.party; } // route party filter through election history
+    if (filters.party && !filters.party_score) { filters.party_voted = filters.party; } // legacy party filter fallback
     if (filters.support_level) { sql += ' AND support_level = ?'; params.push(filters.support_level); }
     if (filters.exclude_contacted) {
       sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
@@ -1960,7 +1983,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   sql += " AND v.id NOT IN (SELECT wa.voter_id FROM walk_addresses wa WHERE wa.universe_id = ? AND wa.voter_id IS NOT NULL)";
   params.push(universe.id);
 
-  if (filters.party) { filters.party_voted = filters.party; } // route party filter through election history
+  if (filters.party && !filters.party_score) { filters.party_voted = filters.party; } // legacy party filter fallback
   if (filters.support_level) { sql += ' AND v.support_level = ?'; params.push(filters.support_level); }
   if (filters.exclude_contacted) {
     sql += ' AND v.id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
@@ -2061,7 +2084,7 @@ router.post('/walks/:id/refresh', (req, res) => {
   let sql = "SELECT id, first_name, last_name, address, city, zip FROM voters WHERE precinct IN (" + precincts.map(() => '?').join(',') + ") AND address != ''";
   const params = [...precincts];
 
-  if (filters.party) { filters.party_voted = filters.party; } // route party filter through election history
+  if (filters.party && !filters.party_score) { filters.party_voted = filters.party; } // legacy party filter fallback
   if (filters.support_level) { sql += ' AND support_level = ?'; params.push(filters.support_level); }
   if (filters.exclude_contacted) {
     sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
