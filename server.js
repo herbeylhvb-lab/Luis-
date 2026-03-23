@@ -24,15 +24,15 @@ app.use(compression());
 const ALLOWED_ORIGINS = [
   process.env.APP_URL,
 ].filter(Boolean);
-if (ALLOWED_ORIGINS.length === 0) console.warn('[WARN] APP_URL env var not set — CORS will only allow same-origin requests. Set APP_URL in production.');
+if (ALLOWED_ORIGINS.length === 0) console.warn('[WARN] APP_URL env var not set — CORS will allow all origins. Set APP_URL in production.');
 
 app.use(cors({
   credentials: true,
   origin: function(origin, callback) {
     // Allow same-origin requests (no origin header)
     if (!origin) return callback(null, true);
-    // Only allow configured origins
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // If APP_URL is configured, enforce it; otherwise allow all origins (dev mode)
+    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     callback(null, false);
   }
 }));
@@ -186,6 +186,13 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//)) {
     return next();
   }
+  // Allow volunteer portal endpoints (code-based auth, no admin session required)
+  if (req.path === '/api/volunteers/login' ||
+      req.path === '/api/volunteers/register' ||
+      req.path === '/api/volunteers/create-walk' ||
+      req.path.match(/^\/api\/volunteers\/\d+\/dashboard/)) {
+    return next();
+  }
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check
@@ -231,6 +238,7 @@ app.use('/api', require('./routes/groups'));
 app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
 app.use('/api', require('./routes/rumbleup'));
+app.use('/api', require('./routes/volunteers'));
 
 // --- TCPA: Bulk SMS endpoint removed ---
 app.post('/send', (req, res) => {
