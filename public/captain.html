@@ -1339,7 +1339,7 @@ function downloadListCsv() {
   if (voters.length === 0) { alert('No voters to download.'); return; }
 
   var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
-  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
+  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
   var csvRows = [headers.join(',')];
   voters.forEach(function(v) {
     var votedStatus = 'Not Voted';
@@ -1358,7 +1358,7 @@ function downloadListCsv() {
       csvEscape(v.zip || ''),
       csvEscape(v.phone || ''),
       csvEscape(v.email || ''),
-      csvEscape(v.party || ''),
+      csvEscape(v.party_score || v.party || ''),
       csvEscape(v.precinct || ''),
       votedStatus,
       csvEscape(v.early_voted_ballot || ''),
@@ -1524,11 +1524,13 @@ async function searchVoters() {
     // Meta badges
     var meta = document.createElement('div');
     meta.className = 'voter-meta';
-    if (v.party) {
+    if (v.party_score) {
       var partyBadge = document.createElement('span');
-      var partyColors = { D: 'badge-blue', R: 'badge-red', Democrat: 'badge-blue', Republican: 'badge-red', DEM: 'badge-blue', REP: 'badge-red' };
-      partyBadge.className = 'badge ' + (partyColors[v.party] || 'badge-gray');
-      partyBadge.textContent = v.party;
+      var partyColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+      partyBadge.className = 'badge ' + (partyColors[v.party_score] || 'badge-gray');
+      partyBadge.style.fontWeight = '700';
+      partyBadge.style.letterSpacing = '1px';
+      partyBadge.textContent = v.party_score;
       meta.appendChild(partyBadge);
     }
     if (v.support_level && v.support_level !== 'unknown') {
@@ -1610,7 +1612,7 @@ async function loadHousehold(voterId, containerEl) {
     var memberNameSpan = document.createElement('span');
     memberNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     var memberText = (h.first_name || '') + ' ' + (h.last_name || '');
-    if (h.party) memberText += ' \u2022 ' + h.party;
+    if (h.party_score) memberText += ' \u2022 ' + h.party_score;
     memberNameSpan.textContent = memberText;
     info.appendChild(memberNameSpan);
     var hhEvBadge = document.createElement('span');
@@ -1677,7 +1679,7 @@ async function showVoterDetail(voter) {
     ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.state ? ', ' + voter.state : '') + (voter.zip ? ' ' + voter.zip : '')],
     ['Phone', voter.phone || 'N/A'],
     ['Email', voter.email || 'N/A'],
-    ['Party', voter.party || 'N/A'],
+    ['Party ID', voter.party_score || 'No primary history'],
     ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
     ['Precinct', voter.precinct || 'N/A'],
     ['Reg #', voter.registration_number || 'N/A'],
@@ -1771,7 +1773,7 @@ async function showVoterDetail(voter) {
       info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
       var hhNameSpan = document.createElement('span');
       var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
-      if (h.party) nameText += ' \u2022 ' + h.party;
+      if (h.party_score) nameText += ' \u2022 ' + h.party_score;
       if (h.phone) nameText += ' \u2022 ' + h.phone;
       hhNameSpan.textContent = nameText;
       info.appendChild(hhNameSpan);
@@ -1860,12 +1862,12 @@ function showAddVoterModal(voter) {
   addrEl.style.cssText = 'color:#94a3b8;font-size:13px';
   addrEl.textContent = (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.zip ? ' ' + voter.zip : '');
   voterInfo.appendChild(addrEl);
-  if (voter.party) {
+  if (voter.party_score) {
     var partyEl = document.createElement('span');
-    var pc = { DEM:'badge-blue', REP:'badge-red', D:'badge-blue', R:'badge-red' };
-    partyEl.className = 'badge ' + (pc[voter.party] || 'badge-gray');
-    partyEl.style.marginTop = '6px';
-    partyEl.textContent = voter.party;
+    var pc = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+    partyEl.className = 'badge ' + (pc[voter.party_score] || 'badge-gray');
+    partyEl.style.cssText = 'margin-top:6px;font-weight:700;letter-spacing:1px';
+    partyEl.textContent = voter.party_score;
     voterInfo.appendChild(partyEl);
   }
   box.appendChild(voterInfo);
@@ -1972,7 +1974,7 @@ async function loadHouseholdForModal(voterId, containerEl) {
     var detailSpan = document.createElement('div');
     detailSpan.style.cssText = 'color:#64748b;font-size:12px';
     var details = [];
-    if (h.party) details.push(h.party);
+    if (h.party_score) details.push(h.party_score);
     if (h.phone) details.push(h.phone);
     detailSpan.textContent = details.join(' \u2022 ');
     info.appendChild(detailSpan);
@@ -2505,7 +2507,7 @@ function buildResultsStep(data) {
         info.textContent = c.first_name + ' ' + c.last_name +
           (c.phone ? ' \u2022 ' + c.phone : '') +
           (c.address ? ' \u2022 ' + c.address : '') +
-          (c.party ? ' (' + c.party + ')' : '');
+          (c.party_score ? ' (' + c.party_score + ')' : '');
         label.appendChild(info);
         card.appendChild(label);
       });
