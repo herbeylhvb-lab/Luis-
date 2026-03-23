@@ -382,10 +382,14 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   req.session.captainId = captain.id;
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
-  // Include candidate race info for race filter
+  // Include candidate race info for race filter (direct or shared)
   if (captain.candidate_id) {
     const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
     if (cand) { captain.race_type = cand.race_type; captain.race_value = cand.race_value; }
+  }
+  if (!captain.race_type) {
+    const sharedCand = db.prepare("SELECT c.race_type, c.race_value FROM captain_candidates cc JOIN candidates c ON cc.candidate_id = c.id WHERE cc.captain_id = ? AND c.race_type IS NOT NULL AND c.race_type != '' LIMIT 1").get(captain.id);
+    if (sharedCand) { captain.race_type = sharedCand.race_type; captain.race_value = sharedCand.race_value; }
   }
   // Sub-captains — full descendant tree (recursive CTE) with parent_captain_id for hierarchy rendering
   captain.sub_captains = db.prepare(`
@@ -445,6 +449,10 @@ router.get('/captains/:id/refresh', requireCaptainAuth, (req, res) => {
   if (captain.candidate_id) {
     const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
     if (cand) { captain.race_type = cand.race_type; captain.race_value = cand.race_value; }
+  }
+  if (!captain.race_type) {
+    const sharedCand = db.prepare("SELECT c.race_type, c.race_value FROM captain_candidates cc JOIN candidates c ON cc.candidate_id = c.id WHERE cc.captain_id = ? AND c.race_type IS NOT NULL AND c.race_type != '' LIMIT 1").get(captain.id);
+    if (sharedCand) { captain.race_type = sharedCand.race_type; captain.race_value = sharedCand.race_value; }
   }
   captain.sub_captains = db.prepare(`
     WITH RECURSIVE team_tree AS (
@@ -538,8 +546,8 @@ function requireCaptainAuth(req, res, next) {
 
 // Search voters (captain portal) — name search + dedicated filters for phone, vanid, etc.
 router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
-  const { q, phone, vanid, city, zip, precinct, address, scope } = req.query;
-  const hasFilter = phone || vanid || city || zip || precinct || address;
+  const { q, phone, vanid, city, zip, precinct, address, scope, race } = req.query;
+  const hasFilter = phone || vanid || city || zip || precinct || address || race;
   if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
   // Captains can search the full voter database to build their lists
@@ -584,6 +592,15 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
   if (address) {
     const addrEsc = address.replace(/[\\%_]/g, '\\$&');
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
+  }
+  // Race/district filter: "race_type:race_value" format (e.g. "state_rep:42")
+  if (race && race.includes(':')) {
+    const [raceType, raceValue] = race.split(':', 2);
+    const VALID_RACE_COLS = new Set(['navigation_port','port_authority','city_district','county_commissioner','justice_of_peace','state_board_ed','state_rep','state_senate','us_congress','school_district','college_district','hospital_district']);
+    if (VALID_RACE_COLS.has(raceType) && raceValue) {
+      conditions.push(raceType + ' = ?');
+      params.push(raceValue);
+    }
   }
 
   // Restrict to captain's own voters (from their lists and full descendant tree)
@@ -728,12 +745,17 @@ router.get('/captains/:id/lists', requireCaptainAuth, (req, res) => {
     SELECT * FROM team_tree ORDER BY name
   `).all(req.params.id);
 
-  // Include candidate race info for race filter
+  // Include candidate race info for race filter (check direct candidate_id AND shared captain_candidates)
   const captain = db.prepare('SELECT candidate_id FROM captains WHERE id = ?').get(req.params.id);
   let race_type = '', race_value = '';
   if (captain && captain.candidate_id) {
     const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
     if (cand) { race_type = cand.race_type || ''; race_value = cand.race_value || ''; }
+  }
+  if (!race_type) {
+    // Shared captain: look up via captain_candidates
+    const sharedCand = db.prepare('SELECT c.race_type, c.race_value FROM captain_candidates cc JOIN candidates c ON cc.candidate_id = c.id WHERE cc.captain_id = ? AND c.race_type IS NOT NULL AND c.race_type != \'\' LIMIT 1').get(req.params.id);
+    if (sharedCand) { race_type = sharedCand.race_type || ''; race_value = sharedCand.race_value || ''; }
   }
   res.json({ lists, sub_captain_lists: subCaptainLists, assigned_lists: assignedLists, team_members: teamMembers, sub_captains: subCaptains, race_type, race_value });
 });
