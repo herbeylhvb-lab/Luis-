@@ -140,7 +140,6 @@ router.delete('/candidates/:id', requireAuth, (req, res) => {
   const deactivate = db.transaction(() => {
     db.prepare('UPDATE candidates SET is_active = 0 WHERE id = ?').run(req.params.id);
     db.prepare('UPDATE captains SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
-    db.prepare('UPDATE walkers SET is_active = 0 WHERE candidate_id = ?').run(req.params.id);
     db.prepare('DELETE FROM captain_candidates WHERE candidate_id = ?').run(req.params.id);
     db.prepare('UPDATE admin_lists SET candidate_id = NULL WHERE candidate_id = ?').run(req.params.id);
     db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Candidate deactivated: ' + candidate.name);
