@@ -456,6 +456,8 @@ addColumn("ALTER TABLE voters ADD COLUMN hospital_district TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN navigation_port TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN port_authority TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN party_score TEXT DEFAULT ''");
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_party_score ON voters(party_score)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_gender ON voters(gender)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_rep ON voters(state_rep)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_us_congress ON voters(us_congress)"); } catch (e) { /* exists */ }
@@ -1001,5 +1003,42 @@ try {
   }
 } catch (e) { /* cleanup is best-effort */ }
 
+// --- Compute VAN-style party scores (D/DD/DDD, R/RR/RRR) from election history ---
+function computePartyScores() {
+  const rows = db.prepare(`
+    SELECT voter_id,
+      SUM(CASE WHEN party_voted IN ('D','DEM','Democrat') THEN 1 ELSE 0 END) as d_count,
+      SUM(CASE WHEN party_voted IN ('R','REP','Republican') THEN 1 ELSE 0 END) as r_count
+    FROM election_votes
+    WHERE party_voted IS NOT NULL AND party_voted != ''
+    GROUP BY voter_id
+  `).all();
+
+  const update = db.prepare('UPDATE voters SET party_score = ? WHERE id = ?');
+  const batch = db.transaction(() => {
+    // Clear all first so voters with no history get blank
+    db.prepare("UPDATE voters SET party_score = '' WHERE party_score != ''").run();
+    for (const r of rows) {
+      let score = '';
+      if (r.d_count > 0 && r.d_count >= r.r_count) {
+        score = r.d_count >= 3 ? 'DDD' : r.d_count === 2 ? 'DD' : 'D';
+      } else if (r.r_count > 0 && r.r_count > r.d_count) {
+        score = r.r_count >= 3 ? 'RRR' : r.r_count === 2 ? 'RR' : 'R';
+      }
+      // Mixed: if equal D and R primaries, mark as swing
+      if (r.d_count > 0 && r.r_count > 0 && r.d_count === r.r_count) {
+        score = 'SWING';
+      }
+      if (score) update.run(score, r.voter_id);
+    }
+  });
+  batch();
+  console.log('[party-score] Computed party scores for ' + rows.length + ' voters with primary history');
+}
+
+// Compute on startup
+try { computePartyScores(); } catch (e) { console.error('[party-score] Error:', e.message); }
+
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;
+module.exports.computePartyScores = computePartyScores;

@@ -851,7 +851,7 @@ tr:hover td{background:#1e293b80}
           </div>
           <h4 style="font-size:13px;color:#f59e0b;margin:12px 0 8px;text-transform:uppercase;letter-spacing:0.5px">&#127919; Step 2: Voter Filters <span style="font-weight:400;text-transform:none;font-size:11px;color:#64748b">(set filters first, then see which precincts have the most matching voters)</span></h4>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <div class="form-group"><label>Party</label><select id="walkPrecinctParty"><option value="">All Parties</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
+            <div class="form-group"><label>Party ID (VAN-style)</label><select id="walkPrecinctPartyScore"><option value="">All</option><option value="DDD">DDD (Strong Dem)</option><option value="DD">DD+ (Mod-Strong Dem)</option><option value="D">D+ (Any Dem)</option><option value="RRR">RRR (Strong GOP)</option><option value="RR">RR+ (Mod-Strong GOP)</option><option value="R">R+ (Any GOP)</option><option value="SWING">Swing (Equal D/R)</option><option value="NONE">No Primary History</option></select></div>
             <div class="form-group"><label>Support Level</label><select id="walkPrecinctSupport"><option value="">All Levels</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option><option value="unknown">Unknown</option></select></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -1003,7 +1003,7 @@ tr:hover td{background:#1e293b80}
             <div id="univPrecinctList" style="max-height:150px;overflow-y:auto;border:1px solid #334155;border-radius:8px;padding:8px;margin-top:4px"><span style="color:#64748b;font-size:13px">Loading precincts...</span></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <div class="form-group"><label>Party Filter</label><select id="newUnivParty"><option value="">All</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option></select></div>
+            <div class="form-group"><label>Party ID (VAN-style)</label><select id="newUnivPartyScore"><option value="">All</option><option value="DDD">DDD (Strong Dem)</option><option value="DD">DD+ (Mod-Strong Dem)</option><option value="D">D+ (Any Dem)</option><option value="RRR">RRR (Strong GOP)</option><option value="RR">RR+ (Mod-Strong GOP)</option><option value="R">R+ (Any GOP)</option><option value="SWING">Swing (Equal D/R)</option><option value="NONE">No Primary History</option></select></div>
             <div class="form-group"><label>Attach Script</label><select id="newUnivScript"><option value="">No Script</option></select></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
@@ -1422,7 +1422,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-xs" id="btnBulkMarkVoted" style="display:none;background:#2563eb;color:#fff" onclick="showBulkMarkVotedModal()">Mark as Voted (<span class="sel-count">0</span>)</button>
             <button class="btn btn-xs" id="btnBulkUnmarkVoted" style="display:none;background:#92400e;color:#fff" onclick="showBulkUnmarkVotedModal()">Unmark Voted (<span class="sel-count">0</span>)</button>
           </div>
-          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:50px">Party</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
+          <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:55px">Party ID</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
         </div>
       </div>
       <!-- VOTER DETAIL VIEW -->
@@ -1444,7 +1444,7 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-row" style="margin-bottom:12px">
             <div class="form-group"><label>ZIP</label><input type="text" id="vdZip"></div>
-            <div class="form-group"><label>Party</label><select id="vdParty"><option value="">--</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select></div>
+            <div class="form-group"><label>Party</label><select id="vdParty" style="display:none"><option value="">--</option><option value="D">Democrat</option><option value="R">Republican</option><option value="I">Independent</option><option value="NP">No Party</option></select><div id="vdPartyScore" style="padding:8px 0;font-size:14px">--</div></div>
           </div>
           <div class="form-row" style="margin-bottom:12px">
             <div class="form-group"><label>Support Level</label><select id="vdSupport"><option value="unknown">Unknown</option><option value="strong_support">Strong Support</option><option value="lean_support">Lean Support</option><option value="undecided">Undecided</option><option value="lean_oppose">Lean Oppose</option><option value="strong_oppose">Strong Oppose</option></select></div>
@@ -2373,6 +2373,16 @@ function partyBadge(p) {
   const colors = { D: 'badge-blue', R: 'badge-red', I: 'badge-purple', NP: 'badge-gray' };
   const names = { D: 'Dem', R: 'Rep', I: 'Ind', NP: 'NP' };
   return p ? '<span class="badge ' + (colors[p]||'badge-gray') + '">' + (names[p]||escHtml(p)) + '</span>' : '';
+}
+function partyScoreBadge(score) {
+  if (!score) return '<span class="badge badge-gray">--</span>';
+  var colors = { D: 'badge-blue', DD: 'badge-blue', DDD: 'badge-blue', R: 'badge-red', RR: 'badge-red', RRR: 'badge-red', SWING: 'badge-purple' };
+  var opacity = { D: '0.5', DD: '0.75', DDD: '1', R: '0.5', RR: '0.75', RRR: '1', SWING: '0.8' };
+  return '<span class="badge ' + (colors[score]||'badge-gray') + '" style="opacity:' + (opacity[score]||'1') + ';font-weight:700;letter-spacing:1px" title="' + partyScoreTitle(score) + '">' + escHtml(score) + '</span>';
+}
+function partyScoreTitle(score) {
+  var titles = { D: '1 Dem primary', DD: '2 Dem primaries', DDD: '3+ Dem primaries', R: '1 GOP primary', RR: '2 GOP primaries', RRR: '3+ GOP primaries', SWING: 'Equal Dem & GOP primaries' };
+  return titles[score] || score;
 }
 function supportBadge(s) {
   const colors = { strong_support:'badge-green', lean_support:'badge-green', undecided:'badge-yellow', lean_oppose:'badge-red', strong_oppose:'badge-red', unknown:'badge-gray' };
@@ -4401,8 +4411,8 @@ function getWalkFilterParams() {
     params.push('race_col=' + encodeURIComponent(parts[0]));
     params.push('race_val=' + encodeURIComponent(parts[1]));
   }
-  var party = document.getElementById('walkPrecinctParty').value;
-  if (party) params.push('party=' + encodeURIComponent(party));
+  var partyScore = document.getElementById('walkPrecinctPartyScore').value;
+  if (partyScore) params.push('party_score=' + encodeURIComponent(partyScore));
   var support = document.getElementById('walkPrecinctSupport').value;
   if (support) params.push('support_level=' + encodeURIComponent(support));
   // Multi-election checkboxes
@@ -4572,9 +4582,9 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
   statusEl.style.color = '#94a3b8';
   try {
     var filters = {};
-    var party = document.getElementById('walkPrecinctParty').value;
+    var partyScore = document.getElementById('walkPrecinctPartyScore').value;
     var support = document.getElementById('walkPrecinctSupport').value;
-    if (party) filters.party = party;
+    if (partyScore) filters.party_score = partyScore;
     if (support) filters.support_level = support;
     if (document.getElementById('walkPrecinctExcludeContacted').checked) filters.exclude_contacted = true;
     // Voting history filters
@@ -5520,8 +5530,8 @@ window.createUniverse = async function() {
   statusEl.textContent = 'Creating...';
   try {
     var filters = { precincts: precincts };
-    var party = document.getElementById('newUnivParty').value;
-    if (party) filters.party = party;
+    var partyScore = document.getElementById('newUnivPartyScore').value;
+    if (partyScore) filters.party_score = partyScore;
     if (document.getElementById('newUnivExcludeContacted').checked) filters.exclude_contacted = true;
     if (document.getElementById('newUnivExcludeVoted').checked) filters.exclude_early_voted = true;
     // Voting history filters
@@ -5815,7 +5825,7 @@ async function searchVoters() {
     if (v.city) fullAddr += ', ' + escHtml(v.city);
     if (v.zip) fullAddr += ' ' + escHtml(v.zip);
     var voterId = escHtml(v.registration_number || v.county_file_id || v.vanid || '');
-    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap" title="VUID: ' + voterId + '">' + voterId + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyBadge(v.party) + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
+    return '<tr><td><input type="checkbox" class="voter-select-cb" value="' + v.id + '" style="accent-color:#818cf8" onchange="updateVoterSelection()"></td><td style="color:#64748b;font-size:11px;white-space:nowrap" title="VUID: ' + voterId + '">' + voterId + '</td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="#" onclick="showVoterDetail(' + v.id + ');return false">' + escHtml(v.first_name + ' ' + v.last_name) + '</a></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + fullAddr + '">' + fullAddr + '</td><td style="white-space:nowrap">' + escHtml(v.phone) + '</td><td style="font-size:12px;white-space:nowrap">' + escHtml(v.precinct || '') + '</td><td>' + partyScoreBadge(v.party_score) + '</td><td>' + supportBadge(v.support_level) + '</td><td>' + evBadge + '</td><td>' + scoreBadge(v.engagement_score || 0) + '</td><td style="text-align:center">' + (v.touchpoint_count || 0) + '</td><td><button class="btn btn-danger btn-xs" onclick="deleteVoter(' + v.id + ')">Del</button></td></tr>';
   }).join('');
 }
 window.searchVoters = searchVoters;
@@ -5867,6 +5877,7 @@ async function loadVoterDetail(id) {
   document.getElementById('vdCity').value = v.city || '';
   document.getElementById('vdZip').value = v.zip || '';
   document.getElementById('vdParty').value = v.party || '';
+  document.getElementById('vdPartyScore').innerHTML = v.party_score ? partyScoreBadge(v.party_score) + ' <span style="color:#94a3b8;font-size:12px">' + partyScoreTitle(v.party_score) + '</span>' : '<span style="color:#64748b">No primary history</span>';
   document.getElementById('vdSupport').value = v.support_level || 'unknown';
   document.getElementById('vdTags').value = v.tags || '';
   document.getElementById('vdRegNum').value = v.registration_number || '';
@@ -10157,7 +10168,7 @@ function renderAdminMasterTable(voters, container) {
     tr.appendChild(tdAddr);
     var tdParty = document.createElement('td');
     tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
-    tdParty.textContent = v.party || '';
+    tdParty.innerHTML = v.party_score ? partyScoreBadge(v.party_score) : (v.party || '');
     tr.appendChild(tdParty);
     var tdVoted = document.createElement('td');
     tdVoted.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
@@ -10949,7 +10960,7 @@ function renderAdminListVoterTable(voters, container) {
     tr.appendChild(tdAddr);
     var tdParty = document.createElement('td');
     tdParty.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
-    tdParty.textContent = v.party || '';
+    tdParty.innerHTML = v.party_score ? partyScoreBadge(v.party_score) : (v.party || '');
     tr.appendChild(tdParty);
     var tdVoted = document.createElement('td');
     tdVoted.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b';
@@ -11100,7 +11111,7 @@ function downloadVotersCsv(voters, filename) {
       csvEsc(v.registration_number || v.county_file_id || v.vanid || ''),
       csvEsc(v.first_name), csvEsc(v.last_name), csvEsc(v.address),
       csvEsc(v.city), csvEsc(v.zip), csvEsc(v.phone),
-      csvEsc(v.party), csvEsc(v.precinct)
+      csvEsc(v.party_score || v.party), csvEsc(v.precinct)
     ];
     if (hasLists) {
       row.push(csvEsc((v.lists || []).map(function(s) { return s.source_name + ': ' + s.list_name; }).join('; ')));
@@ -11365,7 +11376,7 @@ async function searchVotersForList(q, listId, city, zip, precinct, address) {
     var row = document.createElement('div');
     row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
     var info = document.createElement('span');
-    info.textContent = v.first_name + ' ' + v.last_name + ' - ' + (v.address || '') + (v.city ? ', ' + v.city : '') + ' (' + (v.party || 'N/A') + ')';
+    info.textContent = v.first_name + ' ' + v.last_name + ' - ' + (v.address || '') + (v.city ? ', ' + v.city : '') + ' (' + (v.party_score || v.party || 'N/A') + ')';
     info.style.fontSize = '13px';
     row.appendChild(info);
     var addBtn = document.createElement('button');
@@ -11400,7 +11411,7 @@ async function loadAdminListVoters(listId) {
   voters.forEach(function(v) {
     var tr = document.createElement('tr');
     var voterId = v.registration_number || v.county_file_id || v.vanid || '';
-    [voterId, v.first_name + ' ' + v.last_name, v.phone || '', v.address || '', v.city || '', v.party || ''].forEach(function(val, idx) {
+    [voterId, v.first_name + ' ' + v.last_name, v.phone || '', v.address || '', v.city || '', v.party_score || v.party || ''].forEach(function(val, idx) {
       var td = document.createElement('td');
       td.textContent = val;
       if (idx === 0) td.style.cssText = 'color:#64748b;font-size:11px';
@@ -12789,7 +12800,7 @@ async function searchGotvChase() {
       var sl = v.support_level || 'unknown';
       var slCls = sl === 'strong_support' || sl === 'lean_support' || sl === 'supporter' ? 'badge-green' : (sl === 'undecided' || sl === 'unknown' ? 'badge-yellow' : 'badge-gray');
       var slLabel = sl.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-      return '<tr><td>' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td class="chase-addr" style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '" style="white-space:nowrap">' + escHtml(slLabel) + '</span></td><td>' + escHtml(v.party || '--') + '</td></tr>';
+      return '<tr><td>' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td class="chase-addr" style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '" style="white-space:nowrap">' + escHtml(slLabel) + '</span></td><td>' + escHtml(v.party_score || v.party || '--') + '</td></tr>';
     }).join('');
   } catch (e) { alert('Error: ' + e.message); }
 }

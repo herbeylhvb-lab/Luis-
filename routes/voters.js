@@ -837,7 +837,7 @@ router.get('/voters/race-precincts', (req, res) => {
 
 // Precinct voter counts with full filter support
 router.get('/voters/precinct-counts', (req, res) => {
-  const { race_col, race_val, election, party, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;
+  const { race_col, race_val, election, party, party_score, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;
   const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   let sql = "SELECT precinct, COUNT(*) as cnt FROM voters WHERE precinct != '' AND precinct IS NOT NULL";
@@ -849,13 +849,33 @@ router.get('/voters/precinct-counts', (req, res) => {
     params.push(race_val);
   }
 
-  // Party filter
+  // Party filter — matches voters who voted in a party primary (from election_votes)
   if (party) {
     if (party === 'NP') {
-      sql += " AND (party = '' OR party IS NULL OR party NOT IN ('D','R','I'))";
+      sql += " AND id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted IN ('D','R'))";
     } else {
-      sql += ' AND party = ?';
+      sql += ' AND id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted = ?)';
       params.push(party);
+    }
+  }
+
+  // VAN-style party score filter (D/DD/DDD, R/RR/RRR, SWING, NONE)
+  if (party_score) {
+    if (party_score === 'NONE') {
+      sql += " AND (party_score = '' OR party_score IS NULL)";
+    } else if (party_score === 'SWING') {
+      sql += " AND party_score = 'SWING'";
+    } else if (party_score === 'DD') {
+      sql += " AND party_score IN ('DD','DDD')";
+    } else if (party_score === 'D') {
+      sql += " AND party_score IN ('D','DD','DDD')";
+    } else if (party_score === 'RR') {
+      sql += " AND party_score IN ('RR','RRR')";
+    } else if (party_score === 'R') {
+      sql += " AND party_score IN ('R','RR','RRR')";
+    } else {
+      sql += ' AND party_score = ?';
+      params.push(party_score);
     }
   }
 
