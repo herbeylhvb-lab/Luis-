@@ -246,7 +246,7 @@
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.events || data.events.length === 0) {
-          fetch('/api/events').then(function(r) { return r.json(); }).then(function(d) {
+          return fetch('/api/events').then(function(r) { return r.json(); }).then(function(d) {
             var upcoming = (d.events || []).filter(function(e) { return e.status === 'upcoming'; });
             if (upcoming.length === 0) {
               var el = document.getElementById('event-list');
@@ -259,7 +259,6 @@
             }
             renderEventList(upcoming);
           });
-          return;
         }
         renderEventList(data.events);
       });

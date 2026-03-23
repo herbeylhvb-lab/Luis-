@@ -2,42 +2,12 @@ const Database = require('better-sqlite3');
 const fs = require('fs');
 const path = require('path');
 
-// Try writable directories in order: DATABASE_DIR env, /data (cloud volume mount), ./data (local dev)
-function findWritableDir() {
-  const candidates = [
-    process.env.DATABASE_DIR,
-    '/data',
-    path.join(__dirname, 'data')
-  ].filter(Boolean);
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-  for (const dir of candidates) {
-    try {
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      // Test write access
-      const testFile = path.join(dir, '.write-test');
-      fs.writeFileSync(testFile, 'ok');
-      fs.unlinkSync(testFile);
-      console.log('Using database directory:', dir);
-      return dir;
-    } catch (e) {
-      console.log('Directory not writable:', dir, e.message);
-    }
-  }
-  throw new Error('No writable directory found for SQLite database');
-}
-
-const dataDir = findWritableDir();
-const dbPath = path.join(dataDir, 'campaign.db');
-const dbExisted = fs.existsSync(dbPath);
-
-const db = new Database(dbPath);
+const db = new Database(path.join(dataDir, 'campaign.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
-
-if (!dbExisted) {
-  console.warn('WARNING: Database was created fresh — previous data was lost.');
-  console.warn('  If on Railway, ensure a Volume is mounted at /data to persist data across deploys.');
-}
 
 // --- Migrated tables ---
 
@@ -73,6 +43,13 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS campaigns (
+    id INTEGER PRIMARY KEY,
+    message_template TEXT,
+    sent_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // --- Block Walk tables ---
@@ -179,8 +156,6 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_rsvps_event ON event_rsvps(event_id);
 `);
-// Prevent duplicate RSVPs for same contact+event
-try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rsvps_event_phone ON event_rsvps(event_id, contact_phone)"); } catch (e) { /* duplicates may exist */ }
 
 // --- Phase 2 migrations ---
 
@@ -258,19 +233,6 @@ db.exec(`
 // --- Phase 3: Event flyer image for QR overlay ---
 addColumn("ALTER TABLE events ADD COLUMN flyer_image TEXT DEFAULT NULL");
 
-// --- Phase 4: Geofenced event check-in ---
-addColumn("ALTER TABLE events ADD COLUMN latitude REAL DEFAULT NULL");
-addColumn("ALTER TABLE events ADD COLUMN longitude REAL DEFAULT NULL");
-addColumn("ALTER TABLE events ADD COLUMN checkin_radius INTEGER DEFAULT 500");
-addColumn("ALTER TABLE events ADD COLUMN event_end_time TEXT DEFAULT ''");
-addColumn("ALTER TABLE events ADD COLUMN mms_project_id TEXT DEFAULT NULL");
-
-// Session type for P2P sessions (campaign, event, survey)
-addColumn("ALTER TABLE p2p_sessions ADD COLUMN session_type TEXT DEFAULT 'campaign'");
-addColumn("ALTER TABLE p2p_sessions ADD COLUMN media_url TEXT DEFAULT NULL");
-addColumn("ALTER TABLE p2p_sessions ADD COLUMN rumbleup_action_id TEXT DEFAULT NULL");
-addColumn("ALTER TABLE p2p_sessions ADD COLUMN source_id INTEGER DEFAULT NULL");
-
 // P2P columns on messages
 addColumn("ALTER TABLE messages ADD COLUMN session_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE messages ADD COLUMN volunteer_name TEXT DEFAULT NULL");
@@ -339,9 +301,6 @@ db.exec(`
 // Voting history on voters (populated via CSV import)
 addColumn("ALTER TABLE voters ADD COLUMN voting_history TEXT DEFAULT ''");
 
-// Precinct / district for geographic targeting
-addColumn("ALTER TABLE voters ADD COLUMN precinct TEXT DEFAULT ''");
-
 // Email column on contacts (for mass email feature)
 addColumn("ALTER TABLE contacts ADD COLUMN email TEXT DEFAULT ''");
 
@@ -376,13 +335,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_alv_voter ON admin_list_voters(voter_id);
 `);
 
-// List type columns for purpose tagging (event, text, survey, block_walk, general)
-addColumn("ALTER TABLE admin_lists ADD COLUMN list_type TEXT DEFAULT 'general'");
-addColumn("ALTER TABLE captain_lists ADD COLUMN list_type TEXT DEFAULT 'general'");
-
-// Admin list can be assigned to a captain — captain can then add voters to it
-addColumn("ALTER TABLE admin_lists ADD COLUMN assigned_captain_id INTEGER DEFAULT NULL");
-
 // Block walking group mode — up to 4 walkers per group
 addColumn("ALTER TABLE block_walks ADD COLUMN join_code TEXT DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN max_walkers INTEGER DEFAULT 4");
@@ -396,71 +348,8 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_wgm_walk ON walk_group_members(walk_id);
 `);
-addColumn("ALTER TABLE walk_group_members ADD COLUMN phone TEXT DEFAULT NULL");
 // Assigned walker on each address (for group splitting)
 addColumn("ALTER TABLE walk_addresses ADD COLUMN assigned_walker TEXT DEFAULT NULL");
-
-// Real-time walker GPS locations for live map tracking
-db.exec(`
-  CREATE TABLE IF NOT EXISTS walker_locations (
-    id INTEGER PRIMARY KEY,
-    walk_id INTEGER NOT NULL REFERENCES block_walks(id) ON DELETE CASCADE,
-    walker_name TEXT NOT NULL,
-    lat REAL NOT NULL,
-    lng REAL NOT NULL,
-    accuracy REAL,
-    updated_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(walk_id, walker_name)
-  );
-  CREATE INDEX IF NOT EXISTS idx_walker_loc_walk ON walker_locations(walk_id);
-`);
-
-// --- Early Voting tracking ---
-addColumn("ALTER TABLE voters ADD COLUMN early_voted INTEGER DEFAULT 0");
-addColumn("ALTER TABLE voters ADD COLUMN early_voted_date TEXT DEFAULT NULL");
-addColumn("ALTER TABLE voters ADD COLUMN early_voted_method TEXT DEFAULT NULL");
-addColumn("ALTER TABLE voters ADD COLUMN early_voted_ballot TEXT DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_early_voted ON voters(early_voted)"); } catch (e) { /* exists */ }
-
-// Additional voter fields for registered voter file imports
-addColumn("ALTER TABLE voters ADD COLUMN middle_name TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN state TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN secondary_phone TEXT DEFAULT ''");
-
-// County voter file fields (VAN exports, county file imports)
-addColumn("ALTER TABLE voters ADD COLUMN county_file_id TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN vanid TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN suffix TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN zip4 TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN address_id TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_vanid ON voters(vanid)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_county_file_id ON voters(county_file_id)"); } catch (e) { /* exists */ }
-
-// State File ID (the voter's unique ID from the county/state voter file)
-addColumn("ALTER TABLE voters ADD COLUMN state_file_id TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(state_file_id)"); } catch (e) { /* exists */ }
-
-// --- Voter demographics & district assignments (from county voter file) ---
-addColumn("ALTER TABLE voters ADD COLUMN gender TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN age INTEGER DEFAULT NULL");
-addColumn("ALTER TABLE voters ADD COLUMN county_commissioner TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN justice_of_peace TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN state_board_ed TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN state_rep TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN state_senate TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN us_congress TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN city_district TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN school_district TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN college_district TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN hospital_district TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN navigation_port TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN port_authority TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_gender ON voters(gender)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_rep ON voters(state_rep)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_us_congress ON voters(us_congress)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_school_district ON voters(school_district)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_port_authority ON voters(port_authority)"); } catch (e) { /* exists */ }
 
 // --- Users table (authentication) ---
 db.exec(`
@@ -476,20 +365,13 @@ db.exec(`
 `);
 
 // --- Sessions table (express-session store) ---
-// better-sqlite3-session-store expects column "expire" — fix old schema if needed
-try {
-  db.prepare("SELECT expire FROM sessions LIMIT 1").get();
-} catch (e) {
-  // Drop and recreate with correct schema (sessions are ephemeral)
-  db.exec("DROP TABLE IF EXISTS sessions");
-}
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     sid TEXT PRIMARY KEY,
     sess TEXT NOT NULL,
-    expire TEXT NOT NULL
+    expired TEXT NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expire);
+  CREATE INDEX IF NOT EXISTS idx_sessions_expired ON sessions(expired);
 `);
 
 // Backfill QR tokens for any existing voters that don't have one
@@ -508,497 +390,6 @@ if (votersWithoutToken.length > 0) {
   backfill();
   console.log(`Backfilled QR tokens for ${votersWithoutToken.length} voters`);
 }
-
-// --- Polls & Surveys tables ---
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS surveys (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    status TEXT DEFAULT 'draft',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS survey_questions (
-    id INTEGER PRIMARY KEY,
-    survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-    question_text TEXT NOT NULL,
-    question_type TEXT NOT NULL DEFAULT 'single_choice',
-    sort_order INTEGER DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_sq_survey ON survey_questions(survey_id);
-
-  CREATE TABLE IF NOT EXISTS survey_options (
-    id INTEGER PRIMARY KEY,
-    question_id INTEGER NOT NULL REFERENCES survey_questions(id) ON DELETE CASCADE,
-    option_text TEXT NOT NULL,
-    option_key TEXT NOT NULL,
-    sort_order INTEGER DEFAULT 0
-  );
-  CREATE INDEX IF NOT EXISTS idx_so_question ON survey_options(question_id);
-
-  CREATE TABLE IF NOT EXISTS survey_sends (
-    id INTEGER PRIMARY KEY,
-    survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-    phone TEXT NOT NULL,
-    contact_name TEXT DEFAULT '',
-    status TEXT DEFAULT 'sent',
-    current_question_id INTEGER DEFAULT NULL,
-    sent_at TEXT DEFAULT (datetime('now')),
-    completed_at TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_ss_survey ON survey_sends(survey_id);
-  CREATE INDEX IF NOT EXISTS idx_ss_phone ON survey_sends(phone);
-
-  CREATE TABLE IF NOT EXISTS survey_responses (
-    id INTEGER PRIMARY KEY,
-    survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-    send_id INTEGER NOT NULL REFERENCES survey_sends(id) ON DELETE CASCADE,
-    question_id INTEGER NOT NULL REFERENCES survey_questions(id) ON DELETE CASCADE,
-    phone TEXT NOT NULL,
-    response_text TEXT NOT NULL,
-    option_id INTEGER DEFAULT NULL,
-    responded_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_sr_survey ON survey_responses(survey_id);
-  CREATE INDEX IF NOT EXISTS idx_sr_question ON survey_responses(question_id);
-  CREATE INDEX IF NOT EXISTS idx_sr_send ON survey_responses(send_id);
-`);
-
-// --- Election Votes table (voter participation in specific elections) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS election_votes (
-    id INTEGER PRIMARY KEY,
-    voter_id INTEGER NOT NULL REFERENCES voters(id) ON DELETE CASCADE,
-    election_name TEXT NOT NULL,
-    election_date TEXT NOT NULL,
-    election_type TEXT DEFAULT 'general',
-    election_cycle TEXT DEFAULT '',
-    voted INTEGER DEFAULT 1,
-    UNIQUE(voter_id, election_name)
-  );
-  CREATE INDEX IF NOT EXISTS idx_ev_voter ON election_votes(voter_id);
-  CREATE INDEX IF NOT EXISTS idx_ev_election ON election_votes(election_name);
-  CREATE INDEX IF NOT EXISTS idx_ev_date ON election_votes(election_date);
-  CREATE INDEX IF NOT EXISTS idx_ev_cycle ON election_votes(election_cycle);
-  CREATE INDEX IF NOT EXISTS idx_ev_type ON election_votes(election_type);
-`);
-
-// Party voted column on election_votes (R = Republican, D = Democrat, blank = no party / nonpartisan)
-addColumn("ALTER TABLE election_votes ADD COLUMN party_voted TEXT DEFAULT ''");
-
-// Composite indexes for universe builder performance
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_party ON election_votes(voter_id, party_voted)"); } catch (e) { /* exists */ }
-
-// --- Performance indexes (added for query optimization) ---
-try {
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
-    CREATE INDEX IF NOT EXISTS idx_messages_direction ON messages(direction);
-    CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(phone);
-    CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_optouts_phone ON opt_outs(phone);
-    CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
-    CREATE INDEX IF NOT EXISTS idx_walk_addrs_walk_result ON walk_addresses(walk_id, result);
-    CREATE INDEX IF NOT EXISTS idx_walk_addrs_knocked ON walk_addresses(knocked_at);
-    CREATE INDEX IF NOT EXISTS idx_voters_phone ON voters(phone);
-    CREATE INDEX IF NOT EXISTS idx_voters_lastname ON voters(last_name, first_name);
-    CREATE INDEX IF NOT EXISTS idx_voters_support ON voters(support_level);
-    CREATE INDEX IF NOT EXISTS idx_voter_contacts_voter ON voter_contacts(voter_id);
-    CREATE INDEX IF NOT EXISTS idx_event_rsvps_event ON event_rsvps(event_id);
-    CREATE INDEX IF NOT EXISTS idx_event_rsvps_status ON event_rsvps(rsvp_status);
-    CREATE INDEX IF NOT EXISTS idx_p2p_sessions_status ON p2p_sessions(status);
-    CREATE INDEX IF NOT EXISTS idx_p2p_assign_session ON p2p_assignments(session_id, status);
-    CREATE INDEX IF NOT EXISTS idx_p2p_assign_volunteer ON p2p_assignments(volunteer_id, status);
-    CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-    CREATE INDEX IF NOT EXISTS idx_admin_list_voters_voter ON admin_list_voters(voter_id);
-
-    -- Composite indexes for common query patterns
-    CREATE INDEX IF NOT EXISTS idx_messages_direction_id ON messages(direction, id DESC);
-    CREATE INDEX IF NOT EXISTS idx_messages_phone_direction ON messages(phone, direction, id DESC);
-    CREATE INDEX IF NOT EXISTS idx_messages_session_phone ON messages(session_id, phone);
-    CREATE INDEX IF NOT EXISTS idx_p2p_assign_vol_status ON p2p_assignments(volunteer_id, status);
-    CREATE INDEX IF NOT EXISTS idx_p2p_assign_session_status ON p2p_assignments(session_id, status);
-    CREATE INDEX IF NOT EXISTS idx_survey_sends_survey_status ON survey_sends(survey_id, status);
-    CREATE INDEX IF NOT EXISTS idx_messages_phone_dir_ts ON messages(phone, direction, timestamp);
-    CREATE INDEX IF NOT EXISTS idx_survey_sends_phone_status ON survey_sends(phone, status);
-    CREATE INDEX IF NOT EXISTS idx_voter_contacts_contacted ON voter_contacts(voter_id, contacted_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_captain_list_voters_voter ON captain_list_voters(voter_id, list_id);
-
-    -- Walk and captain performance indexes
-    CREATE INDEX IF NOT EXISTS idx_walk_addrs_assigned ON walk_addresses(walk_id, assigned_walker);
-    CREATE INDEX IF NOT EXISTS idx_admin_lists_captain ON admin_lists(assigned_captain_id);
-    CREATE INDEX IF NOT EXISTS idx_voters_precinct ON voters(precinct);
-    CREATE INDEX IF NOT EXISTS idx_voters_city ON voters(city);
-    CREATE INDEX IF NOT EXISTS idx_voters_party ON voters(party);
-    CREATE INDEX IF NOT EXISTS idx_voters_registration ON voters(registration_number);
-    CREATE INDEX IF NOT EXISTS idx_voters_address_city ON voters(address, city);
-    CREATE INDEX IF NOT EXISTS idx_block_walks_join ON block_walks(join_code, status);
-
-  `);
-} catch (e) { /* indexes already exist */ }
-
-// Walk infrastructure indexes — voter_id and phone exist at this point
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_voter_id ON walk_addresses(voter_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_group_members_phone ON walk_group_members(phone)"); } catch (e) {}
-// Note: indexes for walk_attempts, walk_universes, and walk_addresses.universe_id
-// are created after those tables/columns exist (see below line ~885)
-
-// --- Broadcast campaigns table ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS broadcast_campaigns (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    message TEXT NOT NULL,
-    list_id INTEGER DEFAULT NULL,
-    total_recipients INTEGER DEFAULT 0,
-    sent_count INTEGER DEFAULT 0,
-    failed_count INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'pending',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-`);
-
-// --- Broadcast campaigns indexes ---
-try {
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_broadcast_status ON broadcast_campaigns(status);
-    CREATE INDEX IF NOT EXISTS idx_broadcast_list ON broadcast_campaigns(list_id);
-    CREATE INDEX IF NOT EXISTS idx_broadcast_created ON broadcast_campaigns(created_at);
-  `);
-} catch (e) { /* indexes already exist */ }
-
-// --- Channel tracking (SMS vs WhatsApp dual-send) ---
-addColumn("ALTER TABLE messages ADD COLUMN channel TEXT DEFAULT 'sms'");
-// contacts.email already added at line 311; skip duplicate
-addColumn("ALTER TABLE contacts ADD COLUMN preferred_channel TEXT DEFAULT NULL");
-addColumn("ALTER TABLE p2p_assignments ADD COLUMN wa_status TEXT DEFAULT NULL");
-
-// --- Captain hierarchy: team members become real captains ---
-addColumn("ALTER TABLE captains ADD COLUMN parent_captain_id INTEGER DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id)"); } catch (e) { /* exists */ }
-
-// --- Election definitions (so elections can exist before any voter is marked) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS elections (
-    id INTEGER PRIMARY KEY,
-    election_name TEXT NOT NULL UNIQUE,
-    election_date TEXT NOT NULL,
-    election_type TEXT DEFAULT 'general',
-    election_cycle TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-`);
-
-// --- Google OAuth columns on users ---
-addColumn("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_id TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_email TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_name TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_picture TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_access_token TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_refresh_token TEXT DEFAULT NULL");
-addColumn("ALTER TABLE users ADD COLUMN google_token_expiry TEXT DEFAULT NULL");
-try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)"); } catch (e) { /* already exists */ }
-
-// --- Candidates table (multi-candidate support) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS candidates (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    office TEXT DEFAULT '',
-    code TEXT NOT NULL UNIQUE,
-    phone TEXT DEFAULT '',
-    email TEXT DEFAULT '',
-    is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_code ON candidates(code);
-`);
-
-// Link captains to candidates (NULL = admin's direct captains, backward compatible)
-addColumn("ALTER TABLE captains ADD COLUMN candidate_id INTEGER DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_candidate ON captains(candidate_id)"); } catch (e) { /* exists */ }
-
-// Link admin lists to candidates (NULL = admin's direct lists, backward compatible)
-addColumn("ALTER TABLE admin_lists ADD COLUMN candidate_id INTEGER DEFAULT NULL");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lists(candidate_id)"); } catch (e) { /* exists */ }
-
-// Rename existing "My Voters" lists to the captain's actual name
-try {
-  const renamed = db.prepare(`
-    UPDATE captain_lists SET name = (
-      SELECT c.name FROM captains c WHERE c.id = captain_lists.captain_id
-    )
-    WHERE captain_lists.name = 'My Voters'
-      AND EXISTS (SELECT 1 FROM captains c WHERE c.id = captain_lists.captain_id)
-  `).run();
-  if (renamed.changes > 0) console.log('[migration] Renamed ' + renamed.changes + ' "My Voters" lists to captain names');
-} catch (e) { /* already migrated or no matching lists */ }
-
-// --- Populate election_cycle from election_name where missing ---
-try {
-  const monthMap = {
-    JANUARY: 'january', FEBRUARY: 'february', MARCH: 'march', APRIL: 'april',
-    MAY: 'may', JUNE: 'june', JULY: 'july', AUGUST: 'august',
-    SEPTEMBER: 'september', OCTOBER: 'october', NOVEMBER: 'november', DECEMBER: 'december'
-  };
-  const empty = db.prepare("SELECT DISTINCT election_name FROM election_votes WHERE election_cycle IS NULL OR election_cycle = ''").all();
-  if (empty.length > 0) {
-    const upd = db.prepare("UPDATE election_votes SET election_cycle = ? WHERE election_name = ? AND (election_cycle IS NULL OR election_cycle = '')");
-    let count = 0;
-    const tx = db.transaction(() => {
-      for (const row of empty) {
-        const upper = (row.election_name || '').toUpperCase();
-        let cycle = '';
-        for (const [m, c] of Object.entries(monthMap)) {
-          if (upper.includes(m)) { cycle = c; break; }
-        }
-        if (cycle) {
-          upd.run(cycle, row.election_name);
-          count++;
-        }
-      }
-    });
-    tx();
-    if (count > 0) console.log('[migration] Populated election_cycle for ' + count + ' election names');
-  }
-} catch (e) { console.error('[migration] election_cycle backfill error:', e.message); }
-
-// --- Shared captains across candidates (many-to-many) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS captain_candidates (
-    id INTEGER PRIMARY KEY,
-    captain_id INTEGER NOT NULL REFERENCES captains(id) ON DELETE CASCADE,
-    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-    shared_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(captain_id, candidate_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_cc_captain ON captain_candidates(captain_id);
-  CREATE INDEX IF NOT EXISTS idx_cc_candidate ON captain_candidates(candidate_id);
-`);
-
-// --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS walk_scripts (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    is_default INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS walk_script_elements (
-    id INTEGER PRIMARY KEY,
-    script_id INTEGER NOT NULL REFERENCES walk_scripts(id) ON DELETE CASCADE,
-    element_type TEXT NOT NULL,
-    sort_order INTEGER DEFAULT 0,
-    label TEXT DEFAULT '',
-    content TEXT DEFAULT '',
-    options_json TEXT DEFAULT '[]',
-    parent_element_id INTEGER DEFAULT NULL,
-    parent_option_key TEXT DEFAULT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_wse_script ON walk_script_elements(script_id);
-`);
-
-// Link walks to scripts
-addColumn("ALTER TABLE block_walks ADD COLUMN script_id INTEGER DEFAULT NULL");
-
-// --- Walk Attempt Tracking (multiple attempts per address) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS walk_attempts (
-    id INTEGER PRIMARY KEY,
-    address_id INTEGER NOT NULL REFERENCES walk_addresses(id) ON DELETE CASCADE,
-    walk_id INTEGER NOT NULL REFERENCES block_walks(id) ON DELETE CASCADE,
-    result TEXT NOT NULL,
-    notes TEXT DEFAULT '',
-    walker_name TEXT DEFAULT '',
-    gps_lat REAL DEFAULT NULL,
-    gps_lng REAL DEFAULT NULL,
-    gps_accuracy REAL DEFAULT NULL,
-    gps_verified INTEGER DEFAULT 0,
-    survey_responses_json TEXT DEFAULT NULL,
-    attempted_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_wa_address ON walk_attempts(address_id);
-  CREATE INDEX IF NOT EXISTS idx_wa_walk ON walk_attempts(walk_id);
-  CREATE INDEX IF NOT EXISTS idx_wa_walker ON walk_attempts(walk_id, walker_name);
-  CREATE INDEX IF NOT EXISTS idx_wa_time ON walk_attempts(attempted_at);
-`);
-
-// --- Distributed Canvassing Universes ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS walk_universes (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    share_code TEXT NOT NULL UNIQUE,
-    script_id INTEGER DEFAULT NULL,
-    doors_per_turf INTEGER DEFAULT 30,
-    filters_json TEXT DEFAULT '{}',
-    status TEXT DEFAULT 'active',
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_wu_code ON walk_universes(share_code);
-`);
-
-// Track which voters are already assigned in a universe to avoid duplication
-addColumn("ALTER TABLE walk_addresses ADD COLUMN universe_id INTEGER DEFAULT NULL");
-addColumn("ALTER TABLE walk_addresses ADD COLUMN geo_flagged INTEGER DEFAULT 0");
-
-// --- Walk performance metrics ---
-addColumn("ALTER TABLE walk_group_members ADD COLUMN doors_knocked INTEGER DEFAULT 0");
-addColumn("ALTER TABLE walk_group_members ADD COLUMN contacts_made INTEGER DEFAULT 0");
-addColumn("ALTER TABLE walk_group_members ADD COLUMN first_knock_at TEXT DEFAULT NULL");
-addColumn("ALTER TABLE walk_group_members ADD COLUMN last_knock_at TEXT DEFAULT NULL");
-
-// Precinct-level saved search for turf refresh
-addColumn("ALTER TABLE block_walks ADD COLUMN source_precincts TEXT DEFAULT NULL");
-addColumn("ALTER TABLE block_walks ADD COLUMN source_filters_json TEXT DEFAULT NULL");
-
-// --- Walkers — persistent block walk volunteers tied to a candidate ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS walkers (
-    id INTEGER PRIMARY KEY,
-    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    phone TEXT DEFAULT NULL,
-    code TEXT NOT NULL UNIQUE,
-    is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_walkers_candidate ON walkers(candidate_id);
-  CREATE INDEX IF NOT EXISTS idx_walkers_code ON walkers(code);
-`);
-// Link walk_group_members to persistent walker identity
-addColumn("ALTER TABLE walk_group_members ADD COLUMN walker_id INTEGER DEFAULT NULL");
-// Track which walker knocked each door
-addColumn("ALTER TABLE walk_attempts ADD COLUMN walker_id INTEGER DEFAULT NULL");
-// Deferred indexes — these tables/columns are now defined above
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_addresses_universe_id ON walk_addresses(universe_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_id ON walk_attempts(walker_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_attempts_walker_walk ON walk_attempts(walker_id, walk_id)"); } catch (e) {}
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_walk_universes_status ON walk_universes(status)"); } catch (e) {}
-
-// One-time migration: bump default max walkers from 4 to 10 (guarded by settings flag)
-try {
-  const migrated = db.prepare("SELECT value FROM settings WHERE key = 'max_walkers_migrated'").get();
-  if (!migrated) {
-    db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run();
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('max_walkers_migrated', '1')").run();
-  }
-} catch(e) {}
-
-// --- Groups table (code-based login, block walk only, max 10) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS groups (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    code TEXT NOT NULL UNIQUE,
-    is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_groups_code ON groups(code);
-`);
-
-// --- Survey completion message ---
-addColumn("ALTER TABLE surveys ADD COLUMN completion_message TEXT DEFAULT ''");
-
-// --- Texting volunteers (legacy — kept for backward compat) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS texting_volunteers (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    phone TEXT DEFAULT NULL,
-    code TEXT NOT NULL UNIQUE,
-    is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_texting_volunteers_code ON texting_volunteers(code);
-`);
-// Link p2p session volunteers to persistent identity
-addColumn("ALTER TABLE p2p_volunteers ADD COLUMN volunteer_id INTEGER DEFAULT NULL");
-addColumn("ALTER TABLE p2p_volunteers ADD COLUMN last_active TEXT DEFAULT NULL");
-addColumn("ALTER TABLE p2p_assignments ADD COLUMN volunteer_name TEXT DEFAULT NULL");
-
-// --- Unified volunteers table (replaces texting_volunteers + walkers) ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS volunteers (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    phone TEXT DEFAULT NULL,
-    code TEXT NOT NULL UNIQUE,
-    can_text INTEGER DEFAULT 1,
-    can_walk INTEGER DEFAULT 1,
-    is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS idx_volunteers_code ON volunteers(code);
-`);
-
-// Migrate existing texting_volunteers and walkers into unified table (one-time)
-try {
-  const volCount = (db.prepare('SELECT COUNT(*) as c FROM volunteers').get() || {}).c || 0;
-  if (volCount === 0) {
-    // Copy texting volunteers
-    const texters = db.prepare('SELECT name, phone, code, is_active, created_at FROM texting_volunteers').all();
-    const ins = db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk, is_active, created_at) VALUES (?, ?, ?, 1, 0, ?, ?)');
-    for (const t of texters) { ins.run(t.name, t.phone, t.code, t.is_active, t.created_at); }
-    // Copy walkers (give them walk access, handle NULL phone dedup)
-    const walkerRows = db.prepare('SELECT name, phone, code, is_active, created_at FROM walkers').all();
-    const insWalk = db.prepare('INSERT OR IGNORE INTO volunteers (name, phone, code, can_text, can_walk, is_active, created_at) VALUES (?, ?, ?, 0, 1, ?, ?)');
-    for (const w of walkerRows) {
-      // Match by name, handling NULL phone correctly
-      const existing = w.phone
-        ? db.prepare('SELECT id FROM volunteers WHERE name = ? AND phone = ?').get(w.name, w.phone)
-        : db.prepare('SELECT id FROM volunteers WHERE name = ? AND phone IS NULL').get(w.name);
-      if (existing) { db.prepare('UPDATE volunteers SET can_walk = 1 WHERE id = ?').run(existing.id); }
-      else { insWalk.run(w.name, w.phone, w.code, w.is_active, w.created_at); }
-    }
-    const migrated = (db.prepare('SELECT COUNT(*) as c FROM volunteers').get() || {}).c || 0;
-    if (migrated > 0) console.log('[migration] Migrated ' + migrated + ' volunteers to unified table');
-  }
-} catch (e) { console.error('[migration] Volunteer migration error:', e.message); }
-
-// One-time: normalize all contact phone numbers to 10-digit format for consistent matching
-try {
-  const rawContacts = db.prepare("SELECT id, phone FROM contacts WHERE phone IS NOT NULL AND phone != '' AND phone GLOB '*[^0-9]*'").all();
-  if (rawContacts.length > 0) {
-    const upd = db.prepare('UPDATE contacts SET phone = ? WHERE id = ?');
-    const normalize = db.transaction(() => {
-      let fixed = 0;
-      for (const c of rawContacts) {
-        const digits = (c.phone || '').replace(/\D/g, '');
-        const clean = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
-        if (clean && clean !== c.phone) { upd.run(clean, c.id); fixed++; }
-      }
-      if (fixed > 0) console.log('[migration] Normalized ' + fixed + ' contact phone numbers');
-    });
-    normalize();
-  }
-} catch (e) { console.error('[migration] Phone normalization error:', e.message); }
-
-// Cleanup: remove orphaned P2P sessions from deleted events/surveys (transactional)
-try {
-  const orphanedEvent = db.prepare("SELECT id, name FROM p2p_sessions WHERE session_type = 'event' AND name LIKE 'Event Invite:%' AND name NOT IN (SELECT 'Event Invite: ' || title FROM events)").all();
-  const orphanedSurvey = db.prepare("SELECT id, name FROM p2p_sessions WHERE session_type = 'survey' AND name LIKE 'Survey:%' AND name NOT IN (SELECT 'Survey: ' || name FROM surveys)").all();
-  const orphaned = [...orphanedEvent, ...orphanedSurvey];
-  if (orphaned.length > 0) {
-    const cleanupOrphans = db.transaction(() => {
-      for (const s of orphaned) {
-        db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
-        db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
-        db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
-      }
-    });
-    cleanupOrphans();
-    console.log('[cleanup] Removed ' + orphaned.length + ' orphaned P2P sessions from deleted events/surveys');
-  }
-} catch (e) { /* cleanup is best-effort */ }
 
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;

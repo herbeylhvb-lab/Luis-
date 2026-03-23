@@ -3,9 +3,6 @@ node_modules/
 
 # Local SQLite database (Railway has its own volume)
 data/
-*.db
-*.db-wal
-*.db-shm
 
 # Git history (not needed in image)
 .git/
@@ -16,9 +13,8 @@ nixpacks.toml
 railway.toml
 Dockerfile
 .dockerignore
+README.md
 *.md
-docs/
-scripts/
 
 # OS files
 .DS_Store
@@ -27,9 +23,3 @@ Thumbs.db
 # Environment files (secrets injected via Railway env vars)
 .env
 .env.*
-
-# Editor/IDE files
-.vscode/
-.idea/
-*.swp
-*.swo

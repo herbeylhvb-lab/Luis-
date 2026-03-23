@@ -1,32 +1,25 @@
 {
-  "name": "campaigntext",
+  "name": "campaign-texter",
   "version": "1.0.0",
-  "description": "CampaignText HQ - Political Campaign Management Platform",
+  "description": "CampaignText HQ - Political Campaign Texting Server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "lint": "eslint *.js routes/*.js providers/*.js middleware/*.js",
-    "build": "echo 'No build step required'"
+    "start": "node server.js"
   },
   "engines": {
     "node": "20.x"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.77.0",
-    "@googleapis/sheets": "^13.0.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.0.0",
     "better-sqlite3-session-store": "^0.1.0",
-    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "express-rate-limit": "^8.2.1",
     "express-session": "^1.19.0",
-    "google-auth-library": "^10.6.1",
-    "helmet": "^8.1.0",
     "jimp": "^1.6.0",
     "nodemailer": "^8.0.1",
     "qrcode": "^1.5.4",
-    "xlsx": "^0.18.5"
+    "twilio": "^4.19.0"
   }
 }
