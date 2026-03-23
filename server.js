@@ -31,8 +31,9 @@ app.use(cors({
   origin: function(origin, callback) {
     // Allow same-origin requests (no origin header)
     if (!origin) return callback(null, true);
-    // If APP_URL is configured, enforce it; otherwise allow all origins
-    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Enforce APP_URL origin whitelist; reject unknown origins in production
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    if (ALLOWED_ORIGINS.length === 0 && process.env.NODE_ENV !== 'production') return callback(null, true);
     callback(null, false);
   }
 }));
@@ -284,9 +285,7 @@ app.use('/api', require('./routes/rumbleup'));
 app.get('/health', (req, res) => {
   try {
     db.prepare('SELECT 1').get();
-    const users = (db.prepare('SELECT COUNT(*) as c FROM users').get() || { c: 0 }).c;
-    const voters = (db.prepare('SELECT COUNT(*) as c FROM voters').get() || { c: 0 }).c;
-    res.json({ status: 'ok', uptime: process.uptime(), users, voters });
+    res.json({ status: 'ok' });
   } catch (_err) {
     res.status(503).json({ status: 'error', message: 'Database unavailable.' });
   }
@@ -623,11 +622,10 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 app.get('/api/messages/pending', (req, res) => {
   const isAdmin = req.session && req.session.userId;
   const volId = req.headers['x-volunteer-id'];
-  const isVol = volId && (
-    db.prepare('SELECT id FROM p2p_volunteers WHERE id = ?').get(volId) ||
-    db.prepare('SELECT id FROM texting_volunteers WHERE id = ?').get(volId) ||
-    db.prepare('SELECT id FROM volunteers WHERE id = ?').get(volId)
-  );
+  const volCode = req.headers['x-volunteer-code'];
+  // Require both volunteer ID and their personal code to prevent ID spoofing
+  const isVol = volId && volCode &&
+    db.prepare('SELECT id FROM volunteers WHERE id = ? AND code = ?').get(volId, volCode);
   if (!isAdmin && !isVol) return res.status(401).json({ error: 'Authentication required.' });
 
   // For volunteers: only show messages for phones in their assignments
@@ -707,9 +705,10 @@ app.get('/api/messages', (req, res) => {
 
 // --- Reply (SMS or WhatsApp) ---
 app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
-  // Require admin session or volunteer ID to prevent unauthenticated sends
+  // Require admin session or verified volunteer identity to prevent unauthenticated sends
   const hasAdminSession = req.session && req.session.userId;
-  const hasVolunteer = req.body && req.body.volunteerId;
+  const hasVolunteer = req.body && req.body.volunteerId && req.body.volunteerCode &&
+    db.prepare('SELECT id FROM volunteers WHERE id = ? AND code = ?').get(req.body.volunteerId, req.body.volunteerCode);
   if (!hasAdminSession && !hasVolunteer) return res.status(401).json({ error: 'Authentication required.' });
   const provider = getProvider();
   const { to, body, channel, mmsActionId } = req.body;
@@ -741,7 +740,7 @@ app.post('/reply', sendLimiter, asyncHandler(async (req, res) => {
     res.json({ success: true, mms: !!mmsActionId });
   } catch (err) {
     console.error('Reply send error:', err.message);
-    res.status(500).json({ error: 'Failed to send reply: ' + err.message });
+    res.status(500).json({ error: 'Failed to send reply. Please try again.' });
   }
 }));
 
@@ -877,7 +876,7 @@ app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
   if (testPhone && provider.getMessageLog) {
     try {
       const raw = await provider.getMessageLog({ phone: testPhone });
-      apiTest = { phone: testPhone, rawResponse: raw, type: typeof raw, isArray: Array.isArray(raw) };
+      apiTest = { success: true, type: typeof raw, isArray: Array.isArray(raw), resultCount: Array.isArray(raw) ? raw.length : (raw ? 1 : 0) };
     } catch (err) {
       apiTest = { phone: testPhone, error: err.message };
     }
@@ -886,7 +885,7 @@ app.get('/api/debug/sync-status', asyncHandler(async (req, res) => {
   res.json({
     phonesToCheck: sentPhones.length,
     breakdown: { p2p: p2pCount, survey: surveyCount, outbound: outboundCount },
-    samplePhones: sentPhones.slice(0, 5),
+    samplePhoneCount: Math.min(sentPhones.length, 5),
     lastSync: lastSyncRow?.value || null,
     dbCounts: { inbound: inboundCount?.cnt || 0, outbound: outboundTotal?.cnt || 0 },
     apiTest

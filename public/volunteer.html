@@ -1483,7 +1483,7 @@
       var aiLoading = document.querySelector('#volPendingList .ai-loading-indicator');
       if (aiLoading) return;
       try {
-        var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || '') } });
+        var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || ''), 'X-Volunteer-Code': String(volState.volCode || '') } });
         var msgs = data.messages || [];
         document.getElementById('volPendingCount').textContent = msgs.length;
         var el = document.getElementById('volPendingList');
@@ -1584,7 +1584,7 @@
         if (!text || !text.trim()) return;
         sendBtn.disabled = true;
         sendBtn.textContent = '...';
-        apiCall('/reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to: replyPhone, body: text.trim() }) })
+        apiCall('/reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to: replyPhone, body: text.trim(), volunteerId: volState.volunteerId, volunteerCode: volState.volCode }) })
           .then(function(d) { if (d.error) throw new Error(d.error); card.style.opacity = '0.4'; loadVolPending(); })
           .catch(function(e) { alert('Failed: ' + (e.message||'Error')); sendBtn.disabled = false; sendBtn.textContent = 'Send'; });
       }
