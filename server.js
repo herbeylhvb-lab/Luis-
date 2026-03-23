@@ -118,7 +118,7 @@ app.get('/scanner', (req, res) => res.sendFile(path.join(__dirname, 'public', 's
 app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkin.html')));
 app.get('/v/:token', (req, res) => {
   const eventId = req.query.e;
-  const voter = db.prepare("SELECT id, first_name, last_name FROM voters WHERE qr_token = ?").get(req.params.token);
+  const voter = db.prepare("SELECT id, first_name, last_name, phone FROM voters WHERE qr_token = ?").get(req.params.token);
 
   // Auto-check-in if we have a voter and event
   if (voter && eventId) {
@@ -134,6 +134,12 @@ app.get('/v/:token', (req, res) => {
           db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
             voter.first_name + ' ' + voter.last_name + ' auto checked in to: ' + event.title
           );
+          // Update RSVP status to attended
+          if (voter.phone) {
+            const normalizedPhone = voter.phone.replace(/\D/g, '');
+            db.prepare("UPDATE event_rsvps SET rsvp_status = 'attended', checked_in_at = datetime('now') WHERE event_id = ? AND contact_phone = ?")
+              .run(event.id, normalizedPhone);
+          }
         })();
       }
     }
