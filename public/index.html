@@ -141,6 +141,14 @@ tr:hover td{background:#1e293b80}
   .mobile-lists-container{display:block!important}
   /* Progress stats 2-col on mobile */
   .cand-stats-grid{grid-template-columns:1fr 1fr!important}
+  /* Chase builder table: hide address col, ensure support badge fits */
+  .chase-addr{display:none!important}
+  #gotvChaseBody td,#gotvChaseBody th{padding:8px 6px;font-size:12px}
+  #gotvChaseResults .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  #gotvChaseResults .badge{font-size:10px;padding:2px 6px}
+  /* Chase results header stack on mobile */
+  #gotvChaseResults > div:first-child{flex-direction:column!important;gap:8px!important}
+  #gotvChaseResults #gotvListName{width:100%!important}
 }
 .mobile-candidate-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s}
 .mobile-candidate-card:active{border-color:#818cf8}
@@ -1997,7 +2005,7 @@ tr:hover td{background:#1e293b80}
             </div>
           </div>
           <div class="table-wrap" style="max-height:400px;overflow-y:auto">
-            <table><thead><tr><th>Name</th><th>Phone</th><th>Address</th><th>Precinct</th><th>Support</th><th>Party</th></tr></thead>
+            <table><thead><tr><th>Name</th><th>Phone</th><th class="chase-addr">Address</th><th>Precinct</th><th>Support</th><th>Party</th></tr></thead>
             <tbody id="gotvChaseBody"></tbody></table>
           </div>
         </div>
@@ -12245,8 +12253,10 @@ async function searchGotvChase() {
       return;
     }
     tbody.innerHTML = data.voters.map(function(v) {
-      var slCls = v.support_level === 'strong_support' || v.support_level === 'supporter' ? 'badge-green' : (v.support_level === 'undecided' || v.support_level === 'unknown' ? 'badge-yellow' : 'badge-gray');
-      return '<tr><td>' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '">' + escHtml(v.support_level || 'unknown') + '</span></td><td>' + escHtml(v.party || '--') + '</td></tr>';
+      var sl = v.support_level || 'unknown';
+      var slCls = sl === 'strong_support' || sl === 'lean_support' || sl === 'supporter' ? 'badge-green' : (sl === 'undecided' || sl === 'unknown' ? 'badge-yellow' : 'badge-gray');
+      var slLabel = sl.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      return '<tr><td>' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td class="chase-addr" style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '" style="white-space:nowrap">' + escHtml(slLabel) + '</span></td><td>' + escHtml(v.party || '--') + '</td></tr>';
     }).join('');
   } catch (e) { alert('Error: ' + e.message); }
 }
