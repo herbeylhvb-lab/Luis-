@@ -1561,6 +1561,14 @@ async function searchVoters() {
         ageBadge.textContent = 'Age ' + v.age;
         nameRow.appendChild(ageBadge);
       }
+      if (v.phone && v.phone_type) {
+        var ptColors = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
+        var ptStyle = ptColors[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
+        var ptBadge = document.createElement('span');
+        ptBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptStyle.bg+';color:'+ptStyle.c+';border:1px solid '+ptStyle.b+';white-space:nowrap';
+        ptBadge.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
+        nameRow.appendChild(ptBadge);
+      }
       card.appendChild(nameRow);
 
       var vid = voterIdDisplay(v);
@@ -1807,6 +1815,14 @@ function renderListVoterRows(voters, content, listId) {
       ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
       ageBadge2.textContent = 'Age ' + v.age;
       metaDiv.appendChild(ageBadge2);
+    }
+    if (v.phone && v.phone_type) {
+      var ptColors2 = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
+      var ptStyle2 = ptColors2[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
+      var ptBadge2 = document.createElement('span');
+      ptBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptStyle2.bg+';color:'+ptStyle2.c+';border:1px solid '+ptStyle2.b+';white-space:nowrap';
+      ptBadge2.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
+      metaDiv.appendChild(ptBadge2);
     }
     infoDiv.appendChild(metaDiv);
     row.appendChild(infoDiv);

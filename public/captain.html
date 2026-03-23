@@ -1335,6 +1335,14 @@ function renderListVoters() {
       ageBadge2.textContent = v.age;
       nameRow.appendChild(ageBadge2);
     }
+    if (v.phone && v.phone_type) {
+      var ptC = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
+      var ptS = ptC[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
+      var ptB = document.createElement('span');
+      ptB.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptS.bg+';color:'+ptS.c+';border:1px solid '+ptS.b+';white-space:nowrap';
+      ptB.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
+      nameRow.appendChild(ptB);
+    }
     info.appendChild(nameRow);
     var a = document.createElement('div');
     a.className = 'addr';
@@ -1566,6 +1574,14 @@ async function searchVoters() {
       ageBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
       ageBadge.textContent = 'Age ' + v.age;
       nameRow.appendChild(ageBadge);
+    }
+    if (v.phone && v.phone_type) {
+      var ptC2 = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
+      var ptS2 = ptC2[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
+      var ptB2 = document.createElement('span');
+      ptB2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptS2.bg+';color:'+ptS2.c+';border:1px solid '+ptS2.b+';white-space:nowrap';
+      ptB2.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
+      nameRow.appendChild(ptB2);
     }
     nameDiv.appendChild(nameRow);
 

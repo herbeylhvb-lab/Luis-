@@ -843,6 +843,133 @@ router.get('/voters/race-precincts', (req, res) => {
   res.json({ races });
 });
 
+// ===================== PHONE TOOLS =====================
+
+// Phone stats — counts by type
+router.get('/voters/phone-stats', (req, res) => {
+  const total = db.prepare("SELECT COUNT(*) as c FROM voters").get().c;
+  const withPhone = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone != '' AND phone IS NOT NULL").get().c;
+  const noPhone = total - withPhone;
+  const mobile = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'mobile'").get().c;
+  const landline = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'landline'").get().c;
+  const voip = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'voip'").get().c;
+  const invalid = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'invalid'").get().c;
+  const unvalidated = withPhone - mobile - landline - voip - invalid;
+  res.json({ total, withPhone, noPhone, mobile, landline, voip, invalid, unvalidated });
+});
+
+// Export CSV for phone append service (name + address + existing phone)
+router.get('/voters/export-for-phone-append', (req, res) => {
+  const rows = db.prepare(
+    "SELECT id, first_name, last_name, address, city, state, zip, phone, registration_number FROM voters WHERE address != '' ORDER BY last_name, first_name"
+  ).all();
+  const header = 'voter_id,first_name,last_name,address,city,state,zip,phone,registration_number';
+  const csvEsc = (v) => { const s = (v || '').toString(); return s.includes(',') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = rows.map(r =>
+    [r.id, r.first_name, r.last_name, r.address, r.city, r.state, r.zip, r.phone, r.registration_number].map(csvEsc).join(',')
+  );
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="voters-for-phone-append.csv"');
+  res.send(header + '\n' + lines.join('\n'));
+});
+
+// Import phone append results — merge phones back by voter_id or registration_number
+router.post('/voters/import-phone-append', (req, res) => {
+  const { rows } = req.body; // array of { voter_id, registration_number, phone, phone_type }
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No data provided.' });
+
+  const updateByVoterId = db.prepare("UPDATE voters SET phone = COALESCE(NULLIF(?, ''), phone), phone_type = COALESCE(NULLIF(?, ''), phone_type) WHERE id = ?");
+  const updateByRegNum = db.prepare("UPDATE voters SET phone = COALESCE(NULLIF(?, ''), phone), phone_type = COALESCE(NULLIF(?, ''), phone_type) WHERE registration_number = ?");
+  const findByRegNum = db.prepare("SELECT id FROM voters WHERE registration_number = ?");
+
+  let updated = 0, skipped = 0, phonesAdded = 0;
+  const runImport = db.transaction(() => {
+    for (const row of rows) {
+      const phone = (row.phone || '').replace(/\D/g, '');
+      const phoneType = (row.phone_type || '').toLowerCase().trim();
+      if (!phone && !phoneType) { skipped++; continue; }
+
+      if (row.voter_id) {
+        updateByVoterId.run(phone, phoneType, row.voter_id);
+        updated++;
+        if (phone) phonesAdded++;
+      } else if (row.registration_number) {
+        const existing = findByRegNum.get(row.registration_number);
+        if (existing) {
+          updateByRegNum.run(phone, phoneType, row.registration_number);
+          updated++;
+          if (phone) phonesAdded++;
+        } else {
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+    }
+  });
+  runImport();
+  res.json({ success: true, updated, skipped, phonesAdded });
+});
+
+// Twilio phone validation — bulk validate existing numbers
+router.post('/voters/validate-phones', async (req, res) => {
+  const TWILIO_SID = process.env.TWILIO_SID;
+  const TWILIO_AUTH = process.env.TWILIO_AUTH_TOKEN;
+  if (!TWILIO_SID || !TWILIO_AUTH) {
+    return res.status(400).json({ error: 'Twilio credentials not configured. Set TWILIO_SID and TWILIO_AUTH_TOKEN in environment variables.' });
+  }
+
+  const { limit: batchLimit } = req.body;
+  const max = Math.min(parseInt(batchLimit) || 500, 2000);
+
+  // Get unvalidated phone numbers
+  const voters = db.prepare(
+    "SELECT id, phone FROM voters WHERE phone != '' AND phone IS NOT NULL AND (phone_type = '' OR phone_type IS NULL) LIMIT ?"
+  ).all(max);
+
+  if (voters.length === 0) {
+    return res.json({ success: true, message: 'All phone numbers already validated.', validated: 0 });
+  }
+
+  const update = db.prepare("UPDATE voters SET phone_type = ? WHERE id = ?");
+  const auth = Buffer.from(TWILIO_SID + ':' + TWILIO_AUTH).toString('base64');
+  let validated = 0, mobile = 0, landline = 0, voip = 0, invalid = 0, errors = 0;
+
+  for (const voter of voters) {
+    const phone = voter.phone.replace(/\D/g, '');
+    if (phone.length < 10) { update.run('invalid', voter.id); invalid++; validated++; continue; }
+    const lookupPhone = phone.length === 10 ? '+1' + phone : '+' + phone;
+    try {
+      const resp = await fetch(
+        'https://lookups.twilio.com/v2/PhoneNumbers/' + encodeURIComponent(lookupPhone) + '?Fields=line_type_intelligence',
+        { headers: { 'Authorization': 'Basic ' + auth } }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const lineType = data.line_type_intelligence?.type || '';
+        let type = '';
+        if (lineType === 'mobile' || lineType === 'cellphone') { type = 'mobile'; mobile++; }
+        else if (lineType === 'landline' || lineType === 'fixedLine') { type = 'landline'; landline++; }
+        else if (lineType === 'voip' || lineType === 'nonFixedVoip') { type = 'voip'; voip++; }
+        else if (lineType === 'invalid' || !data.valid) { type = 'invalid'; invalid++; }
+        else { type = lineType || 'unknown'; }
+        update.run(type, voter.id);
+        validated++;
+      } else if (resp.status === 404) {
+        update.run('invalid', voter.id);
+        invalid++; validated++;
+      } else {
+        errors++;
+        if (resp.status === 429) break; // rate limited, stop
+      }
+    } catch (e) { errors++; }
+    // Small delay for rate limiting
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  res.json({ success: true, validated, mobile, landline, voip, invalid, errors, remaining: voters.length - validated });
+});
+
 // Precinct voter counts with full filter support
 router.get('/voters/precinct-counts', (req, res) => {
   const { race_col, race_val, election, party, party_score, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;

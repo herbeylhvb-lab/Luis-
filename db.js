@@ -443,6 +443,7 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(sta
 // --- Voter demographics & district assignments (from county voter file) ---
 addColumn("ALTER TABLE voters ADD COLUMN gender TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN age INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE voters ADD COLUMN phone_type TEXT DEFAULT ''"); // mobile, landline, voip, invalid
 addColumn("ALTER TABLE voters ADD COLUMN county_commissioner TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN justice_of_peace TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN state_board_ed TEXT DEFAULT ''");
