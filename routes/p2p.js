@@ -437,7 +437,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
 
   let resolvedMessage = null;
   if (assignment) {
-    resolvedMessage = personalizeTemplate(session.message_template, assignment);
+    resolvedMessage = personalizeTemplate(session.message_template, assignment, { eventId: session.source_id });
   }
 
   res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template, sessionType: session.session_type || 'campaign' });
