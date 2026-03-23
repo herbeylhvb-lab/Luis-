@@ -1659,7 +1659,7 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Event Title</label><input type="text" id="eventTitle" placeholder="Downtown Rally"></div>
             <div class="form-group"><label>Location</label><input type="text" id="eventLocation" placeholder="City Hall Plaza"></div>
           </div>
-          <div class="form-row" style="margin-bottom:12px">
+          <div class="form-row-3" style="margin-bottom:12px">
             <div class="form-group"><label>Date</label><input type="date" id="eventDate"></div>
             <div class="form-group"><label>Start Time</label><input type="time" id="eventTime"></div>
             <div class="form-group"><label>End Time</label><input type="time" id="eventEndTime"></div>
@@ -1755,6 +1755,16 @@ tr:hover td{background:#1e293b80}
               <button class="btn btn-sm btn-secondary" onclick="toggleAllInvites(true)">Select All</button>
               <button class="btn btn-sm btn-secondary" style="margin-left:4px" onclick="toggleAllInvites(false)">Deselect All</button>
             </div>
+          </div>
+          <div class="form-group" style="margin-top:12px">
+            <label>MMS Project <span style="font-size:11px;color:#64748b;font-weight:400">(select to send flyer image with invite)</span></label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="inviteMmsProjectId" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+                <option value="">Default (SMS only)</option>
+              </select>
+              <button class="btn btn-secondary" style="white-space:nowrap;font-size:12px;padding:8px 12px" onclick="checkInviteMmsProject()">Check Project</button>
+            </div>
+            <div id="inviteMmsCheckResult" style="margin-top:8px;font-size:13px;display:none"></div>
           </div>
           <div style="margin-top:12px">
             <button class="btn btn-sm btn-success" onclick="sendEventInvites()">Send Invites</button>
@@ -7186,6 +7196,14 @@ async function loadEventDetail(id) {
   }
   // Store MMS project ID for use when sending invites
   state.currentEventMmsProjectId = e.mms_project_id || null;
+  // Populate invite MMS dropdown and pre-select event's project
+  var inviteMmsSel = document.getElementById('inviteMmsProjectId');
+  if (inviteMmsSel) {
+    if (e.mms_project_id) inviteMmsSel.value = e.mms_project_id;
+    populateMmsDropdown('inviteMmsProjectId').then(function() {
+      if (e.mms_project_id) inviteMmsSel.value = e.mms_project_id;
+    });
+  }
   // MMS indicator on invite section — all values are from our own DB, not user input
   const mmsNote = document.getElementById('inviteMmsNote');
   if (e.mms_project_id) {
@@ -7197,9 +7215,9 @@ async function loadEventDetail(id) {
     mmsNote.appendChild(badge);
     mmsNote.appendChild(document.createTextNode(' Invites sent as MMS via RumbleUp project #' + e.mms_project_id));
   } else if (e.has_flyer) {
-    mmsNote.textContent = 'Flyer uploaded for display. To send as MMS, set a RumbleUp MMS Project ID when creating the event.';
+    mmsNote.textContent = 'Flyer uploaded for display. To send as MMS, select an MMS project below.';
   } else {
-    mmsNote.textContent = 'Invites will be sent as SMS. To include an image, create an MMS project on RumbleUp and set the Project ID on the event.';
+    mmsNote.textContent = 'Invites will be sent as SMS. Select an MMS project below to include an image.';
   }
   document.getElementById('rsvpStats').innerHTML = Object.keys(counts).map(k =>
     '<div class="stat-card" style="padding:12px"><div class="label">' + k.replace(/_/g,' ') + '</div><div class="value" style="font-size:20px">' + counts[k] + '</div></div>'
@@ -7290,6 +7308,10 @@ window.sendEventInvites = async function() {
     count = selected.length;
   }
 
+  // Include MMS project if selected
+  const inviteMmsId = (document.getElementById('inviteMmsProjectId').value || '').trim();
+  if (inviteMmsId && inviteMmsId !== '__manual__') body.mms_project_id = inviteMmsId;
+
   if (!confirm('Create P2P invite session for ~' + count + ' contacts?\nVolunteers will send each invite individually (TCPA compliant).')) return;
   const el = document.getElementById('inviteAlert');
   el.innerHTML = '<div class="alert alert-info">Creating invite session...</div>';
@@ -7304,6 +7326,33 @@ window.sendEventInvites = async function() {
   }
   loadEventDetail(state.currentEventId);
 };
+
+async function checkInviteMmsProject() {
+  var resultEl = document.getElementById('inviteMmsCheckResult');
+  var projectId = (document.getElementById('inviteMmsProjectId').value || '').trim();
+  if (!projectId || projectId === '__manual__') { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#ef4444">Select a project first.</span>'; return; }
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<span style="color:#94a3b8">Checking project #' + projectId + '...</span>';
+  try {
+    var data = await api('/api/rumbleup/project/' + projectId);
+    var p = data.project || {};
+    var html = '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-top:4px">';
+    html += '<strong style="color:#e2e8f0">Project #' + projectId + ': ' + (p.name || '?') + '</strong><br>';
+    html += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + (p.type || '?') + '</span><br>';
+    html += '<span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + (p.status || '?') + '</span><br>';
+    html += '<span style="color:#94a3b8">Media: </span>';
+    if (p.media) {
+      html += '<span style="color:#22c55e;font-weight:600">YES</span> — <a href="' + p.media + '" target="_blank" style="color:#818cf8">' + p.media + '</a>';
+    } else {
+      html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + (p.cid || '') + '/' + projectId + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
+    }
+    html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + (p.link || '#') + '" target="_blank" style="color:#818cf8">' + (p.link || 'N/A') + '</a>';
+    html += '</div>';
+    resultEl.innerHTML = html;
+  } catch (err) {
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+  }
+}
 
 function useMyLocation() {
   if (!navigator.geolocation) { alert('Geolocation not supported by your browser.'); return; }
