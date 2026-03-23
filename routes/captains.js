@@ -879,7 +879,7 @@ router.post('/captains/:id/lists/:listId/import-csv', requireCaptainAuth, (req, 
     importTx(rows);
   } catch (err) {
     console.error('Captain CSV import error:', err);
-    return res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
+    return res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
   }
   // Cross-list info hidden from captains — only admin sees overlap
   res.json({ success: true, ...results });
