@@ -135,13 +135,19 @@ app.use((req, res, next) => {
   for (const p of publicApiPaths) {
     if (req.path.startsWith(p)) return next();
   }
-  // Allow volunteer walk endpoints
+  // Allow volunteer walk endpoints (used by walk.html without admin auth)
   if (req.path.match(/^\/api\/walks\/\d+\/volunteer/) ||
       req.path.match(/^\/api\/walks\/\d+\/walker\//) ||
+      req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//) ||
+      req.path.match(/^\/api\/walks\/\d+\/walkers$/) ||
       req.path.match(/^\/api\/walks\/\d+\/group/) ||
       req.path.match(/^\/api\/walks\/\d+\/addresses\/\d+\/log/) ||
       req.path.match(/^\/api\/walks\/\d+\/route/) ||
-      req.path.match(/^\/api\/walks\/\d+\/location/)) {
+      req.path.match(/^\/api\/walks\/\d+\/location/) ||
+      req.path.match(/^\/api\/walks\/\d+\/live-status/) ||
+      req.path.match(/^\/api\/walks\/\d+\/script/) ||
+      req.path.match(/^\/api\/walks\/\d+\/map-data/) ||
+      req.path.match(/^\/api\/walks\/\d+\/geocode/)) {
     return next();
   }
   // Allow P2P volunteer endpoints (used by volunteer.html without admin auth)
