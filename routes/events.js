@@ -258,7 +258,7 @@ router.post('/events/:id/rsvps', (req, res) => {
 });
 
 // Bulk invite from an admin list
-router.post('/events/:id/invite-from-list', (req, res) => {
+router.post('/events/:id/invite-from-list', requireAuth, (req, res) => {
   const { list_id, rsvp_status } = req.body;
   if (!list_id) return res.status(400).json({ error: 'list_id is required.' });
 
