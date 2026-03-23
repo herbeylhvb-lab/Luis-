@@ -1149,14 +1149,9 @@ router.post('/walks/join', (req, res) => {
   const joinResult = db.transaction(() => {
     const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
     if (members.c >= maxWalkers) return { full: true };
-    try {
-      db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
-    } catch (e) {
-      if (e.message.includes('UNIQUE constraint')) {
-        return { duplicate: true };
-      }
-      throw e;
-    }
+    const existing = db.prepare('SELECT 1 FROM walk_group_members WHERE walk_id = ? AND phone = ?').get(walk.id, normPhone);
+    if (existing) return { duplicate: true };
+    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
     return { success: true };
   })();
 
