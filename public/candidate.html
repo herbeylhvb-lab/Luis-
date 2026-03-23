@@ -467,6 +467,7 @@ var selectedVoterIds = new Set();
 var currentRightPanelVoters = []; // voters currently rendered in right panel
 var currentRightPanelListId = null; // the list ID currently shown in right panel
 var _raceFilter = 'all'; // current race filter state
+var _votedStatus = 'all'; // current voted filter state
 var draggedVoterIds = []; // IDs being dragged
 
 function updateFloatingBar() {
@@ -1664,7 +1665,7 @@ async function loadListVoters(listId) {
     var race = getCandidateRace();
     if (race) tagVotersInRace(allVoters, race);
 
-    var _votedStatus = 'all';
+    _votedStatus = 'all';
     _raceFilter = 'all';
     function applyListFilters() {
       var filtered = filterVotersByStatus(allVoters, _votedStatus);
@@ -1698,11 +1699,16 @@ async function loadListVoters(listId) {
     })(listId);
     controls.appendChild(uploadBtn);
 
+    function getFilteredListVoters() {
+      var f = filterVotersByStatus(allVoters, _votedStatus);
+      return filterByRace(f, _raceFilter);
+    }
+
     var printBtn = document.createElement('button');
     printBtn.className = 'btn-icon';
     printBtn.innerHTML = '&#128424; Print';
     printBtn.onclick = function() {
-      captainListVoters = allVoters;
+      captainListVoters = getFilteredListVoters();
       printCaptainList(listName);
     };
     controls.appendChild(printBtn);
@@ -1711,7 +1717,7 @@ async function loadListVoters(listId) {
     dlBtn.className = 'btn-icon';
     dlBtn.innerHTML = '&#128229; CSV';
     dlBtn.onclick = function() {
-      captainListVoters = allVoters;
+      captainListVoters = getFilteredListVoters();
       downloadCaptainListCSV(listName);
     };
     controls.appendChild(dlBtn);
