@@ -2027,14 +2027,16 @@ tr:hover td{background:#1e293b80}
         <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Find voters who haven't voted yet and create a list to text them.</p>
         <div class="form-row-3" style="margin-bottom:16px">
           <div class="form-group"><label>Support Level</label>
-            <select id="gotvSupportFilter" multiple style="height:100px">
-              <option value="strong_support" selected>Strong Support</option>
-              <option value="lean_support" selected>Lean Support</option>
-              <option value="supporter" selected>Supporter</option>
+            <select id="gotvSupportFilter">
+              <option value="supporters">All Supporters</option>
+              <option value="strong_support">Strong Support</option>
+              <option value="lean_support">Lean Support</option>
+              <option value="supporter">Supporter</option>
               <option value="undecided">Undecided</option>
               <option value="unknown">Unknown</option>
               <option value="lean_oppose">Lean Oppose</option>
               <option value="oppose">Oppose</option>
+              <option value="">All Levels</option>
             </select>
           </div>
           <div class="form-group"><label>Precinct</label>
@@ -12782,8 +12784,8 @@ async function loadGotvPrecincts() {
 }
 
 async function searchGotvChase() {
-  var supportSel = document.getElementById('gotvSupportFilter');
-  var support = Array.from(supportSel.selectedOptions).map(function(o) { return o.value; }).join(',');
+  var supportVal = document.getElementById('gotvSupportFilter').value;
+  var support = supportVal === 'supporters' ? 'strong_support,lean_support,supporter' : supportVal;
   var precinct = document.getElementById('gotvPrecinctFilter').value;
   var hasPhone = document.getElementById('gotvPhoneFilter').value;
   try {
@@ -12808,8 +12810,8 @@ async function searchGotvChase() {
 async function createChaseList() {
   var name = document.getElementById('gotvListName').value.trim();
   if (!name) { alert('Enter a name for the chase list.'); return; }
-  var supportSel = document.getElementById('gotvSupportFilter');
-  var supportLevels = Array.from(supportSel.selectedOptions).map(function(o) { return o.value; });
+  var supportVal = document.getElementById('gotvSupportFilter').value;
+  var supportLevels = supportVal === 'supporters' ? ['strong_support', 'lean_support', 'supporter'] : supportVal ? [supportVal] : [];
   var precinct = document.getElementById('gotvPrecinctFilter').value;
   var hasPhone = document.getElementById('gotvPhoneFilter').value === '1';
   try {
