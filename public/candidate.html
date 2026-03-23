@@ -374,13 +374,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
               <div class="form-group"><label>ZIP</label><input type="text" id="candZipFilter" placeholder="All" oninput="debounceSearch()"></div>
               <div class="form-group"><label>Precinct</label><input type="text" id="candPrecinctFilter" placeholder="All" oninput="debounceSearch()"></div>
               <div class="form-group" style="grid-column:1/-1"><label>Address</label><input type="text" id="candAddressFilter" placeholder="Street..." oninput="debounceSearch()"></div>
-              <div class="form-group"><label>Party</label>
+              <div class="form-group"><label>Party ID</label>
                 <select id="candPartyFilter" onchange="debounceSearch()">
-                  <option value="">All Parties</option>
-                  <option value="DEM">DEM</option>
-                  <option value="REP">REP</option>
-                  <option value="NPA">NPA</option>
-                  <option value="LPF">LPF</option>
+                  <option value="">All</option>
+                  <option value="DDD">DDD (Strong Dem)</option>
+                  <option value="DD">DD (Mod Dem)</option>
+                  <option value="D">D (Weak Dem)</option>
+                  <option value="RRR">RRR (Strong GOP)</option>
+                  <option value="RR">RR (Mod GOP)</option>
+                  <option value="R">R (Weak GOP)</option>
+                  <option value="SWING">Swing</option>
                 </select>
               </div>
               <div class="form-group"><label>Support</label>
@@ -463,6 +466,8 @@ var captainListVoters = [];
 var selectedVoterIds = new Set();
 var currentRightPanelVoters = []; // voters currently rendered in right panel
 var currentRightPanelListId = null; // the list ID currently shown in right panel
+var _raceFilter = 'all'; // current race filter state
+var _votedStatus = 'all'; // current voted filter state
 var draggedVoterIds = []; // IDs being dragged
 
 function updateFloatingBar() {
@@ -894,6 +899,49 @@ function filterVotersByStatus(voters, status) {
   return voters;
 }
 
+var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
+
+function getCandidateRace() {
+  if (!candidateData || !candidateData.candidate) return null;
+  var c = candidateData.candidate;
+  if (c.race_type && c.race_value) return { type: c.race_type, value: c.race_value, label: (_raceTypeLabels[c.race_type] || c.race_type) + ' ' + c.race_value };
+  return null;
+}
+
+function tagVotersInRace(voters, race) {
+  if (!race) return;
+  voters.forEach(function(v) { v._in_race = (v[race.type] || '').toString().trim() === race.value.toString().trim(); });
+}
+
+function createRaceFilter(race, onChangeFn) {
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;gap:4px;align-items:center';
+  var lbl = document.createElement('span');
+  lbl.style.cssText = 'font-size:11px;color:#94a3b8';
+  lbl.textContent = race.label + ':';
+  wrap.appendChild(lbl);
+  var current = 'all';
+  ['all','in','out'].forEach(function(val) {
+    var btn = document.createElement('button');
+    btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (val === 'all' ? 'background:#818cf8;color:#fff;border-color:#818cf8' : 'background:#1e293b;color:#94a3b8');
+    btn.textContent = val === 'all' ? 'All' : val === 'in' ? 'In Race' : 'Not In Race';
+    btn.onclick = function() {
+      current = val;
+      wrap.querySelectorAll('button').forEach(function(b) { b.style.background = '#1e293b'; b.style.color = '#94a3b8'; b.style.borderColor = '#334155'; });
+      btn.style.background = '#818cf8'; btn.style.color = '#fff'; btn.style.borderColor = '#818cf8';
+      onChangeFn(val);
+    };
+    wrap.appendChild(btn);
+  });
+  return wrap;
+}
+
+function filterByRace(voters, raceFilter) {
+  if (raceFilter === 'in') return voters.filter(function(v) { return v._in_race; });
+  if (raceFilter === 'out') return voters.filter(function(v) { return !v._in_race; });
+  return voters;
+}
+
 function createVoterExpandPanel(v) {
   var panel = document.createElement('div');
   panel.className = 'voter-expand-panel';
@@ -901,7 +949,7 @@ function createVoterExpandPanel(v) {
   var fields = [
     ['Address', (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '')],
     ['Phone', v.phone || '\u2014'],
-    ['Party', v.party || '\u2014'],
+    ['Party ID', v.party_score || 'No primary history'],
     ['Precinct', v.precinct || '\u2014'],
     ['Voter ID', v.registration_number || v.state_file_id || v.county_file_id || v.vanid || '\u2014'],
     ['Voted', v.early_voted === 1 ? '\u2713 Yes' + (v.early_voted_date ? ' (' + v.early_voted_date + ')' : '') + (v.early_voted_method ? ' \u2014 ' + v.early_voted_method : '') : 'Not yet']
@@ -1075,7 +1123,7 @@ function renderCaptainCards(captains) {
       if (navigator.share) {
         navigator.share({ title: 'Block Captain Code', text: msg }).catch(function(){});
       } else {
-        window.open('sms:?&body=' + encodeURIComponent(msg), '_blank');
+        window.open('sms:?body=' + encodeURIComponent(msg), '_blank');
       }
     };
     codeWrap.appendChild(shareBtn);
@@ -1419,7 +1467,8 @@ function onListSelectChange() {
     content.appendChild(empty);
   }
   var q = document.getElementById('voterSearch').value.trim();
-  var hasFilter = (document.getElementById('candPhoneFilter') || {}).value || (document.getElementById('candVanidFilter') || {}).value || (document.getElementById('candCityFilter') || {}).value || (document.getElementById('candZipFilter') || {}).value || (document.getElementById('candPrecinctFilter') || {}).value || (document.getElementById('candAddressFilter') || {}).value;
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  var hasFilter = gv('candPhoneFilter') || gv('candVanidFilter') || gv('candCityFilter') || gv('candZipFilter') || gv('candPrecinctFilter') || gv('candAddressFilter');
   if (q.length >= 2 || hasFilter) searchVoters();
 }
 
@@ -1453,14 +1502,17 @@ async function loadCandidateCityFilter() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phone = (document.getElementById('candPhoneFilter') || {}).value || '';
-  var vanid = (document.getElementById('candVanidFilter') || {}).value || '';
-  var city = (document.getElementById('candCityFilter') || {}).value || '';
-  var zip = (document.getElementById('candZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('candPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('candAddressFilter') || {}).value || '';
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  var phone = gv('candPhoneFilter').trim();
+  var vanid = gv('candVanidFilter').trim();
+  var city = gv('candCityFilter');
+  var zip = gv('candZipFilter').trim();
+  var precinct = gv('candPrecinctFilter').trim();
+  var address = gv('candAddressFilter').trim();
+  var party = gv('candPartyFilter');
+  var support = gv('candSupportFilter');
   var results = document.getElementById('searchResults');
-  var hasFilter = phone || vanid || city || zip || precinct || address;
+  var hasFilter = phone || vanid || city || zip || precinct || address || party || support;
   if (q.length < 2 && !hasFilter) {
     results.textContent = '';
     var hint = document.createElement('div');
@@ -1479,6 +1531,8 @@ async function searchVoters() {
     if (zip) params.set('zip', zip.trim());
     if (precinct) params.set('precinct', precinct.trim());
     if (address) params.set('address', address.trim());
+    if (party) params.set('party', party);
+    if (support) params.set('support', support);
     var data = await api('/api/candidates/' + candidateId + '/search?' + params.toString());
     var voters = data.voters || [];
 
@@ -1527,10 +1581,12 @@ async function searchVoters() {
 
       var meta = document.createElement('div');
       meta.className = 'voter-meta';
-      if (v.party) {
+      if (v.party_score) {
         var partyBadge = document.createElement('span');
-        partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-        partyBadge.textContent = v.party;
+        var pColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+        partyBadge.className = 'badge ' + (pColors[v.party_score] || 'badge-gray');
+        partyBadge.style.cssText = 'font-weight:700;letter-spacing:1px';
+        partyBadge.textContent = v.party_score;
         meta.appendChild(partyBadge);
       }
       meta.appendChild(createVotedBadge(v));
@@ -1569,7 +1625,15 @@ async function searchVoters() {
       card.appendChild(actions);
       results.appendChild(card);
     });
-  } catch (e) { console.error('search error:', e); }
+  } catch (e) {
+    console.error('search error:', e);
+    results.textContent = '';
+    var errDiv = document.createElement('div');
+    errDiv.className = 'empty-state';
+    errDiv.style.color = '#ef4444';
+    errDiv.textContent = 'Search failed: ' + (e.message || 'Unknown error');
+    results.appendChild(errDiv);
+  }
 }
 
 async function addVoterToList(voterId) {
@@ -1608,13 +1672,34 @@ async function loadListVoters(listId) {
     controls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
 
     var allVoters = voters.slice();
+    var race = getCandidateRace();
+    if (race) tagVotersInRace(allVoters, race);
+
+    _votedStatus = 'all';
+    _raceFilter = 'all';
+    function applyListFilters() {
+      var filtered = filterVotersByStatus(allVoters, _votedStatus);
+      filtered = filterByRace(filtered, _raceFilter);
+      renderListVoterRows(filtered, content, listId);
+      var inCount = race ? allVoters.filter(function(v) { return v._in_race; }).length : 0;
+      var sub = filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '');
+      if (race) sub += ' \u00B7 ' + inCount + ' in race';
+      document.getElementById('rightSub').textContent = sub;
+    }
 
     var votedFilter = createVotedFilter(function(status) {
-      var filtered = filterVotersByStatus(allVoters, status);
-      renderListVoterRows(filtered, content, listId);
-      document.getElementById('rightSub').textContent = filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '');
+      _votedStatus = status;
+      applyListFilters();
     });
     controls.appendChild(votedFilter);
+
+    if (race) {
+      var raceFilterEl = createRaceFilter(race, function(val) {
+        _raceFilter = val;
+        applyListFilters();
+      });
+      controls.appendChild(raceFilterEl);
+    }
 
     var uploadBtn = document.createElement('button');
     uploadBtn.className = 'btn-icon';
@@ -1624,11 +1709,16 @@ async function loadListVoters(listId) {
     })(listId);
     controls.appendChild(uploadBtn);
 
+    function getFilteredListVoters() {
+      var f = filterVotersByStatus(allVoters, _votedStatus);
+      return filterByRace(f, _raceFilter);
+    }
+
     var printBtn = document.createElement('button');
     printBtn.className = 'btn-icon';
     printBtn.innerHTML = '&#128424; Print';
     printBtn.onclick = function() {
-      captainListVoters = allVoters;
+      captainListVoters = getFilteredListVoters();
       printCaptainList(listName);
     };
     controls.appendChild(printBtn);
@@ -1637,7 +1727,7 @@ async function loadListVoters(listId) {
     dlBtn.className = 'btn-icon';
     dlBtn.innerHTML = '&#128229; CSV';
     dlBtn.onclick = function() {
-      captainListVoters = allVoters;
+      captainListVoters = getFilteredListVoters();
       downloadCaptainListCSV(listName);
     };
     controls.appendChild(dlBtn);
@@ -1710,6 +1800,8 @@ function renderListVoterRows(voters, content, listId) {
     var metaDiv = document.createElement('div');
     metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;align-items:center';
     metaDiv.appendChild(createVotedBadge(v));
+    var rb = createRaceBadge(v);
+    if (rb) metaDiv.appendChild(rb);
     if (v.age) {
       var ageBadge2 = document.createElement('span');
       ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
@@ -1718,6 +1810,7 @@ function renderListVoterRows(voters, content, listId) {
     }
     infoDiv.appendChild(metaDiv);
     row.appendChild(infoDiv);
+    if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
     var removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
@@ -1759,20 +1852,42 @@ async function loadCaptainListInRight(listId, captainName) {
     var voters = data.voters || [];
     captainListVoters = voters;
     var allCapVoters = voters.slice();
+    var race = getCandidateRace();
+    if (race) tagVotersInRace(allCapVoters, race);
 
     document.getElementById('rightTitle').textContent = captainName;
-    document.getElementById('rightSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
+    var inCount = race ? allCapVoters.filter(function(v) { return v._in_race; }).length : 0;
+    var subText = voters.length + ' voter' + (voters.length !== 1 ? 's' : '') + (race ? ' \u00B7 ' + inCount + ' in race' : '');
+    document.getElementById('rightSub').textContent = subText;
 
     var controls = document.createElement('div');
     controls.className = 'right-controls';
     controls.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap';
 
-    var votedFilter = createVotedFilter(function(status) {
-      var filtered = filterVotersByStatus(allCapVoters, status);
+    var _capVotedStatus = 'all';
+    var _capRaceFilter = 'all';
+    function applyCapFilters() {
+      var filtered = filterVotersByStatus(allCapVoters, _capVotedStatus);
+      filtered = filterByRace(filtered, _capRaceFilter);
       renderCaptainVoterRows(filtered, content);
-      document.getElementById('rightSub').textContent = filtered.length + ' of ' + allCapVoters.length + ' voter' + (allCapVoters.length !== 1 ? 's' : '');
+      var sub2 = filtered.length + ' of ' + allCapVoters.length + ' voter' + (allCapVoters.length !== 1 ? 's' : '');
+      if (race) sub2 += ' \u00B7 ' + allCapVoters.filter(function(v) { return v._in_race; }).length + ' in race';
+      document.getElementById('rightSub').textContent = sub2;
+    }
+
+    var votedFilter = createVotedFilter(function(status) {
+      _capVotedStatus = status;
+      applyCapFilters();
     });
     controls.appendChild(votedFilter);
+
+    if (race) {
+      var raceFilterEl = createRaceFilter(race, function(val) {
+        _capRaceFilter = val;
+        applyCapFilters();
+      });
+      controls.appendChild(raceFilterEl);
+    }
 
     var printBtn = document.createElement('button');
     printBtn.className = 'btn-icon';
@@ -1854,8 +1969,11 @@ function renderCaptainVoterRows(voters, container) {
     var metaDiv = document.createElement('div');
     metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
     metaDiv.appendChild(createVotedBadge(v));
+    var rb2 = createRaceBadge(v);
+    if (rb2) metaDiv.appendChild(rb2);
     info.appendChild(metaDiv);
     row.appendChild(info);
+    if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
     container.appendChild(row);
   });
@@ -1960,10 +2078,10 @@ async function loadMasterListInRight() {
 }
 
 function filterMasterListRight() {
-  var q = (document.getElementById('masterSearchRight') || {}).value || '';
-  q = q.trim().toLowerCase();
-  var votedStatus = (document.getElementById('masterVotedFilterRight') || {}).value || 'all';
-  var captainVal = (document.getElementById('masterCaptainFilterRight') || {}).value || 'all';
+  var gvf = function(id, def) { var e = document.getElementById(id); return e ? e.value : (def || ''); };
+  var q = gvf('masterSearchRight').trim().toLowerCase();
+  var votedStatus = gvf('masterVotedFilterRight', 'all');
+  var captainVal = gvf('masterCaptainFilterRight', 'all');
   var filtered = filterVotersByStatus(masterListData, votedStatus);
   if (captainVal !== 'all') {
     filtered = filtered.filter(function(v) {
@@ -1972,7 +2090,7 @@ function filterMasterListRight() {
   }
   if (q) {
     filtered = filtered.filter(function(v) {
-      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
+      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party_score || v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
       (v.lists || []).forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
       return text.indexOf(q) !== -1;
     });
@@ -1999,7 +2117,7 @@ function renderMasterRowsRight(voters, container) {
   table.className = 'master-table';
   var thead = document.createElement('thead');
   var headTr = document.createElement('tr');
-  ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'].forEach(function(h) {
+  ['Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone', 'On Lists'].forEach(function(h) {
     var th = document.createElement('th');
     th.textContent = h;
     headTr.appendChild(th);
@@ -2055,10 +2173,12 @@ function renderMasterRowsRight(voters, container) {
     tr.appendChild(tdAddr);
 
     var tdParty = document.createElement('td');
-    if (v.party) {
+    if (v.party_score) {
       var partyBadge = document.createElement('span');
-      partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-      partyBadge.textContent = v.party;
+      var pColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+      partyBadge.className = 'badge ' + (pColors[v.party_score] || 'badge-gray');
+      partyBadge.style.cssText = 'font-weight:700;letter-spacing:1px';
+      partyBadge.textContent = v.party_score;
       tdParty.appendChild(partyBadge);
     }
     tr.appendChild(tdParty);
@@ -2211,7 +2331,7 @@ async function loadHousehold(voterId, card) {
       var row = document.createElement('div');
       row.className = 'household-member';
       var info = document.createElement('span');
-      info.textContent = (m.first_name || '') + ' ' + (m.last_name || '') + (m.party ? ' (' + m.party + ')' : '');
+      info.textContent = (m.first_name || '') + ' ' + (m.last_name || '') + (m.party_score ? ' (' + m.party_score + ')' : '');
       row.appendChild(info);
       if (selectedListId) {
         var addBtn = document.createElement('button');
@@ -2322,6 +2442,14 @@ function createVotedBadge(v) {
   return badge;
 }
 
+function createRaceBadge(v) {
+  if (v._in_race === undefined) return null;
+  var badge = document.createElement('span');
+  badge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;white-space:nowrap;' + (v._in_race ? 'background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(239,68,68,0.15);color:#fca5a5;border:1px solid rgba(239,68,68,0.3)');
+  badge.textContent = v._in_race ? 'In Race' : 'Not In Race';
+  return badge;
+}
+
 function daysSince(dateStr) {
   if (!dateStr) return 'recently';
   var d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00Z'));
@@ -2411,7 +2539,7 @@ function buildPrintPage(title, subtitle, tableHeaders, rows) {
 function printMasterList() {
   var title = (candidateData.candidate.name || '') + ' \u2014 Master Voter List';
   var subtitle = masterListData.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
-  var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'];
+  var headers = ['Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone', 'On Lists'];
   var rows = masterListData.map(function(v) {
     var voted = isVoted(v);
     var listsStr = (v.lists || []).map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join(', ');
@@ -2419,7 +2547,7 @@ function printMasterList() {
       voterFullName(v) + (v.precinct ? ' (Pct ' + v.precinct + ')' : ''),
       voterIdDisplay(v) || '\u2014',
       (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
-      v.party || '',
+      v.party_score || '',
       { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
       v.phone || '',
       listsStr
@@ -2429,10 +2557,10 @@ function printMasterList() {
 }
 
 function downloadMasterCSV() {
-  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Precinct', 'Voted', 'Phone', 'On Lists'];
+  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone', 'On Lists'];
   var rows = masterListData.map(function(v) {
     var listsStr = (v.lists || []).map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join('; ');
-    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', v.precinct || '', isVoted(v) ? 'Yes' : 'No', v.phone || '', listsStr].map(csvEscape).join(',');
+    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party_score || '', v.precinct || '', isVoted(v) ? 'Yes' : 'No', v.phone || '', listsStr].map(csvEscape).join(',');
   });
   var csv = headers.join(',') + '\n' + rows.join('\n');
   var name = (candidateData.candidate.name || 'master').replace(/\s+/g, '_') + '_master_list.csv';
@@ -2442,14 +2570,14 @@ function downloadMasterCSV() {
 function printCaptainList(captainName) {
   var title = captainName + ' \u2014 Voter List';
   var subtitle = captainListVoters.length + ' voter' + (captainListVoters.length !== 1 ? 's' : '') + ' \u00B7 Printed ' + new Date().toLocaleString();
-  var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone'];
+  var headers = ['Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone'];
   var rows = captainListVoters.map(function(v) {
     var voted = isVoted(v);
     return [
       voterFullName(v),
       voterIdDisplay(v) || '\u2014',
       (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
-      v.party || '',
+      v.party_score || '',
       { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
       v.phone || ''
     ];
@@ -2458,9 +2586,9 @@ function printCaptainList(captainName) {
 }
 
 function downloadCaptainListCSV(captainName) {
-  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Voted', 'Phone'];
+  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Voted', 'Phone'];
   var rows = captainListVoters.map(function(v) {
-    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', isVoted(v) ? 'Yes' : 'No', v.phone || ''].map(csvEscape).join(',');
+    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party_score || '', isVoted(v) ? 'Yes' : 'No', v.phone || ''].map(csvEscape).join(',');
   });
   var csv = headers.join(',') + '\n' + rows.join('\n');
   var name = (captainName || 'captain').replace(/\s+/g, '_') + '_voters.csv';

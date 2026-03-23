@@ -230,6 +230,20 @@
     .badge-green { background: #052e16; color: #4ade80; }
     .badge-yellow { background: #422006; color: #fcd34d; }
     .badge-blue { background: #0c1a3d; color: #93c5fd; }
+    .badge-purple { background: #2e1065; color: #c4b5fd; }
+    .badge-orange { background: #431407; color: #fdba74; }
+
+    .type-banner {
+      padding: 8px 16px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .type-banner.type-campaign { background: #1e3a5f; color: #93c5fd; }
+    .type-banner.type-event { background: #422006; color: #fdba74; }
+    .type-banner.type-survey { background: #2e1065; color: #c4b5fd; }
 
     .convo-item {
       display: flex;
@@ -241,6 +255,27 @@
     }
     .convo-item:hover { background: #334155; border-radius: 6px; }
     .convo-item:last-child { border-bottom: none; }
+
+    /* New reply notification pulse */
+    @keyframes replyPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(250,204,21,0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(250,204,21,0); }
+    }
+    .convo-item.new-reply {
+      animation: replyPulse 1.5s ease-in-out 3;
+      background: rgba(250,204,21,0.08);
+    }
+    .new-reply-banner {
+      background: #422006;
+      color: #fcd34d;
+      padding: 10px 16px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+    }
+    .new-reply-banner:hover { background: #4a2507; }
 
     /* Scanner styles */
     .scan-result {
@@ -364,18 +399,15 @@
     <div class="join-card">
       <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128241;</div>
       <h2>P2P Volunteer Texting</h2>
-      <p>Enter your name and the session code shared by your campaign manager.</p>
+      <p>Enter your volunteer code to sign in.</p>
       <div class="form-group">
-        <label>Your Name</label>
-        <input type="text" id="volName" placeholder="Maria Garcia" autocomplete="name">
+        <label>Volunteer Code</label>
+        <input type="text" id="volCode" class="code-input" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
       </div>
-      <div class="form-group">
-        <label>Session Code</label>
-        <input type="text" id="volCode" class="code-input" placeholder="0000" maxlength="4" inputmode="numeric">
-      </div>
-      <button class="btn btn-primary" id="btnJoin" onclick="joinSession()">Join Session</button>
+      <button class="btn btn-primary" id="btnJoin" onclick="joinWithCode()">Sign In</button>
       <div class="error-msg" id="joinError"></div>
       <div class="mode-divider">&mdash;</div>
+      <p style="color:#64748b;font-size:12px;margin-bottom:8px">Don't have a code? Ask your campaign admin.</p>
       <button class="btn btn-secondary btn-sm" onclick="backToRoles()">&#8592; Back to Role Selection</button>
     </div>
   </div>
@@ -422,42 +454,89 @@
 
   <!-- TEXTING SCREEN -->
   <div class="texting-screen" id="textingScreen">
+    <div id="typeBanner" class="type-banner type-campaign" style="display:none"></div>
     <div class="header">
       <div>
-        <h1>&#128241; <span>P2P</span> Texting</h1>
+        <h1>&#128241; <span>P2P</span> Texting <span id="typeBadge" class="badge badge-blue" style="font-size:11px;vertical-align:middle;margin-left:6px"></span></h1>
         <div class="session-info" id="sessionInfo"></div>
       </div>
       <button class="btn-leave" onclick="leaveSession()">Leave</button>
     </div>
 
+    <div id="newReplyBanner" class="new-reply-banner" onclick="scrollToConvos()">&#128172; New reply received! Tap to view conversations</div>
     <div class="container">
       <div class="stats-bar" id="volStats"></div>
 
-      <!-- CURRENT CONTACT TO TEXT -->
-      <div class="card" id="queueCard">
-        <h3>Next Contact</h3>
-        <div id="queueContent"></div>
+      <!-- ACTIVE CONVERSATIONS (always visible when there are any) -->
+      <div class="card" id="convosCard" style="display:none">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+          <span>&#128172; Responses <span class="badge badge-yellow" id="convoCount">0</span></span>
+          <span id="convoNewDot" style="display:none;width:10px;height:10px;background:#fbbf24;border-radius:50%;animation:replyPulse 1.5s ease-in-out infinite"></span>
+        </h3>
+        <button class="btn btn-sm btn-success" style="margin-bottom:10px;width:100%" onclick="startReplyPipeline()">&#9654; Start Responding (one by one)</button>
+        <div id="convosList"></div>
       </div>
 
-      <!-- ACTIVE CONVERSATIONS -->
-      <div class="card" id="convosCard" style="display:none">
-        <h3>Active Conversations <span class="badge badge-yellow" id="convoCount">0</span></h3>
-        <div id="convosList"></div>
+      <!-- NEEDS RESPONSE (shared inbox) -->
+      <div class="card" id="needsResponseCard" style="border-left:3px solid #f59e0b">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+          <span>Needs Response <span class="badge" id="volPendingCount" style="background:#f59e0b;color:#000;margin-left:6px;font-size:11px">0</span></span>
+          <button class="btn btn-sm btn-secondary" onclick="loadVolPending()">Refresh</button>
+        </h3>
+        <p style="color:#94a3b8;font-size:12px;margin-bottom:10px">Messages from anyone waiting for a reply — help the campaign respond faster.</p>
+        <div id="volPendingList"><div style="color:#64748b;font-size:13px">Loading...</div></div>
+      </div>
+
+      <!-- CURRENT CONTACT TO TEXT -->
+      <div class="card" id="queueCard">
+        <h3 id="queueCardTitle">Next Contact</h3>
+        <div id="queueContent"></div>
       </div>
 
       <!-- CONVERSATION VIEW -->
       <div class="card" id="convoViewCard" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h3 id="convoViewTitle">Conversation</h3>
-          <button class="btn btn-sm btn-secondary" onclick="closeConvo()">Back</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span id="pipelineCounter" style="display:none;font-size:12px;color:#94a3b8;font-weight:600"></span>
+            <button class="btn btn-sm btn-secondary" onclick="closeConvo()">Back</button>
+          </div>
         </div>
         <div class="convo-messages" id="convoMessages"></div>
+        <!-- AI Suggestion -->
+        <div id="aiSuggestion" style="display:none;background:#1a1a2e;border:1px solid #818cf8;border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:#818cf8">AI Suggested Reply <span id="aiSource" class="badge badge-blue" style="margin-left:4px"></span></span>
+            <span id="aiLoading" style="font-size:12px;color:#64748b">Thinking...</span>
+          </div>
+          <div id="aiSuggestionText" style="color:#e2e8f0;font-size:14px;line-height:1.5;margin-bottom:10px"></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-success" onclick="approveAiSuggestion()">Send As-Is</button>
+            <button class="btn btn-sm btn-secondary" onclick="editAiSuggestion()">Edit First</button>
+            <button class="btn btn-sm btn-secondary" onclick="dismissAiSuggestion()">Write My Own</button>
+          </div>
+        </div>
+        <!-- Grammar Review -->
+        <div id="grammarReview" style="display:none;background:#1a1a2e;border:1px solid #f59e0b;border-radius:8px;padding:12px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:#f59e0b">Grammar Check</span>
+            <span id="grammarLoading" style="font-size:12px;color:#64748b">Checking...</span>
+          </div>
+          <div id="grammarOriginal" style="color:#94a3b8;font-size:12px;margin-bottom:4px;text-decoration:line-through"></div>
+          <div id="grammarCorrected" style="color:#e2e8f0;font-size:14px;line-height:1.5;margin-bottom:10px"></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-success" onclick="acceptGrammarFix()">Send Corrected</button>
+            <button class="btn btn-sm btn-secondary" onclick="sendOriginalAnyway()">Send Original</button>
+            <button class="btn btn-sm btn-secondary" onclick="cancelGrammarReview()">Edit More</button>
+          </div>
+        </div>
         <div class="reply-area">
           <textarea id="replyText" placeholder="Type your reply..."></textarea>
           <button onclick="sendReply()">Send</button>
         </div>
         <div class="btn-row">
           <button class="btn btn-sm btn-success" id="btnMarkDone" onclick="markComplete()">Mark Complete</button>
+          <button class="btn btn-sm btn-secondary" id="btnNextConvo" style="display:none" onclick="advancePipeline()">Next Response &#8594;</button>
         </div>
       </div>
     </div>
@@ -468,16 +547,48 @@
       volunteerId: null,
       sessionId: null,
       sessionName: '',
+      sessionType: 'campaign',
       currentAssignmentId: null,
       viewingConvoId: null,
-      credentials: JSON.parse(localStorage.getItem('twilioCredentials') || '{}')
+      pollInterval: null,
+      convoRefreshInterval: null,
+      lastConvoIds: [],       // Track active conversation IDs to detect new replies
+      notificationSound: null // Audio element for notification ping
     };
 
-    // Pre-fill code from URL param (auto-go to P2P if code is provided)
+    // Create a simple notification sound using Web Audio API
+    function playNotificationSound() {
+      try {
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 880; osc.type = 'sine';
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch(e) { /* Audio not supported */ }
+    }
+
+    function scrollToConvos() {
+      document.getElementById('newReplyBanner').style.display = 'none';
+      var convosCard = document.getElementById('convosCard');
+      if (convosCard.style.display !== 'none') {
+        convosCard.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+
+    var typeConfig = {
+      campaign: { label: 'Campaign', icon: '\uD83D\uDCE2', badgeClass: 'badge-blue', bannerClass: 'type-campaign', bannerText: 'Campaign Texting' },
+      event:    { label: 'Event',    icon: '\uD83C\uDF89', badgeClass: 'badge-orange', bannerClass: 'type-event', bannerText: 'Event Invites' },
+      survey:   { label: 'Poll',     icon: '\uD83D\uDCCA', badgeClass: 'badge-purple', bannerClass: 'type-survey', bannerText: 'Poll / Survey' }
+    };
+
+    // Pre-fill code from URL param but stay on role dashboard (let volunteer choose)
     var urlCode = new URLSearchParams(window.location.search).get('code');
     if (urlCode) {
       document.getElementById('volCode').value = urlCode;
-      selectRole('p2p');
     }
 
     function selectRole(role) {
@@ -506,47 +617,117 @@
 
     async function apiCall(path, opts) {
       var res = await fetch(path, opts);
-      return res.json();
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
+      return data;
     }
 
-    async function joinSession() {
-      var name = document.getElementById('volName').value.trim();
+    async function joinWithCode() {
       var code = document.getElementById('volCode').value.trim();
       var errEl = document.getElementById('joinError');
       errEl.textContent = '';
-      if (!name || !code) { errEl.textContent = 'Please enter your name and the session code.'; return; }
+      if (!code) { errEl.textContent = 'Please enter your volunteer code.'; return; }
 
       document.getElementById('btnJoin').disabled = true;
       try {
-        var data = await apiCall('/api/p2p/join', {
+        // Login with volunteer code (like walker login)
+        var loginData = await apiCall('/api/volunteers/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, code: code })
+          body: JSON.stringify({ code: code })
         });
-        if (data.error) {
-          errEl.textContent = data.error;
+        if (loginData.error) {
+          errEl.textContent = loginData.error;
           document.getElementById('btnJoin').disabled = false;
           return;
         }
-        volState.volunteerId = data.volunteerId;
-        volState.sessionId = data.sessionId;
-        volState.sessionName = data.sessionName;
+
+        volState.volCode = code;
+        volState.volName = loginData.volunteer.name;
+        volState.volPersistentId = loginData.volunteer.id;
+
+        // Check texting permission
+        if (!loginData.volunteer.can_text) {
+          errEl.textContent = 'Your code is for block walking only. Go to /walk to start walking.';
+          document.getElementById('btnJoin').disabled = false;
+          return;
+        }
+
+        // Auto-join ALL active sessions so volunteer sees contacts from all of them
+        var sessions = loginData.sessions || [];
+        if (sessions.length > 0) {
+          var lastVolId = null;
+          for (var si = 0; si < sessions.length; si++) {
+            try {
+              var joinData = await apiCall('/api/p2p/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: loginData.volunteer.name, code: sessions[si].join_code, textingVolunteerId: loginData.volunteer.id })
+              });
+              if (joinData.volunteerId) lastVolId = joinData.volunteerId;
+            } catch (e) { /* skip failed joins */ }
+          }
+          // Use the first session as primary display
+          volState.sessionId = sessions[0].session_id;
+          volState.sessionName = sessions.length === 1 ? sessions[0].name : sessions.length + ' active sessions';
+          volState.sessionType = 'campaign';
+          volState.volunteerId = lastVolId || loginData.volunteer.id;
+        } else {
+          // No active sessions — still let them in for Needs Response
+          volState.sessionId = null;
+          volState.sessionName = 'No active session';
+          volState.sessionType = 'campaign';
+          volState.volunteerId = loginData.volunteer.id;
+        }
 
         document.getElementById('joinScreen').style.display = 'none';
         document.getElementById('textingScreen').style.display = 'block';
-        document.getElementById('sessionInfo').textContent = data.sessionName + ' \u2022 ' + name;
 
-        loadQueue();
-        setInterval(loadQueue, 10000);
+        // Set type badge and banner
+        var tc = typeConfig[volState.sessionType] || typeConfig.campaign;
+        var badgeEl = document.getElementById('typeBadge');
+        badgeEl.className = 'badge ' + tc.badgeClass;
+        badgeEl.style.cssText = 'font-size:11px;vertical-align:middle;margin-left:6px';
+        badgeEl.textContent = tc.icon + ' ' + tc.label;
+
+        var bannerEl = document.getElementById('typeBanner');
+        bannerEl.className = 'type-banner ' + tc.bannerClass;
+        bannerEl.textContent = tc.icon + '  ' + tc.bannerText;
+        bannerEl.style.display = '';
+
+        document.getElementById('sessionInfo').textContent = (volState.sessionName || '') + ' \u2022 ' + loginData.volunteer.name;
+
+        if (volState.sessionId) {
+          loadQueue();
+          if (volState.pollInterval) clearInterval(volState.pollInterval);
+          volState.pollInterval = setInterval(loadQueue, 5000);
+        } else {
+          // No session — hide queue card, show only Needs Response
+          document.getElementById('queueCard').style.display = 'none';
+        }
+        startVolPendingRefresh();
       } catch (e) {
-        errEl.textContent = 'Network error. Please try again.';
+        errEl.textContent = e.message || 'Network error. Please try again.';
         document.getElementById('btnJoin').disabled = false;
       }
     }
 
     async function loadQueue() {
       if (!volState.volunteerId) return;
+      // Don't overwrite UI while viewing a conversation
+      if (document.getElementById('convoViewCard').style.display !== 'none') return;
+      // Auto-sync inbound messages from RumbleUp (throttled to once per 60s)
+      var now = Date.now();
+      if (!window._lastVolSync || now - window._lastVolSync > 60000) {
+        window._lastVolSync = now;
+        fetch('/api/sync-inbound', { method: 'POST' }).catch(function(err) { console.error('Sync inbound failed:', err); });
+      }
+      try {
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
+      // Keep session type in sync
+      if (data.sessionType) volState.sessionType = data.sessionType;
+      var tc = typeConfig[volState.sessionType] || typeConfig.campaign;
+      document.getElementById('queueCardTitle').textContent = 'Next Contact \u2014 ' + tc.icon + ' ' + tc.bannerText;
       var statsEl = document.getElementById('volStats');
       var queueEl = document.getElementById('queueContent');
 
@@ -629,126 +810,390 @@
         queueEl.appendChild(empty);
       }
 
-      // Active conversations
+      // Active conversations — detect new replies
       var convosCard = document.getElementById('convosCard');
       var convosList = document.getElementById('convosList');
+      var currentConvoIds = (data.activeConversations || []).map(function(c) { return c.id; });
+      var newConvoIds = currentConvoIds.filter(function(id) { return volState.lastConvoIds.indexOf(id) === -1; });
+      var hasNewReplies = newConvoIds.length > 0 && volState.lastConvoIds.length > 0; // Only notify after first load
+      volState.lastConvoIds = currentConvoIds;
+
+      if (hasNewReplies) {
+        playNotificationSound();
+        var banner = document.getElementById('newReplyBanner');
+        banner.style.display = '';
+        setTimeout(function() { banner.style.display = 'none'; }, 8000);
+        document.getElementById('convoNewDot').style.display = '';
+
+        // If viewing a conversation, auto-refresh it
+        if (volState.viewingConvoId) {
+          openConvo(volState.viewingConvoId);
+        }
+      }
+
       if (data.activeConversations && data.activeConversations.length > 0) {
         convosCard.style.display = '';
         document.getElementById('convoCount').textContent = data.activeConversations.length;
         convosList.textContent = '';
         data.activeConversations.forEach(function(c) {
           var item = document.createElement('div');
-          item.className = 'convo-item';
+          item.className = 'convo-item' + (newConvoIds.indexOf(c.id) !== -1 ? ' new-reply' : '');
+          item.style.cssText = 'cursor:pointer';
+
+          // Header row: name + badge
+          var header = document.createElement('div');
+          header.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
           var info = document.createElement('div');
           var nameEl = document.createElement('strong');
           nameEl.textContent = (c.first_name || '') + ' ' + (c.last_name || '');
           info.appendChild(nameEl);
           var phoneEl = document.createElement('div');
           phoneEl.style.cssText = 'font-size:12px;color:#64748b';
-          phoneEl.textContent = c.phone;
+          phoneEl.textContent = c.phone + (c.preferred_channel === 'whatsapp' ? ' (WhatsApp)' : '');
           info.appendChild(phoneEl);
-          item.appendChild(info);
+          header.appendChild(info);
           var badge = document.createElement('span');
           badge.className = 'badge badge-yellow';
-          badge.textContent = 'Reply';
-          item.appendChild(badge);
-          item.addEventListener('click', function() { openConvo(c.id); });
+          badge.textContent = c.preferred_channel === 'whatsapp' ? 'WA Reply' : 'Reply';
+          header.appendChild(badge);
+          item.appendChild(header);
+
+          // Mini thread preview (last 3 messages)
+          if (c.recentMessages && c.recentMessages.length > 0) {
+            var preview = document.createElement('div');
+            preview.style.cssText = 'margin-top:6px;overflow:hidden';
+            c.recentMessages.forEach(function(m) {
+              var line = document.createElement('div');
+              var arrow = m.direction === 'outbound' ? '\u2191' : '\u2193';
+              var text = (m.body || '');
+              if (text.length > 60) text = text.substring(0, 60) + '\u2026';
+              line.style.cssText = 'font-size:12px;color:' + (m.direction === 'inbound' ? '#fbbf24' : '#94a3b8') + ';margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+              line.textContent = arrow + ' ' + text;
+              preview.appendChild(line);
+            });
+            item.appendChild(preview);
+          }
+
+          item.addEventListener('click', function() {
+            document.getElementById('convoNewDot').style.display = 'none';
+            openConvo(c.id);
+          });
           convosList.appendChild(item);
         });
       } else {
         convosCard.style.display = 'none';
       }
+      } catch (err) { console.error('loadQueue error:', err); }
     }
 
     async function sendText(assignmentId, message) {
-      var creds = volState.credentials;
-      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) {
-        alert('Twilio credentials not configured. Please ask your campaign manager to set up Twilio in the main dashboard first.');
-        return;
-      }
       try {
-        await apiCall('/api/p2p/send', {
+        var resp = await apiCall('/api/p2p/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             volunteerId: volState.volunteerId,
             assignmentId: assignmentId,
-            message: message,
-            accountSid: creds.accountSid,
-            authToken: creds.authToken,
-            from: creds.fromNumber
+            message: message
           })
         });
+        if (resp && resp.error) {
+          alert(resp.error);
+          return;
+        }
         loadQueue();
       } catch (e) {
-        alert('Failed to send. Please try again.');
+        alert('Failed to send. ' + (e.message || 'Please try again.'));
       }
     }
 
     async function skipContact(assignmentId) {
-      await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
-      loadQueue();
+      try {
+        await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
+        loadQueue();
+      } catch (e) { alert('Failed to skip: ' + (e.message || 'Error')); }
     }
 
+    var convoMessageCount = 0; // Track message count to detect new messages
+    var replyPipeline = [];    // Queue of assignment IDs to work through
+    var pipelineIndex = -1;    // Current position in pipeline (-1 = not in pipeline mode)
+
+    function startReplyPipeline() {
+      replyPipeline = volState.lastConvoIds.slice(); // Copy current conversation IDs
+      if (replyPipeline.length === 0) return;
+      pipelineIndex = 0;
+      openConvo(replyPipeline[0]);
+    }
+
+    function advancePipeline() {
+      if (pipelineIndex < 0) { closeConvo(); return; }
+      pipelineIndex++;
+      convoMessageCount = 0; // Reset so next convo renders fresh
+      if (pipelineIndex < replyPipeline.length) {
+        openConvo(replyPipeline[pipelineIndex]);
+      } else {
+        // Pipeline complete
+        pipelineIndex = -1;
+        replyPipeline = [];
+        closeConvo();
+      }
+    }
+
+    var _openConvoLoading = false;
     async function openConvo(assignmentId) {
+      if (_openConvoLoading) return; // Prevent concurrent calls
+      _openConvoLoading = true;
+      try {
+      var isFirstOpen = volState.viewingConvoId !== assignmentId;
       volState.viewingConvoId = assignmentId;
       document.getElementById('queueCard').style.display = 'none';
       document.getElementById('convosCard').style.display = 'none';
       document.getElementById('convoViewCard').style.display = '';
+      // Only hide AI suggestion on first open, not on auto-refresh
+      if (isFirstOpen) {
+        document.getElementById('aiSuggestion').style.display = 'none';
+      }
 
       var data = await apiCall('/api/p2p/conversations/' + assignmentId);
       document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
 
+      // Show pipeline counter if in pipeline mode
+      var counterEl = document.getElementById('pipelineCounter');
+      if (pipelineIndex >= 0) {
+        counterEl.style.display = '';
+        counterEl.textContent = (pipelineIndex + 1) + ' of ' + replyPipeline.length;
+        document.getElementById('btnNextConvo').style.display = '';
+      } else {
+        counterEl.style.display = 'none';
+        document.getElementById('btnNextConvo').style.display = 'none';
+      }
+
       var msgEl = document.getElementById('convoMessages');
-      msgEl.textContent = '';
-      (data.messages || []).forEach(function(m) {
-        var bubble = document.createElement('div');
-        bubble.className = 'msg-bubble ' + (m.direction === 'outbound' ? 'msg-outbound' : 'msg-inbound');
-        bubble.textContent = m.body;
-        msgEl.appendChild(bubble);
-      });
-      msgEl.scrollTop = msgEl.scrollHeight;
+      var newCount = (data.messages || []).length;
+      var isRefresh = (newCount !== convoMessageCount) || convoMessageCount === 0;
+      convoMessageCount = newCount;
+
+      if (isRefresh) {
+        msgEl.textContent = '';
+        (data.messages || []).forEach(function(m) {
+          var bubble = document.createElement('div');
+          bubble.className = 'msg-bubble ' + (m.direction === 'outbound' ? 'msg-outbound' : 'msg-inbound');
+          var channelTag = (m.channel === 'whatsapp') ? ' [WA]' : '';
+          bubble.textContent = m.body + channelTag;
+          var timeEl = document.createElement('div');
+          timeEl.style.cssText = 'font-size:10px;color:#64748b;margin-top:4px';
+          var ts = m.created_at || m.timestamp;
+          if (ts) { try { timeEl.textContent = utcToLocal(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); } catch(e){} }
+          bubble.appendChild(timeEl);
+          msgEl.appendChild(bubble);
+        });
+        msgEl.scrollTop = msgEl.scrollHeight;
+      }
+
+      // Show preferred channel indicator if set
+      var prefChannel = data.assignment.preferred_channel;
+      var titleEl = document.getElementById('convoViewTitle');
+      if (prefChannel === 'whatsapp' && titleEl.textContent.indexOf('WhatsApp') === -1) {
+        titleEl.textContent += ' (prefers WhatsApp)';
+      }
+
+      // Get AI suggestion only when first opening a conversation (not on auto-refresh)
+      // Pass full conversation history so AI can address ALL unanswered messages
+      var lastInbound = (data.messages || []).filter(function(m) { return m.direction === 'inbound'; }).pop();
+      if (lastInbound && isFirstOpen) {
+        volState._currentConvoHistory = data.messages || [];
+        fetchAiSuggestion(lastInbound.body, data.assignment.first_name, lastInbound.sentiment, assignmentId);
+      }
+
+      // Start auto-refresh for this conversation (every 5s)
+      if (volState.convoRefreshInterval) clearInterval(volState.convoRefreshInterval);
+      volState.convoRefreshInterval = setInterval(function() {
+        if (volState.viewingConvoId === assignmentId) {
+          openConvo(assignmentId);
+        }
+      }, 5000);
+      } finally { _openConvoLoading = false; }
+    }
+
+    var currentAiSuggestion = '';
+
+    async function fetchAiSuggestion(voterMessage, voterName, sentiment, assignmentId) {
+      var el = document.getElementById('aiSuggestion');
+      if (!el) return;
+      el.style.display = '';
+      var loadingEl = document.getElementById('aiLoading');
+      var textEl = document.getElementById('aiSuggestionText');
+      var sourceEl = document.getElementById('aiSource');
+      if (loadingEl) loadingEl.style.display = '';
+      if (textEl) { textEl.textContent = ''; textEl.style.color = '#e2e8f0'; }
+      currentAiSuggestion = '';
+      if (!voterMessage || !voterMessage.trim()) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (textEl) { textEl.textContent = 'No message to analyze.'; textEl.style.color = '#94a3b8'; }
+        return;
+      }
+      try {
+        var res = await fetch('/api/p2p/suggest-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            voterMessage: voterMessage,
+            voterName: voterName || 'Voter',
+            sentiment: sentiment || 'neutral',
+            sessionName: volState.sessionName || '',
+            conversationHistory: (volState._currentConvoHistory || []).map(function(m) { return { body: m.body, direction: m.direction }; })
+          })
+        });
+        var data = {};
+        try { data = await res.json(); } catch (jsonErr) { data = {}; }
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (data.suggestion) {
+          currentAiSuggestion = data.suggestion;
+          if (textEl) textEl.textContent = data.suggestion;
+          if (sourceEl) sourceEl.textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
+        } else {
+          if (textEl) { textEl.textContent = 'No AI suggestion for this message.'; textEl.style.color = '#94a3b8'; }
+        }
+      } catch (e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (textEl) { textEl.textContent = 'Could not reach AI: ' + (e.message || 'network error'); textEl.style.color = '#ef4444'; }
+      }
+    }
+
+    function approveAiSuggestion() {
+      if (!currentAiSuggestion || !volState.viewingConvoId) return;
+      sendReplyText(currentAiSuggestion);
+    }
+
+    function editAiSuggestion() {
+      document.getElementById('replyText').value = currentAiSuggestion;
+      document.getElementById('aiSuggestion').style.display = 'none';
+      document.getElementById('replyText').focus();
+    }
+
+    function dismissAiSuggestion() {
+      document.getElementById('aiSuggestion').style.display = 'none';
+      document.getElementById('replyText').value = '';
+      document.getElementById('replyText').focus();
+    }
+
+    async function sendReplyText(text) {
+      if (!text || !volState.viewingConvoId) return;
+      var savedText = text;
+      document.getElementById('replyText').value = '';
+      document.getElementById('aiSuggestion').style.display = 'none';
+      try {
+        var resp = await apiCall('/api/p2p/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            volunteerId: volState.volunteerId,
+            assignmentId: volState.viewingConvoId,
+            message: text,
+            isReply: true
+          })
+        });
+        if (resp && resp.error) {
+          alert('Reply failed: ' + resp.error);
+          document.getElementById('replyText').value = savedText;
+          return;
+        }
+        openConvo(volState.viewingConvoId);
+      } catch (err) {
+        alert('Reply failed. Check your connection.');
+        document.getElementById('replyText').value = savedText;
+      }
     }
 
     function closeConvo() {
       volState.viewingConvoId = null;
+      convoMessageCount = 0;
+      if (volState.convoRefreshInterval) { clearInterval(volState.convoRefreshInterval); volState.convoRefreshInterval = null; }
       document.getElementById('convoViewCard').style.display = 'none';
+      document.getElementById('aiSuggestion').style.display = 'none';
       document.getElementById('queueCard').style.display = '';
       loadQueue();
     }
 
+    var pendingGrammarOriginal = '';
+
     async function sendReply() {
       var text = document.getElementById('replyText').value.trim();
-      if (!text || !volState.viewingConvoId) return;
-      var creds = volState.credentials;
-      if (!creds.accountSid || !creds.authToken || !creds.fromNumber) {
-        alert('Twilio credentials not configured.');
-        return;
+      if (!text) return;
+
+      // Show checking state on the send button, not the grammar panel
+      pendingGrammarOriginal = text;
+      var sendBtn = document.querySelector('.reply-area button');
+      var origBtnText = sendBtn.textContent;
+      sendBtn.textContent = 'Checking...';
+      sendBtn.disabled = true;
+
+      try {
+        var data = await apiCall('/api/p2p/review-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draftText: text })
+        });
+
+        sendBtn.textContent = origBtnText;
+        sendBtn.disabled = false;
+
+        if (data.changed) {
+          // Only show grammar panel when there's actually a correction
+          var reviewEl = document.getElementById('grammarReview');
+          reviewEl.style.display = '';
+          document.getElementById('grammarLoading').style.display = 'none';
+          document.getElementById('grammarOriginal').textContent = 'Original: ' + data.original;
+          document.getElementById('grammarCorrected').textContent = data.corrected;
+          pendingGrammarOriginal = data.original;
+        } else {
+          // No changes needed — send immediately (no flash)
+          sendReplyText(text);
+        }
+      } catch (e) {
+        // If review fails, send as-is
+        sendBtn.textContent = origBtnText;
+        sendBtn.disabled = false;
+        sendReplyText(text);
       }
-      document.getElementById('replyText').value = '';
-      await apiCall('/api/p2p/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          volunteerId: volState.volunteerId,
-          assignmentId: volState.viewingConvoId,
-          message: text,
-          accountSid: creds.accountSid,
-          authToken: creds.authToken,
-          from: creds.fromNumber
-        })
-      });
-      openConvo(volState.viewingConvoId);
+    }
+
+    function acceptGrammarFix() {
+      var corrected = document.getElementById('grammarCorrected').textContent;
+      document.getElementById('grammarReview').style.display = 'none';
+      if (corrected) sendReplyText(corrected);
+    }
+
+    function sendOriginalAnyway() {
+      document.getElementById('grammarReview').style.display = 'none';
+      if (pendingGrammarOriginal) sendReplyText(pendingGrammarOriginal);
+    }
+
+    function cancelGrammarReview() {
+      document.getElementById('grammarReview').style.display = 'none';
+      document.getElementById('replyText').value = pendingGrammarOriginal;
+      document.getElementById('replyText').focus();
     }
 
     async function markComplete() {
       if (!volState.viewingConvoId) return;
       await apiCall('/api/p2p/assignments/' + volState.viewingConvoId + '/complete', { method: 'PATCH' });
-      closeConvo();
+      // In pipeline mode, auto-advance to next response
+      if (pipelineIndex >= 0) {
+        advancePipeline();
+      } else {
+        closeConvo();
+      }
     }
 
     async function leaveSession() {
       if (!volState.volunteerId) return;
+      if (volState.pollInterval) { clearInterval(volState.pollInterval); volState.pollInterval = null; }
+      if (volState.convoRefreshInterval) { clearInterval(volState.convoRefreshInterval); volState.convoRefreshInterval = null; }
+      stopVolPendingRefresh();
+      volState.lastConvoIds = [];
+      convoMessageCount = 0;
+      volState.viewingConvoId = null;
       await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -756,6 +1201,7 @@
       });
       volState.volunteerId = null;
       document.getElementById('textingScreen').style.display = 'none';
+      document.getElementById('typeBanner').style.display = 'none';
       document.getElementById('roleScreen').style.display = 'flex';
       document.getElementById('btnJoin').disabled = false;
     }
@@ -771,6 +1217,7 @@
       processing: false
     };
 
+    function utcToLocal(ts) { if (!ts) return new Date(); var s = String(ts).trim(); if (!/[Z+\-]/.test(s.slice(-6))) s += 'Z'; return new Date(s); }
     function escHtml(t) {
       var d = document.createElement('div');
       d.textContent = t;
@@ -1022,6 +1469,207 @@
       document.getElementById('scannerCameraCard').style.display = 'none';
       document.getElementById('scanResultCard').style.display = 'none';
       document.getElementById('roleScreen').style.display = 'flex';
+    }
+    // ===================== NEEDS RESPONSE (shared inbox) =====================
+    var volPendingTimer = null;
+    var aiSuggestionCache = {}; // Cache AI suggestions by message ID to avoid re-fetching
+
+    var volPendingPhones = {}; // Track which phones have cards already
+    async function loadVolPending() {
+      // Skip refresh if user is typing in any reply input
+      var activeInput = document.querySelector('#volPendingList input:focus');
+      if (activeInput && activeInput.value.trim()) return;
+      // Skip refresh if AI suggestion is still loading
+      var aiLoading = document.querySelector('#volPendingList .ai-loading-indicator');
+      if (aiLoading) return;
+      try {
+        var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || ''), 'X-Volunteer-Code': String(volState.volCode || '') } });
+        var msgs = data.messages || [];
+        document.getElementById('volPendingCount').textContent = msgs.length;
+        var el = document.getElementById('volPendingList');
+        // Smart diff: only add new cards, remove resolved ones
+        var newPhones = {};
+        msgs.forEach(function(m) { newPhones[m.phone] = m; });
+        // Remove cards for phones no longer pending
+        var existingCards = el.querySelectorAll('[data-pending-phone]');
+        existingCards.forEach(function(card) {
+          var ph = card.getAttribute('data-pending-phone');
+          if (!newPhones[ph]) card.remove();
+        });
+        // Add cards for new phones only
+        msgs.forEach(function(m) {
+          if (!el.querySelector('[data-pending-phone="' + m.phone + '"]')) {
+            el.appendChild(buildVolPendingCard(m));
+          }
+        });
+        // Show empty state
+        if (msgs.length === 0 && !el.querySelector('.vol-empty-msg')) {
+          el.textContent = '';
+          var empty = document.createElement('div');
+          empty.className = 'vol-empty-msg';
+          empty.style.cssText = 'color:#22c55e;font-size:13px;padding:6px 0';
+          empty.textContent = 'All caught up!';
+          el.appendChild(empty);
+        } else if (msgs.length > 0) {
+          var emptyMsg = el.querySelector('.vol-empty-msg');
+          if (emptyMsg) emptyMsg.remove();
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    function buildVolPendingCard(m) {
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:10px';
+      card.setAttribute('data-pending-phone', m.phone);
+      // Name + phone
+      var header = document.createElement('div');
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
+      var nameEl = document.createElement('strong');
+      nameEl.style.cssText = 'color:#e2e8f0;font-size:14px';
+      nameEl.textContent = (m.contact_name && m.contact_name.trim()) ? m.contact_name.trim() : (m.phone || 'Unknown');
+      header.appendChild(nameEl);
+      var badge = document.createElement('span');
+      if (m.sentiment === 'positive') { badge.className = 'badge badge-green'; badge.textContent = 'Positive'; }
+      else if (m.sentiment === 'negative') { badge.className = 'badge badge-red'; badge.textContent = 'Negative'; }
+      else { badge.className = 'badge badge-gray'; badge.textContent = 'Neutral'; }
+      header.appendChild(badge);
+      card.appendChild(header);
+      // Conversation preview
+      var convo = m.conversation || [];
+      if (convo.length > 0) {
+        var convoDiv = document.createElement('div');
+        convoDiv.style.cssText = 'background:#1e293b;border-radius:6px;padding:8px;margin-bottom:8px;max-height:120px;overflow-y:auto';
+        convo.forEach(function(c) {
+          var row = document.createElement('div');
+          row.style.cssText = 'margin-bottom:4px;' + (c.direction === 'outbound' ? 'text-align:right' : '');
+          var bubble = document.createElement('span');
+          bubble.style.cssText = 'display:inline-block;max-width:85%;padding:4px 8px;border-radius:6px;font-size:12px;line-height:1.3;' +
+            (c.direction === 'outbound' ? 'background:#818cf8;color:#fff' : 'background:#334155;color:#e2e8f0');
+          bubble.textContent = c.body || '';
+          row.appendChild(bubble);
+          convoDiv.appendChild(row);
+        });
+        convoDiv.scrollTop = convoDiv.scrollHeight;
+        card.appendChild(convoDiv);
+      }
+      // AI suggestion (loads async)
+      var aiBox = document.createElement('div');
+      aiBox.style.cssText = 'background:#1a1a3e;border:1px solid #818cf8;border-radius:6px;padding:8px;margin-bottom:8px;display:none';
+      var aiLabel = document.createElement('div');
+      aiLabel.style.cssText = 'font-size:11px;font-weight:600;color:#818cf8;margin-bottom:4px';
+      aiLabel.textContent = 'AI Suggested Reply';
+      aiBox.appendChild(aiLabel);
+      var aiText = document.createElement('div');
+      aiText.style.cssText = 'color:#e2e8f0;font-size:12px;line-height:1.4;margin-bottom:6px';
+      aiBox.appendChild(aiText);
+      var aiBtns = document.createElement('div');
+      aiBtns.style.cssText = 'display:none;gap:4px';
+      aiBox.appendChild(aiBtns);
+      card.appendChild(aiBox);
+      // Reply input
+      var replyRow = document.createElement('div');
+      replyRow.style.cssText = 'display:flex;gap:6px';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Type reply...';
+      input.style.cssText = 'flex:1;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px;outline:none';
+      replyRow.appendChild(input);
+      var sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-sm btn-success';
+      sendBtn.textContent = 'Send';
+      replyRow.appendChild(sendBtn);
+      card.appendChild(replyRow);
+      var replyPhone = (m.phone || '').replace(/'/g, '');
+      function doSend(text) {
+        if (!text || !text.trim()) return;
+        sendBtn.disabled = true;
+        sendBtn.textContent = '...';
+        apiCall('/reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to: replyPhone, body: text.trim(), volunteerId: volState.volunteerId, volunteerCode: volState.volCode }) })
+          .then(function(d) { if (d.error) throw new Error(d.error); card.style.opacity = '0.4'; loadVolPending(); })
+          .catch(function(e) { alert('Failed: ' + (e.message||'Error')); sendBtn.disabled = false; sendBtn.textContent = 'Send'; });
+      }
+      sendBtn.addEventListener('click', function() { doSend(input.value); });
+      input.addEventListener('keydown', function(e) { if (e.key === 'Enter') doSend(input.value); });
+      // Fetch AI suggestion
+      var msgCacheKey = 'msg_' + (m.id || m.phone);
+      if (m.body) {
+        // Check cache first — don't re-fetch AI on every refresh
+        if (aiSuggestionCache[msgCacheKey]) {
+          var cached = aiSuggestionCache[msgCacheKey];
+          aiBox.style.display = '';
+          aiText.textContent = cached.suggestion;
+          aiBtns.style.cssText = 'display:flex;gap:4px';
+          var cBtnUse = document.createElement('button'); cBtnUse.className = 'btn btn-sm btn-success'; cBtnUse.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnUse.textContent = 'Send';
+          cBtnUse.addEventListener('click', function() { doSend(cached.suggestion); }); aiBtns.appendChild(cBtnUse);
+          var cBtnEdit = document.createElement('button'); cBtnEdit.className = 'btn btn-sm btn-secondary'; cBtnEdit.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnEdit.textContent = 'Edit';
+          cBtnEdit.addEventListener('click', function() { input.value = cached.suggestion; aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnEdit);
+          var cBtnOwn = document.createElement('button'); cBtnOwn.className = 'btn btn-sm btn-secondary'; cBtnOwn.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnOwn.textContent = 'Own';
+          cBtnOwn.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnOwn);
+        } else {
+        aiBox.style.display = '';
+        var loading = document.createElement('span');
+        loading.style.cssText = 'font-size:11px;color:#64748b';
+        loading.textContent = 'AI thinking...';
+        loading.className = 'ai-loading-indicator';
+        aiBox.insertBefore(loading, aiText);
+        fetch('/api/p2p/suggest-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral', conversationHistory: (m.conversation || []).map(function(c) { return { body: c.body, direction: c.direction }; }) })
+        }).then(function(res) { return res.json(); })
+          .then(function(data) {
+            loading.remove();
+            if (data && data.suggestion) {
+              aiSuggestionCache[msgCacheKey] = data;
+              aiText.textContent = data.suggestion;
+              aiBtns.style.cssText = 'display:flex;gap:4px';
+              var srcBadge = document.createElement('span');
+              srcBadge.className = 'badge badge-blue';
+              srcBadge.style.cssText = 'font-size:9px;margin-left:4px';
+              srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
+              aiLabel.appendChild(srcBadge);
+              var btnUse = document.createElement('button');
+              btnUse.className = 'btn btn-sm btn-success';
+              btnUse.style.cssText = 'padding:3px 8px;font-size:11px';
+              btnUse.textContent = 'Send';
+              btnUse.addEventListener('click', function() { doSend(data.suggestion); });
+              aiBtns.appendChild(btnUse);
+              var btnEdit = document.createElement('button');
+              btnEdit.className = 'btn btn-sm btn-secondary';
+              btnEdit.style.cssText = 'padding:3px 8px;font-size:11px';
+              btnEdit.textContent = 'Edit';
+              btnEdit.addEventListener('click', function() { input.value = data.suggestion; aiBox.style.display = 'none'; input.focus(); });
+              aiBtns.appendChild(btnEdit);
+              var btnDismiss = document.createElement('button');
+              btnDismiss.className = 'btn btn-sm btn-secondary';
+              btnDismiss.style.cssText = 'padding:3px 8px;font-size:11px';
+              btnDismiss.textContent = 'Own';
+              btnDismiss.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); });
+              aiBtns.appendChild(btnDismiss);
+            } else {
+              aiText.textContent = (data && data.error) ? ('AI error: ' + data.error) : 'No AI suggestion for this message.';
+              aiText.style.color = '#94a3b8';
+              aiText.style.fontSize = '12px';
+            }
+          }).catch(function(err) {
+            loading.remove();
+            aiText.textContent = 'AI network error: ' + (err.message || 'check connection');
+            aiText.style.color = '#ef4444';
+            aiText.style.fontSize = '12px';
+          });
+        } // end else (no cache)
+      }
+      return card;
+    }
+
+    // Auto-refresh pending every 10s when on texting screen
+    function startVolPendingRefresh() {
+      if (volPendingTimer) clearInterval(volPendingTimer);
+      loadVolPending();
+      volPendingTimer = setInterval(loadVolPending, 25000);
+    }
+    function stopVolPendingRefresh() {
+      if (volPendingTimer) { clearInterval(volPendingTimer); volPendingTimer = null; }
     }
   </script>
 </body>

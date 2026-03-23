@@ -4,7 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Block Walk</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
 <style>
+.precinct-label{background:rgba(0,0,0,0.6)!important;border:none!important;color:#f59e0b!important;font-size:11px!important;font-weight:700!important;padding:1px 4px!important;border-radius:3px!important;box-shadow:none!important}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
 
@@ -48,15 +52,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 /* Address list */
 .addr-list{padding:8px}
-.addr-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px;margin-bottom:8px;cursor:pointer;transition:all 0.2s;position:relative}
+.addr-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 16px 14px 44px;margin-bottom:8px;cursor:pointer;transition:all 0.2s;position:relative}
 .addr-card:active{transform:scale(0.98)}
 .addr-card.current{border-color:#f59e0b;background:#1c1917}
 .addr-card.done{opacity:0.7;border-color:#334155}
-.addr-card .addr-num{position:absolute;left:-4px;top:-4px;background:#334155;color:#94a3b8;width:24px;height:24px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.addr-card .addr-num{position:absolute;left:12px;top:14px;background:#334155;color:#94a3b8;width:24px;height:24px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .addr-card.done .addr-num{background:#22c55e;color:#fff}
-.addr-card .addr-text{font-size:15px;font-weight:600;margin-left:20px}
-.addr-card .addr-voter{font-size:13px;color:#94a3b8;margin-left:20px;margin-top:2px}
-.addr-card .addr-status{display:flex;align-items:center;gap:6px;margin-top:6px;margin-left:20px}
+.addr-card .addr-text{font-size:15px;font-weight:600}
+.addr-card .addr-voter{font-size:13px;color:#94a3b8;margin-top:2px}
+.addr-card .addr-status{display:flex;align-items:center;gap:6px;margin-top:6px}
 .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
 .badge-green{background:#052e16;color:#4ade80}
 .badge-red{background:#450a0a;color:#fca5a5}
@@ -66,13 +70,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .badge-gps{font-size:10px;padding:1px 6px}
 
 /* Door panel (slide up) */
-.door-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:100;display:none;align-items:flex-end;justify-content:center}
+.door-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:none;align-items:flex-end;justify-content:center}
 .door-overlay.open{display:flex}
 .door-panel{background:#1e293b;border-top:2px solid #f59e0b;border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto;animation:slideUp 0.25s ease}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .door-panel h3{font-size:16px;margin-bottom:4px}
 .door-panel .door-addr{color:#94a3b8;font-size:14px;margin-bottom:16px}
-.door-panel .door-voter{color:#f59e0b;font-size:13px;margin-bottom:16px}
+.door-panel .door-voter{color:#f59e0b;font-size:14px;margin-bottom:6px}
 
 /* Disposition grid */
 .disp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
@@ -86,10 +90,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .disp-btn.opp{border-color:#7f1d1d}.disp-btn.opp.selected{background:#450a0a;border-color:#ef4444;color:#fca5a5}
 .disp-btn.nh{border-color:#334155}.disp-btn.nh.selected{background:#1e293b;border-color:#94a3b8;color:#e2e8f0}
 .disp-btn.ref{border-color:#581c87}.disp-btn.ref.selected{background:#3b0764;border-color:#c084fc;color:#c084fc}
+.disp-btn.mov{border-color:#78350f}.disp-btn.mov.selected{background:#451a03;border-color:#f59e0b;color:#fbbf24}
+.disp-btn.dec{border-color:#1e293b}.disp-btn.dec.selected{background:#0f172a;border-color:#64748b;color:#94a3b8}
 .disp-btn.other{border-color:#334155}.disp-btn.other.selected{background:#1e293b;border-color:#64748b;color:#94a3b8}
 
-.notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:12px}
+/* Household member selection */
+.hh-member{display:flex;align-items:center;justify-content:space-between;padding:12px;border:2px solid #334155;border-radius:10px;background:#0f172a;margin-bottom:8px;cursor:pointer;transition:all 0.15s}
+.hh-member:active{transform:scale(0.98)}
+.hh-member.talked{border-color:#22c55e;background:#052e16}
+.hh-member.not-home{border-color:#64748b;background:#1e293b;opacity:0.6}
+.hh-member .hh-name{font-size:14px;font-weight:600;color:#e2e8f0}
+.hh-member .hh-age{font-size:12px;color:#94a3b8;margin-left:6px}
+.hh-member .hh-status{font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap}
+.hh-member .hh-status.talked{background:#052e16;color:#4ade80}
+.hh-member .hh-status.not-home{background:#1e293b;color:#94a3b8}
+.hh-nothome-btn{background:#334155;border:1px solid #475569;border-radius:6px;padding:4px 10px;color:#94a3b8;font-size:11px;cursor:pointer;white-space:nowrap}
+.hh-nothome-btn:active{background:#475569}
+.hh-nobody-btn{width:100%;padding:14px;border:2px solid #64748b;border-radius:10px;background:#1e293b;color:#e2e8f0;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px;transition:all 0.15s}
+.hh-nobody-btn:active{transform:scale(0.97)}
+.hh-nobody-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
+.hh-step{display:none}
+.hh-step.active{display:block}
+.hh-step-title{font-size:13px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600}
+
+.notes-area{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;min-height:60px;outline:none;margin-bottom:0}
 .notes-area:focus{border-color:#f59e0b}
+.notes-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:12px}
+.notes-row .notes-area{flex:1;margin-bottom:0}
+.record-btn{width:44px;height:44px;min-width:44px;border-radius:50%;border:2px solid #334155;background:#0f172a;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;margin-top:2px}
+.record-btn:hover{border-color:#f59e0b;color:#f59e0b}
+.record-btn.recording{border-color:#ef4444;background:#450a0a;color:#ef4444;animation:pulse-rec 1.2s ease-in-out infinite}
+@keyframes pulse-rec{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.4)}50%{box-shadow:0 0 0 8px rgba(239,68,68,0)}}
+.record-status{font-size:11px;color:#94a3b8;text-align:right;margin-bottom:8px;min-height:16px}
 
 .door-actions{display:flex;gap:8px}
 .door-actions .btn{flex:1}
@@ -97,11 +129,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .back-link{display:inline-flex;align-items:center;gap:4px;color:#94a3b8;font-size:13px;margin-top:1rem;cursor:pointer;text-decoration:none}
 .back-link:hover{color:#e2e8f0}
 
-/* Mode tabs on load screen */
-.mode-tabs{display:flex;gap:0;margin-bottom:1.5rem;border-radius:10px;overflow:hidden;border:1px solid #334155}
-.mode-tab{flex:1;padding:10px;text-align:center;font-size:14px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
-.mode-tab.active{background:#f59e0b;color:#000}
-.mode-panel{display:none}.mode-panel.active{display:block}
+/* Script display in door panel */
+.script-section{margin-bottom:16px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:10px}
+.script-title{font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}
+.script-text{font-size:14px;color:#e2e8f0;margin-bottom:10px;line-height:1.5}
+.script-question{margin-bottom:12px}
+.script-question label{display:block;font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:6px}
+.script-option-btn{display:inline-block;padding:6px 12px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#e2e8f0;font-size:13px;margin:0 4px 4px 0;cursor:pointer;transition:all 0.15s}
+.script-option-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
+.activist-code-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #334155;border-radius:8px;background:#1e293b;color:#e2e8f0;font-size:13px;cursor:pointer;margin-bottom:4px;transition:all 0.15s}
+.activist-code-btn.selected{border-color:#22c55e;background:#052e16;color:#4ade80}
+
+/* Attempt badge */
+.attempt-badge{display:inline-block;padding:1px 6px;border-radius:9999px;font-size:10px;font-weight:600;background:#1e293b;color:#94a3b8;border:1px solid #334155;margin-left:4px}
+.attempt-badge.reknock{background:#422006;color:#fcd34d;border-color:#f59e0b;animation:pulse 2s infinite}
 
 /* Group bar */
 .group-bar{background:#1e293b;border-bottom:1px solid #334155;padding:10px 16px}
@@ -120,7 +161,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .maps-link:hover{color:#93c5fd}
 
 /* Assigned walker badge */
-.addr-card .addr-walker{font-size:11px;color:#64748b;margin-left:20px;margin-top:2px;font-style:italic}
+.addr-card .addr-walker{font-size:11px;color:#64748b;margin-top:2px;font-style:italic}
+
+/* Map view */
+.view-toggle{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid #334155}
+.view-toggle-btn{padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;background:#0f172a;color:#94a3b8;border:none;transition:all 0.2s}
+.view-toggle-btn.active{background:#f59e0b;color:#000}
+#mapContainer{display:none;height:calc(100vh - 200px);min-height:300px;background:#1e293b;position:relative;overflow:hidden}
+#walkMap{height:100%;width:100%;z-index:1}
+.map-legend{position:absolute;bottom:24px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0}
+.map-legend-item{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.map-legend-item:last-child{margin-bottom:0}
+.map-legend-dot{width:12px;height:12px;border-radius:50%;border:2px solid #fff;flex-shrink:0}
+.map-refresh-indicator{position:absolute;top:10px;right:10px;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:6px 10px;z-index:1000;font-size:11px;color:#94a3b8}
+
+/* Success toast */
+.success-toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-100px);background:#052e16;border:1px solid #22c55e;color:#4ade80;padding:12px 24px;border-radius:12px;font-size:14px;font-weight:600;z-index:10100;transition:transform 0.3s ease;pointer-events:none}
+.gmaps-link{display:inline-flex;align-items:center;gap:4px;color:#60a5fa;font-size:12px;text-decoration:none;margin-top:4px}
+.gmaps-link:hover{color:#93c5fd}
+.door-gmaps{display:inline-flex;align-items:center;gap:4px;color:#60a5fa;font-size:13px;text-decoration:none;margin-bottom:12px}
+.door-gmaps:hover{color:#93c5fd}
+.locate-me-btn{position:absolute;bottom:70px;right:10px;z-index:1000;width:40px;height:40px;border-radius:50%;background:rgba(30,41,59,0.95);border:1px solid #334155;color:#3b82f6;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
+.locate-me-btn:hover{background:#1e293b;border-color:#3b82f6}
+.compass-btn{position:absolute;bottom:120px;right:10px;z-index:1000;width:40px;height:40px;border-radius:50%;background:rgba(30,41,59,0.95);border:1px solid #334155;color:#94a3b8;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);transition:color 0.2s,border-color 0.2s}
+.compass-btn:hover{background:#1e293b;border-color:#60a5fa}
+.compass-btn.active{color:#f59e0b;border-color:#f59e0b}
+.compass-arrow{transition:transform 0.3s ease}
+.success-toast.show{transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -130,37 +197,79 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div class="load-card">
     <div style="font-size:2.5rem;margin-bottom:0.5rem">&#x1F6B6;</div>
     <h2>Block Walk</h2>
-    <p>Load a walk by ID or join a group walk with a code.</p>
 
-    <div class="mode-tabs">
-      <button class="mode-tab active" onclick="setLoadMode('id')">Walk ID</button>
-      <button class="mode-tab" onclick="setLoadMode('join')">Join Group</button>
+    <!-- Sign In Form -->
+    <div id="loginForm">
+      <p>Enter your walker code to sign in.</p>
+      <div class="form-group">
+        <label>Walker Code</label>
+        <input type="text" id="walkerCodeInput" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
+      </div>
+      <button class="btn btn-walk" id="btnWalkerLogin" onclick="walkerLogin()">Sign In</button>
+      <div class="error-msg" id="loadError"></div>
+      <p style="color:#64748b;font-size:12px;margin-top:12px">Don't have a code? <a href="#" onclick="showRegister();return false" style="color:#f59e0b;text-decoration:underline">Sign up here</a></p>
     </div>
 
-    <!-- Walk ID mode -->
-    <div class="mode-panel active" id="modeId">
-      <div class="form-group">
-        <label>Walk ID</label>
-        <input type="number" id="walkIdInput" placeholder="e.g. 1" inputmode="numeric">
-      </div>
-      <button class="btn btn-walk" id="btnLoadWalk" onclick="loadWalk()">Load Walk</button>
-    </div>
-
-    <!-- Join group mode -->
-    <div class="mode-panel" id="modeJoin">
-      <div class="form-group">
-        <label>Join Code</label>
-        <input type="text" id="joinCodeInput" placeholder="e.g. AB3K" maxlength="4" style="text-transform:uppercase;letter-spacing:4px;font-size:24px">
-      </div>
+    <!-- Registration Form -->
+    <div id="registerForm" style="display:none">
+      <p>Sign up as a new block walker.</p>
       <div class="form-group">
         <label>Your Name</label>
-        <input type="text" id="joinNameInput" placeholder="e.g. Maria">
+        <input type="text" id="regName" placeholder="First Last" maxlength="100">
       </div>
-      <button class="btn btn-walk" id="btnJoinWalk" onclick="joinWalk()">Join Group Walk</button>
+      <div class="form-group">
+        <label>Phone (optional)</label>
+        <input type="tel" id="regPhone" placeholder="555-123-4567" maxlength="20">
+      </div>
+      <button class="btn btn-walk" id="btnRegister" onclick="registerWalker()">Sign Up</button>
+      <div class="error-msg" id="regError"></div>
+      <div id="regSuccess" style="display:none;background:#052e16;border:1px solid #16a34a;border-radius:8px;padding:12px;margin-top:12px;text-align:center">
+        <div style="color:#86efac;font-size:14px;margin-bottom:4px">You're registered!</div>
+        <div style="color:#e2e8f0;font-size:20px;letter-spacing:4px;font-weight:bold" id="regCode"></div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:4px">Save this code to sign in next time</div>
+      </div>
+      <p style="color:#64748b;font-size:12px;margin-top:12px">Already have a code? <a href="#" onclick="showLogin();return false" style="color:#f59e0b;text-decoration:underline">Sign in here</a></p>
     </div>
 
-    <div class="error-msg" id="loadError"></div>
     <a class="back-link" href="/volunteer">&#8592; Back to Volunteer Hub</a>
+  </div>
+</div>
+
+<!-- WALK SELECTION SCREEN -->
+<div id="walkSelectScreen" style="display:none">
+  <div style="background:#1e293b;border-bottom:1px solid #334155;padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <h2 style="font-size:18px;color:#f59e0b;margin:0" id="walkerGreeting">My Walks</h2>
+      <div style="font-size:12px;color:#94a3b8;margin-top:2px">Tap a walk to start knocking doors</div>
+    </div>
+    <button style="background:none;border:1px solid #475569;color:#94a3b8;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px" onclick="walkerLogout()">Log Out</button>
+  </div>
+  <div style="max-width:500px;margin:0 auto;padding:16px">
+    <div id="walkSelectList"></div>
+
+    <!-- Create Walk Form -->
+    <div id="createWalkSection" style="margin-top:20px;border-top:1px solid #334155;padding-top:16px">
+      <div id="createWalkToggle">
+        <button class="btn btn-walk" style="width:100%;padding:12px" onclick="showCreateWalk()">+ Create a New Walk</button>
+      </div>
+      <div id="createWalkForm" style="display:none">
+        <h3 style="font-size:16px;color:#e2e8f0;margin:0 0 12px 0">Create a Walk</h3>
+        <div class="form-group">
+          <label>Walk Name</label>
+          <input type="text" id="newWalkName" placeholder="e.g. Oak Street Block" maxlength="100">
+        </div>
+        <div style="margin-bottom:8px">
+          <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Addresses to knock (one per line)</label>
+          <textarea id="newWalkAddresses" placeholder="123 Main St&#10;456 Oak Ave&#10;789 Elm Blvd" style="width:100%;min-height:120px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;outline:none"></textarea>
+          <div style="font-size:11px;color:#64748b;margin-top:4px">Enter street addresses, one per line. You can add city/zip like: 123 Main St, Springfield, 62704</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-walk" style="flex:1" id="btnCreateWalk" onclick="createWalk()">Create Walk</button>
+          <button class="btn btn-secondary btn-sm" onclick="hideCreateWalk()">Cancel</button>
+        </div>
+        <div class="error-msg" id="createWalkError"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -173,7 +282,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div class="walk-title" id="walkTitle"></div>
         <div class="walk-meta" id="walkMeta"></div>
       </div>
-      <button class="btn btn-sm btn-secondary" onclick="exitWalk()">Exit</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-secondary" onclick="printWalkList()" title="Print walk list" style="padding:8px 10px">&#x1F5A8;</button>
+        <button class="btn btn-sm btn-secondary" onclick="exitWalk()">Exit</button>
+      </div>
     </div>
     <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     <div class="gps-indicator">
@@ -200,32 +312,99 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <!-- Route optimization bar -->
   <div class="route-bar" id="routeBar">
     <button class="btn btn-sm btn-green" onclick="optimizeRoute()">Optimize Route</button>
+    <button class="btn btn-sm btn-blue" id="btnLiveRoute" onclick="refreshLiveRoute()" style="display:none">Refresh Route</button>
     <a class="maps-link" id="mapsLink" href="#" target="_blank" style="display:none">Open in Google Maps</a>
+    <span id="routeRemaining" style="font-size:12px;color:#94a3b8;margin-left:auto"></span>
+  </div>
+
+  <!-- Live group status bar (group mode) -->
+  <div id="liveStatusBar" style="display:none;padding:8px 16px;background:#0f172a;border-bottom:1px solid #334155">
+    <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Live Group Progress</div>
+    <div id="liveWalkerStats" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+  </div>
+
+  <!-- View toggle (List / Map) -->
+  <div style="padding:8px 16px;background:#0f172a;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between">
+    <div class="view-toggle">
+      <button class="view-toggle-btn active" id="btnListView" onclick="setView('list')">List</button>
+      <button class="view-toggle-btn" id="btnMapView" onclick="setView('map')">Map</button>
+    </div>
+    <button class="btn btn-sm" id="btnRegeocode" onclick="regeocodeWalk()" style="display:none;background:#334155;color:#e2e8f0;font-size:11px;padding:4px 8px">Fix Map Pins</button>
+    <span id="mapRefreshNote" style="font-size:11px;color:#64748b;display:none">Auto-refreshes every 60s</span>
+  </div>
+
+  <!-- Map container -->
+  <div id="mapContainer">
+    <div id="walkMap"></div>
+    <div class="map-legend">
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#f59e0b"></div> Your next doors</div>
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#22c55e"></div> Knocked (done)</div>
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#64748b"></div> Other walkers</div>
+      <div class="map-legend-item"><div class="map-legend-dot" style="background:#3b82f6"></div> Your location</div>
+    </div>
+    <button class="compass-btn" id="btnCompass" onclick="toggleCompassMode()" title="Rotate map to face your direction">
+      <svg class="compass-arrow" id="compassArrow" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 19,21 12,17 5,21" fill="currentColor" stroke="currentColor"/></svg>
+    </button>
+    <button class="locate-me-btn" onclick="centerOnMe()" title="Center on my location">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+    </button>
+    <div class="map-refresh-indicator" id="mapRefreshIndicator" style="display:none">Updating...</div>
   </div>
 
   <!-- Address list -->
   <div class="addr-list" id="addrList"></div>
 </div>
 
+<!-- Success toast -->
+<div class="success-toast" id="successToast"></div>
+
 <!-- DOOR PANEL (slide-up overlay) -->
 <div class="door-overlay" id="doorOverlay">
   <div class="door-panel">
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
-    <div class="door-voter" id="doorVoter"></div>
+    <a class="door-gmaps" id="doorGmapsLink" href="#" target="_blank" rel="noopener">&#x1F4CD; Open in Google Maps</a>
+    <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
 
-    <div class="disp-grid" id="dispGrid">
-      <button class="disp-btn sup" data-result="support" onclick="selectDisp(this)">&#x1F44D; Support</button>
-      <button class="disp-btn lean-sup" data-result="lean_support" onclick="selectDisp(this)">&#x1F44C; Lean Support</button>
-      <button class="disp-btn und" data-result="undecided" onclick="selectDisp(this)">&#x1F914; Undecided</button>
-      <button class="disp-btn lean-opp" data-result="lean_oppose" onclick="selectDisp(this)">&#x1F44E; Lean Oppose</button>
-      <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
-      <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
-      <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
-      <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
+    <!-- STEP 1: Who lives here — select who you talked to -->
+    <div class="hh-step active" id="doorStep1">
+      <div class="hh-step-title">Who lives here?</div>
+      <button class="hh-nobody-btn" id="btnNobodyHome" onclick="markAllNotHome()">&#x1F3E0; Nobody Home</button>
+      <div id="doorMemberList"></div>
     </div>
 
-    <textarea class="notes-area" id="doorNotes" placeholder="Notes (optional)..."></textarea>
+    <!-- STEP 2: Support level for the person you talked to -->
+    <div class="hh-step" id="doorStep2">
+      <div class="hh-step-title" id="step2Title">Support level</div>
+
+      <!-- Script talking points & survey questions (injected dynamically) -->
+      <div id="doorScriptSection" style="display:none"></div>
+
+      <div class="disp-grid" id="dispGrid">
+        <button class="disp-btn sup" data-result="support" onclick="selectDisp(this)">&#x1F44D; Support</button>
+        <button class="disp-btn lean-sup" data-result="lean_support" onclick="selectDisp(this)">&#x1F44C; Lean Support</button>
+        <button class="disp-btn und" data-result="undecided" onclick="selectDisp(this)">&#x1F914; Undecided</button>
+        <button class="disp-btn lean-opp" data-result="lean_oppose" onclick="selectDisp(this)">&#x1F44E; Lean Oppose</button>
+        <button class="disp-btn opp" data-result="oppose" onclick="selectDisp(this)">&#x26D4; Oppose</button>
+        <button class="disp-btn nh" data-result="not_home" onclick="selectDisp(this)">&#x1F3E0; Not Home</button>
+        <button class="disp-btn ref" data-result="refused" onclick="selectDisp(this)">&#x1F6AB; Refused</button>
+        <button class="disp-btn mov" data-result="moved" onclick="selectDisp(this)">&#x1F4E6; Moved</button>
+        <button class="disp-btn dec" data-result="deceased" onclick="selectDisp(this)">&#x1F54A; Deceased</button>
+        <button class="disp-btn other" data-result="come_back" onclick="selectDisp(this)">&#x1F504; Come Back</button>
+      </div>
+
+      <div style="text-align:center;margin-bottom:8px">
+        <button class="btn btn-sm btn-secondary" onclick="goBackToStep1()" style="font-size:12px;padding:6px 14px;color:#94a3b8">&#x2190; Back to household</button>
+      </div>
+    </div>
+
+    <div class="notes-row">
+      <textarea class="notes-area" id="doorNotes" placeholder="Notes (optional)..."></textarea>
+      <button class="record-btn" id="btnRecord" onclick="toggleRecording()" title="Record &amp; transcribe conversation">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+    </div>
+    <div class="record-status" id="recordStatus"></div>
 
     <div class="door-actions">
       <button class="btn btn-walk" id="btnLogDoor" onclick="logDoor()" disabled>Log & Next &#x27A1;</button>
@@ -244,64 +423,380 @@ var walkState = {
   gpsLng: null,
   gpsAccuracy: null,
   gpsWatchId: null,
+  locationInterval: null,
   // Group walking
   isGroupMode: false,
   walkerName: '',
+  walkerId: null,
   groupMembers: [],
-  mapsUrl: ''
+  mapsUrl: '',
+  routeActive: false,
+  // Canvassing script
+  script: null,
+  surveyResponses: {},
+  // Group refresh polling
+  groupRefreshInterval: null
 };
 
-// ===================== LOAD MODE TOGGLE =====================
+// ===================== VOICE RECORDING & TRANSCRIPTION =====================
 
-function setLoadMode(mode) {
-  var tabs = document.querySelectorAll('.mode-tab');
-  tabs[0].className = 'mode-tab' + (mode === 'id' ? ' active' : '');
-  tabs[1].className = 'mode-tab' + (mode === 'join' ? ' active' : '');
-  document.getElementById('modeId').className = 'mode-panel' + (mode === 'id' ? ' active' : '');
-  document.getElementById('modeJoin').className = 'mode-panel' + (mode === 'join' ? ' active' : '');
+var recordState = {
+  recognition: null,
+  isRecording: false,
+  finalTranscript: ''
+};
+
+function initSpeechRecognition() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  var recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = function(event) {
+    var interim = '';
+    var finalChunk = '';
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      var transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalChunk += transcript;
+      } else {
+        interim = transcript;
+      }
+    }
+    if (finalChunk) {
+      recordState.finalTranscript += (recordState.finalTranscript ? ' ' : '') + finalChunk.trim();
+    }
+    // Update the notes textarea with transcribed text
+    var notes = document.getElementById('doorNotes');
+    var existing = notes.value.replace(/\n\n\[Recording\].*$/, '').trim();
+    var display = recordState.finalTranscript + (interim ? ' ' + interim : '');
+    if (existing) {
+      notes.value = existing + '\n\n[Recording] ' + display;
+    } else {
+      notes.value = '[Recording] ' + display;
+    }
+    notes.scrollTop = notes.scrollHeight;
+  };
+
+  recognition.onerror = function(event) {
+    if (event.error === 'no-speech') return; // ignore silence
+    console.error('Speech recognition error:', event.error);
+    document.getElementById('recordStatus').textContent = 'Mic error: ' + event.error;
+    if (event.error === 'not-allowed') {
+      stopRecording();
+      document.getElementById('recordStatus').textContent = 'Microphone access denied. Please allow mic access and try again.';
+    }
+  };
+
+  recognition.onend = function() {
+    // Auto-restart if still supposed to be recording (browser may stop after silence)
+    if (recordState.isRecording) {
+      try { recognition.start(); } catch(e) {}
+    }
+  };
+
+  return recognition;
+}
+
+function toggleRecording() {
+  if (recordState.isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+function startRecording() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert('Voice recording is not supported in this browser. Please use Chrome, Edge, or Safari.');
+    return;
+  }
+  recordState.recognition = initSpeechRecognition();
+  recordState.finalTranscript = '';
+  recordState.isRecording = true;
+
+  var btn = document.getElementById('btnRecord');
+  btn.classList.add('recording');
+  document.getElementById('recordStatus').textContent = 'Listening... tap mic to stop';
+
+  try {
+    recordState.recognition.start();
+  } catch(e) {
+    console.error('Failed to start recording:', e);
+    stopRecording();
+  }
+}
+
+function stopRecording() {
+  recordState.isRecording = false;
+  if (recordState.recognition) {
+    try { recordState.recognition.stop(); } catch(e) {}
+    recordState.recognition = null;
+  }
+  var btn = document.getElementById('btnRecord');
+  btn.classList.remove('recording');
+  var status = document.getElementById('recordStatus');
+  if (recordState.finalTranscript) {
+    status.textContent = 'Transcription saved to notes';
+    setTimeout(function() { status.textContent = ''; }, 3000);
+  } else {
+    status.textContent = '';
+  }
+}
+
+// ===================== WALKER REGISTRATION =====================
+
+function showRegister() {
+  document.getElementById('loginForm').style.display = 'none';
+  document.getElementById('registerForm').style.display = '';
+  document.getElementById('regError').textContent = '';
+  document.getElementById('regSuccess').style.display = 'none';
+}
+
+function showLogin() {
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('loginForm').style.display = '';
   document.getElementById('loadError').textContent = '';
 }
 
-// ===================== JOIN GROUP WALK =====================
-
-async function joinWalk() {
-  var codeInput = document.getElementById('joinCodeInput');
-  var nameInput = document.getElementById('joinNameInput');
-  var errEl = document.getElementById('loadError');
+async function registerWalker() {
+  var name = document.getElementById('regName').value.trim();
+  var phone = document.getElementById('regPhone').value.trim();
+  var errEl = document.getElementById('regError');
   errEl.textContent = '';
+  if (!name) { errEl.textContent = 'Please enter your name.'; return; }
 
-  var joinCode = codeInput.value.trim().toUpperCase();
-  var walkerName = nameInput.value.trim();
+  var btn = document.getElementById('btnRegister');
+  btn.disabled = true;
+  btn.textContent = 'Signing up...';
 
-  if (!joinCode || joinCode.length < 4) { errEl.textContent = 'Enter the 4-character join code.'; return; }
-  if (!walkerName) { errEl.textContent = 'Enter your name.'; return; }
-
-  document.getElementById('btnJoinWalk').disabled = true;
   try {
-    var res = await fetch('/api/walks/join', {
+    var resp = await fetch('/api/volunteers/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ joinCode: joinCode, walkerName: walkerName })
+      body: JSON.stringify({ name: name, phone: phone || undefined })
     });
-    var data = await res.json();
-    if (!res.ok || data.error) { errEl.textContent = data.error || 'Failed to join'; return; }
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Registration failed');
 
-    walkState.walkId = data.walkId;
-    walkState.isGroupMode = true;
-    walkState.walkerName = walkerName;
+    // Show the code to the user
+    document.getElementById('regCode').textContent = data.code;
+    document.getElementById('regSuccess').style.display = '';
+    btn.textContent = 'Signed Up!';
 
-    // Load walker-specific addresses
-    await loadGroupWalk(data.walkId, walkerName);
-
-    document.getElementById('loadScreen').style.display = 'none';
-    document.getElementById('walkScreen').style.display = '';
-    startGps();
-  } catch(e) {
-    errEl.textContent = 'Failed to join: ' + e.message;
-  } finally {
-    document.getElementById('btnJoinWalk').disabled = false;
+    // Auto-login after a short delay so they can see their code
+    setTimeout(function() {
+      btn.disabled = false;
+      btn.textContent = 'Sign Up';
+      document.getElementById('walkerCodeInput').value = data.code;
+      showLogin();
+      walkerLogin();
+    }, 2500);
+  } catch (e) {
+    errEl.textContent = e.message || 'Registration failed. Please try again.';
+    btn.disabled = false;
+    btn.textContent = 'Sign Up';
   }
 }
+
+// ===================== WALKER CODE LOGIN =====================
+
+document.getElementById('walkerCodeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') walkerLogin();
+});
+
+// Auto-login from URL param or saved session
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var code = params.get('code');
+  // Try URL param first, then localStorage
+  if (!code) {
+    code = localStorage.getItem('walkerCode');
+  }
+  if (code) {
+    document.getElementById('walkerCodeInput').value = code;
+    setTimeout(walkerLogin, 100);
+    return;
+  }
+  // Legacy: support walkId param (skip if walkerId is also present — handled by auto-load IIFE below)
+  var wid = params.get('walkId');
+  if (wid && !params.get('walkerId')) {
+    walkState.walkId = parseInt(wid);
+    loadWalk();
+  }
+})();
+
+async function walkerLogin() {
+  var code = document.getElementById('walkerCodeInput').value.trim();
+  var errEl = document.getElementById('loadError');
+  errEl.textContent = '';
+  if (!code) { errEl.textContent = 'Please enter your walker code.'; return; }
+
+  document.getElementById('btnWalkerLogin').disabled = true;
+  try {
+    var resp = await fetch('/api/volunteers/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Login failed');
+
+    if (!data.volunteer.can_walk) {
+      throw new Error('Your code is for P2P texting only. Go to /volunteer to start texting.');
+    }
+
+    walkState.walkerId = data.volunteer.walkerId || data.volunteer.id;
+    walkState.walkerName = data.volunteer.name;
+    walkState.isGroupMode = true;
+
+    // Save code to localStorage so the walker stays logged in across refreshes
+    localStorage.setItem('walkerCode', code.toUpperCase());
+
+    // Walks are returned directly from the unified login
+    var walks = data.walks || [];
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkSelectScreen').style.display = '';
+    document.getElementById('walkerGreeting').textContent = data.volunteer.name + "'s Walks";
+    renderWalkList(walks);
+  } catch (e) {
+    errEl.textContent = e.message || 'Login failed. Check your code.';
+    document.getElementById('btnWalkerLogin').disabled = false;
+  }
+}
+
+function renderWalkList(walks) {
+  var el = document.getElementById('walkSelectList');
+  el.textContent = '';
+  if (walks.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'text-align:center;color:#64748b;padding:40px 20px;font-size:14px';
+    empty.textContent = 'No walks assigned yet. Ask your campaign admin to assign you.';
+    el.appendChild(empty);
+    return;
+  }
+  walks.forEach(function(w) {
+    var card = document.createElement('div');
+    card.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;transition:border-color 0.2s';
+    card.addEventListener('mouseenter', function() { card.style.borderColor = '#f59e0b'; });
+    card.addEventListener('mouseleave', function() { card.style.borderColor = '#334155'; });
+    var title = document.createElement('h4');
+    title.style.cssText = 'font-size:16px;color:#e2e8f0;margin:0 0 4px 0';
+    title.textContent = w.name || 'Walk #' + w.id;
+    card.appendChild(title);
+    if (w.description) {
+      var desc = document.createElement('div');
+      desc.style.cssText = 'font-size:13px;color:#94a3b8;margin-bottom:8px';
+      desc.textContent = w.description;
+      card.appendChild(desc);
+    }
+    var stats = document.createElement('div');
+    stats.style.cssText = 'display:flex;gap:16px;font-size:12px;color:#64748b;margin-bottom:8px';
+    var pct = w.total_addresses > 0 ? Math.round((w.completed_addresses / w.total_addresses) * 100) : 0;
+    stats.textContent = w.total_addresses + ' doors \u00B7 ' + (w.completed_addresses || 0) + ' done \u00B7 ' + pct + '%';
+    card.appendChild(stats);
+    var bar = document.createElement('div');
+    bar.style.cssText = 'height:6px;background:#334155;border-radius:3px;overflow:hidden;margin-bottom:10px';
+    var fill = document.createElement('div');
+    fill.style.cssText = 'height:100%;background:#22c55e;border-radius:3px;width:' + pct + '%';
+    bar.appendChild(fill);
+    card.appendChild(bar);
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-walk';
+    btn.style.cssText = 'width:100%;padding:10px';
+    btn.textContent = 'Start Walking';
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      walkState.walkId = w.id;
+      document.getElementById('walkSelectScreen').style.display = 'none';
+      loadWalk();
+    });
+    card.addEventListener('click', function() {
+      walkState.walkId = w.id;
+      document.getElementById('walkSelectScreen').style.display = 'none';
+      loadWalk();
+    });
+    card.appendChild(btn);
+    el.appendChild(card);
+  });
+}
+
+function showCreateWalk() {
+  document.getElementById('createWalkToggle').style.display = 'none';
+  document.getElementById('createWalkForm').style.display = '';
+  document.getElementById('createWalkError').textContent = '';
+}
+
+function hideCreateWalk() {
+  document.getElementById('createWalkForm').style.display = 'none';
+  document.getElementById('createWalkToggle').style.display = '';
+}
+
+async function createWalk() {
+  var name = document.getElementById('newWalkName').value.trim();
+  var rawAddresses = document.getElementById('newWalkAddresses').value.trim();
+  var errEl = document.getElementById('createWalkError');
+  errEl.textContent = '';
+
+  if (!name) { errEl.textContent = 'Please enter a walk name.'; return; }
+  if (!rawAddresses) { errEl.textContent = 'Please enter at least one address.'; return; }
+
+  // Parse addresses: one per line, optionally with city/zip after commas
+  var lines = rawAddresses.split('\n').filter(function(l) { return l.trim(); });
+  var addresses = lines.map(function(line) {
+    var parts = line.split(',').map(function(p) { return p.trim(); });
+    return {
+      address: parts[0] || '',
+      city: parts[1] || '',
+      zip: parts[2] || ''
+    };
+  });
+
+  if (addresses.length === 0) { errEl.textContent = 'Please enter at least one address.'; return; }
+
+  var btn = document.getElementById('btnCreateWalk');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    var resp = await fetch('/api/volunteers/create-walk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        walkerId: walkState.walkerId,
+        walkerName: walkState.walkerName,
+        walkName: name,
+        addresses: addresses
+      })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed to create walk');
+
+    // Load the new walk directly
+    walkState.walkId = data.walkId;
+    document.getElementById('walkSelectScreen').style.display = 'none';
+    loadWalk();
+  } catch (e) {
+    errEl.textContent = e.message || 'Failed to create walk.';
+    btn.disabled = false;
+    btn.textContent = 'Create Walk';
+  }
+}
+
+function walkerLogout() {
+  walkState.walkerId = null;
+  walkState.walkerName = '';
+  localStorage.removeItem('walkerCode');
+  document.getElementById('walkSelectScreen').style.display = 'none';
+  document.getElementById('loadScreen').style.display = 'flex';
+  document.getElementById('walkerCodeInput').value = '';
+  document.getElementById('btnWalkerLogin').disabled = false;
+}
+
+// ===================== JOIN GROUP WALK =====================
 
 async function loadGroupWalk(walkId, walkerName) {
   // Get walker's addresses
@@ -316,6 +811,7 @@ async function loadGroupWalk(walkId, walkerName) {
   // Load group members
   var gRes = await fetch('/api/walks/' + walkId + '/group');
   var gData = await gRes.json();
+  if (!gRes.ok || gData.error) { console.warn('Failed to load group:', gData.error); }
   walkState.groupMembers = gData.members || [];
 
   renderWalk();
@@ -348,9 +844,10 @@ function renderGroupBar() {
 async function leaveGroup() {
   if (!confirm('Leave this walking group?')) return;
   try {
-    await fetch('/api/walks/' + walkState.walkId + '/group/' + encodeURIComponent(walkState.walkerName), {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/group/' + encodeURIComponent(walkState.walkerName), {
       method: 'DELETE'
     });
+    if (!res.ok) { alert('Failed to leave group. Try again.'); return; }
     exitWalk();
   } catch(e) {
     alert('Failed to leave group: ' + e.message);
@@ -364,23 +861,28 @@ async function optimizeRoute() {
   btn.disabled = true;
   btn.textContent = 'Optimizing...';
   try {
-    var res = await fetch('/api/walks/' + walkState.walkId + '/route');
-    var data = await res.json();
-    if (data.mapsUrl) {
-      walkState.mapsUrl = data.mapsUrl;
-      var link = document.getElementById('mapsLink');
-      link.href = data.mapsUrl;
-      link.style.display = '';
-    }
-    // Reload the walk to get updated sort order
     if (walkState.isGroupMode) {
+      // Use per-walker route with current GPS position
+      await fetchWalkerRoute();
       await loadGroupWalk(walkState.walkId, walkState.walkerName);
     } else {
+      var res = await fetch('/api/walks/' + walkState.walkId + '/route');
+      var data = await res.json();
+      if (data.mapsUrl) {
+        walkState.mapsUrl = data.mapsUrl;
+        document.getElementById('mapsLink').href = data.mapsUrl;
+        document.getElementById('mapsLink').style.display = '';
+      }
       var wRes = await fetch('/api/walks/' + walkState.walkId + '/volunteer');
       var wData = await wRes.json();
       walkState.walk = wData.walk;
       renderWalk();
     }
+    // Show live route button for group mode
+    if (walkState.isGroupMode) {
+      document.getElementById('btnLiveRoute').style.display = '';
+    }
+    walkState.routeActive = true;
     btn.textContent = 'Route Optimized!';
     setTimeout(function() { btn.textContent = 'Optimize Route'; btn.disabled = false; }, 2000);
   } catch(e) {
@@ -388,6 +890,195 @@ async function optimizeRoute() {
     btn.textContent = 'Optimize Route';
     btn.disabled = false;
   }
+}
+
+// Fetch optimized route for THIS walker only (uses current GPS)
+async function fetchWalkerRoute() {
+  var url = '/api/walks/' + walkState.walkId + '/walker/' + encodeURIComponent(walkState.walkerName) + '/route';
+  if (walkState.gpsLat != null && walkState.gpsLng != null) {
+    url += '?lat=' + walkState.gpsLat + '&lng=' + walkState.gpsLng;
+  }
+  var res = await fetch(url);
+  var data = await res.json();
+  if (!res.ok) return data;
+  if (data.mapsUrl) {
+    walkState.mapsUrl = data.mapsUrl;
+    document.getElementById('mapsLink').href = data.mapsUrl;
+    document.getElementById('mapsLink').style.display = '';
+  }
+  document.getElementById('routeRemaining').textContent = data.remaining + ' doors left';
+  return data;
+}
+
+// Refresh live route — called after each door knock or manually
+async function refreshLiveRoute() {
+  if (!walkState.isGroupMode || !walkState.routeActive) return;
+  try {
+    await fetchWalkerRoute();
+    await loadGroupWalk(walkState.walkId, walkState.walkerName);
+    // Also refresh group live status
+    await refreshLiveStatus();
+  } catch(e) { /* silent */ }
+}
+
+// Fetch and render live group status
+async function refreshLiveStatus() {
+  if (!walkState.isGroupMode) return;
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/live-status');
+    var data = await res.json();
+    var el = document.getElementById('liveWalkerStats');
+    el.innerHTML = '';
+    var bar = document.getElementById('liveStatusBar');
+    bar.style.display = '';
+
+    for (var name in data.walkerStats) {
+      var s = data.walkerStats[name];
+      var isMe = name === walkState.walkerName;
+      var chip = document.createElement('div');
+      chip.style.cssText = 'background:' + (isMe ? '#422006' : '#1e293b') + ';border:1px solid ' + (isMe ? '#f59e0b' : '#334155') + ';border-radius:8px;padding:6px 10px;font-size:12px;min-width:100px';
+      chip.innerHTML = '<div style="font-weight:700;color:' + (isMe ? '#fcd34d' : '#e2e8f0') + '">' + escHtml(name) + '</div>' +
+        '<div style="color:#94a3b8">' + s.knocked + '/' + s.total + ' done &middot; ' + s.remaining + ' left</div>';
+      el.appendChild(chip);
+    }
+
+    // Update group progress in header
+    walkState.walk.progress = data.progress;
+    var knocked = data.progress.knocked;
+    var total = data.progress.total;
+    document.getElementById('walkMeta').textContent = 'Group progress: ' + knocked + ' of ' + total + ' doors knocked (' + data.progress.remaining + ' remaining)';
+    var pct = total > 0 ? (knocked / total * 100) : 0;
+    document.getElementById('progressFill').style.width = pct + '%';
+  } catch(e) { /* silent */ }
+}
+
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function walkerPartyBadge(score) {
+  if (!score) return '';
+  var colors = { D:'#3b82f6', DD:'#3b82f6', DDD:'#3b82f6', R:'#ef4444', RR:'#ef4444', RRR:'#ef4444', SWING:'#a855f7' };
+  var c = colors[score] || '#64748b';
+  var titles = { D:'1 Dem primary', DD:'2 Dem primaries', DDD:'3+ Dem primaries', R:'1 GOP primary', RR:'2 GOP primaries', RRR:'3+ GOP primaries', SWING:'Equal D & R primaries' };
+  return ' <span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;letter-spacing:1px;margin-left:4px" title="' + (titles[score]||score) + '">' + escHtml(score) + '</span>';
+}
+
+// Parse apartment/unit from address string when unit field is empty
+function parseUnitFromAddress(address) {
+  if (!address) return { street: '', unit: '' };
+  var addr = address.trim();
+  var match = addr.match(/^(.+?)\s+((?:apt|apartment|unit|ste|suite|#|rm|room|fl|floor|bldg|building|lot|space|trlr|trailer)\s*\.?\s*\S+)$/i);
+  if (match) return { street: match[1].trim(), unit: match[2].trim() };
+  return { street: addr, unit: '' };
+}
+
+function showToast(message) {
+  var toast = document.getElementById('successToast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 2000);
+}
+
+// ===================== CANVASSING SCRIPTS =====================
+
+async function loadWalkScript() {
+  if (!walkState.walkId) return;
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/script');
+    var data = await res.json();
+    walkState.script = data.script || null;
+  } catch(e) {
+    walkState.script = null;
+  }
+}
+
+function renderScriptInDoor() {
+  var section = document.getElementById('doorScriptSection');
+  if (!walkState.script || !walkState.script.elements || walkState.script.elements.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  section.innerHTML = '';
+  walkState.surveyResponses = {};
+
+  var container = document.createElement('div');
+  container.className = 'script-section';
+
+  var title = document.createElement('div');
+  title.className = 'script-title';
+  title.textContent = walkState.script.name;
+  container.appendChild(title);
+
+  walkState.script.elements.forEach(function(el) {
+    if (el.element_type === 'text') {
+      var p = document.createElement('div');
+      p.className = 'script-text';
+      p.textContent = el.content;
+      container.appendChild(p);
+    } else if (el.element_type === 'survey') {
+      var qDiv = document.createElement('div');
+      qDiv.className = 'script-question';
+      var lbl = document.createElement('label');
+      lbl.textContent = el.label;
+      qDiv.appendChild(lbl);
+
+      var optDiv = document.createElement('div');
+      if (el.options && el.options.length > 0) {
+        el.options.forEach(function(opt) {
+          var optLabel = typeof opt === 'string' ? opt : (opt.label || opt);
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'script-option-btn';
+          btn.textContent = optLabel;
+          btn.setAttribute('data-element-id', el.id);
+          btn.setAttribute('data-value', optLabel);
+          btn.addEventListener('click', function() {
+            // Deselect siblings
+            var siblings = optDiv.querySelectorAll('.script-option-btn');
+            for (var s = 0; s < siblings.length; s++) siblings[s].classList.remove('selected');
+            btn.classList.add('selected');
+            walkState.surveyResponses[el.id] = optLabel;
+          });
+          optDiv.appendChild(btn);
+        });
+      }
+      qDiv.appendChild(optDiv);
+      container.appendChild(qDiv);
+    } else if (el.element_type === 'activist_code') {
+      var acDiv = document.createElement('div');
+      acDiv.className = 'script-question';
+      var acBtn = document.createElement('button');
+      acBtn.type = 'button';
+      acBtn.className = 'activist-code-btn';
+      acBtn.innerHTML = '&#9744; ' + escHtml(el.label);
+      acBtn.setAttribute('data-element-id', el.id);
+      acBtn.addEventListener('click', function() {
+        acBtn.classList.toggle('selected');
+        if (acBtn.classList.contains('selected')) {
+          acBtn.innerHTML = '&#9745; ' + escHtml(el.label);
+          walkState.surveyResponses[el.id] = 'Yes';
+        } else {
+          acBtn.innerHTML = '&#9744; ' + escHtml(el.label);
+          delete walkState.surveyResponses[el.id];
+        }
+      });
+      acDiv.appendChild(acBtn);
+      container.appendChild(acDiv);
+    }
+  });
+
+  section.appendChild(container);
+}
+
+// Quick "Nobody Home" — replaced by markAllNotHome() in the new household flow
+
+// Print walk list
+function printWalkList() {
+  if (!walkState.walkId) return;
+  var w = window.open('/api/walks/' + walkState.walkId + '/print', '_blank');
+  if (!w) alert('Pop-up blocked. Please allow pop-ups for this site to print.');
 }
 
 // ===================== GPS TRACKING =====================
@@ -419,6 +1110,9 @@ function startGps() {
         dot.className = 'gps-dot poor';
         text.textContent = 'GPS: Weak (' + acc + 'm)';
       }
+
+      // Update the walker marker on the map in real-time (no full refresh needed)
+      updateWalkerMarkerPosition();
     },
     function(err) {
       document.getElementById('gpsText').textContent = 'GPS: ' + err.message;
@@ -426,6 +1120,18 @@ function startGps() {
     },
     { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
   );
+
+  // Broadcast location to server every 60 seconds for live map tracking
+  if (walkState.locationInterval) clearInterval(walkState.locationInterval);
+  walkState.locationInterval = setInterval(function() {
+    if (!walkState.walkId || walkState.gpsLat == null || walkState.gpsAccuracy > 200) return;
+    var name = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
+    fetch('/api/walks/' + walkState.walkId + '/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walker_name: name, lat: walkState.gpsLat, lng: walkState.gpsLng, accuracy: walkState.gpsAccuracy })
+    }).catch(function() {});
+  }, 60000);
 }
 
 function stopGps() {
@@ -433,53 +1139,176 @@ function stopGps() {
     navigator.geolocation.clearWatch(walkState.gpsWatchId);
     walkState.gpsWatchId = null;
   }
+  if (walkState.locationInterval) {
+    clearInterval(walkState.locationInterval);
+    walkState.locationInterval = null;
+  }
+}
+
+// ===================== GROUP REFRESH (live updates from other walkers) =====================
+
+// Poll for updated address statuses so walkers see doors claimed by others
+function startGroupRefresh() {
+  stopGroupRefresh();
+  if (!walkState.isGroupMode) return;
+  walkState.groupRefreshInterval = setInterval(refreshWalkData, 30000);
+}
+
+function stopGroupRefresh() {
+  if (walkState.groupRefreshInterval) {
+    clearInterval(walkState.groupRefreshInterval);
+    walkState.groupRefreshInterval = null;
+  }
+}
+
+// Lightweight refresh: fetch current address statuses and update local state
+async function refreshWalkData() {
+  if (!walkState.walkId || !walkState.walk || !walkState.walk.addresses) return;
+  // Don't refresh while the door panel is open (would be jarring)
+  if (document.getElementById('doorOverlay').classList.contains('open')) return;
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/map-data');
+    var data = await res.json();
+    if (!res.ok) return;
+    // Update results for addresses that changed (knocked by other walkers)
+    var changed = false;
+    var statusMap = {};
+    for (var i = 0; i < data.addresses.length; i++) {
+      statusMap[data.addresses[i].id] = data.addresses[i].result;
+    }
+    for (var j = 0; j < walkState.walk.addresses.length; j++) {
+      var addr = walkState.walk.addresses[j];
+      var newResult = statusMap[addr.id];
+      if (newResult && newResult !== addr.result) {
+        addr.result = newResult;
+        changed = true;
+      }
+    }
+    if (changed) {
+      // Update progress — count unique doors, not individual voters
+      walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
+      renderWalk();
+    }
+  } catch(e) { console.warn('Group refresh failed:', e.message); }
 }
 
 // ===================== LOAD WALK =====================
 
 async function loadWalk() {
-  var idInput = document.getElementById('walkIdInput');
-  var errEl = document.getElementById('loadError');
-  errEl.textContent = '';
-  var walkId = parseInt(idInput.value);
-  if (!walkId || walkId < 1) { errEl.textContent = 'Please enter a valid walk ID.'; return; }
+  var walkId = walkState.walkId;
+  if (!walkId || walkId < 1) return;
 
-  document.getElementById('btnLoadWalk').disabled = true;
   try {
-    var res = await fetch('/api/walks/' + walkId + '/volunteer');
-    var data = await res.json();
-    if (!res.ok || data.error) { errEl.textContent = data.error || 'Server error ' + res.status; return; }
+    var res, data;
+    // If logged in as a walker, load walker-specific addresses (only their assigned doors)
+    if (walkState.walkerId) {
+      res = await fetch('/api/walks/' + walkId + '/walker-by-id/' + walkState.walkerId);
+      data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Failed to load walk.');
+        document.getElementById('walkSelectScreen').style.display = '';
+        return;
+      }
+      walkState.walk = data.walk;
+      walkState.walk.addresses = data.addresses;
+      walkState.walk.progress = data.progress;
+      walkState.isGroupMode = true;
 
-    walkState.walkId = walkId;
-    walkState.walk = data.walk;
+      // Load group members for the group bar
+      var gRes = await fetch('/api/walks/' + walkId + '/walkers');
+      var gData = await gRes.json();
+      var members = (gData.members || []);
+      walkState.groupMembers = members.map(function(m) { return { walker_name: m.walker_name }; });
+      // Ensure walker name is set from members list if not already
+      if (!walkState.walkerName) {
+        for (var i = 0; i < members.length; i++) {
+          if (members[i].walker_id === walkState.walkerId) {
+            walkState.walkerName = members[i].walker_name;
+            break;
+          }
+        }
+      }
+    } else {
+      res = await fetch('/api/walks/' + walkId + '/volunteer');
+      data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Failed to load walk.');
+        document.getElementById('walkSelectScreen').style.display = '';
+        return;
+      }
+      walkState.walk = data.walk;
+    }
+
     renderWalk();
     document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkSelectScreen').style.display = 'none';
     document.getElementById('walkScreen').style.display = '';
     startGps();
+    loadWalkScript();
+    startGroupRefresh();
   } catch(e) {
-    errEl.textContent = 'Failed to load walk: ' + e.message;
-  } finally {
-    document.getElementById('btnLoadWalk').disabled = false;
+    alert('Failed to load walk: ' + e.message);
+    document.getElementById('walkSelectScreen').style.display = '';
   }
 }
 
 function exitWalk() {
   stopGps();
+  stopGroupRefresh();
+  // Clean up map
+  if (mapState.refreshInterval) { clearInterval(mapState.refreshInterval); mapState.refreshInterval = null; }
+  if (mapState.map) { mapState.map.remove(); mapState.map = null; mapState.initialized = false; }
+  mapState.markers = [];
+  mapState.otherWalkerMarkers = [];
+  mapState.walkerMarker = null;
+  mapState.currentView = 'list';
+  mapState.hasFittedBounds = false;
+
+  // Preserve walker identity if logged in (walkerId stays set)
+  var wasLoggedIn = !!walkState.walkerId;
+  var savedWalkerId = walkState.walkerId;
+  var savedWalkerName = walkState.walkerName;
+
   walkState.walkId = null;
   walkState.walk = null;
   walkState.isGroupMode = false;
   walkState.walkerName = '';
   walkState.groupMembers = [];
   walkState.mapsUrl = '';
+  walkState.routeActive = false;
+  walkState.script = null;
+  walkState.surveyResponses = {};
   document.getElementById('walkScreen').style.display = 'none';
-  document.getElementById('loadScreen').style.display = '';
+  document.getElementById('liveStatusBar').style.display = 'none';
+  document.getElementById('btnLiveRoute').style.display = 'none';
   document.getElementById('mapsLink').style.display = 'none';
+  document.getElementById('mapContainer').style.display = 'none';
+  document.getElementById('addrList').style.display = '';
+  document.getElementById('btnListView').className = 'view-toggle-btn active';
+  document.getElementById('btnMapView').className = 'view-toggle-btn';
+
+  // If walker was logged in, go back to walk selection instead of login screen
+  if (wasLoggedIn) {
+    walkState.walkerId = savedWalkerId;
+    walkState.walkerName = savedWalkerName;
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkSelectScreen').style.display = '';
+    document.getElementById('walkerGreeting').textContent = savedWalkerName + "'s Walks";
+    // Re-login to refresh walk list (code is still in the input)
+    var code = document.getElementById('walkerCodeInput').value.trim();
+    if (code) {
+      walkerLogin();
+    }
+  } else {
+    document.getElementById('loadScreen').style.display = '';
+  }
 }
 
 // ===================== RENDER WALK =====================
 
 function renderWalk() {
   var w = walkState.walk;
+  if (!w) return;
   document.getElementById('walkTitle').textContent = w.name;
 
   var knocked = w.progress.knocked;
@@ -499,10 +1328,18 @@ function renderAddressList() {
   el.textContent = '';
   var addrs = walkState.walk.addresses;
 
-  // Find first un-visited address as "current"
+  // Find first un-visited address as "current" — prefer walker's assigned addresses first
   var currentIdx = -1;
-  for (var i = 0; i < addrs.length; i++) {
-    if (addrs[i].result === 'not_visited') { currentIdx = i; break; }
+  if (walkState.isGroupMode && walkState.walkerName) {
+    for (var i = 0; i < addrs.length; i++) {
+      if (addrs[i].result === 'not_visited' && addrs[i].assigned_walker === walkState.walkerName) { currentIdx = i; break; }
+    }
+  }
+  // Fall back to first unvisited if none assigned to this walker
+  if (currentIdx === -1) {
+    for (var i = 0; i < addrs.length; i++) {
+      if (addrs[i].result === 'not_visited') { currentIdx = i; break; }
+    }
   }
   walkState.currentAddrIdx = currentIdx >= 0 ? currentIdx : addrs.length;
 
@@ -512,32 +1349,64 @@ function renderAddressList() {
     if (a.result !== 'not_visited') card.className += ' done';
     if (idx === currentIdx) card.className += ' current';
 
+    // In group mode, visually distinguish addresses assigned to other walkers
+    var isMyAddr = !walkState.isGroupMode || !a.assigned_walker || a.assigned_walker === walkState.walkerName;
+
     // Number badge
     var num = document.createElement('div');
     num.className = 'addr-num';
     num.textContent = idx + 1;
     card.appendChild(num);
 
-    // Address text
+    // Address text — show unit as a highlighted badge
     var addrText = document.createElement('div');
     addrText.className = 'addr-text';
-    var fullAddr = a.address + (a.unit ? ' ' + a.unit : '');
-    addrText.textContent = fullAddr;
+    if (a.unit) {
+      addrText.innerHTML = escHtml(a.address) + ' <span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:12px;font-weight:700">' + escHtml(a.unit) + '</span>' +
+        (a.city ? '<span style="font-weight:400;color:#94a3b8">, ' + escHtml(a.city) + '</span>' : '') +
+        (a.zip ? '<span style="font-weight:400;color:#94a3b8"> ' + escHtml(a.zip) + '</span>' : '');
+    } else {
+      var fullAddr = a.address;
+      if (a.city) fullAddr += ', ' + a.city;
+      if (a.zip) fullAddr += ' ' + a.zip;
+      addrText.textContent = fullAddr;
+    }
     card.appendChild(addrText);
 
-    // Voter name
+    // Voter name + unit/apt number + age
     if (a.voter_name) {
       var voter = document.createElement('div');
       voter.className = 'addr-voter';
-      voter.textContent = a.voter_name;
+      var voterText = a.voter_name;
+      if (a.unit) voterText += ' \u2014 ' + a.unit;
+      if (a.voter_age) voterText += ' (age ' + a.voter_age + ')';
+      voter.innerHTML = escHtml(voterText) + (a.voter_party_score ? walkerPartyBadge(a.voter_party_score) : '');
       card.appendChild(voter);
     }
 
-    // Assigned walker (group mode)
-    if (a.assigned_walker && !walkState.isGroupMode) {
+    // Household members — show unit number next to each name
+    if (a.household && a.household.length > 0) {
+      var hh = document.createElement('div');
+      hh.className = 'addr-household';
+      hh.innerHTML = '<small style="color:#64748b">' + a.household.map(function(m) {
+        var text = escHtml((m.first_name || '') + ' ' + (m.last_name || ''));
+        if (m.unit) text += ' <span style="color:#f59e0b;font-weight:600">' + escHtml(m.unit) + '</span>';
+        if (m.age) text += ' <span style="color:#94a3b8">('+escHtml(String(m.age))+')</span>';
+        return text;
+      }).join(', ') + '</small>';
+      card.appendChild(hh);
+    }
+
+    // Assigned walker (group mode) — show whose door it is
+    if (a.assigned_walker && walkState.isGroupMode) {
       var walkerLabel = document.createElement('div');
       walkerLabel.className = 'addr-walker';
-      walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
+      if (a.assigned_walker === walkState.walkerName) {
+        walkerLabel.textContent = '\u2B50 Your door';
+        walkerLabel.style.color = '#f59e0b';
+      } else {
+        walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
+      }
       card.appendChild(walkerLabel);
     }
 
@@ -558,8 +1427,36 @@ function renderAddressList() {
         statusRow.appendChild(gpsBadge);
       }
 
+      // Attempt count
+      if (a.attempt_count && a.attempt_count > 1) {
+        var attBadge = document.createElement('span');
+        attBadge.className = 'attempt-badge';
+        attBadge.textContent = a.attempt_count + ' attempts';
+        statusRow.appendChild(attBadge);
+      }
+
       card.appendChild(statusRow);
     }
+
+    // Re-knock indicator for not_home and come_back
+    if (a.result === 'not_home' || a.result === 'come_back') {
+      var reknock = document.createElement('div');
+      reknock.style.cssText = 'font-size:11px;color:#fcd34d;margin-top:4px;font-weight:600';
+      reknock.textContent = a.result === 'not_home' ? '\u{1F504} Try again — Not Home' : '\u{1F504} Come back later';
+      card.className = card.className.replace(' done', ''); // Make it look tappable again
+      card.style.borderLeft = '3px solid #f59e0b';
+      card.appendChild(reknock);
+    }
+
+    // Google Maps link on each address card
+    var gmLink = document.createElement('a');
+    gmLink.className = 'gmaps-link';
+    gmLink.href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
+    gmLink.target = '_blank';
+    gmLink.rel = 'noopener';
+    gmLink.innerHTML = '&#x1F4CD; Maps';
+    gmLink.addEventListener('click', function(e) { e.stopPropagation(); });
+    card.appendChild(gmLink);
 
     card.addEventListener('click', function() { openDoor(idx); });
     el.appendChild(card);
@@ -580,9 +1477,27 @@ function getResultBadgeClass(result) {
     'undecided': 'badge-yellow', 'lean_oppose': 'badge-red',
     'oppose': 'badge-red', 'not_home': 'badge-gray',
     'refused': 'badge-gray', 'moved': 'badge-gray',
-    'come_back': 'badge-blue'
+    'deceased': 'badge-gray', 'come_back': 'badge-blue'
   };
   return map[result] || 'badge-gray';
+}
+
+// Count unique doors (address+unit) — people living together = 1 door
+function countUniqueDoors(addresses) {
+  var doors = {};
+  for (var i = 0; i < addresses.length; i++) {
+    var a = addresses[i];
+    var key = (a.address || '').trim().toLowerCase() + '||' + (a.unit || '').trim().toLowerCase();
+    if (!doors[key]) doors[key] = { knocked: false };
+    if (a.result && a.result !== 'not_visited') doors[key].knocked = true;
+  }
+  var keys = Object.keys(doors);
+  var total = keys.length;
+  var knocked = 0;
+  for (var j = 0; j < keys.length; j++) {
+    if (doors[keys[j]].knocked) knocked++;
+  }
+  return { total: total, knocked: knocked, remaining: total - knocked };
 }
 
 function formatResult(result) {
@@ -591,23 +1506,114 @@ function formatResult(result) {
     'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
     'oppose': 'Oppose', 'not_home': 'Not Home',
     'refused': 'Refused', 'moved': 'Moved',
-    'come_back': 'Come Back', 'not_visited': 'Not Visited'
+    'deceased': 'Deceased', 'come_back': 'Come Back',
+    'not_visited': 'Not Visited'
   };
   return map[result] || result;
 }
 
 // ===================== DOOR PANEL =====================
 
+// Household tracking state per door
+var doorState = {
+  allMembers: [],      // [{voter_id, name, age, isPrimary, status: 'pending'|'talked'|'not_home', result: null}]
+  activeMemberIdx: -1, // which member is being rated right now
+  step: 1,             // 1 = who lives here, 2 = support level for selected person
+  openAddrId: null     // address ID of the currently open door (stable across refreshes)
+};
+
 function openDoor(idx) {
+  if (!walkState.walk || !walkState.walk.addresses || idx < 0 || idx >= walkState.walk.addresses.length) return;
   var a = walkState.walk.addresses[idx];
   walkState.currentAddrIdx = idx;
+  doorState.openAddrId = a.id;
   walkState.selectedResult = null;
+  walkState.surveyResponses = {};
 
-  document.getElementById('doorTitle').textContent = 'Door #' + (idx + 1);
-  document.getElementById('doorAddr').textContent = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
-  document.getElementById('doorVoter').textContent = a.voter_name ? 'Voter: ' + a.voter_name : '';
+  // Parse unit from address if unit field is empty
+  var displayUnit = a.unit || '';
+  var displayAddr = a.address || '';
+  if (!displayUnit) {
+    var parsed = parseUnitFromAddress(a.address);
+    if (parsed.unit) {
+      displayUnit = parsed.unit;
+      displayAddr = parsed.street;
+    }
+  }
+
+  var titleEl = document.getElementById('doorTitle');
+  if (displayUnit) {
+    titleEl.innerHTML = 'Door #' + (idx + 1) + ' <span style="background:#3b82f6;color:#fff;padding:2px 8px;border-radius:6px;font-size:16px;margin-left:6px;vertical-align:middle">' + escHtml(displayUnit) + '</span>';
+  } else {
+    titleEl.textContent = 'Door #' + (idx + 1);
+  }
+  document.getElementById('doorAddr').textContent = displayAddr + (displayUnit ? ' ' + displayUnit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+  document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
+
+  // Show attempt info
+  var attemptInfo = document.getElementById('doorAttemptInfo');
+  if (a.attempt_count && a.attempt_count > 0) {
+    attemptInfo.textContent = 'Previous attempts: ' + a.attempt_count + (a.result === 'not_home' ? ' — Try again!' : a.result === 'come_back' ? ' — Come back attempt' : '');
+    attemptInfo.style.display = '';
+  } else {
+    attemptInfo.style.display = 'none';
+  }
+
+  stopRecording();
   document.getElementById('doorNotes').value = a.notes || '';
+  document.getElementById('recordStatus').textContent = '';
   document.getElementById('btnLogDoor').disabled = true;
+
+  // Build household members list: primary voter + household members
+  doorState.allMembers = [];
+  doorState.activeMemberIdx = -1;
+  doorState.step = 1;
+
+  var doorFullAddr = a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+  if (a.voter_name) {
+    doorState.allMembers.push({
+      voter_id: a.voter_id || null,
+      name: a.voter_name,
+      unit: a.unit || '',
+      addr: doorFullAddr,
+      age: a.voter_age || null,
+      party_score: a.voter_party_score || '',
+      election_votes: a.election_votes || [],
+      isPrimary: true,
+      status: 'pending',
+      result: null
+    });
+  }
+  if (a.household && a.household.length > 0) {
+    for (var h = 0; h < a.household.length; h++) {
+      var m = a.household[h];
+      var memberAddr = a.address + (m.unit ? ' ' + m.unit : a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+      doorState.allMembers.push({
+        voter_id: m.voter_id || null,
+        name: (m.first_name || '') + ' ' + (m.last_name || ''),
+        unit: m.unit || '',
+        addr: memberAddr,
+        age: m.age || null,
+        party_score: m.party_score || '',
+        election_votes: m.election_votes || [],
+        isPrimary: false,
+        status: 'pending',
+        result: null
+      });
+    }
+  }
+
+  // If no members (no voter data), skip household step — go straight to disposition
+  if (doorState.allMembers.length === 0) {
+    showDoorStep(2);
+    document.getElementById('step2Title').textContent = 'What happened?';
+  } else {
+    showDoorStep(1);
+    renderMemberList();
+  }
+
+  // Render script section
+  renderScriptInDoor();
 
   // Clear disposition selection
   var btns = document.querySelectorAll('.disp-btn');
@@ -623,13 +1629,162 @@ function openDoor(idx) {
       }
     }
     document.getElementById('btnLogDoor').disabled = false;
+    // If household members exist, show step 1 (member list) so each person can be marked individually
+    // Previously this jumped to step 2, which meant the disposition wasn't applied to any member
+    // and all members defaulted to not_home — ignoring the selected result
+    if (doorState.allMembers.length > 0) {
+      showDoorStep(1);
+      renderMemberList();
+    } else {
+      // No household — show step 2 directly
+      showDoorStep(2);
+      document.getElementById('step2Title').textContent = 'Update result';
+    }
   }
 
   document.getElementById('doorOverlay').classList.add('open');
 }
 
-function closeDoor() {
-  document.getElementById('doorOverlay').classList.remove('open');
+function showDoorStep(step) {
+  doorState.step = step;
+  document.getElementById('doorStep1').className = 'hh-step' + (step === 1 ? ' active' : '');
+  document.getElementById('doorStep2').className = 'hh-step' + (step === 2 ? ' active' : '');
+}
+
+function renderMemberList() {
+  var list = document.getElementById('doorMemberList');
+  list.innerHTML = '';
+
+  // Reset nobody home button
+  document.getElementById('btnNobodyHome').classList.remove('selected');
+
+  for (var i = 0; i < doorState.allMembers.length; i++) {
+    var m = doorState.allMembers[i];
+    var el = document.createElement('div');
+    el.className = 'hh-member' + (m.status === 'talked' ? ' talked' : m.status === 'not_home' ? ' not-home' : '');
+    el.dataset.idx = i;
+
+    var nameHtml = '<div>';
+    nameHtml += '<span class="hh-name">' + escHtml(m.name) + '</span>';
+    if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
+    if (m.party_score) nameHtml += walkerPartyBadge(m.party_score);
+    if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
+    nameHtml += '</div>';
+    if (m.addr) nameHtml += '<div style="font-size:11px;color:#94a3b8;margin-top:1px">' + escHtml(m.addr) + '</div>';
+    // Show recent election history if available
+    if (m.election_votes && m.election_votes.length > 0) {
+      nameHtml += '<div style="font-size:10px;color:#64748b;margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">';
+      var shown = m.election_votes.slice(0, 5);
+      for (var ev = 0; ev < shown.length; ev++) {
+        var pColor = shown[ev].party === 'D' || shown[ev].party === 'DEM' ? '#3b82f6' : shown[ev].party === 'R' || shown[ev].party === 'REP' ? '#ef4444' : '#64748b';
+        nameHtml += '<span style="background:rgba(255,255,255,0.05);border:1px solid ' + pColor + ';border-radius:4px;padding:1px 4px;color:' + pColor + '">' + escHtml(shown[ev].name) + (shown[ev].party ? ' (' + escHtml(shown[ev].party) + ')' : '') + '</span>';
+      }
+      if (m.election_votes.length > 5) nameHtml += '<span style="color:#64748b">+' + (m.election_votes.length - 5) + ' more</span>';
+      nameHtml += '</div>';
+    }
+
+    var statusHtml = '';
+    if (m.status === 'talked') {
+      statusHtml = '<span class="hh-status talked">' + formatResult(m.result) + '</span>';
+    } else if (m.status === 'not_home') {
+      statusHtml = '<span class="hh-status not-home">Not Home <span style="font-size:10px;opacity:0.7">(tap to undo)</span></span>';
+    } else {
+      statusHtml = '<div style="display:flex;align-items:center;gap:8px">' +
+        '<span class="hh-status" style="color:#60a5fa">Tap to log &#x27A4;</span>' +
+        '<button class="hh-nothome-btn" data-idx="' + i + '">Not Home</button>' +
+        '</div>';
+    }
+
+    // Note: nameHtml and statusHtml are built from escaped user data (escHtml) and safe constants
+    el.innerHTML = nameHtml + statusHtml;
+
+    // "Not Home" button click — mark just this person
+    var nhBtn = el.querySelector('.hh-nothome-btn');
+    if (nhBtn) {
+      (function(index) {
+        nhBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          doorState.allMembers[index].status = 'not_home';
+          doorState.allMembers[index].result = 'not_home';
+          renderMemberList();
+          document.getElementById('btnLogDoor').disabled = false;
+        });
+      })(i);
+    }
+
+    // Main card click — open disposition selector (or undo not_home)
+    (function(index) {
+      el.addEventListener('click', function(e) {
+        if (e.target.classList && e.target.classList.contains('hh-nothome-btn')) return;
+        selectMember(index);
+      });
+    })(i);
+
+    list.appendChild(el);
+  }
+
+  updateLogButton();
+}
+
+function selectMember(idx) {
+  var m = doorState.allMembers[idx];
+
+  // If already marked not_home, un-mark it
+  if (m.status === 'not_home') {
+    m.status = 'pending';
+    m.result = null;
+    renderMemberList();
+    return;
+  }
+
+  // If already talked, tap again to change their result
+  doorState.activeMemberIdx = idx;
+  document.getElementById('step2Title').textContent = 'How does ' + m.name + ' feel?';
+
+  // Clear previous selection
+  var btns = document.querySelectorAll('.disp-btn');
+  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
+
+  // Pre-select if this member already has a result
+  if (m.result) {
+    for (var i = 0; i < btns.length; i++) {
+      if (btns[i].dataset.result === m.result) {
+        btns[i].classList.add('selected');
+        break;
+      }
+    }
+  }
+
+  showDoorStep(2);
+}
+
+async function markAllNotHome() {
+  // Mark every member as not home and log immediately
+  for (var i = 0; i < doorState.allMembers.length; i++) {
+    doorState.allMembers[i].status = 'not_home';
+    doorState.allMembers[i].result = 'not_home';
+  }
+  walkState.selectedResult = 'not_home';
+  document.getElementById('btnLogDoor').disabled = false;
+  await logDoor();
+}
+
+function goBackToStep1() {
+  // If a disposition was selected in step 2, apply it to the active member
+  var btns = document.querySelectorAll('.disp-btn');
+  var selected = null;
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].classList.contains('selected')) { selected = btns[i].dataset.result; break; }
+  }
+
+  if (selected && doorState.activeMemberIdx >= 0) {
+    var m = doorState.allMembers[doorState.activeMemberIdx];
+    m.result = selected;
+    m.status = 'talked';
+  }
+
+  showDoorStep(1);
+  renderMemberList();
 }
 
 function selectDisp(el) {
@@ -637,13 +1792,62 @@ function selectDisp(el) {
   for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('selected'); }
   el.classList.add('selected');
   walkState.selectedResult = el.dataset.result;
+
+  // If we're in household mode and have an active member, apply the result
+  if (doorState.allMembers.length > 0 && doorState.activeMemberIdx >= 0) {
+    var m = doorState.allMembers[doorState.activeMemberIdx];
+    m.result = el.dataset.result;
+    m.status = 'talked';
+
+    // Auto-go back to step 1 so volunteer can tap the next household member
+    setTimeout(function() {
+      showDoorStep(1);
+      renderMemberList();
+    }, 200);
+  }
+
   document.getElementById('btnLogDoor').disabled = false;
 }
 
-async function logDoor() {
-  if (!walkState.selectedResult) return;
+function updateLogButton() {
+  // Enable log button if at least one member has a status (talked or not_home)
+  var anyLogged = false;
+  for (var i = 0; i < doorState.allMembers.length; i++) {
+    if (doorState.allMembers[i].status !== 'pending') { anyLogged = true; break; }
+  }
+  // In no-member mode, rely on selectedResult
+  if (doorState.allMembers.length === 0) {
+    document.getElementById('btnLogDoor').disabled = !walkState.selectedResult;
+  } else {
+    document.getElementById('btnLogDoor').disabled = !anyLogged;
+  }
+}
 
-  var addr = walkState.walk.addresses[walkState.currentAddrIdx];
+function closeDoor() {
+  stopRecording();
+  document.getElementById('doorOverlay').classList.remove('open');
+}
+
+// Tap outside the door panel (on the overlay background) to close
+document.getElementById('doorOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeDoor();
+});
+
+var _logDoorInProgress = false;
+async function logDoor() {
+  // Debounce: prevent double-submission from rapid taps
+  if (_logDoorInProgress) return;
+  _logDoorInProgress = true;
+
+  // Resolve address by stored ID (stable) rather than index (can shift after group refresh)
+  var addr = null;
+  if (doorState.openAddrId != null && walkState.walk && walkState.walk.addresses) {
+    for (var ai = 0; ai < walkState.walk.addresses.length; ai++) {
+      if (walkState.walk.addresses[ai].id === doorState.openAddrId) { addr = walkState.walk.addresses[ai]; walkState.currentAddrIdx = ai; break; }
+    }
+  }
+  if (!addr && walkState.walk && walkState.walk.addresses) addr = walkState.walk.addresses[walkState.currentAddrIdx];
+  if (!addr) { _logDoorInProgress = false; return; }
   var walkerName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'Volunteer');
   var notes = document.getElementById('doorNotes').value.trim();
 
@@ -652,33 +1856,112 @@ async function logDoor() {
   btn.textContent = 'Logging...';
 
   try {
-    var res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        result: walkState.selectedResult,
-        notes: notes,
-        gps_lat: walkState.gpsLat,
-        gps_lng: walkState.gpsLng,
-        gps_accuracy: walkState.gpsAccuracy,
-        walker_name: walkerName
-      })
-    });
-    var data = await res.json();
-    if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); return; }
+    var res;
+    var data;
 
-    // Update local state
-    addr.result = walkState.selectedResult;
+    if (doorState.allMembers.length > 0) {
+      // Household mode: use the new endpoint
+      var members = [];
+      for (var i = 0; i < doorState.allMembers.length; i++) {
+        var m = doorState.allMembers[i];
+        // Only include members with an actual result (talked to or marked not_home)
+        if (m.status === 'pending') continue; // skip members not interacted with
+        members.push({
+          voter_id: m.voter_id,
+          name: m.name,
+          result: m.result || 'not_home'
+        });
+      }
+
+      res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log-household', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          members: members,
+          notes: notes,
+          gps_lat: walkState.gpsLat,
+          gps_lng: walkState.gpsLng,
+          gps_accuracy: walkState.gpsAccuracy,
+          walker_name: walkerName,
+          walker_id: walkState.walkerId || undefined
+        })
+      });
+      data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
+
+      // Update local state with overall result
+      addr.result = data.result || walkState.selectedResult || 'not_home';
+    } else {
+      // No household members — use original endpoint
+      if (!walkState.selectedResult) { _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
+
+      res = await fetch('/api/walks/' + walkState.walkId + '/addresses/' + addr.id + '/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          result: walkState.selectedResult,
+          notes: notes,
+          gps_lat: walkState.gpsLat,
+          gps_lng: walkState.gpsLng,
+          gps_accuracy: walkState.gpsAccuracy,
+          walker_name: walkerName,
+          walker_id: walkState.walkerId || undefined,
+          survey_responses: Object.keys(walkState.surveyResponses).length > 0 ? walkState.surveyResponses : undefined
+        })
+      });
+      data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
+
+      addr.result = walkState.selectedResult;
+    }
+
     addr.notes = notes;
     addr.gps_verified = data.gps_verified || 0;
 
-    // Update progress
-    var knocked = walkState.walk.addresses.filter(function(a) { return a.result !== 'not_visited'; }).length;
-    walkState.walk.progress.knocked = knocked;
-    walkState.walk.progress.remaining = walkState.walk.progress.total - knocked;
+    // Also update all other walk_address rows at the same door so they show as knocked too
+    var addrKey = (addr.address || '').trim().toLowerCase() + '||' + (addr.unit || '').trim().toLowerCase();
+    for (var si = 0; si < walkState.walk.addresses.length; si++) {
+      var sa = walkState.walk.addresses[si];
+      if (sa.id === addr.id) continue;
+      var saKey = (sa.address || '').trim().toLowerCase() + '||' + (sa.unit || '').trim().toLowerCase();
+      if (saKey === addrKey) {
+        sa.result = addr.result;
+        sa.knocked_at = new Date().toISOString();
+        sa.gps_verified = addr.gps_verified;
+      }
+    }
+
+    // Update progress — count unique doors, not individual voters
+    walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
 
     closeDoor();
     renderWalk();
+
+    // Build toast message
+    var toastMsg = '';
+    if (doorState.allMembers.length > 0) {
+      var talked = doorState.allMembers.filter(function(m) { return m.status === 'talked'; });
+      var notHome = doorState.allMembers.filter(function(m) { return m.status === 'not_home'; });
+      if (talked.length > 0) {
+        toastMsg = '\u2705 ' + talked.map(function(m) { return m.name.split(' ')[0]; }).join(', ') + ' logged';
+        if (notHome.length > 0) toastMsg += ' | ' + notHome.length + ' not home';
+      } else {
+        toastMsg = '\u2705 Nobody Home — Logged!';
+      }
+    } else {
+      toastMsg = '\u2705 ' + formatResult(walkState.selectedResult) + ' — Logged!';
+    }
+    showToast(toastMsg);
+
+    // Auto-refresh route in group mode
+    if (walkState.isGroupMode && walkState.routeActive) {
+      refreshLiveRoute();
+    }
+
+    // Refresh map view if active
+    if (mapState.currentView === 'map') {
+      refreshMapData();
+    }
 
     // Auto-scroll to next unvisited
     var nextIdx = -1;
@@ -696,8 +1979,763 @@ async function logDoor() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Log & Next \u27A1';
+    _logDoorInProgress = false;
   }
 }
+
+// ===================== LIVE GPS ON MAP =====================
+
+// Move the "You" marker on the map whenever GPS updates — no full re-render needed
+function updateWalkerMarkerPosition() {
+  if (!mapState.map || mapState.currentView !== 'map') return;
+  if (walkState.gpsLat == null || walkState.gpsLng == null) return;
+
+  var myName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || 'You');
+  var latlng = [walkState.gpsLat, walkState.gpsLng];
+
+  if (mapState.walkerMarker) {
+    mapState.walkerMarker.setLatLng(latlng);
+  } else {
+    var meIcon = createWalkerIcon('#3b82f6', myName);
+    mapState.walkerMarker = L.marker(latlng, { icon: meIcon, zIndexOffset: 2000 })
+      .bindPopup('<strong>' + escHtml(myName) + '</strong><br>Your current position');
+    mapState.walkerMarker.addTo(mapState.map);
+  }
+
+  // In compass mode, keep map centered on walker
+  if (mapState.compassMode) {
+    mapState.map.setView(latlng, mapState.map.getZoom(), { animate: false });
+  }
+}
+
+function centerOnMe() {
+  if (!mapState.map) return;
+  if (walkState.gpsLat == null || walkState.gpsLng == null) {
+    showToast('GPS location not available yet');
+    return;
+  }
+  mapState.map.setView([walkState.gpsLat, walkState.gpsLng], 17);
+}
+
+function toggleCompassMode() {
+  // If map is rotated but compass mode is off, just reset to north
+  var currentBearing = mapState.map && mapState.map.getBearing ? mapState.map.getBearing() : 0;
+  if (!mapState.compassMode && Math.abs(currentBearing) > 1) {
+    if (mapState.map.setBearing) mapState.map.setBearing(0);
+    document.getElementById('compassArrow').style.transform = '';
+    document.getElementById('btnCompass').classList.remove('active');
+    return;
+  }
+
+  mapState.compassMode = !mapState.compassMode;
+  var btn = document.getElementById('btnCompass');
+
+  if (mapState.compassMode) {
+    btn.classList.add('active');
+    startCompass();
+    // Center on walker when entering compass mode
+    if (walkState.gpsLat != null && walkState.gpsLng != null) {
+      mapState.map.setView([walkState.gpsLat, walkState.gpsLng], Math.max(mapState.map.getZoom(), 17));
+    }
+  } else {
+    btn.classList.remove('active');
+    stopCompass();
+    // Reset rotation to north-up
+    if (mapState.map.setBearing) mapState.map.setBearing(0);
+    document.getElementById('compassArrow').style.transform = '';
+  }
+}
+
+function startCompass() {
+  // Try DeviceOrientationEvent with permission request (required on iOS 13+)
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(function(state) {
+      if (state === 'granted') {
+        addCompassListener();
+      } else {
+        showToast('Compass permission denied. Enable in Settings.');
+        mapState.compassMode = false;
+        document.getElementById('btnCompass').classList.remove('active');
+      }
+    }).catch(function() {
+      showToast('Could not access compass');
+      mapState.compassMode = false;
+      document.getElementById('btnCompass').classList.remove('active');
+    });
+  } else if ('DeviceOrientationEvent' in window) {
+    addCompassListener();
+  } else {
+    showToast('Compass not available on this device');
+    mapState.compassMode = false;
+    document.getElementById('btnCompass').classList.remove('active');
+  }
+}
+
+function addCompassListener() {
+  // Remove any existing listener first to prevent stacking
+  if (mapState.compassHandler) {
+    window.removeEventListener('deviceorientation', mapState.compassHandler, true);
+  }
+  mapState.compassHandler = function(e) {
+    var heading = null;
+    // webkitCompassHeading is available on iOS Safari
+    if (e.webkitCompassHeading != null) {
+      heading = e.webkitCompassHeading;
+    } else if (e.alpha != null) {
+      heading = (360 - e.alpha);
+      if (e.absolute === false && e.alpha === 0) return;
+    }
+    if (heading == null) return;
+
+    mapState.currentHeading = heading;
+    applyMapRotation(heading);
+  };
+  window.addEventListener('deviceorientation', mapState.compassHandler, true);
+}
+
+function stopCompass() {
+  if (mapState.compassHandler) {
+    window.removeEventListener('deviceorientation', mapState.compassHandler, true);
+    mapState.compassHandler = null;
+  }
+}
+
+function applyMapRotation(heading) {
+  if (!mapState.compassMode || !mapState.map) return;
+  // Use leaflet-rotate native bearing API — proper tile rotation, no CSS hacks
+  if (mapState.map.setBearing) {
+    mapState.map.setBearing(heading);
+  }
+  // Rotate compass arrow icon to show where north is
+  document.getElementById('compassArrow').style.transform = 'rotate(' + (-heading) + 'deg)';
+}
+
+function buildGoogleMapsUrl(address, city, zip) {
+  var q = address;
+  if (city) q += ', ' + city;
+  if (zip) q += ' ' + zip;
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+}
+
+// ===================== MAP VIEW =====================
+
+var mapState = {
+  map: null,
+  markers: [],
+  walkerMarker: null,
+  otherWalkerMarkers: [],
+  refreshInterval: null,
+  currentView: 'list',
+  initialized: false,
+  hasFittedBounds: false,
+  _geocodeTriggered: false,
+  compassMode: false,
+  currentHeading: 0,
+  compassHandler: null
+};
+
+function setView(view) {
+  mapState.currentView = view;
+  document.getElementById('btnListView').className = 'view-toggle-btn' + (view === 'list' ? ' active' : '');
+  document.getElementById('btnMapView').className = 'view-toggle-btn' + (view === 'map' ? ' active' : '');
+  document.getElementById('addrList').style.display = view === 'list' ? '' : 'none';
+  document.getElementById('mapContainer').style.display = view === 'map' ? 'block' : 'none';
+  document.getElementById('mapRefreshNote').style.display = view === 'map' ? '' : 'none';
+  document.getElementById('btnRegeocode').style.display = view === 'map' ? '' : 'none';
+
+  if (view === 'map') {
+    // Small delay so the browser renders the now-visible container before Leaflet measures it
+    setTimeout(function() {
+      initMap();
+      refreshMapData();
+    }, 50);
+    // Auto-refresh every 60 seconds so the map updates as others knock doors
+    if (!mapState.refreshInterval) {
+      mapState.refreshInterval = setInterval(refreshMapData, 60000);
+    }
+  } else {
+    if (mapState.refreshInterval) {
+      clearInterval(mapState.refreshInterval);
+      mapState.refreshInterval = null;
+    }
+  }
+}
+
+function initMap() {
+  if (mapState.initialized && mapState.map) {
+    mapState.map.invalidateSize();
+    return;
+  }
+
+  mapState.map = L.map('walkMap', {
+    zoomControl: true,
+    attributionControl: false,
+    tap: true,
+    tapTolerance: 30,
+    touchZoom: true,
+    dragging: true,
+    bounceAtZoomLimits: false,
+    zoomSnap: 0.5,
+    zoomDelta: 0.5,
+    wheelPxPerZoomLevel: 120,
+    // leaflet-rotate: enable two-finger rotation like Google/Apple Maps
+    rotate: true,
+    rotateControl: false,
+    touchRotate: true,
+    shiftKeyRotate: true,
+    bearing: 0
+  }).setView([39.8283, -98.5795], 4); // Default center US
+
+  // Satellite imagery (Esri World Imagery — free, no API key)
+  var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Tiles &copy; Esri'
+  });
+  // Street labels overlay on top of satellite
+  var labelsLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19
+  });
+  var streetLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19
+  });
+  // Standard street map as fallback option
+  var streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19
+  });
+  // Default to satellite + labels
+  satelliteLayer.addTo(mapState.map);
+  labelsLayer.addTo(mapState.map);
+  streetLabels.addTo(mapState.map);
+  // Layer toggle control
+  // Precinct boundary overlay with voter counts from DB
+  var precinctLayer = L.layerGroup();
+  Promise.all([
+    fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }),
+    fetch('/api/voters-precincts').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var geoData = results[0], voterData = results[1];
+    var voterCounts = {};
+    if (voterData.precincts) {
+      voterData.precincts.forEach(function(p, i) { voterCounts[p] = voterData.counts[i] || 0; });
+    }
+    L.geoJSON(geoData, {
+      style: function() {
+        return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' };
+      },
+      onEachFeature: function(feature, layer) {
+        var pct = feature.properties.precinct;
+        var count = voterCounts[pct] || 0;
+        layer.bindTooltip('Pct ' + pct + (count ? ' (' + count + ')' : ''), {
+          permanent: true, direction: 'center', className: 'precinct-label',
+          offset: [0, 0]
+        });
+      }
+    }).addTo(precinctLayer);
+  }).catch(function() {});
+  L.control.layers({
+    'Satellite': satelliteLayer,
+    'Street Map': streetLayer
+  }, {
+    'Road Labels': labelsLayer,
+    'Place Names': streetLabels,
+    'Precinct Boundaries': precinctLayer
+  }, { position: 'topright', collapsed: true }).addTo(mapState.map);
+
+  mapState.initialized = true;
+
+  // Update compass arrow when user manually rotates with two fingers
+  mapState.map.on('rotate', function() {
+    var bearing = mapState.map.getBearing ? mapState.map.getBearing() : 0;
+    var arrow = document.getElementById('compassArrow');
+    if (arrow) arrow.style.transform = 'rotate(' + (-bearing) + 'deg)';
+    // Show compass button as active when map is rotated
+    var btn = document.getElementById('btnCompass');
+    if (btn && bearing !== 0) {
+      btn.classList.add('active');
+    } else if (btn && !mapState.compassMode) {
+      btn.classList.remove('active');
+    }
+  });
+
+  // Force Leaflet to recalculate size after the container is fully rendered
+  setTimeout(function() { mapState.map.invalidateSize(); }, 100);
+}
+
+function buildAddressPopup(addr, myName) {
+  var popupContent = '<div style="font-size:13px;min-width:150px">' +
+    '<strong>' + escHtml(addr.address) + '</strong>';
+  if (addr.unit) popupContent += ' <span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + escHtml(addr.unit) + '</span>';
+  if (addr.voter_name) {
+    popupContent += '<br><span style="color:#e2e8f0;font-weight:600">' + escHtml(addr.voter_name) + '</span>';
+    if (addr.unit) popupContent += ' <span style="color:#60a5fa;font-size:11px">' + escHtml(addr.unit) + '</span>';
+    if (addr.voter_age) popupContent += ' <span style="color:#999">(age ' + escHtml(String(addr.voter_age)) + ')</span>';
+  }
+  if (addr.household && addr.household.length > 0) {
+    popupContent += '<br><span style="color:#888;font-size:11px">Also at address:</span>';
+    for (var h = 0; h < addr.household.length; h++) {
+      var m = addr.household[h];
+      popupContent += '<br><span style="color:#888;font-size:11px">&nbsp;&bull; ' + escHtml((m.first_name || '') + ' ' + (m.last_name || ''));
+      if (m.unit) popupContent += ' <span style="color:#60a5fa">' + escHtml(m.unit) + '</span>';
+      if (m.age) popupContent += ' (' + escHtml(String(m.age)) + ')';
+      popupContent += '</span>';
+    }
+  }
+  var isDone = addr.result && addr.result !== 'not_visited';
+  if (isDone) {
+    var resultColor = getMarkerColor(addr, myName);
+    popupContent += '<br><span style="color:' + resultColor + ';font-weight:600">' + formatResult(addr.result) + '</span>';
+  } else {
+    popupContent += '<br><span style="color:#f59e0b">Not visited</span>';
+    if (addr.assigned_walker) popupContent += '<br><small>Assigned: ' + escHtml(addr.assigned_walker) + '</small>';
+  }
+  popupContent += '<br><a href="' + buildGoogleMapsUrl(addr.address + (addr.unit ? ' ' + addr.unit : ''), addr.city, addr.zip) + '" target="_blank" rel="noopener" style="color:#60a5fa;font-size:12px">&#x1F4CD; Google Maps</a>';
+  popupContent += '</div>';
+  return popupContent;
+}
+
+function createApartmentIcon(color, unitCount, allDone) {
+  var size = 44;
+  var dotSize = allDone ? 22 : 28;
+  var offset = (size - dotSize) / 2;
+  var opacity = allDone ? 0.7 : 1;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + size + 'px;height:' + size + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:' + offset + 'px;left:' + offset + 'px;width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:6px;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + opacity + ';display:flex;align-items:center;justify-content:center">' +
+      '<span style="color:#fff;font-size:11px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.5)">' + unitCount + '</span></div></div>',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2]
+  });
+}
+
+function createHouseIcon(color, isDone) {
+  // Visual dot size
+  var dotSize = isDone ? 14 : 20;
+  var opacity = isDone ? 0.7 : 1;
+  // Tap target is always large (44px minimum for mobile)
+  var tapSize = 44;
+  var offset = (tapSize - dotSize) / 2;
+  return L.divIcon({
+    className: '',
+    html: '<div style="width:' + tapSize + 'px;height:' + tapSize + 'px;position:relative;cursor:pointer">' +
+      '<div style="position:absolute;top:' + offset + 'px;left:' + offset + 'px;width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + opacity + '"></div></div>',
+    iconSize: [tapSize, tapSize],
+    iconAnchor: [tapSize / 2, tapSize / 2],
+    popupAnchor: [0, -tapSize / 2]
+  });
+}
+
+function createWalkerIcon(color, label) {
+  return L.divIcon({
+    className: '',
+    html: '<div style="display:flex;flex-direction:column;align-items:center;pointer-events:none">' +
+      '<div style="width:16px;height:16px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5);animation:pulse 2s infinite"></div>' +
+      (label ? '<div style="background:rgba(30,41,59,0.9);color:#e2e8f0;font-size:9px;font-weight:700;padding:1px 4px;border-radius:4px;margin-top:1px;white-space:nowrap;border:1px solid #334155">' + escHtml(label) + '</div>' : '') +
+      '</div>',
+    iconSize: [16, 28],
+    iconAnchor: [8, 8],
+    popupAnchor: [0, -12]
+  });
+}
+
+function getMarkerColor(addr, myName) {
+  if (!addr.result || addr.result === 'not_visited') return '#64748b'; // Gray — unvisited
+  switch (addr.result) {
+    case 'support':      return '#3b82f6'; // Blue — strong support
+    case 'lean_support': return '#86efac'; // Light green — lean support
+    case 'undecided':    return '#facc15'; // Yellow — undecided
+    case 'lean_oppose':  return '#fb923c'; // Orange — lean oppose
+    case 'oppose':       return '#ef4444'; // Red — oppose
+    case 'not_home':     return '#22c55e'; // Green — walked, not open (got push card)
+    case 'come_back':    return '#22c55e'; // Green — walked, come back (got push card)
+    case 'refused':      return '#22c55e'; // Green — walked (got push card)
+    case 'moved':        return '#22c55e'; // Green — walked
+    case 'deceased':     return '#22c55e'; // Green — walked
+    default:             return '#22c55e'; // Green — walked
+  }
+}
+
+async function regeocodeWalk() {
+  if (!walkState.walkId) return;
+  var btn = document.getElementById('btnRegeocode');
+  btn.disabled = true;
+  btn.textContent = 'Re-geocoding...';
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/geocode?force=true', { method: 'POST' });
+    var data = await res.json();
+    btn.textContent = data.message || 'Done';
+    if (data.pending === 0 || data.inProgress) {
+      // Nothing to do or already running — re-enable button
+      setTimeout(function() { btn.textContent = 'Fix Map Pins'; btn.disabled = false; }, 2000);
+      return;
+    }
+    // Poll for updates as geocoding runs in background
+    var pollCount = 0;
+    var lastMapped = 0;
+    var staleCount = 0;
+    var pollInterval = setInterval(function() {
+      pollCount++;
+      fetch('/api/walks/' + walkState.walkId + '/map-data').then(function(r) { return r.json(); }).then(function(md) {
+        var total = md.addresses ? md.addresses.length : 0;
+        var mapped = md.addresses ? md.addresses.filter(function(a) { return a.lat && a.lng; }).length : 0;
+        if (mapped === lastMapped) { staleCount++; } else { staleCount = 0; lastMapped = mapped; }
+        var pct = total > 0 ? Math.round(mapped / total * 100) : 0;
+        btn.textContent = 'Mapping... ' + pct + '%';
+        // Refresh the map markers
+        if (mapState.map && mapState.currentView === 'map') {
+          renderMap(md.addresses, md.locations, md.progress);
+        }
+        if (mapped === total || staleCount > 10 || pollCount > 120) {
+          clearInterval(pollInterval);
+          btn.textContent = 'Fix Map Pins';
+          btn.disabled = false;
+        }
+      }).catch(function() {
+        // ignore poll errors
+      });
+    }, 2000);
+  } catch (e) {
+    btn.textContent = 'Error - try again';
+    btn.disabled = false;
+  }
+}
+
+async function refreshMapData() {
+  if (!walkState.walkId || mapState.currentView !== 'map') return;
+
+  var indicator = document.getElementById('mapRefreshIndicator');
+  indicator.style.display = '';
+
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/map-data');
+    var data = await res.json();
+    if (!res.ok || !data || !data.addresses) return;
+
+    renderMap(data.addresses, data.locations || [], data.progress);
+  } catch (e) {
+    // silent
+  } finally {
+    setTimeout(function() { indicator.style.display = 'none'; }, 500);
+  }
+}
+
+function renderMap(addresses, walkerLocations, progress) {
+  if (!mapState.map) return;
+
+  var myName = walkState.isGroupMode ? walkState.walkerName : (document.getElementById('walkerName').value.trim() || '');
+
+  // Clear existing markers
+  for (var i = 0; i < mapState.markers.length; i++) {
+    mapState.markers[i].off();
+    mapState.markers[i].remove();
+  }
+  mapState.markers = [];
+  mapState.otherWalkerMarkers.forEach(function(m) { mapState.map.removeLayer(m); });
+  mapState.otherWalkerMarkers = [];
+  if (mapState.walkerMarker) { mapState.map.removeLayer(mapState.walkerMarker); mapState.walkerMarker = null; }
+
+  var bounds = [];
+
+  // Group addresses by location to handle apartments/units at the same building
+  var locationGroups = {};
+  for (var i = 0; i < addresses.length; i++) {
+    var addr = addresses[i];
+    if (addr.lat == null || addr.lng == null) continue;
+    // Round to ~1m precision to group nearby points (same building)
+    var key = Number(addr.lat).toFixed(5) + ',' + Number(addr.lng).toFixed(5);
+    if (!locationGroups[key]) locationGroups[key] = [];
+    locationGroups[key].push(addr);
+  }
+
+  // Add house markers — grouped for apartments, single for houses
+  var groupKeys = Object.keys(locationGroups);
+  for (var g = 0; g < groupKeys.length; g++) {
+    var group = locationGroups[groupKeys[g]];
+    var firstAddr = group[0];
+
+    // Check if this group has distinct units (true apartment) vs same-address household
+    var distinctUnits = {};
+    for (var du = 0; du < group.length; du++) {
+      distinctUnits[(group[du].unit || '').trim().toLowerCase()] = true;
+    }
+    var isApartment = Object.keys(distinctUnits).length > 1;
+
+    if (group.length === 1 || !isApartment) {
+      // Single house (possibly with multiple household members) — render as house dot
+      // For households, check if ALL members are done
+      var allHouseholdDone = group.every(function(a) { return a.result && a.result !== 'not_visited'; });
+      var color = getMarkerColor(firstAddr, myName);
+      var isDone = allHouseholdDone;
+      var icon = createHouseIcon(color, isDone);
+
+      var popupContent = buildAddressPopup(firstAddr, myName);
+      var marker = L.marker([firstAddr.lat, firstAddr.lng], { icon: icon, zIndexOffset: 1000 })
+        .bindPopup(popupContent);
+
+      (function(address) {
+        marker.on('click', function() {
+          var localAddrs = walkState.walk.addresses;
+          for (var j = 0; j < localAddrs.length; j++) {
+            if (localAddrs[j].id === address.id) {
+              openDoor(j);
+              break;
+            }
+          }
+        });
+      })(firstAddr);
+
+      marker.addTo(mapState.map);
+      mapState.markers.push(marker);
+      bounds.push([firstAddr.lat, firstAddr.lng]);
+    } else {
+      // Multiple units at this location (apartments) — show grouped marker
+      var doneCount = 0;
+      for (var u = 0; u < group.length; u++) {
+        if (group[u].result && group[u].result !== 'not_visited') doneCount++;
+      }
+      var allDone = doneCount === group.length;
+      // Use the most meaningful result color for the group marker
+      // Priority: support/oppose results over non-contact results
+      var groupColor = '#f59e0b'; // amber = unvisited
+      if (doneCount > 0) {
+        var contactPriority = ['support', 'lean_support', 'oppose', 'lean_oppose', 'undecided'];
+        var bestResult = null;
+        for (var cp = 0; cp < contactPriority.length && !bestResult; cp++) {
+          for (var gu = 0; gu < group.length; gu++) {
+            if (group[gu].result === contactPriority[cp]) { bestResult = group[gu]; break; }
+          }
+        }
+        if (bestResult) {
+          groupColor = getMarkerColor(bestResult, myName);
+        } else {
+          groupColor = '#22c55e'; // green = walked but no contact results
+        }
+      }
+      var groupIcon = createApartmentIcon(groupColor, group.length, allDone);
+
+      // Build popup with all units listed
+      var groupPopup = '<div style="font-size:13px;min-width:180px;max-height:300px;overflow-y:auto">' +
+        '<strong style="font-size:14px">' + escHtml(firstAddr.address) + '</strong>' +
+        '<br><span style="color:#60a5fa;font-size:12px;font-weight:600">' + group.length + ' units &bull; ' + doneCount + ' done</span>' +
+        '<div style="margin-top:8px;border-top:1px solid #334155;padding-top:8px">';
+
+      // Sort units naturally (Apt 1, Apt 2, ... Apt 10, not Apt 1, Apt 10, Apt 2)
+      group.sort(function(a, b) {
+        var aUnit = (a.unit || '').replace(/[^0-9]/g, '');
+        var bUnit = (b.unit || '').replace(/[^0-9]/g, '');
+        if (aUnit && bUnit) return parseInt(aUnit) - parseInt(bUnit);
+        return (a.unit || '').localeCompare(b.unit || '');
+      });
+
+      for (var u3 = 0; u3 < group.length; u3++) {
+        var unitAddr = group[u3];
+        var unitDone = unitAddr.result && unitAddr.result !== 'not_visited';
+        var unitColor = unitDone ? getMarkerColor(unitAddr, myName) : (myName && unitAddr.assigned_walker === myName ? '#f59e0b' : '#94a3b8');
+        var unitLabel = unitAddr.unit ? escHtml(unitAddr.unit) : 'Unit ' + (u3 + 1);
+        var unitStatus = unitDone ? formatResult(unitAddr.result) : 'Not visited';
+        groupPopup += '<div class="apt-unit-row" data-addr-id="' + unitAddr.id + '" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #1e293b;cursor:pointer">' +
+          '<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + unitColor + ';margin-right:6px"></span>' +
+          '<span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + unitLabel + '</span>';
+        if (unitAddr.voter_name) {
+          groupPopup += ' <span style="color:#e2e8f0;font-size:12px;font-weight:600">' + escHtml(unitAddr.voter_name) + '</span>';
+          if (unitAddr.voter_age) groupPopup += ' <span style="color:#999;font-size:11px">(age ' + escHtml(String(unitAddr.voter_age)) + ')</span>';
+        }
+        groupPopup += '</div><span style="font-size:11px;color:' + (unitDone ? unitColor : '#f59e0b') + ';font-weight:600">' + unitStatus + '</span></div>';
+      }
+      groupPopup += '</div></div>';
+
+      var groupMarker = L.marker([firstAddr.lat, firstAddr.lng], { icon: groupIcon, zIndexOffset: 1100 })
+        .bindPopup(groupPopup, { maxWidth: 280, maxHeight: 350 });
+
+      // When popup opens, attach click handlers to each unit row within THIS popup only
+      (function(grp) {
+        groupMarker.on('popupopen', function(e) {
+          var popupEl = e.popup.getElement();
+          if (!popupEl || popupEl._aptListenersAttached) return;
+          popupEl._aptListenersAttached = true;
+          popupEl.addEventListener('click', function(ev) {
+            var row = ev.target.closest('.apt-unit-row');
+            if (!row) return;
+            var addrId = parseInt(row.getAttribute('data-addr-id'));
+            var localAddrs = walkState.walk.addresses;
+            for (var j = 0; j < localAddrs.length; j++) {
+              if (localAddrs[j].id === addrId) {
+                openDoor(j);
+                break;
+              }
+            }
+          });
+        });
+      })(group);
+
+      groupMarker.addTo(mapState.map);
+      mapState.markers.push(groupMarker);
+      bounds.push([firstAddr.lat, firstAddr.lng]);
+    }
+  }
+
+  // Add other walkers' locations
+  if (walkerLocations && walkerLocations.length > 0) {
+    for (var k = 0; k < walkerLocations.length; k++) {
+      var loc = walkerLocations[k];
+      if (!loc.lat || !loc.lng) continue;
+      var isMe = loc.walker_name === myName;
+      if (isMe) continue; // We show our own position from GPS, not the server data
+
+      var wIcon = createWalkerIcon('#8b5cf6', loc.walker_name);
+      var wMarker = L.marker([loc.lat, loc.lng], { icon: wIcon, zIndexOffset: 500, interactive: false })
+        .bindPopup('<strong>' + escHtml(loc.walker_name) + '</strong><br><small>Last updated: ' + (loc.updated_at || 'just now') + '</small>');
+      wMarker.addTo(mapState.map);
+      mapState.otherWalkerMarkers.push(wMarker);
+      bounds.push([loc.lat, loc.lng]);
+    }
+  }
+
+  // Show my position from live GPS
+  if (walkState.gpsLat && walkState.gpsLng) {
+    var meIcon = createWalkerIcon('#3b82f6', myName || 'You');
+    mapState.walkerMarker = L.marker([walkState.gpsLat, walkState.gpsLng], { icon: meIcon, zIndexOffset: 2000 })
+      .bindPopup('<strong>' + escHtml(myName || 'You') + '</strong><br>Your current position');
+    mapState.walkerMarker.addTo(mapState.map);
+    bounds.push([walkState.gpsLat, walkState.gpsLng]);
+  }
+
+  // Only fit bounds on first load — don't reset the user's zoom/pan on refreshes
+  if (bounds.length > 0 && !mapState.hasFittedBounds) {
+    mapState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+    mapState.hasFittedBounds = true;
+  }
+
+  // Map legend — show color key for results
+  var existingLegend = document.getElementById('mapLegend');
+  if (!existingLegend) {
+    var legend = document.createElement('div');
+    legend.id = 'mapLegend';
+    legend.style.cssText = 'position:absolute;bottom:10px;left:10px;z-index:1000;background:rgba(15,23,42,0.9);border:1px solid #334155;border-radius:8px;padding:8px 10px;font-size:11px;color:#e2e8f0;line-height:1.6';
+    var items = [
+      ['#3b82f6', 'Support'], ['#86efac', 'Lean Sup'], ['#facc15', 'Undecided'],
+      ['#fb923c', 'Lean Opp'], ['#ef4444', 'Oppose'], ['#22c55e', 'Not Open'],
+      ['#64748b', 'Unvisited']
+    ];
+    var legendHtml = '';
+    for (var li = 0; li < items.length; li++) {
+      legendHtml += '<span style="display:inline-flex;align-items:center;margin-right:8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + items[li][0] + ';margin-right:3px"></span>' + items[li][1] + '</span>';
+    }
+    legend.innerHTML = legendHtml;
+    document.getElementById('mapContainer').appendChild(legend);
+  }
+
+  // Show geocode notice and auto-trigger geocoding for unmapped addresses
+  var existingNotice = document.getElementById('geocodeNotice');
+  if (existingNotice) existingNotice.remove();
+
+  var addressesWithCoords = addresses.filter(function(a) { return a.lat && a.lng; }).length;
+  var unmappedCount = addresses.length - addressesWithCoords;
+
+  if (addresses.length > 0 && addressesWithCoords === 0) {
+    // No addresses mapped yet — auto-trigger geocoding and show progress
+    var notice = document.createElement('div');
+    notice.id = 'geocodeNotice';
+    notice.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;background:rgba(30,41,59,0.95);border:1px solid #f59e0b;border-radius:12px;padding:20px;text-align:center;max-width:300px';
+    notice.innerHTML = '<div style="font-size:24px;margin-bottom:8px">&#x1F3E0;</div>' +
+      '<div style="font-size:14px;font-weight:600;color:#f59e0b;margin-bottom:6px">Locating ' + addresses.length + ' addresses...</div>' +
+      '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Houses will appear on the map as they are found.</div>' +
+      '<div style="background:#334155;border-radius:4px;height:6px;overflow:hidden"><div style="background:#f59e0b;height:100%;width:0%;transition:width 0.3s"></div></div>';
+    document.getElementById('mapContainer').appendChild(notice);
+    // Auto-trigger geocoding
+    if (!mapState._geocodeTriggered) {
+      mapState._geocodeTriggered = true;
+      triggerGeocode();
+    }
+  } else if (addresses.length > 0 && unmappedCount > 0) {
+    // Some addresses still need mapping — show progress bar and keep polling fast
+    var pct = Math.round((addressesWithCoords / addresses.length) * 100);
+    var partial = document.createElement('div');
+    partial.id = 'geocodeNotice';
+    partial.style.cssText = 'position:absolute;top:10px;left:10px;z-index:1000;background:rgba(30,41,59,0.9);border:1px solid #334155;border-radius:8px;padding:8px 12px;font-size:11px;color:#94a3b8;cursor:pointer;min-width:140px';
+    partial.innerHTML = '<div>' + addressesWithCoords + '/' + addresses.length + ' mapped (' + pct + '%)</div>' +
+      '<div style="background:#334155;border-radius:3px;height:4px;margin-top:4px;overflow:hidden"><div style="background:#f59e0b;height:100%;width:' + pct + '%;transition:width 0.3s"></div></div>';
+    partial.title = 'Click to retry mapping remaining addresses';
+    partial.onclick = function() { triggerGeocode(); };
+    document.getElementById('mapContainer').appendChild(partial);
+    // Auto-trigger geocoding for remaining addresses
+    if (!mapState._geocodeTriggered) {
+      mapState._geocodeTriggered = true;
+      triggerGeocode();
+    }
+  } else if (addresses.length > 0 && unmappedCount === 0) {
+    // All mapped — reset trigger flag for next time
+    mapState._geocodeTriggered = false;
+  }
+}
+
+async function triggerGeocode() {
+  if (!walkState.walkId) return;
+  var notice = document.getElementById('geocodeNotice');
+  if (notice) notice.innerHTML = '<div style="font-size:13px;color:#f59e0b;padding:10px">Locating houses... this may take a moment.</div>';
+  try {
+    var res = await fetch('/api/walks/' + walkState.walkId + '/geocode', { method: 'POST' });
+    var data = await res.json();
+    if (notice) notice.innerHTML = '<div style="font-size:13px;color:#22c55e;padding:10px">' + escHtml(data.message) + '</div>';
+    // Poll for updates as geocoding runs in the background
+    if (data.pending > 0) {
+      var pollCount = 0;
+      var pollInterval = setInterval(function() {
+        refreshMapData();
+        pollCount++;
+        if (pollCount > 60) clearInterval(pollInterval); // Stop after ~2 min
+      }, 2000);
+    }
+  } catch (e) {
+    if (notice) notice.innerHTML = '<div style="font-size:13px;color:#ef4444;padding:10px">Failed to start geocoding.</div>';
+  }
+}
+
+// ===================== AUTO-LOAD FROM WALKER PORTAL =====================
+// If URL has ?walkId=X&walkerId=Y, auto-load the walk for that walker
+(async function() {
+  var params = new URLSearchParams(window.location.search);
+  var walkId = parseInt(params.get('walkId'));
+  var wId = parseInt(params.get('walkerId'));
+  if (!walkId || !wId) return;
+
+  try {
+    var res = await fetch('/api/walks/' + walkId + '/walker-by-id/' + wId);
+    var data = await res.json();
+    if (!res.ok || data.error) return;
+
+    walkState.walkId = walkId;
+    walkState.walkerId = wId;
+    walkState.isGroupMode = true;
+    walkState.walk = data.walk;
+    walkState.walk.addresses = data.addresses;
+    walkState.walk.progress = data.progress;
+
+    // Get walker name from group members
+    var gRes = await fetch('/api/walks/' + walkId + '/walkers');
+    var gData = await gRes.json();
+    if (!gRes.ok || gData.error) { console.warn('Failed to load walkers:', gData.error); }
+    var members = gData.members || [];
+    for (var i = 0; i < members.length; i++) {
+      if (members[i].walker_id === wId) {
+        walkState.walkerName = members[i].walker_name;
+        break;
+      }
+    }
+    walkState.groupMembers = members.map(function(m) { return { walker_name: m.walker_name }; });
+
+    renderWalk();
+    renderGroupBar();
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('walkScreen').style.display = '';
+    startGps();
+    loadWalkScript();
+  } catch(e) {
+    // Fall back to normal load screen
+  }
+})();
+
 </script>
 </body>
 </html>
