@@ -1595,7 +1595,7 @@ function openDoor(idx) {
         addr: memberAddr,
         age: m.age || null,
         party_score: m.party_score || '',
-        election_votes: [],
+        election_votes: m.election_votes || [],
         isPrimary: false,
         status: 'pending',
         result: null

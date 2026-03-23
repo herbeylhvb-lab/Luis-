@@ -2381,7 +2381,7 @@ function partyScoreBadge(score) {
   return '<span class="badge ' + (colors[score]||'badge-gray') + '" style="opacity:' + (opacity[score]||'1') + ';font-weight:700;letter-spacing:1px" title="' + partyScoreTitle(score) + '">' + escHtml(score) + '</span>';
 }
 function partyScoreTitle(score) {
-  var titles = { D: '1 Dem primary', DD: '2 Dem primaries', DDD: '3+ Dem primaries', R: '1 GOP primary', RR: '2 GOP primaries', RRR: '3+ GOP primaries', SWING: 'Equal Dem & GOP primaries' };
+  var titles = { D: '1 Dem primary', DD: '2 Dem primaries', DDD: '3+ Dem primaries', R: '1 GOP primary', RR: '2 GOP primaries', RRR: '3+ GOP primaries', SWING: 'Equal Dem & GOP primaries', NONE: 'No primary history' };
   return titles[score] || score;
 }
 function supportBadge(s) {
