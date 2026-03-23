@@ -566,7 +566,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     res.json({ success: true, smsSent: true });
   } catch (err) {
     console.error('P2P send error:', err.message);
-    res.status(500).json({ error: 'Failed to send: ' + err.message });
+    res.status(500).json({ error: 'Failed to send message.' });
   }
 }));
 
