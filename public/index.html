@@ -2173,7 +2173,7 @@ tr:hover td{background:#1e293b80}
 
         <div id="candidatesTableWrap">
           <table class="data-table" id="candidatesTable">
-            <thead><tr><th>Name</th><th>Office</th><th>Code</th><th>Captains</th><th>Lists</th><th>Voters</th><th>Portal Link</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Office</th><th>Race</th><th>Code</th><th>Captains</th><th>Lists</th><th>Voters</th><th>Portal Link</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -9556,6 +9556,16 @@ async function loadCandidates() {
       tdOffice.textContent = c.office || '-';
       tr.appendChild(tdOffice);
 
+      var tdRace = document.createElement('td');
+      if (c.race_type && c.race_value) {
+        var raceBadge = document.createElement('span');
+        raceBadge.className = 'badge badge-blue';
+        raceBadge.style.cssText = 'font-size:10px;white-space:nowrap';
+        raceBadge.textContent = (_raceTypeLabels[c.race_type] || c.race_type) + ' ' + c.race_value;
+        tdRace.appendChild(raceBadge);
+      } else { tdRace.textContent = '-'; tdRace.style.color = '#64748b'; }
+      tr.appendChild(tdRace);
+
       var tdCode = document.createElement('td');
       var codeEl = document.createElement('code');
       codeEl.style.cssText = 'background:#1e293b;padding:2px 6px;border-radius:4px;font-size:12px;cursor:pointer';
@@ -9735,9 +9745,13 @@ async function activateCandidate(id, name) {
 var _candidateDetailCode = null;
 var _candidateRaceType = '';
 var _candidateRaceValue = '';
+function refreshCandidateDetail() {
+  var name = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
+  showCandidateDetail(_candidateDetailId, name, _candidateDetailCode, _candidateRaceType, _candidateRaceValue);
+}
 async function showCandidateDetail(id, name, code, raceType, raceValue) {
   _candidateDetailId = id;
-  _candidateDetailCode = code || null;
+  if (code !== undefined) _candidateDetailCode = code || null;
   if (raceType !== undefined) _candidateRaceType = raceType || '';
   if (raceValue !== undefined) _candidateRaceValue = raceValue || '';
   var titleEl = document.getElementById('candidateDetailTitle');
@@ -9851,7 +9865,7 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
         e.stopPropagation();
         inlineEditName(nameSpan, c.name, async function(newName) {
           await apiPut('/api/captains/' + c.id, { name: newName });
-          showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''), _candidateDetailCode);
+          refreshCandidateDetail();
         });
       };
       left.appendChild(editCapBtn);
@@ -10087,7 +10101,7 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
             deletePromise = apiDelete('/api/admin-lists/' + list.id);
           }
           deletePromise.then(function() {
-            showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+            refreshCandidateDetail();
           }).catch(function(err) { alert('Error deleting list: ' + (err.message || err)); });
         }; })(l);
         tdA.appendChild(delListBtn);
@@ -10133,7 +10147,7 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
             ? apiDelete('/api/captains/' + list.captain_id + '/admin-lists/' + list.id)
             : apiDelete('/api/admin-lists/' + list.id);
           dp.then(function() {
-            showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+            refreshCandidateDetail();
           }).catch(function(err) { alert('Error: ' + (err.message || err)); });
         }; })(l);
         mBottom.appendChild(mDelBtn);
@@ -10170,12 +10184,14 @@ function closeCandidateDetail() {
   _candidateDetailId = null;
   _candidateDetailCode = null;
   document.getElementById('candidateDetailCard').style.display = 'none';
-  // On mobile, restore the candidates list card
-  var detailCard = document.getElementById('candidateDetailCard');
-  var listCard = detailCard.previousElementSibling;
-  if (listCard) listCard.style.display = '';
-  document.getElementById('candidateStatsGrid').style.display = '';
-  window.scrollTo(0, 0);
+  // On mobile, restore the candidates list card and scroll to top
+  if (window.innerWidth <= 768) {
+    var detailCard = document.getElementById('candidateDetailCard');
+    var listCard = detailCard.previousElementSibling;
+    if (listCard) listCard.style.display = '';
+    document.getElementById('candidateStatsGrid').style.display = '';
+    window.scrollTo(0, 0);
+  }
 }
 
 function shareCandidateCode() {
@@ -10367,7 +10383,7 @@ async function toggleCaptainForCandidate(captainId, newState) {
   try {
     await apiPut('/api/captains/' + captainId, { is_active: newState });
     var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
-    showCandidateDetail(_candidateDetailId, detailName);
+    refreshCandidateDetail();
     loadCandidates();
   } catch (e) { alert('Error toggling captain: ' + (e.message || e)); }
 }
@@ -10377,7 +10393,7 @@ async function deleteCaptainForCandidate(captainId, captainName) {
   try {
     await apiDelete('/api/captains/' + captainId);
     var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
-    showCandidateDetail(_candidateDetailId, detailName);
+    refreshCandidateDetail();
     loadCandidates();
   } catch (e) { alert('Error deleting captain: ' + (e.message || e)); }
 }
@@ -10761,7 +10777,7 @@ async function showMoveCaptainModal(captain, currentCandidateId) {
       await apiPut('/api/captains/' + captain.id + '/reassign', body);
       overlay.remove();
       var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
-      showCandidateDetail(_candidateDetailId, detailName);
+      refreshCandidateDetail();
       loadCandidates();
     } catch (e) { alert('Error moving captain: ' + (e.message || e)); }
   };
@@ -10784,7 +10800,7 @@ async function showShareCaptainWithCandidatesModal(captain, currentCandidateId) 
   var box = document.createElement('div');
   box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:420px;width:90%';
 
-  var html = '<h3 style="font-size:17px;margin-bottom:6px">Share Captain: ' + captain.name + '</h3>';
+  var html = '<h3 style="font-size:17px;margin-bottom:6px">Share Captain: ' + escHtml(captain.name) + '</h3>';
   html += '<p style="font-size:12px;color:#94a3b8;margin-bottom:16px">Select candidates to share this captain with. They will see this captain and their lists.</p>';
 
   if (allCandidates.length === 0) {
@@ -10794,7 +10810,7 @@ async function showShareCaptainWithCandidatesModal(captain, currentCandidateId) 
       var checked = sharedIds.indexOf(c.id) >= 0 ? ' checked' : '';
       html += '<label style="display:flex;align-items:center;gap:8px;padding:8px;cursor:pointer;border-radius:8px;margin-bottom:4px" onmouseover="this.style.background=\'#0f172a\'" onmouseout="this.style.background=\'\'">';
       html += '<input type="checkbox" class="share-cap-check" data-cid="' + c.id + '"' + checked + ' style="width:16px;height:16px">';
-      html += '<span style="font-size:13px">' + c.name + (c.office ? ' <span style="color:#64748b">(' + c.office + ')</span>' : '') + '</span>';
+      html += '<span style="font-size:13px">' + escHtml(c.name) + (c.office ? ' <span style="color:#64748b">(' + escHtml(c.office) + ')</span>' : '') + '</span>';
       html += '</label>';
     });
   }
@@ -10826,7 +10842,7 @@ async function showShareCaptainWithCandidatesModal(captain, currentCandidateId) 
       }
       overlay.remove();
       var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
-      showCandidateDetail(_candidateDetailId, detailName);
+      refreshCandidateDetail();
       loadCandidates();
     } catch (e) { alert('Error sharing captain: ' + (e.message || e)); }
   };
@@ -10838,7 +10854,7 @@ async function adminDeleteCaptainList(captainId, listId, listName) {
   try {
     await apiDelete('/api/captains/' + captainId + '/admin-lists/' + listId);
     var detailName = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
-    showCandidateDetail(_candidateDetailId, detailName);
+    refreshCandidateDetail();
     loadCandidates();
   } catch (e) { alert('Error deleting list: ' + (e.message || e)); }
 }
@@ -10853,7 +10869,7 @@ async function addCaptainToCandidate() {
     var data = await apiPost('/api/candidates/' + _candidateDetailId + '/captains', { name: name, phone: phone, email: email });
     // Show share modal instead of plain alert
     showCaptainCreatedModal(name, data.code);
-    showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+    refreshCandidateDetail();
     loadCandidates();
   } catch (e) { alert('Error: ' + (e.message || e)); }
 }
@@ -10881,10 +10897,10 @@ function showCaptainShareModal(captainName, captainCode, isNew) {
 
   box.innerHTML = '<div style="font-size:2.5rem;margin-bottom:8px">' + headerIcon + '</div>'
     + '<h3 style="font-size:17px;margin-bottom:4px">' + headerText + '</h3>'
-    + '<p style="color:#94a3b8;font-size:13px;margin-bottom:16px">' + captainName + '</p>'
+    + '<p style="color:#94a3b8;font-size:13px;margin-bottom:16px">' + escHtml(captainName) + '</p>'
     + '<div style="background:#451a03;border:1px solid #78350f;border-radius:10px;padding:16px;margin-bottom:12px">'
     + '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Login Code</div>'
-    + '<div style="font-size:28px;font-weight:700;color:#f59e0b;letter-spacing:4px;font-family:monospace">' + captainCode + '</div>'
+    + '<div style="font-size:28px;font-weight:700;color:#f59e0b;letter-spacing:4px;font-family:monospace">' + escHtml(captainCode) + '</div>'
     + '</div>'
     + '<div style="margin-bottom:16px"><a href="' + portalUrl + '" target="_blank" style="color:#818cf8;font-size:12px;word-break:break-all">' + portalUrl + '</a></div>'
     + '<div style="display:flex;gap:8px">'
@@ -11193,7 +11209,7 @@ async function addListToCandidate() {
   if (!name) return;
   try {
     await apiPost('/api/candidates/' + _candidateDetailId + '/lists', { name: name });
-    showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''));
+    refreshCandidateDetail();
     loadCandidates();
   } catch (e) { alert('Error: ' + (e.message || e)); }
 }
@@ -11724,7 +11740,7 @@ function showCaptainUploadModal(captain) {
         if (data.duplicates) msg += '\nDuplicates in this list: ' + data.duplicates;
         if (data.notFound && data.notFound.length) msg += '\nNot found in voter file: ' + data.notFound.length + (data.notFound.length <= 10 ? ' (' + data.notFound.join(', ') + ')' : '');
         alert(msg);
-        showCandidateDetail(_candidateDetailId, document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', ''), _candidateDetailCode);
+        refreshCandidateDetail();
       } catch (e) { alert('Upload error: ' + (e.message || e)); this.disabled = false; this.textContent = 'Upload ' + dataRows.length + ' voters'; }
     };
   };
