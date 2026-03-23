@@ -86,8 +86,8 @@ tr:hover td{background:#1e293b80}
 .msg-item .reply-box{margin-top:8px;display:flex;gap:8px}
 .msg-item .reply-box input{flex:1}
 /* Activity log */
-.log-entry{padding:8px 0;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
-.log-entry .log-time{color:#64748b;font-size:11px}
+.log-entry{padding:3px 0;border-bottom:1px solid #334155;font-size:11px;color:#94a3b8;line-height:1.2}
+.log-entry .log-time{color:#64748b;font-size:9px}
 /* Progress bar */
 .progress-bar{background:#334155;border-radius:8px;height:12px;overflow:hidden;margin:8px 0}
 .progress-fill{height:100%;border-radius:8px;transition:width .3s}
@@ -236,9 +236,12 @@ tr:hover td{background:#1e293b80}
         <div class="stat-card"><div class="label">Sentiment</div><div class="value" style="font-size:16px" id="statSentiment">--</div><div class="sub">Response mood</div></div>
         <div class="stat-card"><div class="label">Early Voted</div><div class="value" style="color:#22c55e" id="statEarlyVoted">0</div><div class="sub" id="statEarlyVotedSub">0% of voter file</div></div>
       </div>
-      <div class="card">
-        <h3>Campaign Activity Log</h3>
-        <div id="activityLog"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
+      <div class="card" style="padding:10px 14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <h3 style="margin:0;font-size:13px">Activity Log</h3>
+          <span style="font-size:10px;color:#64748b;cursor:pointer" onclick="document.getElementById('activityLog').style.maxHeight=document.getElementById('activityLog').style.maxHeight==='120px'?'400px':'120px'">expand/collapse</span>
+        </div>
+        <div id="activityLog" style="max-height:120px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#475569 #1e293b"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
       </div>
       <div class="card" id="precinctAnalyticsCard">
         <h3>Precinct Analytics</h3>
@@ -1183,6 +1186,7 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-sm btn-secondary" id="dmTabTurnout" onclick="showDataManagerTab('turnout')">Upload Turnout</button>
             <button class="btn btn-sm btn-secondary" id="dmTabEnrich" onclick="showDataManagerTab('enrich')">Enrich Data</button>
             <button class="btn btn-sm btn-secondary" id="dmTabColumns" onclick="showDataManagerTab('columns')">Custom Columns</button>
+            <button class="btn btn-sm btn-secondary" id="dmTabPhones" onclick="showDataManagerTab('phones')">&#128222; Phone Tools</button>
           </div>
           <!-- Elections tab -->
           <div id="dmElectionsTab">
@@ -1275,6 +1279,57 @@ tr:hover td{background:#1e293b80}
               <button class="btn btn-sm btn-success" onclick="createCustomColumn()" style="height:36px">+ Create</button>
             </div>
             <div id="customColsList"></div>
+          </div>
+          <!-- Phone Tools tab -->
+          <div id="dmPhonesTab" style="display:none">
+            <div id="phoneStatsBox" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+              <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:700;color:#e2e8f0" id="phoneStatTotal">--</div>
+                <div style="font-size:11px;color:#64748b">Have Phone</div>
+              </div>
+              <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:700;color:#22c55e" id="phoneStatMobile">--</div>
+                <div style="font-size:11px;color:#64748b">Mobile (textable)</div>
+              </div>
+              <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:700;color:#f59e0b" id="phoneStatLandline">--</div>
+                <div style="font-size:11px;color:#64748b">Landline</div>
+              </div>
+              <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:700;color:#ef4444" id="phoneStatInvalid">--</div>
+                <div style="font-size:11px;color:#64748b">Invalid</div>
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px">
+              <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:700;color:#818cf8" id="phoneStatVoip">--</div>
+                <div style="font-size:11px;color:#64748b">VoIP</div>
+              </div>
+              <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center">
+                <div style="font-size:24px;font-weight:700;color:#64748b" id="phoneStatUnvalidated">--</div>
+                <div style="font-size:11px;color:#64748b">Not Yet Validated</div>
+              </div>
+            </div>
+            <h4 style="font-size:14px;color:#f59e0b;margin:16px 0 8px">Export for Phone Append Service</h4>
+            <p style="color:#94a3b8;font-size:12px;margin-bottom:8px">Download your voter list as CSV. Upload it to a service like Accurate Append or L2 Data to get phone numbers filled in, then import the results back.</p>
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <button class="btn btn-sm" style="background:#059669;color:#fff" onclick="exportForPhoneAppend()">&#128229; Export CSV for Phone Append</button>
+              <button class="btn btn-sm" style="background:#2563eb;color:#fff" onclick="document.getElementById('phoneAppendImport').style.display=''">&#128228; Import Phone Append Results</button>
+            </div>
+            <div id="phoneAppendImport" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px">
+              <p style="color:#94a3b8;font-size:12px;margin-bottom:8px">Upload the CSV you got back from the append service. Must have a <code>voter_id</code> or <code>registration_number</code> column to match, plus <code>phone</code> and optionally <code>phone_type</code>.</p>
+              <input type="file" id="phoneAppendFile" accept=".csv" style="margin-bottom:8px">
+              <button class="btn btn-sm btn-success" onclick="importPhoneAppend()">Import</button>
+              <button class="btn btn-sm btn-secondary" onclick="document.getElementById('phoneAppendImport').style.display='none'">Cancel</button>
+              <div id="phoneAppendStatus" style="margin-top:8px;font-size:13px"></div>
+            </div>
+            <h4 style="font-size:14px;color:#f59e0b;margin:16px 0 8px">Twilio Phone Validation</h4>
+            <p style="color:#94a3b8;font-size:12px;margin-bottom:8px">Validate existing phone numbers via Twilio Lookup API. Identifies mobile vs landline vs VoIP vs invalid. Costs ~$0.005/number. Set <code>TWILIO_SID</code> and <code>TWILIO_AUTH_TOKEN</code> in Railway.</p>
+            <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px">
+              <div class="form-group" style="width:120px"><label>Batch Size</label><input type="number" id="twilioValidateBatch" value="500" min="10" max="2000"></div>
+              <button class="btn btn-sm" style="background:#7c3aed;color:#fff" id="btnTwilioValidate" onclick="runTwilioValidation()">&#128270; Validate Phones</button>
+            </div>
+            <div id="twilioValidateStatus" style="font-size:13px"></div>
           </div>
         </div>
         <!-- Add voter form -->
@@ -3835,7 +3890,7 @@ function toggleDataManager() {
 window.toggleDataManager = toggleDataManager;
 
 function showDataManagerTab(tab) {
-  var tabs = ['elections', 'turnout', 'enrich', 'columns'];
+  var tabs = ['elections', 'turnout', 'enrich', 'columns', 'phones'];
   tabs.forEach(function(t) {
     var el = document.getElementById('dm' + t.charAt(0).toUpperCase() + t.slice(1) + 'Tab');
     var btn = document.getElementById('dmTab' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -3855,8 +3910,143 @@ function showDataManagerTab(tab) {
   if (tab === 'elections') loadElectionsList();
   if (tab === 'turnout') loadTurnoutElections();
   if (tab === 'columns') loadCustomColumnsList();
+  if (tab === 'phones') loadPhoneStats();
 }
 window.showDataManagerTab = showDataManagerTab;
+
+// ===================== PHONE TOOLS =====================
+
+function loadPhoneStats() {
+  fetch('/api/voters/phone-stats')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('phoneStatTotal').textContent = (d.withPhone || 0).toLocaleString();
+      document.getElementById('phoneStatMobile').textContent = (d.mobile || 0).toLocaleString();
+      document.getElementById('phoneStatLandline').textContent = (d.landline || 0).toLocaleString();
+      document.getElementById('phoneStatInvalid').textContent = (d.invalid || 0).toLocaleString();
+      document.getElementById('phoneStatVoip').textContent = (d.voip || 0).toLocaleString();
+      document.getElementById('phoneStatUnvalidated').textContent = (d.unvalidated || 0).toLocaleString();
+    })
+    .catch(function(err) { console.error('Phone stats error:', err); });
+}
+window.loadPhoneStats = loadPhoneStats;
+
+function exportForPhoneAppend() {
+  window.location.href = '/api/voters/export-for-phone-append';
+}
+window.exportForPhoneAppend = exportForPhoneAppend;
+
+function importPhoneAppend() {
+  var fileInput = document.getElementById('phoneAppendFile');
+  var statusEl = document.getElementById('phoneAppendStatus');
+  if (!fileInput.files || !fileInput.files[0]) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Please select a CSV file first.</span>';
+    return;
+  }
+  var file = fileInput.files[0];
+  statusEl.innerHTML = '<span style="color:#f59e0b">Reading CSV...</span>';
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    var lines = text.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+    if (lines.length < 2) {
+      statusEl.innerHTML = '<span style="color:#ef4444">CSV must have a header row + data rows.</span>';
+      return;
+    }
+    var headers = lines[0].split(',').map(function(h) { return h.trim().replace(/^"|"$/g, '').toLowerCase(); });
+    // Find key columns — track which ID type we found for correct backend mapping
+    var idCol = -1, idFieldName = 'voter_id';
+    if (headers.indexOf('voter_id') !== -1) { idCol = headers.indexOf('voter_id'); idFieldName = 'voter_id'; }
+    else if (headers.indexOf('id') !== -1) { idCol = headers.indexOf('id'); idFieldName = 'voter_id'; }
+    else if (headers.indexOf('registration_number') !== -1) { idCol = headers.indexOf('registration_number'); idFieldName = 'registration_number'; }
+    else if (headers.indexOf('state_file_id') !== -1) { idCol = headers.indexOf('state_file_id'); idFieldName = 'registration_number'; }
+    var phoneCol = headers.indexOf('phone');
+    if (phoneCol === -1) phoneCol = headers.indexOf('phone_number');
+    if (phoneCol === -1) phoneCol = headers.indexOf('cell');
+    if (phoneCol === -1) phoneCol = headers.indexOf('mobile');
+    var typeCol = headers.indexOf('phone_type');
+    if (typeCol === -1) typeCol = headers.indexOf('line_type');
+    if (idCol === -1 || phoneCol === -1) {
+      statusEl.innerHTML = '<span style="color:#ef4444">CSV must have a voter ID column (voter_id, registration_number, state_file_id) and a phone column (phone, phone_number, cell, mobile).</span>';
+      return;
+    }
+    var records = [];
+    for (var i = 1; i < lines.length; i++) {
+      var cols = lines[i].split(',').map(function(c) { return c.trim().replace(/^"|"$/g, ''); });
+      if (cols[idCol] && cols[phoneCol]) {
+        var rec = { phone: cols[phoneCol] };
+        rec[idFieldName] = cols[idCol];
+        if (typeCol !== -1 && cols[typeCol]) rec.phone_type = cols[typeCol].toLowerCase();
+        records.push(rec);
+      }
+    }
+    if (records.length === 0) {
+      statusEl.innerHTML = '<span style="color:#ef4444">No valid records found in CSV.</span>';
+      return;
+    }
+    statusEl.innerHTML = '<span style="color:#f59e0b">Importing ' + records.length + ' records...</span>';
+    fetch('/api/voters/import-phone-append', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: records })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        statusEl.innerHTML = '<span style="color:#ef4444">' + d.error + '</span>';
+      } else {
+        statusEl.innerHTML = '<span style="color:#22c55e">✓ Updated ' + (d.updated || 0) + ' voters, ' + (d.skipped || 0) + ' skipped (not found).</span>';
+        loadPhoneStats();
+        fileInput.value = '';
+      }
+    })
+    .catch(function(err) {
+      statusEl.innerHTML = '<span style="color:#ef4444">Import failed: ' + err.message + '</span>';
+    });
+  };
+  reader.readAsText(file);
+}
+window.importPhoneAppend = importPhoneAppend;
+
+function runTwilioValidation() {
+  var batchSize = parseInt(document.getElementById('twilioValidateBatch').value) || 500;
+  var btn = document.getElementById('btnTwilioValidate');
+  var statusEl = document.getElementById('twilioValidateStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Validating...';
+  statusEl.innerHTML = '<span style="color:#f59e0b">Sending ' + batchSize + ' numbers to Twilio for validation...</span>';
+  fetch('/api/voters/validate-phones', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limit: batchSize })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    btn.disabled = false;
+    btn.textContent = '🔍 Validate Phones';
+    if (d.error) {
+      statusEl.innerHTML = '<span style="color:#ef4444">' + d.error + '</span>';
+    } else {
+      var summary = '✓ Validated ' + (d.validated || 0) + ' numbers';
+      if (d.mobile) summary += ' | 📱 Mobile: ' + d.mobile;
+      if (d.landline) summary += ' | ☎️ Landline: ' + d.landline;
+      if (d.voip) summary += ' | 🌐 VoIP: ' + d.voip;
+      if (d.invalid) summary += ' | ❌ Invalid: ' + d.invalid;
+      if (d.errors) summary += ' | ⚠️ Errors: ' + d.errors;
+      if (d.remaining > 0) summary += ' | ' + d.remaining + ' more in this batch';
+      var estCost = ((d.validated || 0) * 0.005).toFixed(2);
+      summary += ' | Est. cost: $' + estCost;
+      statusEl.innerHTML = '<span style="color:#22c55e">' + summary + '</span>';
+      loadPhoneStats();
+    }
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = '🔍 Validate Phones';
+    statusEl.innerHTML = '<span style="color:#ef4444">Validation failed: ' + err.message + '</span>';
+  });
+}
+window.runTwilioValidation = runTwilioValidation;
 
 // ===================== TURNOUT LIST UPLOAD =====================
 
