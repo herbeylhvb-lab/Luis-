@@ -14,7 +14,9 @@ const app = express();
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: false, // disabled for inline scripts in SPA
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false, // allow cross-origin API requests from volunteer portals
+  crossOriginOpenerPolicy: false
 }));
 
 // Gzip/brotli compression — cuts ~497KB index.html to ~60KB over the wire
