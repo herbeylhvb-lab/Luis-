@@ -164,47 +164,6 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
   res.send(csv);
 });
 
-// Export mailing list CSV — one row per household (dedup by address)
-router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
-  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
-  if (!list) return res.status(404).json({ error: 'List not found.' });
-
-  const households = db.prepare(`
-    SELECT
-      TRIM(v.address) as address,
-      TRIM(v.city) as city,
-      COALESCE(TRIM(v.state), 'TX') as state,
-      TRIM(v.zip) as zip,
-      v.precinct,
-      GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
-      MIN(v.last_name) as last_name,
-      COUNT(*) as household_size
-    FROM admin_list_voters alv
-    JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
-    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
-    ORDER BY v.zip, v.city, v.address
-  `).all(req.params.id);
-
-  const csvEscape = (val) => {
-    const s = (val || '').toString().replace(/"/g, '""');
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
-  };
-
-  const header = 'Name,Address,City,State,Zip,Precinct,Household Size';
-  const rows = households.map(h => {
-    // Use "The [LastName] Family" for multi-person households, full name for single
-    const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
-    return [name, h.address, h.city, h.state, h.zip, h.precinct, h.household_size].map(csvEscape).join(',');
-  });
-  const csv = header + '\n' + rows.join('\n');
-
-  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_mailing_list.csv"');
-  res.send(csv);
-});
-
 // Get distinct precincts within a list (for precinct sub-filtering)
 router.get('/admin-lists/:id/precincts', (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(req.params.id);

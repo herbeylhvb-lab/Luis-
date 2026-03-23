@@ -13,14 +13,6 @@ function triggerSync(req) {
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 const checkinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many check-in attempts. Please wait.' } });
-const voterCreateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many voter creation requests. Please wait.' } });
-const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many import requests. Please wait.' } });
-
-// Auth middleware for admin-only endpoints
-function requireAuth(req, res, next) {
-  if (req.session && req.session.userId) return next();
-  return res.status(401).json({ error: 'Authentication required.' });
-}
 
 // Search/list voters (with engagement scoring)
 router.get('/voters', (req, res) => {
@@ -142,7 +134,7 @@ router.get('/voters', (req, res) => {
 });
 
 // Add single voter
-router.post('/voters', requireAuth, voterCreateLimiter, (req, res) => {
+router.post('/voters', (req, res) => {
   const { first_name, last_name, phone, email, address, city, zip, party, support_level, voter_score, tags, notes, registration_number, precinct } = req.body;
   if (!first_name && !last_name) return res.status(400).json({ error: 'At least first name or last name is required.' });
   const qr_token = generateQrToken();
@@ -153,7 +145,7 @@ router.post('/voters', requireAuth, voterCreateLimiter, (req, res) => {
 });
 
 // Bulk import voters
-router.post('/voters/import', requireAuth, importLimiter, (req, res) => {
+router.post('/voters/import', (req, res) => {
   try {
     const { voters } = req.body;
     if (!voters || !voters.length) return res.status(400).json({ error: 'No voters provided.' });
@@ -174,14 +166,14 @@ router.post('/voters/import', requireAuth, importLimiter, (req, res) => {
     res.json({ success: true, added });
   } catch (err) {
     console.error('Voter import error:', err);
-    res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
+    res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
   }
 });
 
 // --- Import full county voter file (with election history) ---
 // Accepts voter records with election history columns. Upserts by VANID or CountyFileID.
 // Election history fields are stored in election_votes table.
-router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) => {
+router.post('/voters/import-voter-file', (req, res) => {
   try {
     const { voters } = req.body;
     if (!voters || !voters.length) return res.status(400).json({ error: 'No voters provided.' });
@@ -356,12 +348,12 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
     res.json({ success: true, ...results });
   } catch (err) {
     console.error('Voter file import error:', err);
-    res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
+    res.status(500).json({ error: 'Import failed: ' + (err.message || 'Unknown error') });
   }
 });
 
 // --- Import canvass data (match existing voters, log contacts, optionally create new) ---
-router.post('/voters/import-canvass', requireAuth, importLimiter, (req, res) => {
+router.post('/voters/import-canvass', (req, res) => {
   const { rows, create_new } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
 
@@ -479,7 +471,7 @@ router.post('/voters/import-canvass', requireAuth, importLimiter, (req, res) => 
 });
 
 // --- Enrich voter data from purchased lists ---
-router.post('/voters/enrich', requireAuth, importLimiter, (req, res) => {
+router.post('/voters/enrich', (req, res) => {
   const { rows, enrich_fields } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
 
@@ -798,12 +790,8 @@ router.get('/voters/columns', (req, res) => {
 });
 
 // --- Filter options for universe builder (dynamic distinct values) ---
-const ALLOWED_FILTER_COLS = new Set(['gender','city_district','school_district','college_district','navigation_port','port_authority','state_rep','state_senate','us_congress','voter_status','precinct','city']);
 router.get('/voters/filter-options', (req, res) => {
-  const opt = (col) => {
-    if (!ALLOWED_FILTER_COLS.has(col)) return [];
-    return db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
-  };
+  const opt = (col) => db.prepare(`SELECT DISTINCT ${col} as v FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL ORDER BY ${col}`).all().map(r => r.v);
   res.json({
     genders: opt('gender'),
     cities: opt('city_district'),
@@ -820,10 +808,8 @@ router.get('/voters/filter-options', (req, res) => {
 });
 
 // Race-to-precinct mapping: which precincts fall under each district/race
-const ALLOWED_RACE_COLS = new Set(['city_district','school_district','college_district','navigation_port','port_authority','state_rep','state_senate','us_congress']);
 router.get('/voters/race-precincts', (req, res) => {
   const mapCol = (col, label) => {
-    if (!ALLOWED_RACE_COLS.has(col)) return [];
     const rows = db.prepare(`SELECT ${col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
       FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
       GROUP BY ${col} ORDER BY ${col}`).all();
@@ -849,136 +835,9 @@ router.get('/voters/race-precincts', (req, res) => {
   res.json({ races });
 });
 
-// ===================== PHONE TOOLS =====================
-
-// Phone stats — counts by type
-router.get('/voters/phone-stats', (req, res) => {
-  const total = db.prepare("SELECT COUNT(*) as c FROM voters").get().c;
-  const withPhone = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone != '' AND phone IS NOT NULL").get().c;
-  const noPhone = total - withPhone;
-  const mobile = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'mobile'").get().c;
-  const landline = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'landline'").get().c;
-  const voip = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'voip'").get().c;
-  const invalid = db.prepare("SELECT COUNT(*) as c FROM voters WHERE phone_type = 'invalid'").get().c;
-  const unvalidated = withPhone - mobile - landline - voip - invalid;
-  res.json({ total, withPhone, noPhone, mobile, landline, voip, invalid, unvalidated });
-});
-
-// Export CSV for phone append service (name + address + existing phone)
-router.get('/voters/export-for-phone-append', (req, res) => {
-  const rows = db.prepare(
-    "SELECT id, first_name, last_name, address, city, state, zip, phone, registration_number FROM voters WHERE address != '' ORDER BY last_name, first_name"
-  ).all();
-  const header = 'voter_id,first_name,last_name,address,city,state,zip,phone,registration_number';
-  const csvEsc = (v) => { const s = (v || '').toString(); return s.includes(',') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const lines = rows.map(r =>
-    [r.id, r.first_name, r.last_name, r.address, r.city, r.state, r.zip, r.phone, r.registration_number].map(csvEsc).join(',')
-  );
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="voters-for-phone-append.csv"');
-  res.send(header + '\n' + lines.join('\n'));
-});
-
-// Import phone append results — merge phones back by voter_id or registration_number
-router.post('/voters/import-phone-append', (req, res) => {
-  const { rows } = req.body; // array of { voter_id, registration_number, phone, phone_type }
-  if (!rows || !rows.length) return res.status(400).json({ error: 'No data provided.' });
-
-  const updateByVoterId = db.prepare("UPDATE voters SET phone = COALESCE(NULLIF(?, ''), phone), phone_type = COALESCE(NULLIF(?, ''), phone_type) WHERE id = ?");
-  const updateByRegNum = db.prepare("UPDATE voters SET phone = COALESCE(NULLIF(?, ''), phone), phone_type = COALESCE(NULLIF(?, ''), phone_type) WHERE registration_number = ?");
-  const findByRegNum = db.prepare("SELECT id FROM voters WHERE registration_number = ?");
-
-  let updated = 0, skipped = 0, phonesAdded = 0;
-  const runImport = db.transaction(() => {
-    for (const row of rows) {
-      const phone = (row.phone || '').replace(/\D/g, '');
-      const phoneType = (row.phone_type || '').toLowerCase().trim();
-      if (!phone && !phoneType) { skipped++; continue; }
-
-      if (row.voter_id) {
-        updateByVoterId.run(phone, phoneType, row.voter_id);
-        updated++;
-        if (phone) phonesAdded++;
-      } else if (row.registration_number) {
-        const existing = findByRegNum.get(row.registration_number);
-        if (existing) {
-          updateByRegNum.run(phone, phoneType, row.registration_number);
-          updated++;
-          if (phone) phonesAdded++;
-        } else {
-          skipped++;
-        }
-      } else {
-        skipped++;
-      }
-    }
-  });
-  runImport();
-  res.json({ success: true, updated, skipped, phonesAdded });
-});
-
-// Twilio phone validation — bulk validate existing numbers
-router.post('/voters/validate-phones', async (req, res) => {
-  const TWILIO_SID = process.env.TWILIO_SID;
-  const TWILIO_AUTH = process.env.TWILIO_AUTH_TOKEN;
-  if (!TWILIO_SID || !TWILIO_AUTH) {
-    return res.status(400).json({ error: 'Twilio credentials not configured. Set TWILIO_SID and TWILIO_AUTH_TOKEN in environment variables.' });
-  }
-
-  const { limit: batchLimit } = req.body;
-  const max = Math.min(parseInt(batchLimit) || 500, 2000);
-
-  // Get unvalidated phone numbers
-  const voters = db.prepare(
-    "SELECT id, phone FROM voters WHERE phone != '' AND phone IS NOT NULL AND (phone_type = '' OR phone_type IS NULL) LIMIT ?"
-  ).all(max);
-
-  if (voters.length === 0) {
-    return res.json({ success: true, message: 'All phone numbers already validated.', validated: 0 });
-  }
-
-  const update = db.prepare("UPDATE voters SET phone_type = ? WHERE id = ?");
-  const auth = Buffer.from(TWILIO_SID + ':' + TWILIO_AUTH).toString('base64');
-  let validated = 0, mobile = 0, landline = 0, voip = 0, invalid = 0, errors = 0;
-
-  for (const voter of voters) {
-    const phone = voter.phone.replace(/\D/g, '');
-    if (phone.length < 10) { update.run('invalid', voter.id); invalid++; validated++; continue; }
-    const lookupPhone = phone.length === 10 ? '+1' + phone : '+' + phone;
-    try {
-      const resp = await fetch(
-        'https://lookups.twilio.com/v2/PhoneNumbers/' + encodeURIComponent(lookupPhone) + '?Fields=line_type_intelligence',
-        { headers: { 'Authorization': 'Basic ' + auth } }
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        const lineType = data.line_type_intelligence?.type || '';
-        let type = '';
-        if (lineType === 'mobile' || lineType === 'cellphone') { type = 'mobile'; mobile++; }
-        else if (lineType === 'landline' || lineType === 'fixedLine') { type = 'landline'; landline++; }
-        else if (lineType === 'voip' || lineType === 'nonFixedVoip') { type = 'voip'; voip++; }
-        else if (lineType === 'invalid' || !data.valid) { type = 'invalid'; invalid++; }
-        else { type = lineType || 'unknown'; }
-        update.run(type, voter.id);
-        validated++;
-      } else if (resp.status === 404) {
-        update.run('invalid', voter.id);
-        invalid++; validated++;
-      } else {
-        errors++;
-        if (resp.status === 429) break; // rate limited, stop
-      }
-    } catch (e) { errors++; }
-    // Small delay for rate limiting
-    await new Promise(r => setTimeout(r, 100));
-  }
-
-  res.json({ success: true, validated, mobile, landline, voip, invalid, errors, remaining: voters.length - validated });
-});
-
 // Precinct voter counts with full filter support
 router.get('/voters/precinct-counts', (req, res) => {
-  const { race_col, race_val, election, party, party_score, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;
+  const { race_col, race_val, election, party, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;
   const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   let sql = "SELECT precinct, COUNT(*) as cnt FROM voters WHERE precinct != '' AND precinct IS NOT NULL";
@@ -990,33 +849,13 @@ router.get('/voters/precinct-counts', (req, res) => {
     params.push(race_val);
   }
 
-  // Party filter — matches voters who voted in a party primary (from election_votes)
+  // Party filter
   if (party) {
     if (party === 'NP') {
-      sql += " AND id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted IN ('D','R'))";
+      sql += " AND (party = '' OR party IS NULL OR party NOT IN ('D','R','I'))";
     } else {
-      sql += ' AND id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted = ?)';
+      sql += ' AND party = ?';
       params.push(party);
-    }
-  }
-
-  // VAN-style party score filter (D/DD/DDD, R/RR/RRR, SWING, NONE)
-  if (party_score) {
-    if (party_score === 'NONE') {
-      sql += " AND (party_score = '' OR party_score IS NULL)";
-    } else if (party_score === 'SWING') {
-      sql += " AND party_score = 'SWING'";
-    } else if (party_score === 'DD') {
-      sql += " AND party_score IN ('DD','DDD')";
-    } else if (party_score === 'D') {
-      sql += " AND party_score IN ('D','DD','DDD')";
-    } else if (party_score === 'RR') {
-      sql += " AND party_score IN ('RR','RRR')";
-    } else if (party_score === 'R') {
-      sql += " AND party_score IN ('R','RR','RRR')";
-    } else {
-      sql += ' AND party_score = ?';
-      params.push(party_score);
     }
   }
 
@@ -1324,15 +1163,6 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
-  const listId = req.query.list_id ? parseInt(req.query.list_id, 10) : null;
-  if (req.query.list_id && (isNaN(listId) || listId <= 0)) {
-    return res.status(400).json({ error: 'Invalid list_id parameter.' });
-  }
-
-  const listFilter = listId ? 'AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)' : '';
-  const listFilterJoin = listId ? 'AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)' : '';
-  const params = listId ? [listId] : [];
-
   // Get all precincts with voter counts and party breakdown
   const precinctRows = db.prepare(`
     SELECT precinct,
@@ -1342,32 +1172,32 @@ router.get('/analytics/precincts', (req, res) => {
       SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other,
       SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
-    FROM voters WHERE precinct != '' ${listFilter}
-    GROUP BY precinct ORDER BY total_voters DESC
-  `).all(...params);
+    FROM voters WHERE precinct != ''
+    GROUP BY precinct ORDER BY precinct
+  `).all();
 
   // Compute touchpoints per precinct using JOINs (scalable to 300K+)
   const contactsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vc.id) as c FROM voter_contacts vc
-    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != '' ${listFilterJoin}
+    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != ''
     GROUP BY v.precinct
-  `).all(...params);
+  `).all();
   const contactMap = {};
   for (const r of contactsByPct) contactMap[r.precinct] = r.c;
 
   const checkinsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vck.id) as c FROM voter_checkins vck
-    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != '' ${listFilterJoin}
+    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != ''
     GROUP BY v.precinct
-  `).all(...params);
+  `).all();
   const checkinMap = {};
   for (const r of checkinsByPct) checkinMap[r.precinct] = r.c;
 
   const captainByPct = db.prepare(`
     SELECT v.precinct, COUNT(clv.id) as c FROM captain_list_voters clv
-    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != '' ${listFilterJoin}
+    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != ''
     GROUP BY v.precinct
-  `).all(...params);
+  `).all();
   const captainMap = {};
   for (const r of captainByPct) captainMap[r.precinct] = r.c;
 
@@ -1670,7 +1500,7 @@ function updateCustomFields(voterId, voterData, customCols) {
 // --- Universe Builder: Election History Import & Segmentation ---
 
 // Import election participation data (CSV with voter + which elections they voted in)
-router.post('/election-votes/import', requireAuth, importLimiter, (req, res) => {
+router.post('/election-votes/import', (req, res) => {
   const { rows, elections } = req.body;
   // Two modes:
   // A) `elections` array: each row is a voter, elections are column headers mapped to election names
@@ -1766,7 +1596,7 @@ router.post('/election-votes/import', requireAuth, importLimiter, (req, res) => 
 
 // Import turnout list from county (match by State File ID / registration_number / county_file_id / vanid)
 // For primaries: party_voted = 'R' or 'D'. For nonpartisan races: party_voted = '' (shown as blue tag).
-router.post('/election-votes/import-turnout', requireAuth, importLimiter, (req, res) => {
+router.post('/election-votes/import-turnout', (req, res) => {
   const { rows, election_name, election_date, election_type, party_voted } = req.body;
   if (!rows || !rows.length) return res.status(400).json({ error: 'No rows provided.' });
   if (!election_name) return res.status(400).json({ error: 'Election name is required.' });
@@ -2089,12 +1919,8 @@ router.post('/universe/build', (req, res) => {
         const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_precinct').run(listId);
         created.universe = { listId, added: added.changes };
       }
-      const basicHouseholdCount = (db.prepare(`
-        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
-        FROM voters v INNER JOIN _univ_precinct up ON v.id = up.voter_id
-      `).get() || { c: 0 }).c;
       db.exec('DROP TABLE IF EXISTS _univ_precinct');
-      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, householdCount: basicHouseholdCount, created, basicMode: true };
+      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, created, basicMode: true };
     }
 
     // Step 2: universe — voted in last N years
@@ -2151,16 +1977,10 @@ router.post('/universe/build', (req, res) => {
       created.universe = { listId, added: added.changes };
     }
 
-    // Count unique households in the targeted list
-    const householdCount = (db.prepare(`
-      SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
-      FROM voters v INNER JOIN _univ_targeted ut ON v.id = ut.voter_id
-    `).get() || { c: 0 }).c;
-
     // Cleanup
     db.exec('DROP TABLE IF EXISTS _univ_precinct; DROP TABLE IF EXISTS _univ_universe; DROP TABLE IF EXISTS _univ_targeted');
 
-    return { totalInPrecincts, universeCount, targetedCount, subUniverseCount, priorityCount, extraCount: subUniverseCount - priorityCount, householdCount, created, basicMode: false };
+    return { totalInPrecincts, universeCount, targetedCount, subUniverseCount, priorityCount, extraCount: subUniverseCount - priorityCount, created, basicMode: false };
   });
 
   const result = buildTx();
@@ -2175,7 +1995,6 @@ router.post('/universe/build', (req, res) => {
     total_in_precincts: result.totalInPrecincts,
     universe: result.universeCount,
     targeted: result.targetedCount,
-    households: result.householdCount || 0,
     sub_universe: result.subUniverseCount,
     priority: result.priorityCount,
     extra: result.extraCount,
@@ -2205,12 +2024,8 @@ router.post('/universe/preview', (req, res) => {
     const totalInPrecincts = (db.prepare('SELECT COUNT(*) as c FROM _prev_precinct').get() || { c: 0 }).c;
 
     if (!hasElectionData) {
-      const basicHouseholdCount = (db.prepare(`
-        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
-        FROM voters v INNER JOIN _prev_precinct pp ON v.id = pp.voter_id
-      `).get() || { c: 0 }).c;
       db.exec('DROP TABLE IF EXISTS _prev_precinct');
-      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, householdCount: basicHouseholdCount, basicMode: true };
+      return { totalInPrecincts, universeCount: totalInPrecincts, targetedCount: totalInPrecincts, basicMode: true };
     }
 
     db.exec('DROP TABLE IF EXISTS _prev_universe');
@@ -2231,26 +2046,9 @@ router.post('/universe/preview', (req, res) => {
       `).get(...elecNames) || { c: 0 }).c;
     }
 
-    // Count unique households based on address dedup
-    let householdCount = totalInPrecincts;
-    if (elecNames.length > 0) {
-      householdCount = (db.prepare(`
-        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
-        FROM voters v
-        INNER JOIN election_votes ev ON v.id = ev.voter_id
-        WHERE ev.election_name IN (${elecNames.map(() => '?').join(',')}) AND v.id IN (SELECT voter_id FROM _prev_universe)
-      `).get(...elecNames) || { c: 0 }).c;
-    } else {
-      householdCount = (db.prepare(`
-        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
-        FROM voters v
-        INNER JOIN _prev_universe pu ON v.id = pu.voter_id
-      `).get() || { c: 0 }).c;
-    }
-
     db.exec('DROP TABLE IF EXISTS _prev_precinct; DROP TABLE IF EXISTS _prev_universe');
 
-    return { totalInPrecincts, universeCount, targetedCount, householdCount, basicMode: false };
+    return { totalInPrecincts, universeCount, targetedCount, basicMode: false };
   });
 
   const r = previewTx();
@@ -2258,7 +2056,6 @@ router.post('/universe/preview', (req, res) => {
     total_in_precincts: r.totalInPrecincts,
     universe: r.universeCount,
     targeted: r.targetedCount,
-    households: r.householdCount || r.totalInPrecincts,
     basic_mode: r.basicMode || false
   });
 });

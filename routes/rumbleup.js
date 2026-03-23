@@ -62,7 +62,7 @@ router.post('/rumbleup/projects/:id/test', asyncHandler(async (req, res) => {
     const result = await ru.sendTestMessage(req.params.id, test_phone, message);
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(400).json({ error: 'Operation failed. Please try again.' });
+    res.status(400).json({ error: err.message });
   }
 }));
 

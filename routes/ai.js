@@ -196,7 +196,7 @@ router.post('/ai/test-key', asyncHandler(async (req, res) => {
     const text = response.content && response.content[0] ? response.content[0].text : '';
     return res.json({ success: true, model: 'claude-haiku-4-5-20251001', response: text.trim() });
   } catch (err) {
-    return res.json({ success: false, error: 'AI generation failed.' });
+    return res.json({ success: false, error: err.message });
   }
 }));
 

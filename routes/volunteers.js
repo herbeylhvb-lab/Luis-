@@ -8,51 +8,37 @@ const { geocodeWalkAddresses, parseAddressUnit } = require('./walks');
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 
 // List all volunteers (admin)
-// Uses LEFT JOINs + GROUP BY instead of correlated subqueries for O(1) instead of O(N)
+// Fixed: use LEFT JOINs + GROUP BY instead of correlated subqueries for O(1) instead of O(N)
 router.get('/volunteers', (req, res) => {
-  try {
-    const volunteers = db.prepare(`
-      SELECT v.*,
-        COALESCE(pv_stats.sessions_joined, 0) as sessions_joined,
-        COALESCE(pa_stats.texts_sent, 0) as texts_sent,
-        COALESCE(wa_stats.doors_knocked, 0) as doors_knocked,
-        COALESCE(wa_stats.walks_participated, 0) as walks_participated,
-        pv_stats.last_active
-      FROM volunteers v
-      LEFT JOIN (
-        SELECT pv.volunteer_id, COUNT(*) as sessions_joined, MAX(pv.last_active) as last_active
-        FROM p2p_volunteers pv
-        WHERE pv.volunteer_id IS NOT NULL
-        GROUP BY pv.volunteer_id
-      ) pv_stats ON pv_stats.volunteer_id = v.id
-      LEFT JOIN (
-        SELECT pv2.volunteer_id, COUNT(*) as texts_sent
-        FROM p2p_assignments pa
-        JOIN p2p_volunteers pv2 ON pa.session_id = pv2.session_id AND pa.volunteer_id = pv2.id
-        WHERE pa.status IN ('sent','in_conversation','completed')
-        GROUP BY pv2.volunteer_id
-      ) pa_stats ON pa_stats.volunteer_id = v.id
-      LEFT JOIN walkers w ON w.code = v.code
-      LEFT JOIN (
-        SELECT wa.walker_id, COUNT(*) as doors_knocked, COUNT(DISTINCT wa.walk_id) as walks_participated
-        FROM walk_attempts wa
-        WHERE wa.walker_id IS NOT NULL
-        GROUP BY wa.walker_id
-      ) wa_stats ON wa_stats.walker_id = w.id
-      ORDER BY v.created_at DESC
-    `).all();
-    res.json({ volunteers });
-  } catch (err) {
-    console.error('Failed to list volunteers:', err.message);
-    // Fallback: return basic volunteer list without stats if the join query fails
-    try {
-      const volunteers = db.prepare('SELECT * FROM volunteers ORDER BY created_at DESC').all();
-      for (const v of volunteers) { v.sessions_joined = 0; v.texts_sent = 0; v.doors_knocked = 0; v.walks_participated = 0; v.last_active = null; }
-      res.json({ volunteers });
-    } catch (err2) {
-      res.status(500).json({ error: 'Failed to load volunteers: ' + err2.message });
-    }
-  }
+  const volunteers = db.prepare(`
+    SELECT v.*,
+      COALESCE(pv_stats.sessions_joined, 0) as sessions_joined,
+      COALESCE(pa_stats.texts_sent, 0) as texts_sent,
+      COALESCE(wa_stats.doors_knocked, 0) as doors_knocked,
+      COALESCE(wa_stats.walks_participated, 0) as walks_participated,
+      pv_stats.last_active
+    FROM volunteers v
+    LEFT JOIN (
+      SELECT pv.volunteer_id, COUNT(*) as sessions_joined, MAX(pv.last_active) as last_active
+      FROM p2p_volunteers pv
+      GROUP BY pv.volunteer_id
+    ) pv_stats ON pv_stats.volunteer_id = v.id
+    LEFT JOIN (
+      SELECT pv2.volunteer_id, COUNT(*) as texts_sent
+      FROM p2p_assignments pa
+      JOIN p2p_volunteers pv2 ON pa.session_id = pv2.session_id AND pa.volunteer_id = pv2.id
+      WHERE pa.status IN ('sent','in_conversation','completed')
+      GROUP BY pv2.volunteer_id
+    ) pa_stats ON pa_stats.volunteer_id = v.id
+    LEFT JOIN (
+      SELECT wa.walker_id, COUNT(*) as doors_knocked, COUNT(DISTINCT wa.walk_id) as walks_participated
+      FROM walk_attempts wa
+      WHERE wa.walker_id IS NOT NULL
+      GROUP BY wa.walker_id
+    ) wa_stats ON wa_stats.walker_id = (SELECT w.id FROM walkers w WHERE w.code = v.code LIMIT 1)
+    ORDER BY v.created_at DESC
+  `).all();
+  res.json({ volunteers });
 });
 
 // Create volunteer (admin)
@@ -99,23 +85,10 @@ router.put('/volunteers/:id', (req, res) => {
 
 // Delete volunteer (admin)
 router.delete('/volunteers/:id', (req, res) => {
-  const vol = db.prepare('SELECT * FROM volunteers WHERE id = ?').get(req.params.id);
+  const vol = db.prepare('SELECT name FROM volunteers WHERE id = ?').get(req.params.id);
   if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
-  db.transaction(() => {
-    // Unlink from P2P sessions
-    db.prepare('UPDATE p2p_volunteers SET volunteer_id = NULL WHERE volunteer_id = ?').run(req.params.id);
-    // Remove from walk group assignments (by name match, since walk_group_members uses walker_name)
-    db.prepare('DELETE FROM walk_group_members WHERE walker_name = ?').run(vol.name);
-    // Also remove matching walker record so they don't show as assigned on walks
-    if (vol.code) {
-      const walker = db.prepare('SELECT id FROM walkers WHERE code = ?').get(vol.code);
-      if (walker) {
-        db.prepare('DELETE FROM walk_group_members WHERE walker_id = ?').run(walker.id);
-        db.prepare('DELETE FROM walkers WHERE id = ?').run(walker.id);
-      }
-    }
-    db.prepare('DELETE FROM volunteers WHERE id = ?').run(req.params.id);
-  })();
+  db.prepare('UPDATE p2p_volunteers SET volunteer_id = NULL WHERE volunteer_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM volunteers WHERE id = ?').run(req.params.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Volunteer deleted: ' + vol.name);
   res.json({ success: true });
 });
@@ -189,15 +162,12 @@ router.post('/volunteers/login', (req, res) => {
     if (!walker) walker = db.prepare('SELECT id FROM walkers WHERE name = ? AND phone = ?').get(vol.name, vol.phone);
     if (!walker) {
       // Create a walkers entry linked to this volunteer
-      // Ensure at least one candidate exists (auto-create default if needed)
-      let candidate = db.prepare('SELECT id FROM candidates WHERE is_active = 1 LIMIT 1').get();
-      if (!candidate) {
-        const candCode = randomBytes(3).toString('hex').toUpperCase().slice(0, 6);
-        const candResult = db.prepare('INSERT INTO candidates (name, office, code) VALUES (?, ?, ?)').run('My Campaign', '', candCode);
-        candidate = { id: candResult.lastInsertRowid };
+      const candidates = db.prepare('SELECT id FROM candidates WHERE is_active = 1 LIMIT 1').all();
+      const candId = candidates.length > 0 ? candidates[0].id : null;
+      if (candId) {
+        const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(candId, vol.name, vol.phone || '', vol.code);
+        walker = { id: wResult.lastInsertRowid };
       }
-      const wResult = db.prepare('INSERT INTO walkers (candidate_id, name, phone, code, is_active) VALUES (?, ?, ?, ?, 1)').run(candidate.id, vol.name, vol.phone || '', vol.code);
-      walker = { id: wResult.lastInsertRowid };
     }
     walkerId = walker ? walker.id : null;
 

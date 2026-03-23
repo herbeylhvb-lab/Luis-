@@ -1,62 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
-const fs = require('fs');
-const path = require('path');
 const db = require('../db');
 const { generateAlphaCode, normalizePhone } = require('../utils');
-
-// ===================== PRECINCT BOUNDARIES =====================
-
-// Load precinct GeoJSON for point-in-polygon checks
-let _precinctFeatures = null;
-function getPrecinctFeatures() {
-  if (_precinctFeatures) return _precinctFeatures;
-  try {
-    const geojsonPath = path.join(__dirname, '..', 'public', 'cameron-precincts.geojson');
-    const data = JSON.parse(fs.readFileSync(geojsonPath, 'utf8'));
-    _precinctFeatures = data.features || [];
-    console.log('[walks] Loaded', _precinctFeatures.length, 'precinct boundaries from GeoJSON');
-  } catch (e) {
-    console.warn('[walks] Could not load precinct GeoJSON:', e.message);
-    _precinctFeatures = [];
-  }
-  return _precinctFeatures;
-}
-
-// Ray-casting point-in-polygon test
-function pointInPolygon(lat, lng, polygon) {
-  // polygon is an array of rings; first ring is the outer boundary
-  const ring = polygon[0];
-  if (!ring || ring.length < 3) return false;
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i][1], yi = ring[i][0]; // GeoJSON is [lng, lat]
-    const xj = ring[j][1], yj = ring[j][0];
-    if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi)) {
-      inside = !inside;
-    }
-  }
-  return inside;
-}
-
-// Check if a point falls inside any of the given precinct polygons
-function pointInPrecincts(lat, lng, precinctIds) {
-  const features = getPrecinctFeatures();
-  const targetSet = new Set(precinctIds.map(String));
-  for (const f of features) {
-    if (!targetSet.has(String(f.properties.precinct))) continue;
-    const geom = f.geometry;
-    if (geom.type === 'Polygon') {
-      if (pointInPolygon(lat, lng, geom.coordinates)) return true;
-    } else if (geom.type === 'MultiPolygon') {
-      for (const poly of geom.coordinates) {
-        if (pointInPolygon(lat, lng, poly)) return true;
-      }
-    }
-  }
-  return false;
-}
 
 // ===================== DOOR COUNTING =====================
 // Count unique doors (address+unit) instead of individual voter rows
@@ -100,7 +46,7 @@ function buildHouseholdFromWalkAddresses(addresses) {
       const parts = (a.voter_name || '').trim().split(' ');
       const firstName = parts[0] || '';
       const lastName = parts.slice(1).join(' ') || '';
-      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '', party_score: a.voter_party_score || '', election_votes: a.election_votes || [] };
+      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '' };
     });
   }
 }
@@ -243,7 +189,7 @@ async function geocodeAddressNominatim(address, city, zip) {
     if (GEOCODE_STATE) params.state = GEOCODE_STATE;
     const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams(params);
     const res = await fetch(url, { headers });
-    if (res.status === 429) { console.log('Nominatim rate limited, waiting 30s before continuing'); await new Promise(r => setTimeout(r, 30000)); return null; }
+    if (res.status === 429) { console.log('Nominatim rate limited, skipping'); return null; }
     if (!res.ok) return null;
     const data = await res.json();
     if (data && data.length > 0) {
@@ -258,8 +204,7 @@ const geocodingInProgress = {};
 
 // Geocode walk addresses in the background (non-blocking)
 // Uses Census Bureau BATCH geocoder for speed, Nominatim as fallback
-// If sourcePrecincts is provided, removes addresses that geocode outside those precinct boundaries
-function geocodeWalkAddresses(walkId, sourcePrecincts) {
+function geocodeWalkAddresses(walkId) {
   // Prevent multiple concurrent geocode runs for the same walk
   if (geocodingInProgress[walkId]) {
     console.log('Geocoding already in progress for walk', walkId);
@@ -314,17 +259,7 @@ function geocodeWalkAddresses(walkId, sourcePrecincts) {
       // No Google key — fall back to Census Bureau BATCH geocoder
       try {
         console.log('No GOOGLE_GEOCODE_KEY set — using Census Bureau batch geocode for', uniqueAddresses.length, 'addresses...');
-        // Census batch geocoder has a limit of ~10,000 addresses; chunk into batches of 5000
-        let batchResults = {};
-        const CENSUS_BATCH_SIZE = 5000;
-        for (let bStart = 0; bStart < uniqueAddresses.length; bStart += CENSUS_BATCH_SIZE) {
-          const chunk = uniqueAddresses.slice(bStart, bStart + CENSUS_BATCH_SIZE);
-          const chunkResults = await censusBatchGeocode(chunk);
-          // Re-key results to global indices
-          for (const [localIdx, coords] of Object.entries(chunkResults)) {
-            batchResults[bStart + parseInt(localIdx)] = coords;
-          }
-        }
+        const batchResults = await censusBatchGeocode(uniqueAddresses);
         const matched = Object.keys(batchResults).length;
         console.log('Census batch returned', matched, '/', uniqueAddresses.length, 'matches');
 
@@ -382,28 +317,6 @@ function geocodeWalkAddresses(walkId, sourcePrecincts) {
     }
 
     console.log('Geocoding complete for walk', walkId, ':', resolved, 'resolved,', failed, 'failed out of', allMissing.length);
-
-    // Flag addresses that geocoded outside the source precinct boundaries
-    if (sourcePrecincts && sourcePrecincts.length > 0 && getPrecinctFeatures().length > 0) {
-      const geocoded = db.prepare(
-        'SELECT id, lat, lng, address FROM walk_addresses WHERE walk_id = ? AND lat IS NOT NULL'
-      ).all(walkId);
-      let flagged = 0;
-      const flagStmt = db.prepare('UPDATE walk_addresses SET outside_precinct = 1 WHERE id = ?');
-      const clearStmt = db.prepare('UPDATE walk_addresses SET outside_precinct = 0 WHERE id = ?');
-      for (const addr of geocoded) {
-        if (!pointInPrecincts(addr.lat, addr.lng, sourcePrecincts)) {
-          flagStmt.run(addr.id);
-          flagged++;
-        } else {
-          clearStmt.run(addr.id);
-        }
-      }
-      if (flagged > 0) {
-        console.log('[walks] Flagged', flagged, 'addresses outside precinct boundaries for walk', walkId,
-          '(precincts:', sourcePrecincts.join(','), ')');
-      }
-    }
   })().catch(e => console.error('Geocode batch error:', e.message)).finally(() => {
     delete geocodingInProgress[walkId];
   });
@@ -447,34 +360,6 @@ function buildVotingHistorySQL(filters, params) {
   if (filters.has_voted) {
     sql += ' AND voters.id IN (SELECT DISTINCT ev.voter_id FROM election_votes ev)';
   }
-  // "voted in a specific party primary" — e.g. only voters who pulled a D or R ballot
-  if (filters.party_voted) {
-    sql += ' AND voters.id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted = ?)';
-    params.push(filters.party_voted);
-  }
-  // VAN-style party score filter (D/DD/DDD, R/RR/RRR, SWING, NONE)
-  if (filters.party_score) {
-    const ps = filters.party_score;
-    if (ps === 'NONE') {
-      sql += " AND (voters.party_score = '' OR voters.party_score IS NULL)";
-    } else if (ps === 'SWING') {
-      sql += " AND voters.party_score = 'SWING'";
-    } else if (ps === 'DD') {
-      // DD+ means DD or DDD
-      sql += " AND voters.party_score IN ('DD','DDD')";
-    } else if (ps === 'D') {
-      // D+ means any Dem primary voter
-      sql += " AND voters.party_score IN ('D','DD','DDD')";
-    } else if (ps === 'RR') {
-      sql += " AND voters.party_score IN ('RR','RRR')";
-    } else if (ps === 'R') {
-      sql += " AND voters.party_score IN ('R','RR','RRR')";
-    } else {
-      // Exact match (DDD, RRR)
-      sql += ' AND voters.party_score = ?';
-      params.push(ps);
-    }
-  }
   // "voter score range" — if you've scored voters 0-100
   if (filters.min_voter_score != null && parseInt(filters.min_voter_score) > 0) {
     sql += ' AND voters.voter_score >= ?';
@@ -499,8 +384,7 @@ router.get('/walks/daily-report', (req, res) => {
       SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as undecided,
-      SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as oppose,
-      SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as lean_oppose,
+      SUM(CASE WHEN result IN ('oppose', 'lean_oppose') THEN 1 ELSE 0 END) as oppose,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home,
       MIN(attempted_at) as first_knock,
       MAX(attempted_at) as last_knock,
@@ -529,8 +413,6 @@ router.get('/walks/daily-report', (req, res) => {
       SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as total_contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as total_undecided,
-      SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as total_oppose,
-      SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as total_lean_oppose,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as total_not_home,
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
@@ -778,8 +660,7 @@ router.get('/walks/:id/volunteer', (req, res) => {
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
             wa.assigned_walker,
-            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last,
-            v.party_score as voter_party_score, v.support_level as voter_support
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
@@ -787,22 +668,6 @@ router.get('/walks/:id/volunteer', (req, res) => {
 
   // Build household members — group by address+unit so apartments only show people in the same unit
   buildHouseholdFromWalkAddresses(walk.addresses);
-
-  // Attach election votes (party primary history) for voter info display
-  const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);
-  if (voterIds.length > 0) {
-    const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
-    ).all(...voterIds);
-    const evMap = {};
-    for (const r of evRows) {
-      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '' });
-    }
-    for (const a of walk.addresses) {
-      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
-    }
-  }
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
@@ -833,7 +698,6 @@ const VALID_RESULTS = new Set([
   'support', 'lean_support', 'undecided', 'lean_oppose',
   'oppose', 'not_home', 'refused', 'moved', 'deceased', 'come_back'
 ]);
-const VALID_RESULTS_SET = new Set(['support', 'lean_support', 'undecided', 'lean_oppose', 'oppose', 'not_home', 'refused', 'moved', 'deceased', 'come_back', 'not_visited']);
 
 const MAX_GPS_ACCURACY = 200; // ignore GPS worse than 200m
 
@@ -877,8 +741,8 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      // No address coords to compare — cannot verify location without reference point
-      gps_verified = 0;
+      // No address coords to compare — only verify if accuracy is known and acceptable
+      gps_verified = (gps_accuracy != null && gps_accuracy <= MAX_GPS_ACCURACY) ? 1 : 0;
     }
   }
 
@@ -977,12 +841,6 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
     return res.status(400).json({ error: 'Members array is required.' });
   }
 
-  for (const m of members) {
-    if (m.result && !VALID_RESULTS_SET.has(m.result)) {
-      return res.status(400).json({ error: 'Invalid result: ' + m.result });
-    }
-  }
-
   // Verify walker is assigned to this walk (try walker_id first, fall back to walker_name)
   if (walker_id) {
     let member = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.walkId, walker_id);
@@ -1013,8 +871,7 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
       gps_verified = dist <= 150 ? 1 : 0;
     } else {
-      // No address coords to compare — cannot verify location without reference point
-      gps_verified = 0;
+      gps_verified = (gps_accuracy != null && gps_accuracy <= MAX_GPS_ACCURACY) ? 1 : 0;
     }
   }
 
@@ -1048,8 +905,8 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
 
     // Record attempt
     db.prepare(
-      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified, survey_responses_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified, req.body.survey_responses ? JSON.stringify(req.body.survey_responses) : null);
+      'INSERT INTO walk_attempts (address_id, walk_id, result, notes, walker_name, walker_id, gps_lat, gps_lng, gps_accuracy, gps_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.addrId, req.params.walkId, overallResult, allNotes, walker_name || '', walker_id || null, gps_lat != null ? gps_lat : null, gps_lng != null ? gps_lng : null, gps_accuracy != null ? gps_accuracy : null, gps_verified);
 
     // Update walker performance
     const NON_CONTACT_HH = ['not_home', 'moved', 'refused', 'deceased', 'come_back'];
@@ -1149,14 +1006,18 @@ router.post('/walks/join', (req, res) => {
   const joinResult = db.transaction(() => {
     const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
     if (members.c >= maxWalkers) return { full: true };
-    const existing = db.prepare('SELECT 1 FROM walk_group_members WHERE walk_id = ? AND phone = ?').get(walk.id, normPhone);
-    if (existing) return { duplicate: true };
-    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
+    try {
+      db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
+    } catch (e) {
+      if (e.message.includes('UNIQUE constraint')) {
+        return { duplicate: true };
+      }
+      throw e;
+    }
     return { success: true };
   })();
 
   if (joinResult.full) return res.status(400).json({ error: 'Group is full (max ' + maxWalkers + ' walkers).' });
-  if (joinResult.duplicate) return res.status(400).json({ error: 'This phone number has already joined this walk.' });
 
   // Auto-split addresses among group members
   splitAddresses(walk.id);
@@ -1181,7 +1042,6 @@ router.get('/walks/:id/walker/:name', (req, res) => {
   const allAddresses = db.prepare(
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.assigned_walker, wa.lat, wa.lng, wa.voter_id,
-            wa.outside_precinct,
             v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
@@ -1320,7 +1180,7 @@ router.post('/walks/from-precinct', (req, res) => {
   const params = [...precincts];
 
   if (filters) {
-    if (filters.party && !filters.party_score && !filters.party_voted) { filters = Object.assign({}, filters, { party_voted: filters.party }); } // legacy party filter fallback
+    if (filters.party) { sql += ' AND party = ?'; params.push(filters.party); }
     if (filters.support_level) { sql += ' AND support_level = ?'; params.push(filters.support_level); }
     if (filters.exclude_contacted) {
       sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
@@ -1373,7 +1233,7 @@ router.post('/walks/from-precinct', (req, res) => {
     'Walk created from precincts [' + precincts.join(', ') + ']: ' + added + ' addresses'
   );
 
-  geocodeWalkAddresses(walkId, precincts);
+  geocodeWalkAddresses(walkId);
   res.json({ success: true, id: walkId, added, precincts });
 });
 
@@ -1510,7 +1370,7 @@ router.get('/walks/:id/live-status', (req, res) => {
   const members = db.prepare('SELECT walker_name, joined_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at').all(req.params.id);
 
   const allAddresses = db.prepare(
-    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng, geo_flagged, outside_precinct FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
+    'SELECT id, address, unit, voter_name, result, assigned_walker, knocked_at, lat, lng, geo_flagged FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id'
   ).all(req.params.id);
 
   const doorProgress = countDoors(allAddresses);
@@ -1633,10 +1493,7 @@ router.post('/walks/:id/geocode', (req, res) => {
     return res.json({ message: 'Geocoding already in progress — ' + missing.c + ' addresses remaining.', pending: missing.c, inProgress: true });
   }
 
-  // Pass source precincts so out-of-boundary addresses get filtered after geocoding
-  const walkRow = db.prepare('SELECT source_precincts FROM block_walks WHERE id = ?').get(wid);
-  const srcPrecincts = (walkRow && walkRow.source_precincts) ? walkRow.source_precincts.split(',').map(s => s.trim()).filter(Boolean) : null;
-  geocodeWalkAddresses(wid, srcPrecincts);
+  geocodeWalkAddresses(wid);
   res.json({ message: 'Geocoding started for ' + missing.c + ' addresses. Map will update as coordinates are resolved.', pending: missing.c });
 });
 
@@ -1671,29 +1528,24 @@ router.post('/walks/:walkId/addresses/:addrId/fix-location', (req, res) => {
 
 // Re-geocode a single flagged address
 router.post('/walks/:walkId/addresses/:addrId/regeocode', async (req, res) => {
-  try {
-    const addr = db.prepare('SELECT id, walk_id, address, city, zip FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
-    if (!addr) return res.status(404).json({ error: 'Address not found.' });
-    // Try all geocoders in order
-    let coords = null;
-    if (GOOGLE_GEOCODE_KEY) {
-      coords = await geocodeAddressGoogle(addr.address, addr.city, addr.zip);
-    }
-    if (!coords) {
-      coords = await geocodeAddressCensus(addr.address, addr.city, addr.zip);
-    }
-    if (!coords) {
-      coords = await geocodeAddressNominatim(addr.address, addr.city, addr.zip);
-    }
-    if (coords) {
-      db.prepare('UPDATE walk_addresses SET lat = ?, lng = ?, geo_flagged = 0 WHERE id = ?').run(coords.lat, coords.lng, addr.id);
-      res.json({ success: true, lat: coords.lat, lng: coords.lng, message: 'Re-geocoded successfully.' });
-    } else {
-      res.json({ success: false, message: 'Could not geocode this address. Try manually correcting it on the map.' });
-    }
-  } catch (err) {
-    console.error('Regeocode error:', err.message);
-    res.status(500).json({ error: 'Geocoding failed.' });
+  const addr = db.prepare('SELECT id, walk_id, address, city, zip FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
+  if (!addr) return res.status(404).json({ error: 'Address not found.' });
+  // Try all geocoders in order
+  let coords = null;
+  if (GOOGLE_GEOCODE_KEY) {
+    coords = await geocodeAddressGoogle(addr.address, addr.city, addr.zip);
+  }
+  if (!coords) {
+    coords = await geocodeAddressCensus(addr.address, addr.city, addr.zip);
+  }
+  if (!coords) {
+    coords = await geocodeAddressNominatim(addr.address, addr.city, addr.zip);
+  }
+  if (coords) {
+    db.prepare('UPDATE walk_addresses SET lat = ?, lng = ?, geo_flagged = 0 WHERE id = ?').run(coords.lat, coords.lng, addr.id);
+    res.json({ success: true, lat: coords.lat, lng: coords.lng, message: 'Re-geocoded successfully.' });
+  } else {
+    res.json({ success: false, message: 'Could not geocode this address. Try manually correcting it on the map.' });
   }
 });
 
@@ -2022,7 +1874,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   sql += " AND v.id NOT IN (SELECT wa.voter_id FROM walk_addresses wa WHERE wa.universe_id = ? AND wa.voter_id IS NOT NULL)";
   params.push(universe.id);
 
-  if (filters.party && !filters.party_score && !filters.party_voted) { filters = Object.assign({}, filters, { party_voted: filters.party }); } // legacy party filter fallback
+  if (filters.party) { sql += ' AND v.party = ?'; params.push(filters.party); }
   if (filters.support_level) { sql += ' AND v.support_level = ?'; params.push(filters.support_level); }
   if (filters.exclude_contacted) {
     sql += ' AND v.id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
@@ -2123,7 +1975,7 @@ router.post('/walks/:id/refresh', (req, res) => {
   let sql = "SELECT id, first_name, last_name, address, city, zip FROM voters WHERE precinct IN (" + precincts.map(() => '?').join(',') + ") AND address != ''";
   const params = [...precincts];
 
-  if (filters.party && !filters.party_score && !filters.party_voted) { filters = Object.assign({}, filters, { party_voted: filters.party }); } // legacy party filter fallback
+  if (filters.party) { sql += ' AND party = ?'; params.push(filters.party); }
   if (filters.support_level) { sql += ' AND support_level = ?'; params.push(filters.support_level); }
   if (filters.exclude_contacted) {
     sql += ' AND id NOT IN (SELECT DISTINCT voter_id FROM voter_contacts)';
@@ -2175,10 +2027,9 @@ router.post('/walks/:id/refresh', (req, res) => {
   });
   const result = refreshResult();
 
-  // Re-geocode any new addresses (with precinct filtering if applicable)
+  // Re-geocode any new addresses
   if (result.added > 0) {
-    const srcPrecincts = walk.source_precincts ? walk.source_precincts.split(',').map(s => s.trim()).filter(Boolean) : null;
-    geocodeWalkAddresses(parseInt(req.params.id), srcPrecincts);
+    geocodeWalkAddresses(parseInt(req.params.id));
   }
 
   // Re-split if group walk
@@ -2379,15 +2230,14 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   const walkerId = parseInt(req.params.walkerId, 10);
   if (isNaN(walkerId) || walkerId <= 0) return res.status(400).json({ error: 'Invalid walker ID.' });
 
-  const walk = db.prepare('SELECT id, name, description, status, script_id FROM block_walks WHERE id = ?').get(req.params.id);
+  const walk = db.prepare('SELECT id, name, description, status FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
   const addresses = db.prepare(
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
             wa.assigned_walker,
-            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last,
-            v.party_score as voter_party_score, v.support_level as voter_support
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
@@ -2405,22 +2255,6 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
 
   // Build household members — group by address+unit so apartments only show people in the same unit
   buildHouseholdFromWalkAddresses(addresses);
-
-  // Attach election votes (party primary history) for voter info display
-  const voterIds = addresses.map(a => a.voter_id).filter(Boolean);
-  if (voterIds.length > 0) {
-    const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
-    ).all(...voterIds);
-    const evMap = {};
-    for (const r of evRows) {
-      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '' });
-    }
-    for (const a of addresses) {
-      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
-    }
-  }
 
   // Attempt counts
   const attemptCounts = db.prepare('SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id').all(req.params.id);

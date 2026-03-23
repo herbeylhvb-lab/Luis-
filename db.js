@@ -443,7 +443,6 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_file_id ON voters(sta
 // --- Voter demographics & district assignments (from county voter file) ---
 addColumn("ALTER TABLE voters ADD COLUMN gender TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN age INTEGER DEFAULT NULL");
-addColumn("ALTER TABLE voters ADD COLUMN phone_type TEXT DEFAULT ''"); // mobile, landline, voip, invalid
 addColumn("ALTER TABLE voters ADD COLUMN county_commissioner TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN justice_of_peace TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN state_board_ed TEXT DEFAULT ''");
@@ -457,8 +456,6 @@ addColumn("ALTER TABLE voters ADD COLUMN hospital_district TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN navigation_port TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN port_authority TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
-addColumn("ALTER TABLE voters ADD COLUMN party_score TEXT DEFAULT ''");
-try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_party_score ON voters(party_score)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_gender ON voters(gender)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_state_rep ON voters(state_rep)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_voters_us_congress ON voters(us_congress)"); } catch (e) { /* exists */ }
@@ -785,10 +782,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cc_candidate ON captain_candidates(candidate_id);
 `);
 
-// Race/district assignment for candidates (e.g., race_type='navigation_port', race_value='1')
-addColumn("ALTER TABLE candidates ADD COLUMN race_type TEXT DEFAULT ''");
-addColumn("ALTER TABLE candidates ADD COLUMN race_value TEXT DEFAULT ''");
-
 // --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS walk_scripts (
@@ -856,7 +849,6 @@ db.exec(`
 // Track which voters are already assigned in a universe to avoid duplication
 addColumn("ALTER TABLE walk_addresses ADD COLUMN universe_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE walk_addresses ADD COLUMN geo_flagged INTEGER DEFAULT 0");
-addColumn("ALTER TABLE walk_addresses ADD COLUMN outside_precinct INTEGER DEFAULT 0");
 
 // --- Walk performance metrics ---
 addColumn("ALTER TABLE walk_group_members ADD COLUMN doors_knocked INTEGER DEFAULT 0");
@@ -1008,42 +1000,5 @@ try {
   }
 } catch (e) { /* cleanup is best-effort */ }
 
-// --- Compute VAN-style party scores (D/DD/DDD, R/RR/RRR) from election history ---
-function computePartyScores() {
-  const rows = db.prepare(`
-    SELECT voter_id,
-      SUM(CASE WHEN party_voted IN ('D','DEM','Democrat') THEN 1 ELSE 0 END) as d_count,
-      SUM(CASE WHEN party_voted IN ('R','REP','Republican') THEN 1 ELSE 0 END) as r_count
-    FROM election_votes
-    WHERE party_voted IS NOT NULL AND party_voted != ''
-    GROUP BY voter_id
-  `).all();
-
-  const update = db.prepare('UPDATE voters SET party_score = ? WHERE id = ?');
-  const batch = db.transaction(() => {
-    // Clear all first so voters with no history get blank
-    db.prepare("UPDATE voters SET party_score = '' WHERE party_score != ''").run();
-    for (const r of rows) {
-      let score = '';
-      if (r.d_count > 0 && r.d_count >= r.r_count) {
-        score = r.d_count >= 3 ? 'DDD' : r.d_count === 2 ? 'DD' : 'D';
-      } else if (r.r_count > 0 && r.r_count > r.d_count) {
-        score = r.r_count >= 3 ? 'RRR' : r.r_count === 2 ? 'RR' : 'R';
-      }
-      // Mixed: if equal D and R primaries, mark as swing
-      if (r.d_count > 0 && r.r_count > 0 && r.d_count === r.r_count) {
-        score = 'SWING';
-      }
-      if (score) update.run(score, r.voter_id);
-    }
-  });
-  batch();
-  console.log('[party-score] Computed party scores for ' + rows.length + ' voters with primary history');
-}
-
-// Compute on startup
-try { computePartyScores(); } catch (e) { console.error('[party-score] Error:', e.message); }
-
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;
-module.exports.computePartyScores = computePartyScores;

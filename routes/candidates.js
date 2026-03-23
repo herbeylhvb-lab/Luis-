@@ -44,16 +44,10 @@ function requireCandidateAuth(req, res, next) {
   return res.status(401).json({ error: 'Authentication required.' });
 }
 
-// Admin auth middleware
-function requireAuth(req, res, next) {
-  if (req.session && req.session.userId) return next();
-  return res.status(401).json({ error: 'Authentication required.' });
-}
-
 // ===================== ADMIN ENDPOINTS =====================
 
 // List all candidates with stats (batched queries instead of N+1)
-router.get('/candidates', requireAuth, (req, res) => {
+router.get('/candidates', (req, res) => {
   const candidates = db.prepare('SELECT * FROM candidates ORDER BY created_at DESC').all();
 
   // Batch: captain counts per candidate
@@ -97,8 +91,8 @@ router.get('/candidates', requireAuth, (req, res) => {
 });
 
 // Create candidate
-router.post('/candidates', requireAuth, (req, res) => {
-  const { name, office, phone, email, race_type, race_value } = req.body;
+router.post('/candidates', (req, res) => {
+  const { name, office, phone, email } = req.body;
   if (!name) return res.status(400).json({ error: 'Candidate name is required.' });
   let code;
   for (let i = 0; i < 10; i++) {
@@ -107,8 +101,8 @@ router.post('/candidates', requireAuth, (req, res) => {
     if (i === 9) return res.status(500).json({ error: 'Could not generate unique code.' });
   }
   const result = db.prepare(
-    'INSERT INTO candidates (name, office, code, phone, email, race_type, race_value) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(name, office || '', code, phone || '', email || '', race_type || '', race_value || '');
+    'INSERT INTO candidates (name, office, code, phone, email) VALUES (?, ?, ?, ?, ?)'
+  ).run(name, office || '', code, phone || '', email || '');
   // Auto-create a default "Main" list for the candidate
   db.prepare('INSERT INTO admin_lists (name, description, list_type, candidate_id) VALUES (?, ?, ?, ?)')
     .run('Main', 'Default list for ' + name, 'general', result.lastInsertRowid);
@@ -117,24 +111,22 @@ router.post('/candidates', requireAuth, (req, res) => {
 });
 
 // Update candidate
-router.put('/candidates/:id', requireAuth, (req, res) => {
-  const { name, office, phone, email, is_active, race_type, race_value } = req.body;
+router.put('/candidates/:id', (req, res) => {
+  const { name, office, phone, email, is_active } = req.body;
   const result = db.prepare(`UPDATE candidates SET
     name = COALESCE(?, name),
     office = COALESCE(?, office),
     phone = COALESCE(?, phone),
     email = COALESCE(?, email),
-    is_active = COALESCE(?, is_active),
-    race_type = COALESCE(?, race_type),
-    race_value = COALESCE(?, race_value)
+    is_active = COALESCE(?, is_active)
     WHERE id = ?`
-  ).run(name, office, phone, email, is_active !== undefined ? (is_active ? 1 : 0) : null, race_type, race_value, req.params.id);
+  ).run(name, office, phone, email, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Candidate not found.' });
   res.json({ success: true });
 });
 
 // Delete (deactivate) candidate — also deactivates their captains
-router.delete('/candidates/:id', requireAuth, (req, res) => {
+router.delete('/candidates/:id', (req, res) => {
   const candidate = db.prepare('SELECT name FROM candidates WHERE id = ?').get(req.params.id);
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
   const deactivate = db.transaction(() => {
@@ -196,10 +188,8 @@ router.get('/candidates/:id/captains', (req, res) => {
     JOIN captain_lists cl ON clv.list_id = cl.id
     JOIN captains c ON cl.captain_id = c.id
     JOIN voters v ON clv.voter_id = v.id
-    WHERE c.candidate_id = ? OR EXISTS (
-      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-    )
-  `).get(req.params.id, req.params.id) || { total_voters: 0, total_voted: 0 };
+    WHERE c.candidate_id = ?
+  `).get(req.params.id) || { total_voters: 0, total_voted: 0 };
 
   res.json({ captains, total_voters: totals.total_voters, total_voted: totals.total_voted });
 });
@@ -534,8 +524,8 @@ router.delete('/candidates/:id/portal/captains/:captainId', requireCandidateAuth
 
 // Voter search — name-only q, dedicated filters, priority ordering (matches captain search)
 router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
-  const { q, phone, vanid, city, zip, precinct, address, party, support } = req.query;
-  const hasFilter = phone || vanid || city || zip || precinct || address || party || support;
+  const { q, phone, vanid, city, zip, precinct, address } = req.query;
+  const hasFilter = phone || vanid || city || zip || precinct || address;
   if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
   const conditions = [];
@@ -577,12 +567,6 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
   if (address) {
     const addrEsc = address.replace(/[\\%_]/g, '\\$&');
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
-  }
-  if (party) {
-    conditions.push("party_score = ?"); params.push(party);
-  }
-  if (support) {
-    conditions.push("support_level = ?"); params.push(support);
   }
 
   const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';
@@ -666,11 +650,9 @@ router.post('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, 
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const { voterIds } = req.body;
   if (!voterIds || !voterIds.length) return res.status(400).json({ error: 'No voters provided.' });
-  const validIds = voterIds.filter(id => Number.isInteger(id) && id > 0);
-  if (validIds.length !== voterIds.length) return res.status(400).json({ error: 'Invalid voter IDs.' });
   const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
   let added = 0;
-  for (const vid of validIds) {
+  for (const vid of voterIds) {
     const r = insert.run(req.params.listId, vid);
     added += r.changes;
   }
@@ -710,14 +692,12 @@ router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateA
 router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth, (req, res) => {
   const listId = req.params.listId;
   const candidateId = req.params.id;
-  // Try captain_lists first (owned or shared captains)
+  // Try captain_lists first
   let list = db.prepare(`
     SELECT cl.*, c.name as captain_name, 'captain' as source FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
-      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-    ))
-  `).get(listId, candidateId, candidateId);
+    WHERE cl.id = ? AND c.candidate_id = ?
+  `).get(listId, candidateId);
   let voters;
   if (list) {
     voters = db.prepare(`
@@ -746,92 +726,69 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
 // Master list: all unique voters across ALL lists with source info
 router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   const candidateIdParam = req.params.id;
-  const limit = Math.min(parseInt(req.query.limit) || 5000, 10000);
-  const offset = parseInt(req.query.offset) || 0;
 
-  // Step 1: Get unique voter IDs with proper pagination
-  const allVoterIds = db.prepare(`
-    SELECT DISTINCT voter_id FROM (
-      SELECT alv.voter_id FROM admin_list_voters alv
-      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
-      UNION
-      SELECT clv.voter_id FROM captain_list_voters clv
-      JOIN captain_lists cl ON clv.list_id = cl.id
-      JOIN captains c ON cl.captain_id = c.id
-      WHERE c.candidate_id = ? OR EXISTS (
-        SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-      )
-    )
-  `).all(candidateIdParam, candidateIdParam, candidateIdParam);
-  const totalUniqueVoters = allVoterIds.length;
-
-  // Step 2: Get paginated voters with their info
-  const voterRows = db.prepare(`
-    SELECT v.* FROM voters v WHERE v.id IN (
-      SELECT DISTINCT voter_id FROM (
-        SELECT alv.voter_id FROM admin_list_voters alv
-        JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
-        UNION
-        SELECT clv.voter_id FROM captain_list_voters clv
-        JOIN captain_lists cl ON clv.list_id = cl.id
-        JOIN captains c ON cl.captain_id = c.id
-        WHERE c.candidate_id = ? OR EXISTS (
-          SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-        )
-      )
-    )
-    ORDER BY v.last_name, v.first_name
-    LIMIT ? OFFSET ?
-  `).all(candidateIdParam, candidateIdParam, candidateIdParam, limit, offset);
-
-  // Step 3: Get source info for these voters
-  const voterIdSet = new Set(voterRows.map(v => v.id));
-  const sourceRows = voterIdSet.size > 0 ? db.prepare(`
-    SELECT voter_id, source_name, source_type, list_name, added_at FROM (
+  // Gather all voter appearances from both admin and captain lists
+  const rows = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.middle_name, v.suffix,
+           v.address, v.city, v.zip, v.phone, v.party, v.precinct,
+           v.state_file_id, v.vanid, v.early_voted, v.early_voted_date,
+           source_name, source_type, list_name, added_at
+    FROM (
       SELECT alv.voter_id, 'My List' as source_name, 'admin' as source_type,
              al.name as list_name, alv.added_at
       FROM admin_list_voters alv
-      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+      JOIN admin_lists al ON alv.list_id = al.id
+      WHERE al.candidate_id = ?
       UNION ALL
       SELECT clv.voter_id, c.name as source_name, 'captain' as source_type,
              cl.name as list_name, clv.added_at
       FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains c ON cl.captain_id = c.id
-      WHERE c.candidate_id = ? OR EXISTS (
-        SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-      )
-    ) WHERE voter_id IN (${voterRows.map(() => '?').join(',')})
-  `).all(candidateIdParam, candidateIdParam, candidateIdParam, ...voterRows.map(v => v.id)) : [];
+      WHERE c.candidate_id = ?
+    ) sources
+    JOIN voters v ON sources.voter_id = v.id
+    ORDER BY v.last_name, v.first_name
+  `).all(candidateIdParam, candidateIdParam);
 
-  // Build voter map with lists
+  // Group by voter_id — each voter gets an array of which lists they're on
   const voterMap = new Map();
-  for (const v of voterRows) {
-    voterMap.set(v.id, {
-      id: v.id, first_name: v.first_name, last_name: v.last_name,
-      middle_name: v.middle_name, suffix: v.suffix,
-      address: v.address, city: v.city, zip: v.zip,
-      phone: v.phone, party: v.party, party_score: v.party_score,
-      precinct: v.precinct, state_file_id: v.state_file_id, vanid: v.vanid,
-      early_voted: v.early_voted, early_voted_date: v.early_voted_date,
-      lists: []
-    });
-  }
-  for (const s of sourceRows) {
-    if (voterMap.has(s.voter_id)) {
-      voterMap.get(s.voter_id).lists.push({
-        source_name: s.source_name, source_type: s.source_type,
-        list_name: s.list_name, added_at: s.added_at
+  for (const row of rows) {
+    if (!voterMap.has(row.id)) {
+      voterMap.set(row.id, {
+        id: row.id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        middle_name: row.middle_name,
+        suffix: row.suffix,
+        address: row.address,
+        city: row.city,
+        zip: row.zip,
+        phone: row.phone,
+        party: row.party,
+        precinct: row.precinct,
+        state_file_id: row.state_file_id,
+        vanid: row.vanid,
+        early_voted: row.early_voted,
+        early_voted_date: row.early_voted_date,
+        lists: []
       });
     }
+    voterMap.get(row.id).lists.push({
+      source_name: row.source_name,
+      source_type: row.source_type,
+      list_name: row.list_name,
+      added_at: row.added_at
+    });
   }
 
   const voters = Array.from(voterMap.values());
   attachElectionVotes(voters);
+  const totalAppearances = rows.length;
   const uniqueVoters = voters.length;
   const overlaps = voters.filter(v => v.lists.length > 1).length;
 
-  res.json({ voters, totalUniqueVoters, uniqueVoters, overlaps });
+  res.json({ voters, totalAppearances, uniqueVoters, overlaps });
 });
 
 // Assign a candidate's list to one of their captains
@@ -843,10 +800,8 @@ router.post('/candidates/:id/lists/:listId/assign', requireCandidateAuth, (req, 
     db.prepare('UPDATE admin_lists SET assigned_captain_id = NULL WHERE id = ?').run(req.params.listId);
     return res.json({ success: true });
   }
-  // Verify captain belongs to this candidate (own or shared)
-  const captain = db.prepare(`SELECT c.id, c.name FROM captains c WHERE c.id = ? AND (c.candidate_id = ? OR EXISTS (
-    SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-  ))`).get(captain_id, req.params.id, req.params.id);
+  // Verify captain belongs to this candidate
+  const captain = db.prepare('SELECT id, name FROM captains WHERE id = ? AND candidate_id = ?').get(captain_id, req.params.id);
   if (!captain) return res.status(404).json({ error: 'Captain not found under this candidate.' });
   db.prepare('UPDATE admin_lists SET assigned_captain_id = ? WHERE id = ?').run(captain_id, req.params.listId);
   res.json({ success: true, captain_name: captain.name });
@@ -996,42 +951,36 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   if (!voterIds || !Array.isArray(voterIds) || voterIds.length === 0) {
     return res.status(400).json({ error: 'voterIds array is required.' });
   }
-  const validIds = voterIds.filter(id => Number.isInteger(id) && id > 0);
-  if (validIds.length !== voterIds.length) return res.status(400).json({ error: 'Invalid voter IDs.' });
   if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
   if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
 
-  // Validate the candidate owns the source list (captain_lists -> captains -> owned or shared)
+  // Validate the candidate owns the source list (captain_lists -> captains -> candidate_id)
   const sourceList = db.prepare(`
     SELECT cl.id FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
-      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-    ))
-  `).get(sourceListId, candidateId, candidateId);
+    WHERE cl.id = ? AND c.candidate_id = ?
+  `).get(sourceListId, candidateId);
   if (!sourceList) return res.status(404).json({ error: 'Source list not found or not owned by a captain under this candidate.' });
 
-  // Validate the target list belongs to any captain under this candidate (owned or shared)
+  // Validate the target list belongs to any captain under this candidate
   const targetList = db.prepare(`
     SELECT cl.id FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
-      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-    ))
-  `).get(targetListId, candidateId, candidateId);
+    WHERE cl.id = ? AND c.candidate_id = ?
+  `).get(targetListId, candidateId);
   if (!targetList) return res.status(404).json({ error: 'Target list not found or does not belong to a captain under this candidate.' });
 
   const doTransfer = db.transaction(() => {
     const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
     let transferred = 0;
-    for (const voterId of validIds) {
+    for (const voterId of voterIds) {
       const r = insert.run(targetListId, voterId);
       transferred += r.changes;
     }
 
     if (removeFromSource) {
       const del = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
-      for (const voterId of validIds) {
+      for (const voterId of voterIds) {
         del.run(sourceListId, voterId);
       }
     }

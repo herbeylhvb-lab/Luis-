@@ -315,32 +315,6 @@ async function main() {
     }
   }
 
-  // Recompute VAN-style party scores (D/DD/DDD, R/RR/RRR) from election history
-  console.log('\nComputing party scores...');
-  const partyRows = db.prepare(`
-    SELECT voter_id,
-      SUM(CASE WHEN party_voted IN ('D','DEM','Democrat') THEN 1 ELSE 0 END) as d_count,
-      SUM(CASE WHEN party_voted IN ('R','REP','Republican') THEN 1 ELSE 0 END) as r_count
-    FROM election_votes
-    WHERE party_voted IS NOT NULL AND party_voted != ''
-    GROUP BY voter_id
-  `).all();
-  const updateScore = db.prepare('UPDATE voters SET party_score = ? WHERE id = ?');
-  db.transaction(() => {
-    db.prepare("UPDATE voters SET party_score = '' WHERE party_score != ''").run();
-    for (const r of partyRows) {
-      let score = '';
-      if (r.d_count > 0 && r.d_count >= r.r_count) {
-        score = r.d_count >= 3 ? 'DDD' : r.d_count === 2 ? 'DD' : 'D';
-      } else if (r.r_count > 0 && r.r_count > r.d_count) {
-        score = r.r_count >= 3 ? 'RRR' : r.r_count === 2 ? 'RR' : 'R';
-      }
-      if (r.d_count > 0 && r.r_count > 0 && r.d_count === r.r_count) score = 'SWING';
-      if (score) updateScore.run(score, r.voter_id);
-    }
-  })();
-  console.log('Party scores computed for ' + partyRows.length + ' voters');
-
   console.log('\n=== Import Complete ===');
   console.log(`Total voter rows:    ${rows.length}`);
   console.log(`New voters created:  ${created}`);

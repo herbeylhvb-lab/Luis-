@@ -390,8 +390,6 @@ async function loginCaptain() {
       return;
     }
     captainState.captain = data.captain;
-    if (data.captain.race_type) captainState.race_type = data.captain.race_type;
-    if (data.captain.race_value) captainState.race_value = data.captain.race_value;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = '';
     document.getElementById('captainGreeting').textContent = 'Welcome, ' + data.captain.name;
@@ -422,11 +420,8 @@ async function refreshSidebar() {
   var assignedLists = data.assigned_lists || [];
   captainState.captain.lists = lists;
   captainState.captain.assigned_lists = assignedLists;
-  captainState._cachedSubCaptainLists = subCaptainLists;
   if (data.team_members) captainState.captain.team_members = data.team_members;
   if (data.sub_captains) captainState.captain.sub_captains = data.sub_captains;
-  if (data.race_type) captainState.race_type = data.race_type;
-  if (data.race_value) captainState.race_value = data.race_value;
 
   // Separate my lists vs team-assigned lists
   var myLists = lists.filter(function(l) { return !l.team_member_name; });
@@ -846,18 +841,12 @@ async function selectSubCaptainList(listId, listName, subCaptainId) {
 // Re-run search when a list is selected so Add buttons appear
 function refreshSearchResults() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phoneEl = document.getElementById('capPhoneFilter');
-  var phone = phoneEl ? phoneEl.value.trim() : '';
-  var vanidEl = document.getElementById('capVanidFilter');
-  var vanid = vanidEl ? vanidEl.value.trim() : '';
-  var cityEl = document.getElementById('capCityFilter');
-  var city = cityEl ? cityEl.value : '';
-  var zipEl = document.getElementById('capZipFilter');
-  var zip = zipEl ? zipEl.value.trim() : '';
-  var precinctEl = document.getElementById('capPrecinctFilter');
-  var precinct = precinctEl ? precinctEl.value.trim() : '';
-  var addressEl = document.getElementById('capAddressFilter');
-  var address = addressEl ? addressEl.value.trim() : '';
+  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
+  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
+  var city = (document.getElementById('capCityFilter') || {}).value || '';
+  var zip = (document.getElementById('capZipFilter') || {}).value || '';
+  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
+  var address = (document.getElementById('capAddressFilter') || {}).value || '';
   if (q.length >= 2 || phone || vanid || city || zip || precinct || address) {
     searchVoters();
   }
@@ -878,8 +867,6 @@ function getListApiBase() {
 // Store current list voters for tab filtering and download
 var _currentListVoters = [];
 var _currentListTab = 'all';
-var _currentRaceTab = 'all';
-var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
 
 // Multi-select state
 var _selectedVoterIds = new Set();
@@ -1218,37 +1205,10 @@ function renderListVoters() {
   });
   el.appendChild(tabBar);
 
-  // Race filter bar (if candidate has a race assigned)
-  var rt = captainState.race_type;
-  var rv = captainState.race_value;
-  if (rt && rv) {
-    voters.forEach(function(v) { v._in_race = (v[rt] || '').toString().trim() === rv.toString().trim(); });
-    var inCount = voters.filter(function(v) { return v._in_race; }).length;
-    var outCount = voters.length - inCount;
-    var raceBar = document.createElement('div');
-    raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155';
-    var rlbl = document.createElement('span');
-    rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
-    rlbl.textContent = (_raceTypeLabels[rt] || rt) + ' ' + rv + ':';
-    raceBar.appendChild(rlbl);
-    [['all','All'],['in','In Race (' + inCount + ')'],['out','Not In Race (' + outCount + ')']].forEach(function(o) {
-      var btn = document.createElement('button');
-      var isActive = (_currentRaceTab || 'all') === o[0];
-      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:#818cf8;color:#fff;border-color:#818cf8' : 'background:#1e293b;color:#94a3b8');
-      btn.textContent = o[1];
-      btn.addEventListener('click', function() { _currentRaceTab = o[0]; renderListVoters(); });
-      raceBar.appendChild(btn);
-    });
-    el.appendChild(raceBar);
-  }
-
   // Filter voters by tab
   var filtered = voters;
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
   else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
-  // Apply race filter
-  if (rt && rv && _currentRaceTab === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
-  else if (rt && rv && _currentRaceTab === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
 
   // Prune selection to only include voters in the current filtered set
   filtered.forEach(function(v) { filteredIds.add(v.id); });
@@ -1335,14 +1295,6 @@ function renderListVoters() {
       ageBadge2.textContent = v.age;
       nameRow.appendChild(ageBadge2);
     }
-    if (v.phone && v.phone_type) {
-      var ptC = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
-      var ptS = ptC[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
-      var ptB = document.createElement('span');
-      ptB.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptS.bg+';color:'+ptS.c+';border:1px solid '+ptS.b+';white-space:nowrap';
-      ptB.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
-      nameRow.appendChild(ptB);
-    }
     info.appendChild(nameRow);
     var a = document.createElement('div');
     a.className = 'addr';
@@ -1387,7 +1339,7 @@ function downloadListCsv() {
   if (voters.length === 0) { alert('No voters to download.'); return; }
 
   var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
-  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
+  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
   var csvRows = [headers.join(',')];
   voters.forEach(function(v) {
     var votedStatus = 'Not Voted';
@@ -1406,7 +1358,7 @@ function downloadListCsv() {
       csvEscape(v.zip || ''),
       csvEscape(v.phone || ''),
       csvEscape(v.email || ''),
-      csvEscape(v.party_score || v.party || ''),
+      csvEscape(v.party || ''),
       csvEscape(v.precinct || ''),
       votedStatus,
       csvEscape(v.early_voted_ballot || ''),
@@ -1468,18 +1420,12 @@ function debouncedSearch() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phoneEl = document.getElementById('capPhoneFilter');
-  var phone = phoneEl ? phoneEl.value.trim() : '';
-  var vanidEl = document.getElementById('capVanidFilter');
-  var vanid = vanidEl ? vanidEl.value.trim() : '';
-  var cityEl = document.getElementById('capCityFilter');
-  var city = cityEl ? cityEl.value : '';
-  var zipEl = document.getElementById('capZipFilter');
-  var zip = zipEl ? zipEl.value.trim() : '';
-  var precinctEl = document.getElementById('capPrecinctFilter');
-  var precinct = precinctEl ? precinctEl.value.trim() : '';
-  var addressEl = document.getElementById('capAddressFilter');
-  var address = addressEl ? addressEl.value.trim() : '';
+  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
+  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
+  var city = (document.getElementById('capCityFilter') || {}).value || '';
+  var zip = (document.getElementById('capZipFilter') || {}).value || '';
+  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
+  var address = (document.getElementById('capAddressFilter') || {}).value || '';
   var el = document.getElementById('searchResults');
   var hasFilter = phone || vanid || city || zip || precinct || address;
   if (q.length < 2 && !hasFilter) {
@@ -1504,24 +1450,7 @@ async function searchVoters() {
   if (zip) url += '&zip=' + encodeURIComponent(zip);
   if (precinct) url += '&precinct=' + encodeURIComponent(precinct);
   if (address) url += '&address=' + encodeURIComponent(address);
-  var data;
-  try {
-    data = await api(url);
-  } catch (err) {
-    el.textContent = '';
-    var errDiv = document.createElement('div');
-    errDiv.className = 'empty-state';
-    errDiv.style.color = '#ef4444';
-    var errIcon = document.createElement('div');
-    errIcon.className = 'icon';
-    errIcon.textContent = '\u26A0\uFE0F';
-    errDiv.appendChild(errIcon);
-    var errP = document.createElement('p');
-    errP.textContent = 'Search failed: ' + (err.message || 'Unknown error');
-    errDiv.appendChild(errP);
-    el.appendChild(errDiv);
-    return;
-  }
+  var data = await api(url);
   var voters = data.voters || [];
 
   el.textContent = '';
@@ -1533,8 +1462,7 @@ async function searchVoters() {
     noIcon.textContent = '\uD83D\uDE36';
     noResult.appendChild(noIcon);
     var noP = document.createElement('p');
-    var searchDesc = q ? '"' + q + '"' : 'your filters';
-    noP.textContent = 'No voters found for ' + searchDesc + '.';
+    noP.textContent = 'No voters found for "' + q + '"';
     noResult.appendChild(noP);
     el.appendChild(noResult);
     return;
@@ -1575,14 +1503,6 @@ async function searchVoters() {
       ageBadge.textContent = 'Age ' + v.age;
       nameRow.appendChild(ageBadge);
     }
-    if (v.phone && v.phone_type) {
-      var ptC2 = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
-      var ptS2 = ptC2[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
-      var ptB2 = document.createElement('span');
-      ptB2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptS2.bg+';color:'+ptS2.c+';border:1px solid '+ptS2.b+';white-space:nowrap';
-      ptB2.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
-      nameRow.appendChild(ptB2);
-    }
     nameDiv.appendChild(nameRow);
 
     var addrEl = document.createElement('div');
@@ -1604,13 +1524,11 @@ async function searchVoters() {
     // Meta badges
     var meta = document.createElement('div');
     meta.className = 'voter-meta';
-    if (v.party_score) {
+    if (v.party) {
       var partyBadge = document.createElement('span');
-      var partyColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
-      partyBadge.className = 'badge ' + (partyColors[v.party_score] || 'badge-gray');
-      partyBadge.style.fontWeight = '700';
-      partyBadge.style.letterSpacing = '1px';
-      partyBadge.textContent = v.party_score;
+      var partyColors = { D: 'badge-blue', R: 'badge-red', Democrat: 'badge-blue', Republican: 'badge-red', DEM: 'badge-blue', REP: 'badge-red' };
+      partyBadge.className = 'badge ' + (partyColors[v.party] || 'badge-gray');
+      partyBadge.textContent = v.party;
       meta.appendChild(partyBadge);
     }
     if (v.support_level && v.support_level !== 'unknown') {
@@ -1692,7 +1610,7 @@ async function loadHousehold(voterId, containerEl) {
     var memberNameSpan = document.createElement('span');
     memberNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     var memberText = (h.first_name || '') + ' ' + (h.last_name || '');
-    if (h.party_score) memberText += ' \u2022 ' + h.party_score;
+    if (h.party) memberText += ' \u2022 ' + h.party;
     memberNameSpan.textContent = memberText;
     info.appendChild(memberNameSpan);
     var hhEvBadge = document.createElement('span');
@@ -1759,7 +1677,7 @@ async function showVoterDetail(voter) {
     ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.state ? ', ' + voter.state : '') + (voter.zip ? ' ' + voter.zip : '')],
     ['Phone', voter.phone || 'N/A'],
     ['Email', voter.email || 'N/A'],
-    ['Party ID', voter.party_score || 'No primary history'],
+    ['Party', voter.party || 'N/A'],
     ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
     ['Precinct', voter.precinct || 'N/A'],
     ['Reg #', voter.registration_number || 'N/A'],
@@ -1811,15 +1729,12 @@ async function showVoterDetail(voter) {
     turnoutWrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px';
     voter.election_votes.forEach(function(ev) {
       var tag = document.createElement('span');
-      var isDem = ev.party_voted === 'D' || ev.party_voted === 'DEM' || ev.party_voted === 'Democrat';
-      var isRep = ev.party_voted === 'R' || ev.party_voted === 'REP' || ev.party_voted === 'Republican';
-      var colorStyle = isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444'
-        : isDem ? 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6'
-        : 'background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid #a855f7';
-      tag.style.cssText = 'display:inline-block;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:600;' + colorStyle;
+      var isRep = ev.party_voted === 'R';
+      tag.style.cssText = 'display:inline-block;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:600;' +
+        (isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444' : 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6');
       var label = ev.election_name;
-      if (isRep) label += ' (R)';
-      else if (isDem) label += ' (D)';
+      if (ev.party_voted === 'R') label += ' (R)';
+      else if (ev.party_voted === 'D') label += ' (D)';
       tag.textContent = label;
       turnoutWrap.appendChild(tag);
     });
@@ -1856,7 +1771,7 @@ async function showVoterDetail(voter) {
       info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
       var hhNameSpan = document.createElement('span');
       var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
-      if (h.party_score) nameText += ' \u2022 ' + h.party_score;
+      if (h.party) nameText += ' \u2022 ' + h.party;
       if (h.phone) nameText += ' \u2022 ' + h.phone;
       hhNameSpan.textContent = nameText;
       info.appendChild(hhNameSpan);
@@ -1945,12 +1860,12 @@ function showAddVoterModal(voter) {
   addrEl.style.cssText = 'color:#94a3b8;font-size:13px';
   addrEl.textContent = (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.zip ? ' ' + voter.zip : '');
   voterInfo.appendChild(addrEl);
-  if (voter.party_score) {
+  if (voter.party) {
     var partyEl = document.createElement('span');
-    var pc = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
-    partyEl.className = 'badge ' + (pc[voter.party_score] || 'badge-gray');
-    partyEl.style.cssText = 'margin-top:6px;font-weight:700;letter-spacing:1px';
-    partyEl.textContent = voter.party_score;
+    var pc = { DEM:'badge-blue', REP:'badge-red', D:'badge-blue', R:'badge-red' };
+    partyEl.className = 'badge ' + (pc[voter.party] || 'badge-gray');
+    partyEl.style.marginTop = '6px';
+    partyEl.textContent = voter.party;
     voterInfo.appendChild(partyEl);
   }
   box.appendChild(voterInfo);
@@ -2057,7 +1972,7 @@ async function loadHouseholdForModal(voterId, containerEl) {
     var detailSpan = document.createElement('div');
     detailSpan.style.cssText = 'color:#64748b;font-size:12px';
     var details = [];
-    if (h.party_score) details.push(h.party_score);
+    if (h.party) details.push(h.party);
     if (h.phone) details.push(h.phone);
     detailSpan.textContent = details.join(' \u2022 ');
     info.appendChild(detailSpan);
@@ -2174,12 +2089,11 @@ function showToast(msg, type) {
 
 async function removeVoterFromList(voterId) {
   if (!captainState.selectedListId) return;
-  if (!confirm('Remove this voter from the list?')) return;
-  try {
-    await api(getListApiBase() + '/voters/' + voterId, { method: 'DELETE' });
-    await loadListVoters();
-    refreshSidebar();
-  } catch (e) { alert('Failed to remove voter: ' + (e.message || 'Error')); }
+  await api(getListApiBase() + '/voters/' + voterId, {
+    method: 'DELETE'
+  });
+  await loadListVoters();
+  refreshSidebar();
 }
 
 // ===================== LIST MANAGEMENT =====================
@@ -2591,7 +2505,7 @@ function buildResultsStep(data) {
         info.textContent = c.first_name + ' ' + c.last_name +
           (c.phone ? ' \u2022 ' + c.phone : '') +
           (c.address ? ' \u2022 ' + c.address : '') +
-          (c.party_score ? ' (' + c.party_score + ')' : '');
+          (c.party ? ' (' + c.party + ')' : '');
         label.appendChild(info);
         card.appendChild(label);
       });
@@ -2734,10 +2648,14 @@ async function addTeamMember() {
     body: JSON.stringify({ name: name.trim() })
   });
   if (data.success) {
-    // Refresh captain data to get updated team members (without consuming login rate limit)
-    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
-    if (refreshData.captain) {
-      captainState.captain = refreshData.captain;
+    // Refresh captain data to get updated team members
+    var loginData = await api('/api/captains/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: captainState.captain.code })
+    });
+    if (loginData.captain) {
+      captainState.captain = loginData.captain;
     }
     refreshSidebar();
 
@@ -2992,10 +2910,14 @@ async function removeTeamMember(memberId, name) {
   if (!confirm('Remove ' + name + ' from your team? Their captain code will be deactivated.')) return;
   var data = await api('/api/captains/' + captainState.captain.id + '/team/' + memberId, { method: 'DELETE' });
   if (data.success) {
-    // Refresh captain data (without consuming login rate limit)
-    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
-    if (refreshData.captain) {
-      captainState.captain = refreshData.captain;
+    // Refresh captain data
+    var loginData = await api('/api/captains/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: captainState.captain.code })
+    });
+    if (loginData.captain) {
+      captainState.captain = loginData.captain;
     }
     captainState.expandedTeamMember = null;
     refreshSidebar();

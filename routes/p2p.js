@@ -7,11 +7,6 @@ const { getProvider } = require('../providers');
 
 const sendLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: 'Too many send requests, slow down.' } });
 
-// Track which MMS projects have already been set to live mode (avoids repeated goLive calls)
-const goLiveCache = new Set();
-// Cache MMS media URLs fetched from RumbleUp project details (avoids repeated API calls)
-const mediaUrlCache = new Map();
-
 // ========== HELPERS ==========
 
 function getOnlineVolunteers(sessionId) {
@@ -112,7 +107,7 @@ function assignFreshBatch(sessionId, volunteerId) {
 // ========== SESSIONS ==========
 
 router.post('/p2p/sessions', (req, res) => {
-  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted, precinct_filter, mms_project_id } = req.body;
+  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted, precinct_filter } = req.body;
   if (!name || !message_template) return res.status(400).json({ error: 'Name and message template required.' });
 
   // Gather contact IDs — from list or direct array
@@ -156,8 +151,7 @@ router.post('/p2p/sessions', (req, res) => {
     const findContact = db.prepare('SELECT id FROM contacts WHERE phone = ?');
     const insertContact = db.prepare('INSERT INTO contacts (phone, first_name, last_name, city, email) VALUES (?, ?, ?, ?, ?)');
     for (const v of listVoters) {
-      const normalizedVoterPhone = phoneDigits(v.phone);
-      if (!normalizedVoterPhone || normalizedVoterPhone.length !== 10) continue; // skip invalid phones
+      const normalizedVoterPhone = phoneDigits(v.phone) || v.phone;
       // Skip already-contacted voters
       if (contactedSet && (contactedSet.has(v.voter_id) || contactedSet.has('phone:' + v.phone) || contactedSet.has('phone:' + normalizedVoterPhone))) {
         skippedContacted++;
@@ -190,8 +184,8 @@ router.post('/p2p/sessions', (req, res) => {
   const joinCode = generateJoinCode();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const result = db.prepare('INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, rumbleup_action_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(name, message_template, assignment_mode || 'auto_split', joinCode, expiresAt, 'campaign', mms_project_id || null);
+  const result = db.prepare('INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(name, message_template, assignment_mode || 'auto_split', joinCode, expiresAt, 'campaign');
 
   const sessionId = result.lastInsertRowid;
 
@@ -200,27 +194,6 @@ router.post('/p2p/sessions', (req, res) => {
   addAll(ids);
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('P2P session created: ' + name + ' (' + ids.length + ' contacts)');
-
-  // Background: pre-sync all contacts to the MMS project on RumbleUp so they're ready at send time
-  if (mms_project_id) {
-    const provider = getProvider();
-    if (provider.syncContact) {
-      const syncContacts = db.prepare(`SELECT c.phone, c.first_name, c.last_name, c.city FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.session_id = ?`).all(sessionId);
-      let synced = 0, failed = 0;
-      (async () => {
-        for (const c of syncContacts) {
-          try {
-            await provider.syncContact({ phone: phoneDigits(c.phone), first_name: c.first_name || '', last_name: c.last_name || '', city: c.city || '', action: mms_project_id });
-            synced++;
-          } catch (e) { failed++; }
-          // Small delay to avoid rate limiting
-          if (synced % 10 === 0) await new Promise(r => setTimeout(r, 100));
-        }
-        console.log('[p2p] Pre-synced ' + synced + ' contacts to MMS project ' + mms_project_id + ' (' + failed + ' failed)');
-        db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Pre-synced ' + synced + '/' + syncContacts.length + ' contacts to MMS project ' + mms_project_id);
-      })().catch(e => console.error('[p2p] Bulk sync error:', e.message));
-    }
-  }
 
   res.json({ success: true, id: sessionId, joinCode, contactCount: ids.length, listTotal, skippedNoPhone, skippedContacted });
 });
@@ -402,7 +375,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
   }
 
   // Skip opted-out contacts automatically (TCPA compliance)
-  const optedOutPhones = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => phoneDigits(r.phone)));
+  const optedOutPhones = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
   const pendingAll = db.prepare(`
     SELECT a.id, c.phone FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id
     WHERE a.volunteer_id IN (${volIdPlaceholders}) AND a.status = 'pending' ORDER BY a.id ASC
@@ -464,10 +437,10 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
 
   let resolvedMessage = null;
   if (assignment) {
-    resolvedMessage = personalizeTemplate(session.message_template, assignment, { eventId: session.source_id });
+    resolvedMessage = personalizeTemplate(session.message_template, assignment);
   }
 
-  res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template, sessionType: session.session_type || 'campaign', mediaUrl: session.media_url || null, mmsProjectId: session.rumbleup_action_id || null });
+  res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template, sessionType: session.session_type || 'campaign' });
 });
 
 // ========== MESSAGING ==========
@@ -496,9 +469,8 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'This assignment belongs to another volunteer.' });
   }
 
-  // Atomic check-and-update to prevent double sends
-  const claimed = db.prepare("UPDATE p2p_assignments SET status = 'sending' WHERE id = ? AND status = 'pending'").run(assignmentId);
-  if (!isReply && claimed.changes === 0) {
+  // Idempotency: prevent double-sends of the initial message (but allow replies)
+  if (!isReply && (assignment.status === 'sent' || assignment.status === 'in_conversation' || assignment.status === 'completed')) {
     return res.json({ success: true, skipped: true, reason: 'Message already sent for this assignment.' });
   }
 
@@ -510,83 +482,37 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
   }
 
   try {
-    // Always use the session's rumbleup_action_id so messages come from the correct phone number.
-    // For initial sends this also delivers the MMS image; for replies it just ensures the same number.
-    const session = db.prepare('SELECT rumbleup_action_id, session_type, name, media_url FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
-    const mmsActionId = (session && session.rumbleup_action_id) ? session.rumbleup_action_id : null;
-    let mediaUrl = (session && session.media_url) ? session.media_url : null;
-
-    // If MMS project set but no local media URL, fetch it from RumbleUp project details
-    if (mmsActionId && !mediaUrl) {
-      if (mediaUrlCache.has(mmsActionId)) {
-        mediaUrl = mediaUrlCache.get(mmsActionId);
-      } else if (provider.getProject) {
-        try {
-          const proj = await provider.getProject(mmsActionId);
-          mediaUrl = proj.media || proj.media_url || proj.file || proj.image || null;
-          if (mediaUrl) {
-            mediaUrlCache.set(mmsActionId, mediaUrl);
-            console.log('[p2p-send] Fetched media URL from project', mmsActionId, ':', mediaUrl);
-          } else {
-            console.warn('[p2p-send] Project', mmsActionId, 'has no media. Keys:', Object.keys(proj).join(','));
-            mediaUrlCache.set(mmsActionId, null);
-          }
-        } catch (e) {
-          console.error('[p2p-send] Failed to fetch project details for', mmsActionId, ':', e.message);
-        }
-      }
-    }
-
+    // MMS: If the session has a rumbleup_action_id, send through that MMS project
+    // (image is pre-uploaded on RumbleUp dashboard, not via API)
+    const session = db.prepare('SELECT rumbleup_action_id, session_type, name FROM p2p_sessions WHERE id = ?').get(assignment.session_id);
+    const mmsActionId = (!isReply && session && session.rumbleup_action_id) ? session.rumbleup_action_id : null;
     if (mmsActionId) {
-      console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId, 'media:', mediaUrl ? 'YES' : 'NO');
+      console.log('[p2p-send] Sending MMS via RumbleUp project:', mmsActionId);
     }
 
     // Auto-sync contact to RumbleUp before sending (ensures phone exists in their system)
     // Sync to the MMS project if applicable, otherwise default project
     if (provider.syncContact) {
       try {
-        const syncResult = await provider.syncContact({
+        await provider.syncContact({
           phone: phoneDigits(assignment.phone),
           first_name: assignment.first_name || '',
           last_name: assignment.last_name || '',
           city: assignment.city || '',
           action: mmsActionId || undefined
         });
-        console.log('[p2p-send] Contact synced to project', mmsActionId || 'default', ':', JSON.stringify(syncResult));
       } catch (syncErr) {
-        console.error('[p2p-send] Contact sync FAILED for', phoneDigits(assignment.phone), 'to project', mmsActionId || 'default', ':', syncErr.message);
+        console.warn('[p2p-send] Contact sync failed, proceeding with send:', syncErr.message);
       }
     }
 
-    // If MMS project, ensure it's in live/sending mode (only once per project)
-    if (mmsActionId && provider.goLive) {
-      if (!goLiveCache.has(mmsActionId)) {
-        try {
-          const goLiveResult = await provider.goLive(mmsActionId);
-          console.log('[p2p-send] goLive OK for project', mmsActionId, ':', JSON.stringify(goLiveResult));
-        } catch (e) {
-          console.error('[p2p-send] goLive FAILED for project', mmsActionId, ':', e.message);
-        }
-        goLiveCache.add(mmsActionId);
-      }
-    }
-
-    // Send through the session's project — always use mmsActionId if set so the
-    // correct phone number is used. Pass media URL as 'file' for MMS attachment.
-    const sendOpts = mediaUrl ? { mediaUrl } : {};
+    // Send with MMS fallback — if MMS project fails, retry as plain SMS
     try {
-      await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId, sendOpts);
+      await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
     } catch (sendErr) {
       if (mmsActionId) {
-        console.error('[p2p-send] MMS send FAILED for project ' + mmsActionId + ':', sendErr.message);
-        // Retry without media in case 'file' parameter caused the error
-        console.warn('[p2p-send] Retrying without media attachment');
-        try {
-          await provider.sendMessage(assignment.phone, message, 'sms', mmsActionId);
-        } catch (retryErr) {
-          console.error('[p2p-send] Retry also failed:', retryErr.message);
-          throw retryErr;
-        }
+        console.warn('[p2p-send] MMS send failed, falling back to SMS:', sendErr.message);
+        await provider.sendMessage(assignment.phone, message, 'sms', null);
       } else {
         throw sendErr;
       }
@@ -609,7 +535,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     res.json({ success: true, smsSent: true });
   } catch (err) {
     console.error('P2P send error:', err.message);
-    res.status(500).json({ error: 'Failed to send message.' });
+    res.status(500).json({ error: 'Failed to send: ' + err.message });
   }
 }));
 

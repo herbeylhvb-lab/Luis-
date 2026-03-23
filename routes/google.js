@@ -106,7 +106,7 @@ router.get('/auth/google/callback', asyncHandler(async (req, res) => {
       } else {
         // Brand-new Google user
         const count = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
-        const role = count === 0 ? 'admin' : 'viewer'; // first user is admin, others are viewer by default
+        const role = count === 0 ? 'admin' : 'admin'; // all users admin for now
 
         const result = db.prepare(`INSERT INTO users
           (username, password_hash, display_name, role,

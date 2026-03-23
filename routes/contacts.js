@@ -26,7 +26,7 @@ router.post('/contacts', validate({ phone: rules.required }), (req, res) => {
     res.json({ success: true, id: result.lastInsertRowid });
   } catch (err) {
     console.error('Add contact error:', err.message);
-    res.status(500).json({ error: 'Failed to add contact.' });
+    res.status(500).json({ error: 'Failed to add contact: ' + err.message });
   }
 });
 
@@ -52,7 +52,7 @@ router.post('/contacts/import', validate({ contacts: rules.nonEmptyArray }), (re
     res.json({ success: true, added });
   } catch (err) {
     console.error('Bulk import contacts error:', err.message);
-    res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
+    res.status(500).json({ error: 'Import failed: ' + err.message });
   }
 });
 

@@ -151,12 +151,9 @@ router.post('/surveys/:id/send', (req, res) => {
       WHERE alv.list_id = ? AND v.phone != ''
     `;
     const listParams = [list_id];
-    if (Array.isArray(precinct_filter) && precinct_filter.length > 0) {
-      const sanitized = precinct_filter.filter(p => typeof p === 'string' && p.trim());
-      if (sanitized.length > 0) {
-        listSql += ' AND v.precinct IN (' + sanitized.map(() => '?').join(',') + ')';
-        listParams.push(...sanitized);
-      }
+    if (precinct_filter && precinct_filter.length > 0) {
+      listSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      listParams.push(...precinct_filter);
     }
     contacts = db.prepare(listSql).all(...listParams);
   } else if (contact_ids && contact_ids.length > 0) {

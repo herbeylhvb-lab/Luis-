@@ -8,8 +8,7 @@ const path = require('path');
 
 const filePath = process.argv[2] || path.join(require('os').homedir(), 'Downloads', 'VR-ALL-2.xlsx');
 const baseUrl = process.argv[3] || 'https://villarrealjr.com';
-const token = process.argv[4] || process.env.IMPORT_TOKEN;
-if (!token) { console.error('Error: Import token required. Pass as 3rd argument or set IMPORT_TOKEN env var.'); process.exit(1); }
+const token = process.argv[4] || '3434b7ec328f8b8ca6d6763e4d50d248';
 const BATCH_SIZE = 2000;
 
 // Column map
