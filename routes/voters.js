@@ -1064,6 +1064,14 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
+  const listId = req.query.list_id ? parseInt(req.query.list_id) : null;
+  const voterFilter = listId
+    ? `AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ${listId})`
+    : '';
+  const voterFilterShort = listId
+    ? `AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ${listId})`
+    : '';
+
   // Get all precincts with voter counts and party breakdown
   const precinctRows = db.prepare(`
     SELECT precinct,
@@ -1073,14 +1081,14 @@ router.get('/analytics/precincts', (req, res) => {
       SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other,
       SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
-    FROM voters WHERE precinct != ''
+    FROM voters WHERE precinct != '' ${voterFilterShort}
     GROUP BY precinct ORDER BY precinct
   `).all();
 
   // Compute touchpoints per precinct using JOINs (scalable to 300K+)
   const contactsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vc.id) as c FROM voter_contacts vc
-    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != ''
+    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != '' ${voterFilter}
     GROUP BY v.precinct
   `).all();
   const contactMap = {};
@@ -1088,7 +1096,7 @@ router.get('/analytics/precincts', (req, res) => {
 
   const checkinsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vck.id) as c FROM voter_checkins vck
-    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != ''
+    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != '' ${voterFilter}
     GROUP BY v.precinct
   `).all();
   const checkinMap = {};
@@ -1096,7 +1104,7 @@ router.get('/analytics/precincts', (req, res) => {
 
   const captainByPct = db.prepare(`
     SELECT v.precinct, COUNT(clv.id) as c FROM captain_list_voters clv
-    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != ''
+    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != '' ${voterFilter}
     GROUP BY v.precinct
   `).all();
   const captainMap = {};

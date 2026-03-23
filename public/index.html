@@ -228,6 +228,21 @@ tr:hover td{background:#1e293b80}
       <div class="card" id="precinctAnalyticsCard">
         <h3>Precinct Analytics</h3>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Engagement by precinct — identify where to focus block walking and outreach.</p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+          <div>
+            <label style="font-size:11px;color:#64748b;font-weight:600;display:block;margin-bottom:4px">Race</label>
+            <select id="paRaceSelect" onchange="applyPaRace()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;min-width:220px">
+              <option value="">-- All Precincts --</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#64748b;font-weight:600;display:block;margin-bottom:4px">Universe</label>
+            <select id="paUniverseSelect" onchange="loadPrecinctAnalytics()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;min-width:220px">
+              <option value="">-- All Voters --</option>
+            </select>
+          </div>
+          <span id="paFilterInfo" style="color:#64748b;font-size:12px;align-self:flex-end;padding-bottom:6px"></span>
+        </div>
         <div class="table-wrap"><table><thead><tr><th>Precinct</th><th>Voters</th><th>Dem</th><th>Rep</th><th>Other</th><th>Supporters</th><th>Undecided</th><th>Touchpoints</th><th>Avg Score</th><th>Priority</th></tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="10" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
       </div>
     </div>
@@ -2666,6 +2681,7 @@ async function loadDashboard() {
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
   loadSentimentStats();
+  initPaFilters();
   loadPrecinctAnalytics();
   // Early voting dashboard stat
   try {
@@ -2678,25 +2694,97 @@ async function loadDashboard() {
 
 async function loadPrecinctAnalytics() {
   try {
-    var data = await api('/api/analytics/precincts');
+    var listId = document.getElementById('paUniverseSelect').value;
+    var url = '/api/analytics/precincts' + (listId ? '?list_id=' + listId : '');
+    var data = await api(url);
     var precincts = data.precincts || [];
+
+    // Filter by race-selected precincts if a race is chosen
+    var raceIdx = document.getElementById('paRaceSelect').value;
+    if (raceIdx !== '' && window._racePrecincts) {
+      var race = window._racePrecincts[parseInt(raceIdx)];
+      if (race) {
+        var raceSet = {};
+        race.precincts.forEach(function(p) { raceSet[p] = true; });
+        precincts = precincts.filter(function(p) { return raceSet[p.precinct]; });
+      }
+    }
+
+    // Update info label
+    var info = document.getElementById('paFilterInfo');
+    var parts = [];
+    if (raceIdx !== '' && window._racePrecincts) parts.push(window._racePrecincts[parseInt(raceIdx)].race);
+    var univSel = document.getElementById('paUniverseSelect');
+    if (listId) parts.push(univSel.options[univSel.selectedIndex].text);
+    info.textContent = parts.length ? 'Showing: ' + parts.join(' \u00b7 ') : '';
+
     var tbody = document.getElementById('precinctAnalyticsBody');
     if (precincts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters to see analytics.</td></tr>';
+      tbody.textContent = '';
+      var emptyRow = document.createElement('tr');
+      var emptyCell = document.createElement('td');
+      emptyCell.colSpan = 10;
+      emptyCell.style.cssText = 'color:#64748b;text-align:center';
+      emptyCell.textContent = 'No precinct data for this selection.';
+      emptyRow.appendChild(emptyCell);
+      tbody.appendChild(emptyRow);
       return;
     }
-    tbody.innerHTML = precincts.map(function(p) {
+    tbody.textContent = '';
+    precincts.forEach(function(p) {
       var priority = 'Low';
       var prCls = 'badge-gray';
       if (p.undecided > p.total_voters * 0.3 && p.avg_engagement < 20) { priority = 'High'; prCls = 'badge-red'; }
       else if (p.undecided > p.total_voters * 0.2 || p.avg_engagement < 15) { priority = 'Medium'; prCls = 'badge-yellow'; }
       else if (p.avg_engagement >= 40) { priority = 'Saturated'; prCls = 'badge-green'; }
-      return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total_voters + '</td><td style="color:#60a5fa">' + p.dem + '</td><td style="color:#f87171">' + p.rep + '</td><td>' + p.other + '</td><td style="color:#22c55e">' + p.supporters + '</td><td style="color:#eab308">' + p.undecided + '</td><td>' + p.total_touchpoints + '</td><td>' + scoreBadge(p.avg_engagement) + '</td><td><span class="badge ' + prCls + '">' + priority + '</span></td></tr>';
-    }).join('');
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total_voters + '</td><td style="color:#60a5fa">' + p.dem + '</td><td style="color:#f87171">' + p.rep + '</td><td>' + p.other + '</td><td style="color:#22c55e">' + p.supporters + '</td><td style="color:#eab308">' + p.undecided + '</td><td>' + p.total_touchpoints + '</td><td>' + scoreBadge(p.avg_engagement) + '</td><td><span class="badge ' + prCls + '">' + priority + '</span></td>';
+      tbody.appendChild(tr);
+    });
   } catch (err) {
     console.error('Precinct analytics error:', err);
   }
 }
+
+// Populate race & universe selectors for Precinct Analytics
+async function initPaFilters() {
+  try {
+    var rp = await api('/api/voters/race-precincts');
+    window._racePrecincts = rp.races || [];
+    var raceSel = document.getElementById('paRaceSelect');
+    raceSel.textContent = '';
+    var defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '-- All Precincts --';
+    raceSel.appendChild(defaultOpt);
+    (rp.races || []).forEach(function(r, i) {
+      var opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = r.race + ' (' + r.precincts.length + ' precincts)';
+      raceSel.appendChild(opt);
+    });
+  } catch (e) {}
+  try {
+    var listsData = await api('/api/admin-lists');
+    var universes = (listsData.lists || []).filter(function(l) { return l.list_type === 'universe'; });
+    var univSel = document.getElementById('paUniverseSelect');
+    univSel.textContent = '';
+    var defaultOpt2 = document.createElement('option');
+    defaultOpt2.value = '';
+    defaultOpt2.textContent = '-- All Voters --';
+    univSel.appendChild(defaultOpt2);
+    universes.forEach(function(u) {
+      var opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.name + ' (' + u.voterCount + ' voters)';
+      univSel.appendChild(opt);
+    });
+  } catch (e) {}
+}
+
+window.applyPaRace = function() {
+  loadPrecinctAnalytics();
+};
 
 async function loadPrecinctFilter() {
   try {
