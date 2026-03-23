@@ -107,7 +107,7 @@ function assignFreshBatch(sessionId, volunteerId) {
 // ========== SESSIONS ==========
 
 router.post('/p2p/sessions', (req, res) => {
-  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted, precinct_filter } = req.body;
+  const { name, message_template, assignment_mode, contact_ids, list_id, exclude_contacted, precinct_filter, mms_project_id } = req.body;
   if (!name || !message_template) return res.status(400).json({ error: 'Name and message template required.' });
 
   // Gather contact IDs — from list or direct array
@@ -184,8 +184,8 @@ router.post('/p2p/sessions', (req, res) => {
   const joinCode = generateJoinCode();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const result = db.prepare('INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(name, message_template, assignment_mode || 'auto_split', joinCode, expiresAt, 'campaign');
+  const result = db.prepare('INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, rumbleup_action_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(name, message_template, assignment_mode || 'auto_split', joinCode, expiresAt, 'campaign', mms_project_id || null);
 
   const sessionId = result.lastInsertRowid;
 
@@ -194,6 +194,27 @@ router.post('/p2p/sessions', (req, res) => {
   addAll(ids);
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('P2P session created: ' + name + ' (' + ids.length + ' contacts)');
+
+  // Background: pre-sync all contacts to the MMS project on RumbleUp so they're ready at send time
+  if (mms_project_id) {
+    const provider = getProvider();
+    if (provider.syncContact) {
+      const syncContacts = db.prepare(`SELECT c.phone, c.first_name, c.last_name, c.city FROM p2p_assignments a JOIN contacts c ON a.contact_id = c.id WHERE a.session_id = ?`).all(sessionId);
+      let synced = 0, failed = 0;
+      (async () => {
+        for (const c of syncContacts) {
+          try {
+            await provider.syncContact({ phone: phoneDigits(c.phone), first_name: c.first_name || '', last_name: c.last_name || '', city: c.city || '', action: mms_project_id });
+            synced++;
+          } catch (e) { failed++; }
+          // Small delay to avoid rate limiting
+          if (synced % 10 === 0) await new Promise(r => setTimeout(r, 100));
+        }
+        console.log('[p2p] Pre-synced ' + synced + ' contacts to MMS project ' + mms_project_id + ' (' + failed + ' failed)');
+        db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Pre-synced ' + synced + '/' + syncContacts.length + ' contacts to MMS project ' + mms_project_id);
+      })().catch(e => console.error('[p2p] Bulk sync error:', e.message));
+    }
+  }
 
   res.json({ success: true, id: sessionId, joinCode, contactCount: ids.length, listTotal, skippedNoPhone, skippedContacted });
 });
@@ -440,7 +461,7 @@ router.get('/p2p/volunteers/:id/queue', (req, res) => {
     resolvedMessage = personalizeTemplate(session.message_template, assignment, { eventId: session.source_id });
   }
 
-  res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template, sessionType: session.session_type || 'campaign' });
+  res.json({ assignment, resolvedMessage, activeConversations, stats, messageTemplate: session.message_template, sessionType: session.session_type || 'campaign', mediaUrl: session.media_url || null, mmsProjectId: session.rumbleup_action_id || null });
 });
 
 // ========== MESSAGING ==========
