@@ -1526,7 +1526,7 @@ async function searchVoters() {
     noResult.appendChild(noIcon);
     var noP = document.createElement('p');
     var searchDesc = q ? '"' + q + '"' : 'your filters';
-    noP.textContent = 'No voters found for ' + searchDesc + '. Search is limited to voters on your lists.';
+    noP.textContent = 'No voters found for ' + searchDesc + '.';
     noResult.appendChild(noP);
     el.appendChild(noResult);
     return;

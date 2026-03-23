@@ -542,8 +542,8 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
   const hasFilter = phone || vanid || city || zip || precinct || address;
   if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
-  // By default, restrict search to voters in this captain's lists (and sub-captain lists)
-  const restrictToLists = scope !== 'all'; // only admin override can search all
+  // Captains can search the full voter database to build their lists
+  const restrictToLists = false;
 
   const conditions = [];
   const params = [];
