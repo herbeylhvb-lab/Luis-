@@ -534,8 +534,8 @@ router.delete('/candidates/:id/portal/captains/:captainId', requireCandidateAuth
 
 // Voter search — name-only q, dedicated filters, priority ordering (matches captain search)
 router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
-  const { q, phone, vanid, city, zip, precinct, address } = req.query;
-  const hasFilter = phone || vanid || city || zip || precinct || address;
+  const { q, phone, vanid, city, zip, precinct, address, party, support } = req.query;
+  const hasFilter = phone || vanid || city || zip || precinct || address || party || support;
   if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
   const conditions = [];
@@ -577,6 +577,12 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
   if (address) {
     const addrEsc = address.replace(/[\\%_]/g, '\\$&');
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
+  }
+  if (party) {
+    conditions.push("party_score = ?"); params.push(party);
+  }
+  if (support) {
+    conditions.push("support_level = ?"); params.push(support);
   }
 
   const whereClause = conditions.length > 0 ? conditions.join(' AND ') : '1=1';

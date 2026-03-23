@@ -466,6 +466,7 @@ var captainListVoters = [];
 var selectedVoterIds = new Set();
 var currentRightPanelVoters = []; // voters currently rendered in right panel
 var currentRightPanelListId = null; // the list ID currently shown in right panel
+var _raceFilter = 'all'; // current race filter state
 var draggedVoterIds = []; // IDs being dragged
 
 function updateFloatingBar() {
@@ -1121,7 +1122,7 @@ function renderCaptainCards(captains) {
       if (navigator.share) {
         navigator.share({ title: 'Block Captain Code', text: msg }).catch(function(){});
       } else {
-        window.open('sms:?&body=' + encodeURIComponent(msg), '_blank');
+        window.open('sms:?body=' + encodeURIComponent(msg), '_blank');
       }
     };
     codeWrap.appendChild(shareBtn);
@@ -1505,8 +1506,10 @@ async function searchVoters() {
   var zip = (document.getElementById('candZipFilter') || {}).value || '';
   var precinct = (document.getElementById('candPrecinctFilter') || {}).value || '';
   var address = (document.getElementById('candAddressFilter') || {}).value || '';
+  var party = (document.getElementById('candPartyFilter') || {}).value || '';
+  var support = (document.getElementById('candSupportFilter') || {}).value || '';
   var results = document.getElementById('searchResults');
-  var hasFilter = phone || vanid || city || zip || precinct || address;
+  var hasFilter = phone || vanid || city || zip || precinct || address || party || support;
   if (q.length < 2 && !hasFilter) {
     results.textContent = '';
     var hint = document.createElement('div');
@@ -1525,6 +1528,8 @@ async function searchVoters() {
     if (zip) params.set('zip', zip.trim());
     if (precinct) params.set('precinct', precinct.trim());
     if (address) params.set('address', address.trim());
+    if (party) params.set('party', party);
+    if (support) params.set('support', support);
     var data = await api('/api/candidates/' + candidateId + '/search?' + params.toString());
     var voters = data.voters || [];
 
@@ -1660,7 +1665,7 @@ async function loadListVoters(listId) {
     if (race) tagVotersInRace(allVoters, race);
 
     var _votedStatus = 'all';
-    var _raceFilter = 'all';
+    _raceFilter = 'all';
     function applyListFilters() {
       var filtered = filterVotersByStatus(allVoters, _votedStatus);
       filtered = filterByRace(filtered, _raceFilter);
@@ -1789,7 +1794,7 @@ function renderListVoterRows(voters, content, listId) {
     }
     infoDiv.appendChild(metaDiv);
     row.appendChild(infoDiv);
-    if (v._in_race === false) row.style.opacity = '0.5';
+    if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
     var removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
@@ -1952,7 +1957,7 @@ function renderCaptainVoterRows(voters, container) {
     if (rb2) metaDiv.appendChild(rb2);
     info.appendChild(metaDiv);
     row.appendChild(info);
-    if (v._in_race === false) row.style.opacity = '0.5';
+    if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
     container.appendChild(row);
   });
