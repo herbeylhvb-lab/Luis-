@@ -9374,6 +9374,7 @@ window.previewUniverse = async function() {
         '<div style="color:#94a3b8;font-size:13px">Import the county voter file to unlock voting history filters.</div></div>' +
         '<div class="stats-grid">' +
         '<div class="stat-card"><div class="label">Matching Voters</div><div class="value" style="color:#22c55e">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">All registered voters matching your filters</div></div>' +
+        '<div class="stat-card"><div class="label">Households</div><div class="value" style="color:#f59e0b">' + (data.households || 0).toLocaleString() + '</div><div class="sub">Unique addresses</div></div>' +
         '</div>';
     } else {
       var groupDesc = b.selectedElecNames.length > 0
@@ -9383,6 +9384,7 @@ window.previewUniverse = async function() {
         '<div class="stat-card"><div class="label">' + (b.precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">Total registered</div></div>' +
         '<div class="stat-card"><div class="label">Active Voters</div><div class="value" style="color:#22c55e">' + data.universe.toLocaleString() + '</div><div class="sub">Voted in last ' + b.yearsBack + ' yrs</div></div>' +
         '<div class="stat-card"><div class="label">Targeted</div><div class="value" style="color:#818cf8">' + data.targeted.toLocaleString() + '</div><div class="sub">' + groupDesc + '</div></div>' +
+        '<div class="stat-card"><div class="label">Households</div><div class="value" style="color:#f59e0b">' + (data.households || 0).toLocaleString() + '</div><div class="sub">Unique addresses</div></div>' +
         '</div>';
     }
   } catch (e) {
@@ -9416,11 +9418,13 @@ window.buildUniverse = async function() {
       '<div class="stat-card"><div class="label">Filtered</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">Matching demographics</div></div>' +
       '<div class="stat-card"><div class="label">Active Voters</div><div class="value" style="color:#22c55e">' + data.universe.toLocaleString() + '</div><div class="sub">Voted in last ' + b.yearsBack + ' yrs</div></div>' +
       '<div class="stat-card"><div class="label">Targeted</div><div class="value" style="color:#818cf8">' + data.targeted.toLocaleString() + '</div><div class="sub">' + groupDesc + '</div></div>' +
+      '<div class="stat-card"><div class="label">Households</div><div class="value" style="color:#f59e0b">' + (data.households || 0).toLocaleString() + '</div><div class="sub">Unique addresses</div></div>' +
       '</div>';
     if (data.created && data.created.universe) {
       var listId = data.created.universe.listId;
       var voterCount = (data.created.universe.added || 0).toLocaleString();
-      html += '<div style="margin-top:12px;font-size:13px;color:#94a3b8">List "<strong>' + escHtml(listName) + '</strong>" created with <strong>' + voterCount + ' voters</strong></div>';
+      var householdCount = (data.households || 0).toLocaleString();
+      html += '<div style="margin-top:12px;font-size:13px;color:#94a3b8">List "<strong>' + escHtml(listName) + '</strong>" created with <strong>' + voterCount + ' voters</strong> across <strong>' + householdCount + ' households</strong></div>';
       html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">' +
         '<button class="btn btn-success" onclick="createWalkFromUniverse(' + listId + ', false)">Create Single Walk</button>' +
         '<button class="btn btn-success" style="background:#7c3aed;border-color:#6d28d9" onclick="createWalkFromUniverse(' + listId + ', true)">Create Walk per Precinct</button>' +
