@@ -983,14 +983,14 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   const doTransfer = db.transaction(() => {
     const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
     let transferred = 0;
-    for (const voterId of voterIds) {
+    for (const voterId of validIds) {
       const r = insert.run(targetListId, voterId);
       transferred += r.changes;
     }
 
     if (removeFromSource) {
       const del = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
-      for (const voterId of voterIds) {
+      for (const voterId of validIds) {
         del.run(sourceListId, voterId);
       }
     }
