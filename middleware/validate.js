@@ -23,30 +23,6 @@ const rules = {
     return null;
   },
 
-  /** Value, if present, must look like an email address. */
-  optionalEmail(v) {
-    if (v === undefined || v === null || v === '') return null;
-    if (typeof v !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
-      return 'must be a valid email address';
-    }
-    return null;
-  },
-
-  /** Value, if present, must contain only digits (and optional leading +). */
-  optionalPhone(v) {
-    if (v === undefined || v === null || v === '') return null;
-    if (typeof v !== 'string' || !/^\+?[\d\s()-]{7,20}$/.test(v)) {
-      return 'must be a valid phone number';
-    }
-    return null;
-  },
-
-  /** Value must be a positive integer (or a string that parses to one). */
-  positiveInt(v) {
-    const n = Number(v);
-    if (!Number.isInteger(n) || n <= 0) return 'must be a positive integer';
-    return null;
-  },
 };
 
 /**

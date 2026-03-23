@@ -64,7 +64,20 @@ router.put('/surveys/:id', (req, res) => {
 router.delete('/surveys/:id', (req, res) => {
   const survey = db.prepare('SELECT name FROM surveys WHERE id = ?').get(req.params.id);
   if (!survey) return res.status(404).json({ error: 'Survey not found.' });
-  db.prepare('DELETE FROM surveys WHERE id = ?').run(req.params.id);
+  // Cascade: clean up associated P2P sessions, assignments, sends
+  db.transaction(() => {
+    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE (source_id = ? AND session_type = 'survey') OR name = ?").all(req.params.id, 'Survey: ' + survey.name);
+    for (const s of sessions) {
+      db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+    }
+    db.prepare('DELETE FROM survey_sends WHERE survey_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM survey_responses WHERE survey_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM survey_options WHERE question_id IN (SELECT id FROM survey_questions WHERE survey_id = ?)').run(req.params.id);
+    db.prepare('DELETE FROM survey_questions WHERE survey_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM surveys WHERE id = ?').run(req.params.id);
+  })();
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Survey deleted: ' + survey.name);
   res.json({ success: true });
 });
@@ -138,16 +151,22 @@ router.post('/surveys/:id/send', (req, res) => {
       WHERE alv.list_id = ? AND v.phone != ''
     `;
     const listParams = [list_id];
-    if (precinct_filter && precinct_filter.length > 0) {
-      listSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
-      listParams.push(...precinct_filter);
+    if (Array.isArray(precinct_filter) && precinct_filter.length > 0) {
+      const sanitized = precinct_filter.filter(p => typeof p === 'string' && p.trim());
+      if (sanitized.length > 0) {
+        listSql += ' AND v.precinct IN (' + sanitized.map(() => '?').join(',') + ')';
+        listParams.push(...sanitized);
+      }
     }
     contacts = db.prepare(listSql).all(...listParams);
   } else if (contact_ids && contact_ids.length > 0) {
-    const getContact = db.prepare('SELECT id, phone, first_name, last_name FROM contacts WHERE id = ?');
-    for (const cid of contact_ids) {
-      const c = getContact.get(cid);
-      if (c && c.phone) contacts.push(c);
+    // Batch fetch contacts instead of N+1
+    const batchSize = 900;
+    for (let i = 0; i < contact_ids.length; i += batchSize) {
+      const batch = contact_ids.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '?').join(',');
+      const rows = db.prepare(`SELECT id, phone, first_name, last_name FROM contacts WHERE id IN (${placeholders}) AND phone IS NOT NULL AND phone != ''`).all(...batch);
+      contacts.push(...rows);
     }
   }
 
@@ -160,22 +179,33 @@ router.post('/surveys/:id/send', (req, res) => {
     firstQOptions = db.prepare('SELECT * FROM survey_options WHERE question_id = ? ORDER BY sort_order, id').all(firstQ.id);
   }
 
-  // Create a P2P session for survey delivery
-  const joinCode = generateJoinCode();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Reuse existing active session for this survey, or create one
   const msgTemplate = buildSurveyMessage(survey.name, firstQ, firstQOptions);
-
-  const sessionResult = db.prepare(
-    'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run('Survey: ' + survey.name, msgTemplate, 'auto_split', joinCode, expiresAt, 'survey');
-  const sessionId = sessionResult.lastInsertRowid;
+  let sessionId, joinCode;
+  const existingSession = db.prepare("SELECT id, join_code FROM p2p_sessions WHERE name = ? AND status = 'active' LIMIT 1")
+    .get('Survey: ' + survey.name);
+  if (existingSession) {
+    sessionId = existingSession.id;
+    joinCode = existingSession.join_code;
+  } else {
+    joinCode = generateJoinCode();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const sessionResult = db.prepare(
+      'INSERT INTO p2p_sessions (name, message_template, assignment_mode, join_code, code_expires_at, session_type, source_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run('Survey: ' + survey.name, msgTemplate, 'auto_split', joinCode, expiresAt, 'survey', req.params.id);
+    sessionId = sessionResult.lastInsertRowid;
+  }
 
   // Queue sends and P2P assignments
-  const insertSend = db.prepare('INSERT INTO survey_sends (survey_id, phone, contact_name, current_question_id) VALUES (?, ?, ?, ?)');
-  const insertAssign = db.prepare('INSERT INTO p2p_assignments (session_id, contact_id) VALUES (?, ?)');
+  const insertSend = db.prepare('INSERT OR IGNORE INTO survey_sends (survey_id, phone, contact_name, current_question_id) VALUES (?, ?, ?, ?)');
+  const insertAssign = db.prepare('INSERT INTO p2p_assignments (session_id, contact_id, volunteer_id) VALUES (?, ?, ?)');
   const findContact = db.prepare('SELECT id FROM contacts WHERE phone = ?');
   const insertContact = db.prepare('INSERT INTO contacts (phone, first_name, last_name, city) VALUES (?, ?, ?, ?)');
   const optedOutSet = new Set(db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone));
+
+  // Find online volunteers to auto-assign contacts
+  const onlineVols = db.prepare("SELECT id FROM p2p_volunteers WHERE session_id = ? AND is_online = 1").all(sessionId);
+  let volIndex = 0;
 
   let queued = 0;
   const sendTx = db.transaction(() => {
@@ -186,14 +216,20 @@ router.post('/surveys/:id/send', (req, res) => {
       // Ensure contact exists for P2P assignment
       let contactId = c.id;
       if (list_id) {
-        const existing = findContact.get(c.phone);
+        const existing = findContact.get(normalizedPhone);
         if (existing) { contactId = existing.id; }
         else {
-          const r = insertContact.run(c.phone, c.first_name || '', c.last_name || '', c.city || '');
+          const r = insertContact.run(normalizedPhone, c.first_name || '', c.last_name || '', c.city || '');
           contactId = r.lastInsertRowid;
         }
       }
-      try { insertAssign.run(sessionId, contactId); } catch (e) { if (!e.message.includes('UNIQUE')) throw e; }
+      // Skip if already assigned in this session
+      const alreadyAssigned = db.prepare('SELECT id FROM p2p_assignments WHERE session_id = ? AND contact_id = ?').get(sessionId, contactId);
+      if (alreadyAssigned) continue;
+      // Auto-assign to online volunteers round-robin
+      const volId = onlineVols.length > 0 ? onlineVols[volIndex % onlineVols.length].id : null;
+      if (volId) volIndex++;
+      insertAssign.run(sessionId, contactId, volId);
       queued++;
     }
   });
@@ -203,7 +239,7 @@ router.post('/surveys/:id/send', (req, res) => {
   db.prepare("UPDATE surveys SET status = 'active' WHERE id = ?").run(survey.id);
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Survey "' + survey.name + '" sent to ' + queued + ' contacts');
 
-  res.json({ success: true, queued, joinCode, sessionId });
+  res.json({ success: true, queued, sessionId, volunteersOnline: onlineVols.length });
 });
 
 // Get the P2P session linked to this survey (for showing join code to admin)

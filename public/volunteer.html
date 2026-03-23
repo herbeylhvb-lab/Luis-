@@ -399,18 +399,15 @@
     <div class="join-card">
       <div style="font-size:2.5rem;margin-bottom:0.5rem">&#128241;</div>
       <h2>P2P Volunteer Texting</h2>
-      <p>Enter your name and the session code shared by your campaign manager.</p>
+      <p>Enter your volunteer code to sign in.</p>
       <div class="form-group">
-        <label>Your Name</label>
-        <input type="text" id="volName" placeholder="Maria Garcia" autocomplete="name">
+        <label>Volunteer Code</label>
+        <input type="text" id="volCode" class="code-input" placeholder="ABC123" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-size:20px">
       </div>
-      <div class="form-group">
-        <label>Session Code</label>
-        <input type="text" id="volCode" class="code-input" placeholder="0000" maxlength="4" inputmode="numeric">
-      </div>
-      <button class="btn btn-primary" id="btnJoin" onclick="joinSession()">Join Session</button>
+      <button class="btn btn-primary" id="btnJoin" onclick="joinWithCode()">Sign In</button>
       <div class="error-msg" id="joinError"></div>
       <div class="mode-divider">&mdash;</div>
+      <p style="color:#64748b;font-size:12px;margin-bottom:8px">Don't have a code? Ask your campaign admin.</p>
       <button class="btn btn-secondary btn-sm" onclick="backToRoles()">&#8592; Back to Role Selection</button>
     </div>
   </div>
@@ -478,6 +475,16 @@
         </h3>
         <button class="btn btn-sm btn-success" style="margin-bottom:10px;width:100%" onclick="startReplyPipeline()">&#9654; Start Responding (one by one)</button>
         <div id="convosList"></div>
+      </div>
+
+      <!-- NEEDS RESPONSE (shared inbox) -->
+      <div class="card" id="needsResponseCard" style="border-left:3px solid #f59e0b">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+          <span>Needs Response <span class="badge" id="volPendingCount" style="background:#f59e0b;color:#000;margin-left:6px;font-size:11px">0</span></span>
+          <button class="btn btn-sm btn-secondary" onclick="loadVolPending()">Refresh</button>
+        </h3>
+        <p style="color:#94a3b8;font-size:12px;margin-bottom:10px">Messages from anyone waiting for a reply — help the campaign respond faster.</p>
+        <div id="volPendingList"><div style="color:#64748b;font-size:13px">Loading...</div></div>
       </div>
 
       <!-- CURRENT CONTACT TO TEXT -->
@@ -578,11 +585,10 @@
       survey:   { label: 'Poll',     icon: '\uD83D\uDCCA', badgeClass: 'badge-purple', bannerClass: 'type-survey', bannerText: 'Poll / Survey' }
     };
 
-    // Pre-fill code from URL param (auto-go to P2P if code is provided)
+    // Pre-fill code from URL param but stay on role dashboard (let volunteer choose)
     var urlCode = new URLSearchParams(window.location.search).get('code');
     if (urlCode) {
       document.getElementById('volCode').value = urlCode;
-      selectRole('p2p');
     }
 
     function selectRole(role) {
@@ -611,32 +617,68 @@
 
     async function apiCall(path, opts) {
       var res = await fetch(path, opts);
-      return res.json();
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
+      return data;
     }
 
-    async function joinSession() {
-      var name = document.getElementById('volName').value.trim();
+    async function joinWithCode() {
       var code = document.getElementById('volCode').value.trim();
       var errEl = document.getElementById('joinError');
       errEl.textContent = '';
-      if (!name || !code) { errEl.textContent = 'Please enter your name and the session code.'; return; }
+      if (!code) { errEl.textContent = 'Please enter your volunteer code.'; return; }
 
       document.getElementById('btnJoin').disabled = true;
       try {
-        var data = await apiCall('/api/p2p/join', {
+        // Login with volunteer code (like walker login)
+        var loginData = await apiCall('/api/volunteers/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, code: code })
+          body: JSON.stringify({ code: code })
         });
-        if (data.error) {
-          errEl.textContent = data.error;
+        if (loginData.error) {
+          errEl.textContent = loginData.error;
           document.getElementById('btnJoin').disabled = false;
           return;
         }
-        volState.volunteerId = data.volunteerId;
-        volState.sessionId = data.sessionId;
-        volState.sessionName = data.sessionName;
-        volState.sessionType = data.sessionType || 'campaign';
+
+        volState.volCode = code;
+        volState.volName = loginData.volunteer.name;
+        volState.volPersistentId = loginData.volunteer.id;
+
+        // Check texting permission
+        if (!loginData.volunteer.can_text) {
+          errEl.textContent = 'Your code is for block walking only. Go to /walk to start walking.';
+          document.getElementById('btnJoin').disabled = false;
+          return;
+        }
+
+        // Auto-join ALL active sessions so volunteer sees contacts from all of them
+        var sessions = loginData.sessions || [];
+        if (sessions.length > 0) {
+          var lastVolId = null;
+          for (var si = 0; si < sessions.length; si++) {
+            try {
+              var joinData = await apiCall('/api/p2p/join', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: loginData.volunteer.name, code: sessions[si].join_code, textingVolunteerId: loginData.volunteer.id })
+              });
+              if (joinData.volunteerId) lastVolId = joinData.volunteerId;
+            } catch (e) { /* skip failed joins */ }
+          }
+          // Use the first session as primary display
+          volState.sessionId = sessions[0].session_id;
+          volState.sessionName = sessions.length === 1 ? sessions[0].name : sessions.length + ' active sessions';
+          volState.sessionType = 'campaign';
+          volState.volunteerId = lastVolId || loginData.volunteer.id;
+        } else {
+          // No active sessions — still let them in for Needs Response
+          volState.sessionId = null;
+          volState.sessionName = 'No active session';
+          volState.sessionType = 'campaign';
+          volState.volunteerId = loginData.volunteer.id;
+        }
 
         document.getElementById('joinScreen').style.display = 'none';
         document.getElementById('textingScreen').style.display = 'block';
@@ -653,13 +695,19 @@
         bannerEl.textContent = tc.icon + '  ' + tc.bannerText;
         bannerEl.style.display = '';
 
-        document.getElementById('sessionInfo').textContent = data.sessionName + ' \u2022 ' + name;
+        document.getElementById('sessionInfo').textContent = (volState.sessionName || '') + ' \u2022 ' + loginData.volunteer.name;
 
-        loadQueue();
-        if (volState.pollInterval) clearInterval(volState.pollInterval);
-        volState.pollInterval = setInterval(loadQueue, 5000);  // Poll every 5s for fast reply detection
+        if (volState.sessionId) {
+          loadQueue();
+          if (volState.pollInterval) clearInterval(volState.pollInterval);
+          volState.pollInterval = setInterval(loadQueue, 5000);
+        } else {
+          // No session — hide queue card, show only Needs Response
+          document.getElementById('queueCard').style.display = 'none';
+        }
+        startVolPendingRefresh();
       } catch (e) {
-        errEl.textContent = 'Network error. Please try again.';
+        errEl.textContent = e.message || 'Network error. Please try again.';
         document.getElementById('btnJoin').disabled = false;
       }
     }
@@ -668,8 +716,12 @@
       if (!volState.volunteerId) return;
       // Don't overwrite UI while viewing a conversation
       if (document.getElementById('convoViewCard').style.display !== 'none') return;
-      // Auto-sync inbound messages from RumbleUp on each poll
-      fetch('/api/sync-inbound', { method: 'POST' }).catch(function() {});
+      // Auto-sync inbound messages from RumbleUp (throttled to once per 60s)
+      var now = Date.now();
+      if (!window._lastVolSync || now - window._lastVolSync > 60000) {
+        window._lastVolSync = now;
+        fetch('/api/sync-inbound', { method: 'POST' }).catch(function(err) { console.error('Sync inbound failed:', err); });
+      }
       try {
       var data = await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/queue');
       // Keep session type in sync
@@ -856,8 +908,10 @@
     }
 
     async function skipContact(assignmentId) {
-      await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
-      loadQueue();
+      try {
+        await apiCall('/api/p2p/assignments/' + assignmentId + '/skip', { method: 'PATCH' });
+        loadQueue();
+      } catch (e) { alert('Failed to skip: ' + (e.message || 'Error')); }
     }
 
     var convoMessageCount = 0; // Track message count to detect new messages
@@ -874,6 +928,7 @@
     function advancePipeline() {
       if (pipelineIndex < 0) { closeConvo(); return; }
       pipelineIndex++;
+      convoMessageCount = 0; // Reset so next convo renders fresh
       if (pipelineIndex < replyPipeline.length) {
         openConvo(replyPipeline[pipelineIndex]);
       } else {
@@ -884,12 +939,20 @@
       }
     }
 
+    var _openConvoLoading = false;
     async function openConvo(assignmentId) {
+      if (_openConvoLoading) return; // Prevent concurrent calls
+      _openConvoLoading = true;
+      try {
+      var isFirstOpen = volState.viewingConvoId !== assignmentId;
       volState.viewingConvoId = assignmentId;
       document.getElementById('queueCard').style.display = 'none';
       document.getElementById('convosCard').style.display = 'none';
       document.getElementById('convoViewCard').style.display = '';
-      document.getElementById('aiSuggestion').style.display = 'none';
+      // Only hide AI suggestion on first open, not on auto-refresh
+      if (isFirstOpen) {
+        document.getElementById('aiSuggestion').style.display = 'none';
+      }
 
       var data = await apiCall('/api/p2p/conversations/' + assignmentId);
       document.getElementById('convoViewTitle').textContent = (data.assignment.first_name || '') + ' ' + (data.assignment.last_name || '');
@@ -920,7 +983,7 @@
           var timeEl = document.createElement('div');
           timeEl.style.cssText = 'font-size:10px;color:#64748b;margin-top:4px';
           var ts = m.created_at || m.timestamp;
-          if (ts) { try { timeEl.textContent = new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); } catch(e){} }
+          if (ts) { try { timeEl.textContent = utcToLocal(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); } catch(e){} }
           bubble.appendChild(timeEl);
           msgEl.appendChild(bubble);
         });
@@ -934,9 +997,11 @@
         titleEl.textContent += ' (prefers WhatsApp)';
       }
 
-      // Get AI suggestion for the last inbound message (only on first open, not refresh)
+      // Get AI suggestion only when first opening a conversation (not on auto-refresh)
+      // Pass full conversation history so AI can address ALL unanswered messages
       var lastInbound = (data.messages || []).filter(function(m) { return m.direction === 'inbound'; }).pop();
-      if (lastInbound && isRefresh && document.getElementById('aiSuggestion').style.display === 'none') {
+      if (lastInbound && isFirstOpen) {
+        volState._currentConvoHistory = data.messages || [];
         fetchAiSuggestion(lastInbound.body, data.assignment.first_name, lastInbound.sentiment, assignmentId);
       }
 
@@ -947,37 +1012,51 @@
           openConvo(assignmentId);
         }
       }, 5000);
+      } finally { _openConvoLoading = false; }
     }
 
     var currentAiSuggestion = '';
 
     async function fetchAiSuggestion(voterMessage, voterName, sentiment, assignmentId) {
       var el = document.getElementById('aiSuggestion');
+      if (!el) return;
       el.style.display = '';
-      document.getElementById('aiLoading').style.display = '';
-      document.getElementById('aiSuggestionText').textContent = '';
+      var loadingEl = document.getElementById('aiLoading');
+      var textEl = document.getElementById('aiSuggestionText');
+      var sourceEl = document.getElementById('aiSource');
+      if (loadingEl) loadingEl.style.display = '';
+      if (textEl) { textEl.textContent = ''; textEl.style.color = '#e2e8f0'; }
       currentAiSuggestion = '';
+      if (!voterMessage || !voterMessage.trim()) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (textEl) { textEl.textContent = 'No message to analyze.'; textEl.style.color = '#94a3b8'; }
+        return;
+      }
       try {
-        var data = await apiCall('/api/p2p/suggest-reply', {
+        var res = await fetch('/api/p2p/suggest-reply', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             voterMessage: voterMessage,
             voterName: voterName || 'Voter',
             sentiment: sentiment || 'neutral',
-            sessionName: volState.sessionName
+            sessionName: volState.sessionName || '',
+            conversationHistory: (volState._currentConvoHistory || []).map(function(m) { return { body: m.body, direction: m.direction }; })
           })
         });
-        document.getElementById('aiLoading').style.display = 'none';
+        var data = {};
+        try { data = await res.json(); } catch (jsonErr) { data = {}; }
+        if (loadingEl) loadingEl.style.display = 'none';
         if (data.suggestion) {
           currentAiSuggestion = data.suggestion;
-          document.getElementById('aiSuggestionText').textContent = data.suggestion;
-          document.getElementById('aiSource').textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
+          if (textEl) textEl.textContent = data.suggestion;
+          if (sourceEl) sourceEl.textContent = data.source === 'ai' ? 'AI' : data.source === 'script' ? 'Script' : '';
         } else {
-          el.style.display = 'none';
+          if (textEl) { textEl.textContent = 'No AI suggestion for this message.'; textEl.style.color = '#94a3b8'; }
         }
       } catch (e) {
-        el.style.display = 'none';
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (textEl) { textEl.textContent = 'Could not reach AI: ' + (e.message || 'network error'); textEl.style.color = '#ef4444'; }
       }
     }
 
@@ -1111,7 +1190,10 @@
       if (!volState.volunteerId) return;
       if (volState.pollInterval) { clearInterval(volState.pollInterval); volState.pollInterval = null; }
       if (volState.convoRefreshInterval) { clearInterval(volState.convoRefreshInterval); volState.convoRefreshInterval = null; }
+      stopVolPendingRefresh();
       volState.lastConvoIds = [];
+      convoMessageCount = 0;
+      volState.viewingConvoId = null;
       await apiCall('/api/p2p/volunteers/' + volState.volunteerId + '/status', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1135,6 +1217,7 @@
       processing: false
     };
 
+    function utcToLocal(ts) { if (!ts) return new Date(); var s = String(ts).trim(); if (!/[Z+\-]/.test(s.slice(-6))) s += 'Z'; return new Date(s); }
     function escHtml(t) {
       var d = document.createElement('div');
       d.textContent = t;
@@ -1386,6 +1469,207 @@
       document.getElementById('scannerCameraCard').style.display = 'none';
       document.getElementById('scanResultCard').style.display = 'none';
       document.getElementById('roleScreen').style.display = 'flex';
+    }
+    // ===================== NEEDS RESPONSE (shared inbox) =====================
+    var volPendingTimer = null;
+    var aiSuggestionCache = {}; // Cache AI suggestions by message ID to avoid re-fetching
+
+    var volPendingPhones = {}; // Track which phones have cards already
+    async function loadVolPending() {
+      // Skip refresh if user is typing in any reply input
+      var activeInput = document.querySelector('#volPendingList input:focus');
+      if (activeInput && activeInput.value.trim()) return;
+      // Skip refresh if AI suggestion is still loading
+      var aiLoading = document.querySelector('#volPendingList .ai-loading-indicator');
+      if (aiLoading) return;
+      try {
+        var data = await apiCall('/api/messages/pending', { headers: { 'X-Volunteer-Id': String(volState.volunteerId || ''), 'X-Volunteer-Code': String(volState.volCode || '') } });
+        var msgs = data.messages || [];
+        document.getElementById('volPendingCount').textContent = msgs.length;
+        var el = document.getElementById('volPendingList');
+        // Smart diff: only add new cards, remove resolved ones
+        var newPhones = {};
+        msgs.forEach(function(m) { newPhones[m.phone] = m; });
+        // Remove cards for phones no longer pending
+        var existingCards = el.querySelectorAll('[data-pending-phone]');
+        existingCards.forEach(function(card) {
+          var ph = card.getAttribute('data-pending-phone');
+          if (!newPhones[ph]) card.remove();
+        });
+        // Add cards for new phones only
+        msgs.forEach(function(m) {
+          if (!el.querySelector('[data-pending-phone="' + m.phone + '"]')) {
+            el.appendChild(buildVolPendingCard(m));
+          }
+        });
+        // Show empty state
+        if (msgs.length === 0 && !el.querySelector('.vol-empty-msg')) {
+          el.textContent = '';
+          var empty = document.createElement('div');
+          empty.className = 'vol-empty-msg';
+          empty.style.cssText = 'color:#22c55e;font-size:13px;padding:6px 0';
+          empty.textContent = 'All caught up!';
+          el.appendChild(empty);
+        } else if (msgs.length > 0) {
+          var emptyMsg = el.querySelector('.vol-empty-msg');
+          if (emptyMsg) emptyMsg.remove();
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    function buildVolPendingCard(m) {
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:10px';
+      card.setAttribute('data-pending-phone', m.phone);
+      // Name + phone
+      var header = document.createElement('div');
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
+      var nameEl = document.createElement('strong');
+      nameEl.style.cssText = 'color:#e2e8f0;font-size:14px';
+      nameEl.textContent = (m.contact_name && m.contact_name.trim()) ? m.contact_name.trim() : (m.phone || 'Unknown');
+      header.appendChild(nameEl);
+      var badge = document.createElement('span');
+      if (m.sentiment === 'positive') { badge.className = 'badge badge-green'; badge.textContent = 'Positive'; }
+      else if (m.sentiment === 'negative') { badge.className = 'badge badge-red'; badge.textContent = 'Negative'; }
+      else { badge.className = 'badge badge-gray'; badge.textContent = 'Neutral'; }
+      header.appendChild(badge);
+      card.appendChild(header);
+      // Conversation preview
+      var convo = m.conversation || [];
+      if (convo.length > 0) {
+        var convoDiv = document.createElement('div');
+        convoDiv.style.cssText = 'background:#1e293b;border-radius:6px;padding:8px;margin-bottom:8px;max-height:120px;overflow-y:auto';
+        convo.forEach(function(c) {
+          var row = document.createElement('div');
+          row.style.cssText = 'margin-bottom:4px;' + (c.direction === 'outbound' ? 'text-align:right' : '');
+          var bubble = document.createElement('span');
+          bubble.style.cssText = 'display:inline-block;max-width:85%;padding:4px 8px;border-radius:6px;font-size:12px;line-height:1.3;' +
+            (c.direction === 'outbound' ? 'background:#818cf8;color:#fff' : 'background:#334155;color:#e2e8f0');
+          bubble.textContent = c.body || '';
+          row.appendChild(bubble);
+          convoDiv.appendChild(row);
+        });
+        convoDiv.scrollTop = convoDiv.scrollHeight;
+        card.appendChild(convoDiv);
+      }
+      // AI suggestion (loads async)
+      var aiBox = document.createElement('div');
+      aiBox.style.cssText = 'background:#1a1a3e;border:1px solid #818cf8;border-radius:6px;padding:8px;margin-bottom:8px;display:none';
+      var aiLabel = document.createElement('div');
+      aiLabel.style.cssText = 'font-size:11px;font-weight:600;color:#818cf8;margin-bottom:4px';
+      aiLabel.textContent = 'AI Suggested Reply';
+      aiBox.appendChild(aiLabel);
+      var aiText = document.createElement('div');
+      aiText.style.cssText = 'color:#e2e8f0;font-size:12px;line-height:1.4;margin-bottom:6px';
+      aiBox.appendChild(aiText);
+      var aiBtns = document.createElement('div');
+      aiBtns.style.cssText = 'display:none;gap:4px';
+      aiBox.appendChild(aiBtns);
+      card.appendChild(aiBox);
+      // Reply input
+      var replyRow = document.createElement('div');
+      replyRow.style.cssText = 'display:flex;gap:6px';
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Type reply...';
+      input.style.cssText = 'flex:1;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px;outline:none';
+      replyRow.appendChild(input);
+      var sendBtn = document.createElement('button');
+      sendBtn.className = 'btn btn-sm btn-success';
+      sendBtn.textContent = 'Send';
+      replyRow.appendChild(sendBtn);
+      card.appendChild(replyRow);
+      var replyPhone = (m.phone || '').replace(/'/g, '');
+      function doSend(text) {
+        if (!text || !text.trim()) return;
+        sendBtn.disabled = true;
+        sendBtn.textContent = '...';
+        apiCall('/reply', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ to: replyPhone, body: text.trim(), volunteerId: volState.volunteerId, volunteerCode: volState.volCode }) })
+          .then(function(d) { if (d.error) throw new Error(d.error); card.style.opacity = '0.4'; loadVolPending(); })
+          .catch(function(e) { alert('Failed: ' + (e.message||'Error')); sendBtn.disabled = false; sendBtn.textContent = 'Send'; });
+      }
+      sendBtn.addEventListener('click', function() { doSend(input.value); });
+      input.addEventListener('keydown', function(e) { if (e.key === 'Enter') doSend(input.value); });
+      // Fetch AI suggestion
+      var msgCacheKey = 'msg_' + (m.id || m.phone);
+      if (m.body) {
+        // Check cache first — don't re-fetch AI on every refresh
+        if (aiSuggestionCache[msgCacheKey]) {
+          var cached = aiSuggestionCache[msgCacheKey];
+          aiBox.style.display = '';
+          aiText.textContent = cached.suggestion;
+          aiBtns.style.cssText = 'display:flex;gap:4px';
+          var cBtnUse = document.createElement('button'); cBtnUse.className = 'btn btn-sm btn-success'; cBtnUse.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnUse.textContent = 'Send';
+          cBtnUse.addEventListener('click', function() { doSend(cached.suggestion); }); aiBtns.appendChild(cBtnUse);
+          var cBtnEdit = document.createElement('button'); cBtnEdit.className = 'btn btn-sm btn-secondary'; cBtnEdit.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnEdit.textContent = 'Edit';
+          cBtnEdit.addEventListener('click', function() { input.value = cached.suggestion; aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnEdit);
+          var cBtnOwn = document.createElement('button'); cBtnOwn.className = 'btn btn-sm btn-secondary'; cBtnOwn.style.cssText = 'padding:3px 8px;font-size:11px'; cBtnOwn.textContent = 'Own';
+          cBtnOwn.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); }); aiBtns.appendChild(cBtnOwn);
+        } else {
+        aiBox.style.display = '';
+        var loading = document.createElement('span');
+        loading.style.cssText = 'font-size:11px;color:#64748b';
+        loading.textContent = 'AI thinking...';
+        loading.className = 'ai-loading-indicator';
+        aiBox.insertBefore(loading, aiText);
+        fetch('/api/p2p/suggest-reply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ voterMessage: m.body, voterName: (m.contact_name||'').trim()||'Voter', sentiment: m.sentiment||'neutral', conversationHistory: (m.conversation || []).map(function(c) { return { body: c.body, direction: c.direction }; }) })
+        }).then(function(res) { return res.json(); })
+          .then(function(data) {
+            loading.remove();
+            if (data && data.suggestion) {
+              aiSuggestionCache[msgCacheKey] = data;
+              aiText.textContent = data.suggestion;
+              aiBtns.style.cssText = 'display:flex;gap:4px';
+              var srcBadge = document.createElement('span');
+              srcBadge.className = 'badge badge-blue';
+              srcBadge.style.cssText = 'font-size:9px;margin-left:4px';
+              srcBadge.textContent = data.source === 'ai' ? 'AI' : 'Script';
+              aiLabel.appendChild(srcBadge);
+              var btnUse = document.createElement('button');
+              btnUse.className = 'btn btn-sm btn-success';
+              btnUse.style.cssText = 'padding:3px 8px;font-size:11px';
+              btnUse.textContent = 'Send';
+              btnUse.addEventListener('click', function() { doSend(data.suggestion); });
+              aiBtns.appendChild(btnUse);
+              var btnEdit = document.createElement('button');
+              btnEdit.className = 'btn btn-sm btn-secondary';
+              btnEdit.style.cssText = 'padding:3px 8px;font-size:11px';
+              btnEdit.textContent = 'Edit';
+              btnEdit.addEventListener('click', function() { input.value = data.suggestion; aiBox.style.display = 'none'; input.focus(); });
+              aiBtns.appendChild(btnEdit);
+              var btnDismiss = document.createElement('button');
+              btnDismiss.className = 'btn btn-sm btn-secondary';
+              btnDismiss.style.cssText = 'padding:3px 8px;font-size:11px';
+              btnDismiss.textContent = 'Own';
+              btnDismiss.addEventListener('click', function() { aiBox.style.display = 'none'; input.focus(); });
+              aiBtns.appendChild(btnDismiss);
+            } else {
+              aiText.textContent = (data && data.error) ? ('AI error: ' + data.error) : 'No AI suggestion for this message.';
+              aiText.style.color = '#94a3b8';
+              aiText.style.fontSize = '12px';
+            }
+          }).catch(function(err) {
+            loading.remove();
+            aiText.textContent = 'AI network error: ' + (err.message || 'check connection');
+            aiText.style.color = '#ef4444';
+            aiText.style.fontSize = '12px';
+          });
+        } // end else (no cache)
+      }
+      return card;
+    }
+
+    // Auto-refresh pending every 10s when on texting screen
+    function startVolPendingRefresh() {
+      if (volPendingTimer) clearInterval(volPendingTimer);
+      loadVolPending();
+      volPendingTimer = setInterval(loadVolPending, 25000);
+    }
+    function stopVolPendingRefresh() {
+      if (volPendingTimer) { clearInterval(volPendingTimer); volPendingTimer = null; }
     }
   </script>
 </body>

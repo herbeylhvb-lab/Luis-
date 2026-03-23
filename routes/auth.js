@@ -1,8 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { asyncHandler } = require('../utils');
+
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
 
 // Check if any users exist (for first-time setup)
 router.get('/auth/status', (req, res) => {
@@ -59,7 +62,7 @@ router.post('/auth/setup', asyncHandler(async (req, res) => {
 }));
 
 // Login
-router.post('/auth/login', asyncHandler(async (req, res) => {
+router.post('/auth/login', loginLimiter, asyncHandler(async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
 
@@ -117,21 +120,21 @@ function requireAdmin(req, res, next) {
 
 // List all users
 router.get('/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, username, display_name, role, created_at, last_login FROM users ORDER BY id').all();
+  const users = db.prepare('SELECT id, username, display_name, role, phone, created_at, last_login FROM users ORDER BY id').all();
   res.json({ users });
 });
 
 // Create user
 router.post('/users', requireAdmin, asyncHandler(async (req, res) => {
-  const { username, password, displayName, role } = req.body;
+  const { username, password, displayName, role, phone } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required.' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   const validRoles = ['admin', 'captain', 'blockwalker', 'volunteer'];
   const userRole = validRoles.includes(role) ? role : 'volunteer';
   try {
     const hash = await bcrypt.hash(password, 10);
-    db.prepare('INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)').run(
-      username.toLowerCase().trim(), hash, displayName || username, userRole
+    db.prepare('INSERT INTO users (username, password_hash, display_name, role, phone) VALUES (?, ?, ?, ?, ?)').run(
+      username.toLowerCase().trim(), hash, displayName || username, userRole, phone || null
     );
     res.json({ success: true });
   } catch (e) {

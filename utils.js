@@ -7,7 +7,8 @@ const { randomBytes } = require('crypto');
 function phoneDigits(raw) {
   const digits = (raw || '').replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
-  return digits;
+  if (digits.length === 10) return digits;
+  return '';
 }
 
 /**
@@ -66,11 +67,13 @@ function asyncHandler(fn) {
  * Replace merge tags ({firstName}, {lastName}, {city}) in a message template.
  * Used by WhatsApp send, P2P queue, and email send.
  */
-function personalizeTemplate(template, contact) {
+function personalizeTemplate(template, contact, options) {
   const c = contact || {};
+  const opts = options || {};
   const baseUrl = process.env.BASE_URL || 'https://villarrealjr.com';
+  const eventParam = opts.eventId ? '?e=' + opts.eventId : '';
   const checkinLink = c.qr_token
-    ? '\nCheck in here: ' + baseUrl + '/v/' + c.qr_token
+    ? '\nCheck in here: ' + baseUrl + '/v/' + c.qr_token + eventParam
     : '';
   const map = {
     '{firstName}': c.firstName || c.first_name || '',

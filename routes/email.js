@@ -112,7 +112,7 @@ router.post('/email/send', emailSendLimiter, asyncHandler(async (req, res) => {
     ).run(subject, bodyHtml, results.sent, results.failed);
 
     db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
-      'Email campaign "' + subject + '": ' + results.sent + '/' + recipients.length + ' delivered.'
+      'Email campaign "' + subject + '": ' + results.sent + '/' + filteredRecipients.length + ' delivered.'
     );
 
     res.json({ success: true, sent: results.sent, failed: results.failed, errors: results.errors.slice(0, 20) });

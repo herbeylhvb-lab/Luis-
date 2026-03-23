@@ -156,6 +156,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 
+/* Multi-select & Transfer */
+.right-voter-checkbox{width:18px;height:18px;accent-color:#f59e0b;cursor:pointer;flex-shrink:0;margin-right:8px}
+.right-voter.selected{background:#1a2536;border-left:3px solid #f59e0b}
+.right-voter.dragging{opacity:0.5;background:#334155}
+.select-all-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
+.select-all-bar label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.select-all-bar .sel-count{color:#f59e0b;font-weight:600;font-size:12px}
+.floating-action-bar{position:sticky;bottom:0;left:0;right:0;background:#1e293b;border-top:2px solid #f59e0b;padding:12px 16px;display:none;align-items:center;gap:10px;flex-wrap:wrap;z-index:40;animation:fadeIn 0.2s ease}
+.floating-action-bar.visible{display:flex}
+.floating-action-bar .fab-count{font-size:14px;font-weight:700;color:#f59e0b;white-space:nowrap}
+.floating-action-bar select{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:120px;max-width:200px}
+.drop-highlight{outline:2px dashed #f59e0b!important;outline-offset:-2px;background:rgba(245,158,11,0.08)!important}
+
+@media(max-width:900px){
+  .floating-action-bar{position:fixed;bottom:62px;left:0;right:0;flex-wrap:wrap;padding:10px 12px}
+  .floating-action-bar select{min-width:100px}
+}
+
 /* CSV Import Modal */
 .csv-modal-box{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;box-sizing:border-box}
 @media(max-width:600px){.csv-modal-box{padding:16px;max-width:100%;width:100%;border-radius:10px}}
@@ -274,6 +292,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="right-list" id="rightListContent">
         <div class="right-empty">Select a list from the sidebar</div>
       </div>
+      <div class="floating-action-bar" id="floatingActionBar">
+        <span class="fab-count" id="fabCount">0 voters selected</span>
+        <span style="color:#64748b;font-size:13px">Send to &rarr;</span>
+        <select id="fabTargetList"></select>
+        <button class="btn btn-xs btn-captain" onclick="transferVoters(false)">Copy</button>
+        <button class="btn btn-xs btn-primary" onclick="transferVoters(true)">Move</button>
+        <button class="btn btn-xs btn-secondary" onclick="clearVoterSelection()">Cancel</button>
+      </div>
     </div>
   </div>
 </div>
@@ -364,6 +390,8 @@ async function loginCaptain() {
       return;
     }
     captainState.captain = data.captain;
+    if (data.captain.race_type) captainState.race_type = data.captain.race_type;
+    if (data.captain.race_value) captainState.race_value = data.captain.race_value;
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = '';
     document.getElementById('captainGreeting').textContent = 'Welcome, ' + data.captain.name;
@@ -394,8 +422,11 @@ async function refreshSidebar() {
   var assignedLists = data.assigned_lists || [];
   captainState.captain.lists = lists;
   captainState.captain.assigned_lists = assignedLists;
+  captainState._cachedSubCaptainLists = subCaptainLists;
   if (data.team_members) captainState.captain.team_members = data.team_members;
   if (data.sub_captains) captainState.captain.sub_captains = data.sub_captains;
+  if (data.race_type) captainState.race_type = data.race_type;
+  if (data.race_value) captainState.race_value = data.race_value;
 
   // Separate my lists vs team-assigned lists
   var myLists = lists.filter(function(l) { return !l.team_member_name; });
@@ -544,6 +575,11 @@ async function refreshSidebar() {
           refreshSidebar();
         };
       })(sc));
+      // Make the captain row itself a drop target (uses their first list, or shows message)
+      var firstListForDrop = (memberLists.length > 0) ? memberLists[0] : (legacyLists.length > 0 ? legacyLists[0] : null);
+      if (firstListForDrop) {
+        setupDropTarget(row, firstListForDrop.id, sc.name + ' → ' + firstListForDrop.name);
+      }
       teamContainer.appendChild(row);
 
       // Expandable lists container
@@ -594,6 +630,8 @@ async function refreshSidebar() {
             return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
           })(ml));
         }
+        // Drop target for drag-and-drop voter transfer
+        setupDropTarget(item, ml.id, ml.name);
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -624,12 +662,21 @@ async function refreshSidebar() {
       nameSpan.textContent = tm.name;
       leftDiv.appendChild(nameSpan);
       row.appendChild(leftDiv);
-      row.addEventListener('click', (function(person) {
-        return function() {
-          captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
-          refreshSidebar();
-        };
-      })(tm));
+      // Click legacy team member → directly open their first list (or expand if multiple)
+      (function(person, pLists) {
+        row.addEventListener('click', function() {
+          if (pLists.length === 1) {
+            selectList(pLists[0].id, pLists[0].name);
+          } else {
+            captainState.expandedTeamMember = captainState.expandedTeamMember === person.name ? null : person.name;
+            refreshSidebar();
+          }
+        });
+        // Drop target for drag-and-drop
+        if (pLists.length > 0) {
+          setupListDropTarget(row, { id: pLists[0].id, name: pLists[0].name, type: 'captain', sub_captain_id: null });
+        }
+      })(tm, legacyLists);
       teamContainer.appendChild(row);
 
       var listsDiv = document.createElement('div');
@@ -661,6 +708,8 @@ async function refreshSidebar() {
         item.addEventListener('click', (function(listItem) {
           return function(e) { e.stopPropagation(); selectList(listItem.id, listItem.name); };
         })(l));
+        // Drop target: drag voters into legacy list
+        setupListDropTarget(item, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
         listsDiv.appendChild(item);
       });
       teamContainer.appendChild(listsDiv);
@@ -698,6 +747,8 @@ function makeAssignedListItem(l) {
   count.textContent = l.voter_count || 0;
   item.appendChild(count);
   item.addEventListener('click', function() { selectAssignedList(l.id, l.name); });
+  // Drop target for drag-and-drop voter transfer
+  setupDropTarget(item, l.id, l.name);
   return item;
 }
 
@@ -718,6 +769,8 @@ function makeListItem(l) {
   count.textContent = l.voter_count || 0;
   item.appendChild(count);
   item.addEventListener('click', function() { selectList(l.id, l.name); });
+  // Drop target for drag-and-drop voter transfer
+  setupDropTarget(item, l.id, l.name);
   return item;
 }
 
@@ -751,6 +804,7 @@ async function selectAllTeamVoters() {
 }
 
 async function loadAllTeamVoters() {
+  _selectedVoterIds.clear();
   var data = await api('/api/captains/' + captainState.captain.id + '/team-voters');
   var voters = data.voters || [];
   _currentListVoters = voters;
@@ -792,12 +846,18 @@ async function selectSubCaptainList(listId, listName, subCaptainId) {
 // Re-run search when a list is selected so Add buttons appear
 function refreshSearchResults() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
-  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
-  var city = (document.getElementById('capCityFilter') || {}).value || '';
-  var zip = (document.getElementById('capZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('capAddressFilter') || {}).value || '';
+  var phoneEl = document.getElementById('capPhoneFilter');
+  var phone = phoneEl ? phoneEl.value.trim() : '';
+  var vanidEl = document.getElementById('capVanidFilter');
+  var vanid = vanidEl ? vanidEl.value.trim() : '';
+  var cityEl = document.getElementById('capCityFilter');
+  var city = cityEl ? cityEl.value : '';
+  var zipEl = document.getElementById('capZipFilter');
+  var zip = zipEl ? zipEl.value.trim() : '';
+  var precinctEl = document.getElementById('capPrecinctFilter');
+  var precinct = precinctEl ? precinctEl.value.trim() : '';
+  var addressEl = document.getElementById('capAddressFilter');
+  var address = addressEl ? addressEl.value.trim() : '';
   if (q.length >= 2 || phone || vanid || city || zip || precinct || address) {
     searchVoters();
   }
@@ -818,9 +878,263 @@ function getListApiBase() {
 // Store current list voters for tab filtering and download
 var _currentListVoters = [];
 var _currentListTab = 'all';
+var _currentRaceTab = 'all';
+var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
+
+// Multi-select state
+var _selectedVoterIds = new Set();
+
+function clearVoterSelection() {
+  _selectedVoterIds.clear();
+  updateSelectionUI();
+}
+
+function toggleVoterSelection(voterId) {
+  if (_selectedVoterIds.has(voterId)) _selectedVoterIds.delete(voterId);
+  else _selectedVoterIds.add(voterId);
+  updateSelectionUI();
+}
+
+function toggleSelectAll() {
+  var filtered = getFilteredVoters();
+  if (_selectedVoterIds.size === filtered.length && filtered.length > 0) {
+    _selectedVoterIds.clear();
+  } else {
+    filtered.forEach(function(v) { _selectedVoterIds.add(v.id); });
+  }
+  updateSelectionUI();
+}
+
+function getFilteredVoters() {
+  var voters = _currentListVoters;
+  var tab = _currentListTab;
+  if (tab === 'voted') return voters.filter(function(v) { return v.early_voted; });
+  if (tab === 'not_voted') return voters.filter(function(v) { return !v.early_voted; });
+  return voters;
+}
+
+function updateSelectionUI() {
+  var filtered = getFilteredVoters();
+  // Update checkboxes
+  filtered.forEach(function(v) {
+    var cb = document.getElementById('vcb_' + v.id);
+    if (cb) cb.checked = _selectedVoterIds.has(v.id);
+    var row = document.getElementById('vrow_' + v.id);
+    if (row) {
+      if (_selectedVoterIds.has(v.id)) row.classList.add('selected');
+      else row.classList.remove('selected');
+    }
+  });
+  // Update select-all checkbox
+  var selectAllCb = document.getElementById('selectAllCheckbox');
+  if (selectAllCb) {
+    selectAllCb.checked = filtered.length > 0 && _selectedVoterIds.size === filtered.length;
+    selectAllCb.indeterminate = _selectedVoterIds.size > 0 && _selectedVoterIds.size < filtered.length;
+  }
+  // Update count display
+  var countEl = document.getElementById('selectCount');
+  if (countEl) countEl.textContent = _selectedVoterIds.size > 0 ? _selectedVoterIds.size + ' selected' : '';
+  // Show/hide floating action bar
+  var fab = document.getElementById('floatingActionBar');
+  if (fab) {
+    if (_selectedVoterIds.size > 0) fab.classList.add('visible');
+    else fab.classList.remove('visible');
+  }
+  var fabCount = document.getElementById('fabCount');
+  if (fabCount) fabCount.textContent = _selectedVoterIds.size + ' voter' + (_selectedVoterIds.size !== 1 ? 's' : '') + ' selected';
+  // Populate target list dropdown
+  populateTransferTargets();
+}
+
+function populateTransferTargets() {
+  var sel = document.getElementById('fabTargetList');
+  if (!sel) return;
+  while (sel.firstChild) sel.removeChild(sel.firstChild);
+  var lists = (captainState.captain && captainState.captain.lists) || [];
+  // Add captain's own lists (excluding current)
+  lists.forEach(function(l) {
+    if (l.id === captainState.selectedListId && captainState.selectedListType === 'captain') return;
+    var opt = document.createElement('option');
+    opt.value = 'captain:' + l.id;
+    opt.textContent = l.name + (l.team_member_name ? ' (' + l.team_member_name + ')' : '');
+    sel.appendChild(opt);
+  });
+  // Add assigned lists
+  var assigned = (captainState.captain && captainState.captain.assigned_lists) || [];
+  assigned.forEach(function(l) {
+    if (l.id === captainState.selectedListId && captainState.selectedListType === 'assigned') return;
+    var opt = document.createElement('option');
+    opt.value = 'assigned:' + l.id;
+    opt.textContent = l.name + ' (admin)';
+    sel.appendChild(opt);
+  });
+  if (sel.options.length === 0) {
+    var opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No other lists available';
+    sel.appendChild(opt);
+  }
+}
+
+// Transfer voters (copy or move)
+async function transferVoters(removeFromSource) {
+  if (_selectedVoterIds.size === 0) return;
+  var sel = document.getElementById('fabTargetList');
+  if (!sel || !sel.value) { alert('Please select a target list.'); return; }
+  var parts = sel.value.split(':');
+  var targetListId = parseInt(parts[1]);
+  var targetName = sel.options[sel.selectedIndex].textContent;
+
+  var voterIds = Array.from(_selectedVoterIds);
+  var action = removeFromSource ? 'Move' : 'Copy';
+
+  try {
+    await api('/api/captains/' + captainState.captain.id + '/transfer-voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voterIds: voterIds,
+        targetListId: targetListId,
+        sourceListId: captainState.selectedListId,
+        removeFromSource: removeFromSource
+      })
+    });
+    var count = voterIds.length;
+    showToast(action + 'd ' + count + ' voter' + (count !== 1 ? 's' : '') + ' to ' + targetName, 'success');
+    clearVoterSelection();
+    await loadListVoters();
+    refreshSidebar();
+  } catch(e) {
+    alert(action + ' failed: ' + (e.message || 'Unknown error'));
+  }
+}
+
+// Drag and drop state
+var _dragVoterIds = [];
+
+function onVoterDragStart(e, voterId) {
+  if (_selectedVoterIds.has(voterId)) {
+    _dragVoterIds = Array.from(_selectedVoterIds);
+  } else {
+    _dragVoterIds = [voterId];
+  }
+  e.dataTransfer.effectAllowed = 'copyMove';
+  e.dataTransfer.setData('text/plain', JSON.stringify(_dragVoterIds));
+  var row = document.getElementById('vrow_' + voterId);
+  if (row) row.classList.add('dragging');
+  var count = _dragVoterIds.length;
+  var ghost = document.createElement('div');
+  ghost.style.cssText = 'position:absolute;top:-1000px;background:#f59e0b;color:#000;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700';
+  ghost.textContent = count + ' voter' + (count !== 1 ? 's' : '');
+  ghost.id = '_dragGhost';
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 0, 0);
+  setTimeout(function() { ghost.remove(); }, 100);
+}
+
+function onVoterDragEnd(e, voterId) {
+  var row = document.getElementById('vrow_' + voterId);
+  if (row) row.classList.remove('dragging');
+  _dragVoterIds = [];
+  document.querySelectorAll('.drop-highlight').forEach(function(el) { el.classList.remove('drop-highlight'); });
+}
+
+function setupDropTarget(el, listId, listName) {
+  el.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    el.classList.add('drop-highlight');
+  });
+  el.addEventListener('dragleave', function(e) {
+    el.classList.remove('drop-highlight');
+  });
+  el.addEventListener('drop', function(e) {
+    e.preventDefault();
+    el.classList.remove('drop-highlight');
+    var voterIds;
+    try { voterIds = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(ex) { return; }
+    if (!voterIds || !voterIds.length) return;
+    showDropConfirmDialog(voterIds, listId, listName);
+  });
+}
+
+function showDropConfirmDialog(voterIds, targetListId, targetListName) {
+  var count = voterIds.length;
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'dropConfirmModal';
+
+  var box = document.createElement('div');
+  box.className = 'modal-box';
+  box.style.maxWidth = '400px';
+
+  var h3 = document.createElement('h3');
+  h3.textContent = 'Transfer ' + count + ' voter' + (count !== 1 ? 's' : '');
+  box.appendChild(h3);
+
+  var desc = document.createElement('p');
+  desc.style.cssText = 'color:#94a3b8;font-size:14px;margin-bottom:16px';
+  desc.textContent = 'Send ' + count + ' voter' + (count !== 1 ? 's' : '') + ' to "' + targetListName + '"?';
+  box.appendChild(desc);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+
+  var moveBtn = document.createElement('button');
+  moveBtn.className = 'btn btn-primary';
+  moveBtn.textContent = 'Move (remove from current)';
+  moveBtn.addEventListener('click', function() {
+    closeModal('dropConfirmModal');
+    executeDropTransfer(voterIds, targetListId, true);
+  });
+  btnRow.appendChild(moveBtn);
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'btn btn-captain';
+  copyBtn.textContent = 'Copy (keep in current)';
+  copyBtn.addEventListener('click', function() {
+    closeModal('dropConfirmModal');
+    executeDropTransfer(voterIds, targetListId, false);
+  });
+  btnRow.appendChild(copyBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { closeModal('dropConfirmModal'); });
+  btnRow.appendChild(cancelBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeModal('dropConfirmModal'); });
+  document.body.appendChild(overlay);
+}
+
+async function executeDropTransfer(voterIds, targetListId, removeFromSource) {
+  try {
+    await api('/api/captains/' + captainState.captain.id + '/transfer-voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voterIds: voterIds,
+        targetListId: targetListId,
+        sourceListId: captainState.selectedListId,
+        removeFromSource: removeFromSource
+      })
+    });
+    var action = removeFromSource ? 'Moved' : 'Copied';
+    showToast(action + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : ''), 'success');
+    clearVoterSelection();
+    await loadListVoters();
+    refreshSidebar();
+  } catch(e) {
+    alert('Transfer failed: ' + (e.message || 'Unknown error'));
+  }
+}
 
 async function loadListVoters() {
   if (!captainState.selectedListId) return;
+  _selectedVoterIds.clear();
   var data = await api(getListApiBase() + '/voters');
   var voters = data.voters || [];
   _currentListVoters = voters;
@@ -865,11 +1179,17 @@ function renderListVoters() {
   var el = document.getElementById('rightListContent');
   el.textContent = '';
 
+  // Clear selection when re-rendering (tab switch keeps selection valid)
+  // Remove voters no longer in filtered set
+  var filteredIds = new Set();
+
   // Counts
   var votedCount = voters.filter(function(v) { return v.early_voted; }).length;
   var notVotedCount = voters.length - votedCount;
 
   if (voters.length === 0) {
+    _selectedVoterIds.clear();
+    updateSelectionUI();
     var emptyDiv = document.createElement('div');
     emptyDiv.className = 'right-empty';
     emptyDiv.textContent = 'No voters in this list yet. Search and add voters from the center panel.';
@@ -893,17 +1213,50 @@ function renderListVoters() {
       'color:' + (isActive ? t.color : '#64748b') + ';' +
       'border-bottom:3px solid ' + (isActive ? t.color : 'transparent');
     tabBtn.textContent = t.label;
-    tabBtn.addEventListener('click', function() { _currentListTab = t.key; renderListVoters(); });
+    tabBtn.addEventListener('click', function() { _currentListTab = t.key; _selectedVoterIds.clear(); renderListVoters(); });
     tabBar.appendChild(tabBtn);
   });
   el.appendChild(tabBar);
+
+  // Race filter bar (if candidate has a race assigned)
+  var rt = captainState.race_type;
+  var rv = captainState.race_value;
+  if (rt && rv) {
+    voters.forEach(function(v) { v._in_race = (v[rt] || '').toString().trim() === rv.toString().trim(); });
+    var inCount = voters.filter(function(v) { return v._in_race; }).length;
+    var outCount = voters.length - inCount;
+    var raceBar = document.createElement('div');
+    raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155';
+    var rlbl = document.createElement('span');
+    rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
+    rlbl.textContent = (_raceTypeLabels[rt] || rt) + ' ' + rv + ':';
+    raceBar.appendChild(rlbl);
+    [['all','All'],['in','In Race (' + inCount + ')'],['out','Not In Race (' + outCount + ')']].forEach(function(o) {
+      var btn = document.createElement('button');
+      var isActive = (_currentRaceTab || 'all') === o[0];
+      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:#818cf8;color:#fff;border-color:#818cf8' : 'background:#1e293b;color:#94a3b8');
+      btn.textContent = o[1];
+      btn.addEventListener('click', function() { _currentRaceTab = o[0]; renderListVoters(); });
+      raceBar.appendChild(btn);
+    });
+    el.appendChild(raceBar);
+  }
 
   // Filter voters by tab
   var filtered = voters;
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
   else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
+  // Apply race filter
+  if (rt && rv && _currentRaceTab === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
+  else if (rt && rv && _currentRaceTab === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
+
+  // Prune selection to only include voters in the current filtered set
+  filtered.forEach(function(v) { filteredIds.add(v.id); });
+  _selectedVoterIds.forEach(function(id) { if (!filteredIds.has(id)) _selectedVoterIds.delete(id); });
 
   if (filtered.length === 0) {
+    _selectedVoterIds.clear();
+    updateSelectionUI();
     var noResults = document.createElement('div');
     noResults.className = 'right-empty';
     noResults.textContent = tab === 'voted' ? 'No voters have voted yet.' : 'All voters have voted!';
@@ -911,12 +1264,48 @@ function renderListVoters() {
     return;
   }
 
+  // Select all / deselect all bar
+  var selectBar = document.createElement('div');
+  selectBar.className = 'select-all-bar';
+  var selectLabel = document.createElement('label');
+  var selectAllCb = document.createElement('input');
+  selectAllCb.type = 'checkbox';
+  selectAllCb.id = 'selectAllCheckbox';
+  selectAllCb.className = 'right-voter-checkbox';
+  selectAllCb.checked = _selectedVoterIds.size === filtered.length && filtered.length > 0;
+  selectAllCb.indeterminate = _selectedVoterIds.size > 0 && _selectedVoterIds.size < filtered.length;
+  selectAllCb.addEventListener('change', function() { toggleSelectAll(); });
+  selectLabel.appendChild(selectAllCb);
+  var selectText = document.createElement('span');
+  selectText.textContent = 'Select All';
+  selectLabel.appendChild(selectText);
+  selectBar.appendChild(selectLabel);
+  var countSpan = document.createElement('span');
+  countSpan.className = 'sel-count';
+  countSpan.id = 'selectCount';
+  countSpan.textContent = _selectedVoterIds.size > 0 ? _selectedVoterIds.size + ' selected' : '';
+  selectBar.appendChild(countSpan);
+  el.appendChild(selectBar);
+
   filtered.forEach(function(v) {
     var row = document.createElement('div');
-    row.className = 'right-voter';
+    row.className = 'right-voter' + (_selectedVoterIds.has(v.id) ? ' selected' : '');
+    row.id = 'vrow_' + v.id;
+    row.draggable = true;
+    row.addEventListener('dragstart', (function(vid) { return function(e) { onVoterDragStart(e, vid); }; })(v.id));
+    row.addEventListener('dragend', (function(vid) { return function(e) { onVoterDragEnd(e, vid); }; })(v.id));
+
+    // Checkbox
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'right-voter-checkbox';
+    cb.id = 'vcb_' + v.id;
+    cb.checked = _selectedVoterIds.has(v.id);
+    cb.addEventListener('change', (function(vid) { return function() { toggleVoterSelection(vid); }; })(v.id));
+    row.appendChild(cb);
 
     var info = document.createElement('div');
-    info.style.cursor = 'pointer';
+    info.style.cssText = 'cursor:pointer;flex:1;min-width:0';
     info.addEventListener('click', (function(voter) { return function() { showVoterDetail(voter); }; })(v));
     var nameRow = document.createElement('div');
     nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
@@ -940,6 +1329,20 @@ function renderListVoters() {
       evBadge.textContent = 'Not Voted';
     }
     nameRow.appendChild(evBadge);
+    if (v.age) {
+      var ageBadge2 = document.createElement('span');
+      ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
+      ageBadge2.textContent = v.age;
+      nameRow.appendChild(ageBadge2);
+    }
+    if (v.phone && v.phone_type) {
+      var ptC = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
+      var ptS = ptC[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
+      var ptB = document.createElement('span');
+      ptB.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptS.bg+';color:'+ptS.c+';border:1px solid '+ptS.b+';white-space:nowrap';
+      ptB.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
+      nameRow.appendChild(ptB);
+    }
     info.appendChild(nameRow);
     var a = document.createElement('div');
     a.className = 'addr';
@@ -969,6 +1372,9 @@ function renderListVoters() {
 
     el.appendChild(row);
   });
+
+  // Update floating bar state after render
+  updateSelectionUI();
 }
 
 // Download current filtered list as CSV
@@ -981,7 +1387,7 @@ function downloadListCsv() {
   if (voters.length === 0) { alert('No voters to download.'); return; }
 
   var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
-  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
+  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
   var csvRows = [headers.join(',')];
   voters.forEach(function(v) {
     var votedStatus = 'Not Voted';
@@ -1000,7 +1406,7 @@ function downloadListCsv() {
       csvEscape(v.zip || ''),
       csvEscape(v.phone || ''),
       csvEscape(v.email || ''),
-      csvEscape(v.party || ''),
+      csvEscape(v.party_score || v.party || ''),
       csvEscape(v.precinct || ''),
       votedStatus,
       csvEscape(v.early_voted_ballot || ''),
@@ -1062,12 +1468,18 @@ function debouncedSearch() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phone = (document.getElementById('capPhoneFilter') || {}).value.trim() || '';
-  var vanid = (document.getElementById('capVanidFilter') || {}).value.trim() || '';
-  var city = (document.getElementById('capCityFilter') || {}).value || '';
-  var zip = (document.getElementById('capZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('capPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('capAddressFilter') || {}).value || '';
+  var phoneEl = document.getElementById('capPhoneFilter');
+  var phone = phoneEl ? phoneEl.value.trim() : '';
+  var vanidEl = document.getElementById('capVanidFilter');
+  var vanid = vanidEl ? vanidEl.value.trim() : '';
+  var cityEl = document.getElementById('capCityFilter');
+  var city = cityEl ? cityEl.value : '';
+  var zipEl = document.getElementById('capZipFilter');
+  var zip = zipEl ? zipEl.value.trim() : '';
+  var precinctEl = document.getElementById('capPrecinctFilter');
+  var precinct = precinctEl ? precinctEl.value.trim() : '';
+  var addressEl = document.getElementById('capAddressFilter');
+  var address = addressEl ? addressEl.value.trim() : '';
   var el = document.getElementById('searchResults');
   var hasFilter = phone || vanid || city || zip || precinct || address;
   if (q.length < 2 && !hasFilter) {
@@ -1092,7 +1504,24 @@ async function searchVoters() {
   if (zip) url += '&zip=' + encodeURIComponent(zip);
   if (precinct) url += '&precinct=' + encodeURIComponent(precinct);
   if (address) url += '&address=' + encodeURIComponent(address);
-  var data = await api(url);
+  var data;
+  try {
+    data = await api(url);
+  } catch (err) {
+    el.textContent = '';
+    var errDiv = document.createElement('div');
+    errDiv.className = 'empty-state';
+    errDiv.style.color = '#ef4444';
+    var errIcon = document.createElement('div');
+    errIcon.className = 'icon';
+    errIcon.textContent = '\u26A0\uFE0F';
+    errDiv.appendChild(errIcon);
+    var errP = document.createElement('p');
+    errP.textContent = 'Search failed: ' + (err.message || 'Unknown error');
+    errDiv.appendChild(errP);
+    el.appendChild(errDiv);
+    return;
+  }
   var voters = data.voters || [];
 
   el.textContent = '';
@@ -1104,7 +1533,8 @@ async function searchVoters() {
     noIcon.textContent = '\uD83D\uDE36';
     noResult.appendChild(noIcon);
     var noP = document.createElement('p');
-    noP.textContent = 'No voters found for "' + q + '"';
+    var searchDesc = q ? '"' + q + '"' : 'your filters';
+    noP.textContent = 'No voters found for ' + searchDesc + '.';
     noResult.appendChild(noP);
     el.appendChild(noResult);
     return;
@@ -1139,6 +1569,20 @@ async function searchVoters() {
       evSearchBadge.textContent = 'Not Voted';
     }
     nameRow.appendChild(evSearchBadge);
+    if (v.age) {
+      var ageBadge = document.createElement('span');
+      ageBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
+      ageBadge.textContent = 'Age ' + v.age;
+      nameRow.appendChild(ageBadge);
+    }
+    if (v.phone && v.phone_type) {
+      var ptC2 = { mobile: {bg:'rgba(34,197,94,0.15)',c:'#22c55e',b:'rgba(34,197,94,0.3)'}, landline: {bg:'rgba(245,158,11,0.15)',c:'#f59e0b',b:'rgba(245,158,11,0.3)'}, voip: {bg:'rgba(139,92,246,0.15)',c:'#a78bfa',b:'rgba(139,92,246,0.3)'}, invalid: {bg:'rgba(239,68,68,0.15)',c:'#ef4444',b:'rgba(239,68,68,0.3)'} };
+      var ptS2 = ptC2[v.phone_type] || {bg:'rgba(100,116,139,0.15)',c:'#94a3b8',b:'rgba(100,116,139,0.3)'};
+      var ptB2 = document.createElement('span');
+      ptB2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:'+ptS2.bg+';color:'+ptS2.c+';border:1px solid '+ptS2.b+';white-space:nowrap';
+      ptB2.textContent = v.phone_type.charAt(0).toUpperCase() + v.phone_type.slice(1);
+      nameRow.appendChild(ptB2);
+    }
     nameDiv.appendChild(nameRow);
 
     var addrEl = document.createElement('div');
@@ -1160,11 +1604,13 @@ async function searchVoters() {
     // Meta badges
     var meta = document.createElement('div');
     meta.className = 'voter-meta';
-    if (v.party) {
+    if (v.party_score) {
       var partyBadge = document.createElement('span');
-      var partyColors = { D: 'badge-blue', R: 'badge-red', Democrat: 'badge-blue', Republican: 'badge-red', DEM: 'badge-blue', REP: 'badge-red' };
-      partyBadge.className = 'badge ' + (partyColors[v.party] || 'badge-gray');
-      partyBadge.textContent = v.party;
+      var partyColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+      partyBadge.className = 'badge ' + (partyColors[v.party_score] || 'badge-gray');
+      partyBadge.style.fontWeight = '700';
+      partyBadge.style.letterSpacing = '1px';
+      partyBadge.textContent = v.party_score;
       meta.appendChild(partyBadge);
     }
     if (v.support_level && v.support_level !== 'unknown') {
@@ -1246,7 +1692,7 @@ async function loadHousehold(voterId, containerEl) {
     var memberNameSpan = document.createElement('span');
     memberNameSpan.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
     var memberText = (h.first_name || '') + ' ' + (h.last_name || '');
-    if (h.party) memberText += ' \u2022 ' + h.party;
+    if (h.party_score) memberText += ' \u2022 ' + h.party_score;
     memberNameSpan.textContent = memberText;
     info.appendChild(memberNameSpan);
     var hhEvBadge = document.createElement('span');
@@ -1313,7 +1759,7 @@ async function showVoterDetail(voter) {
     ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.state ? ', ' + voter.state : '') + (voter.zip ? ' ' + voter.zip : '')],
     ['Phone', voter.phone || 'N/A'],
     ['Email', voter.email || 'N/A'],
-    ['Party', voter.party || 'N/A'],
+    ['Party ID', voter.party_score || 'No primary history'],
     ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
     ['Precinct', voter.precinct || 'N/A'],
     ['Reg #', voter.registration_number || 'N/A'],
@@ -1365,12 +1811,15 @@ async function showVoterDetail(voter) {
     turnoutWrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px';
     voter.election_votes.forEach(function(ev) {
       var tag = document.createElement('span');
-      var isRep = ev.party_voted === 'R';
-      tag.style.cssText = 'display:inline-block;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:600;' +
-        (isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444' : 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6');
+      var isDem = ev.party_voted === 'D' || ev.party_voted === 'DEM' || ev.party_voted === 'Democrat';
+      var isRep = ev.party_voted === 'R' || ev.party_voted === 'REP' || ev.party_voted === 'Republican';
+      var colorStyle = isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444'
+        : isDem ? 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6'
+        : 'background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid #a855f7';
+      tag.style.cssText = 'display:inline-block;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:600;' + colorStyle;
       var label = ev.election_name;
-      if (ev.party_voted === 'R') label += ' (R)';
-      else if (ev.party_voted === 'D') label += ' (D)';
+      if (isRep) label += ' (R)';
+      else if (isDem) label += ' (D)';
       tag.textContent = label;
       turnoutWrap.appendChild(tag);
     });
@@ -1407,7 +1856,7 @@ async function showVoterDetail(voter) {
       info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
       var hhNameSpan = document.createElement('span');
       var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
-      if (h.party) nameText += ' \u2022 ' + h.party;
+      if (h.party_score) nameText += ' \u2022 ' + h.party_score;
       if (h.phone) nameText += ' \u2022 ' + h.phone;
       hhNameSpan.textContent = nameText;
       info.appendChild(hhNameSpan);
@@ -1496,12 +1945,12 @@ function showAddVoterModal(voter) {
   addrEl.style.cssText = 'color:#94a3b8;font-size:13px';
   addrEl.textContent = (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.zip ? ' ' + voter.zip : '');
   voterInfo.appendChild(addrEl);
-  if (voter.party) {
+  if (voter.party_score) {
     var partyEl = document.createElement('span');
-    var pc = { DEM:'badge-blue', REP:'badge-red', D:'badge-blue', R:'badge-red' };
-    partyEl.className = 'badge ' + (pc[voter.party] || 'badge-gray');
-    partyEl.style.marginTop = '6px';
-    partyEl.textContent = voter.party;
+    var pc = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+    partyEl.className = 'badge ' + (pc[voter.party_score] || 'badge-gray');
+    partyEl.style.cssText = 'margin-top:6px;font-weight:700;letter-spacing:1px';
+    partyEl.textContent = voter.party_score;
     voterInfo.appendChild(partyEl);
   }
   box.appendChild(voterInfo);
@@ -1608,7 +2057,7 @@ async function loadHouseholdForModal(voterId, containerEl) {
     var detailSpan = document.createElement('div');
     detailSpan.style.cssText = 'color:#64748b;font-size:12px';
     var details = [];
-    if (h.party) details.push(h.party);
+    if (h.party_score) details.push(h.party_score);
     if (h.phone) details.push(h.phone);
     detailSpan.textContent = details.join(' \u2022 ');
     info.appendChild(detailSpan);
@@ -1725,11 +2174,12 @@ function showToast(msg, type) {
 
 async function removeVoterFromList(voterId) {
   if (!captainState.selectedListId) return;
-  await api(getListApiBase() + '/voters/' + voterId, {
-    method: 'DELETE'
-  });
-  await loadListVoters();
-  refreshSidebar();
+  if (!confirm('Remove this voter from the list?')) return;
+  try {
+    await api(getListApiBase() + '/voters/' + voterId, { method: 'DELETE' });
+    await loadListVoters();
+    refreshSidebar();
+  } catch (e) { alert('Failed to remove voter: ' + (e.message || 'Error')); }
 }
 
 // ===================== LIST MANAGEMENT =====================
@@ -2141,7 +2591,7 @@ function buildResultsStep(data) {
         info.textContent = c.first_name + ' ' + c.last_name +
           (c.phone ? ' \u2022 ' + c.phone : '') +
           (c.address ? ' \u2022 ' + c.address : '') +
-          (c.party ? ' (' + c.party + ')' : '');
+          (c.party_score ? ' (' + c.party_score + ')' : '');
         label.appendChild(info);
         card.appendChild(label);
       });
@@ -2284,14 +2734,10 @@ async function addTeamMember() {
     body: JSON.stringify({ name: name.trim() })
   });
   if (data.success) {
-    // Refresh captain data to get updated team members
-    var loginData = await api('/api/captains/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: captainState.captain.code })
-    });
-    if (loginData.captain) {
-      captainState.captain = loginData.captain;
+    // Refresh captain data to get updated team members (without consuming login rate limit)
+    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
+    if (refreshData.captain) {
+      captainState.captain = refreshData.captain;
     }
     refreshSidebar();
 
@@ -2347,18 +2793,209 @@ async function addTeamMember() {
   }
 }
 
+// ===================== DRAG & DROP VOTERS INTO LISTS =====================
+
+var _dragHintEl = null;
+var _dragExpandTimeout = null;
+
+// Enable the sidebar as a drag-over zone so drops work inside scrollable containers
+(function() {
+  var sidebar = document.querySelector('.sidebar');
+  if (sidebar) {
+    sidebar.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    sidebar.addEventListener('dragenter', function(e) {
+      e.preventDefault();
+    });
+  }
+})();
+
+function showDragHint(show) {
+  if (show && !_dragHintEl) {
+    _dragHintEl = document.createElement('div');
+    _dragHintEl.className = 'drag-hint';
+    _dragHintEl.textContent = 'Drop on a team member or list in the sidebar';
+    document.body.appendChild(_dragHintEl);
+  } else if (!show && _dragHintEl) {
+    _dragHintEl.remove();
+    _dragHintEl = null;
+  }
+}
+
+function clearAllDragOver() {
+  document.querySelectorAll('.drag-over').forEach(function(el) {
+    el.classList.remove('drag-over');
+  });
+  if (_dragExpandTimeout) {
+    clearTimeout(_dragExpandTimeout);
+    _dragExpandTimeout = null;
+  }
+}
+
+function setupListDropTarget(item, listInfo) {
+  item.addEventListener('dragenter', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    item.classList.add('drag-over');
+  });
+  item.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    item.classList.add('drag-over');
+  });
+  item.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    // Only remove if we actually left this element (not entering a child)
+    var rect = item.getBoundingClientRect();
+    if (e.clientX <= rect.left || e.clientX >= rect.right || e.clientY <= rect.top || e.clientY >= rect.bottom) {
+      item.classList.remove('drag-over');
+    }
+  });
+  item.addEventListener('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    item.classList.remove('drag-over');
+    showDragHint(false);
+    clearAllDragOver();
+    try {
+      var data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (data && data.voter_id) {
+        dropVoterOnList(data.voter_id, data.voter_name, listInfo);
+      }
+    } catch(err) { console.warn('Drop parse error:', err); }
+  });
+}
+
+function showAddToListDropdown(voter, anchorEl) {
+  // Close any existing dropdown
+  var old = document.querySelector('.add-list-dropdown');
+  if (old) old.remove();
+
+  var dropdown = document.createElement('div');
+  dropdown.className = 'add-list-dropdown';
+
+  // My lists
+  var myLists = (captainState.captain.lists || []).filter(function(l) { return !l.team_member_name; });
+  if (myLists.length > 0) {
+    var sec = document.createElement('div');
+    sec.className = 'drop-section';
+    sec.textContent = 'My Lists';
+    dropdown.appendChild(sec);
+    myLists.forEach(function(l) {
+      var btn = document.createElement('button');
+      btn.className = 'drop-item';
+      btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+      btn.addEventListener('click', function() {
+        dropdown.remove();
+        quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+      });
+      dropdown.appendChild(btn);
+    });
+  }
+
+  // Sub-captain lists
+  var subCaptains = captainState.captain.sub_captains || [];
+  if (subCaptains.length > 0) {
+    // Get fresh sub_captain_lists from the last sidebar refresh
+    var subCaptainLists = [];
+    var teamLists = (captainState.captain.lists || []).filter(function(l) { return l.team_member_name; });
+    // We need to fetch sub-captain lists — they're stored during refreshSidebar
+    // Use the cached data from the API response
+    if (captainState._cachedSubCaptainLists) {
+      subCaptainLists = captainState._cachedSubCaptainLists;
+    }
+
+    subCaptains.forEach(function(sc) {
+      var scLists = subCaptainLists.filter(function(l) { return l.sub_captain_id === sc.id; });
+      var legacyLists = teamLists.filter(function(l) { return l.team_member_name === sc.name; });
+      if (scLists.length > 0 || legacyLists.length > 0) {
+        var sec = document.createElement('div');
+        sec.className = 'drop-section';
+        sec.textContent = sc.name;
+        dropdown.appendChild(sec);
+        scLists.forEach(function(l) {
+          var btn = document.createElement('button');
+          btn.className = 'drop-item';
+          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+          btn.addEventListener('click', function() {
+            dropdown.remove();
+            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'subcaptain', sub_captain_id: l.sub_captain_id || sc.id });
+          });
+          dropdown.appendChild(btn);
+        });
+        legacyLists.forEach(function(l) {
+          var btn = document.createElement('button');
+          btn.className = 'drop-item';
+          btn.textContent = l.name + ' (' + (l.voter_count || 0) + ')';
+          btn.addEventListener('click', function() {
+            dropdown.remove();
+            quickAddVoterToList(voter, { id: l.id, name: l.name, type: 'captain', sub_captain_id: null });
+          });
+          dropdown.appendChild(btn);
+        });
+      }
+    });
+  }
+
+  // Position relative to anchor
+  anchorEl.style.position = 'relative';
+  anchorEl.appendChild(dropdown);
+
+  // Close on click outside
+  function closeDropdown(e) {
+    if (!dropdown.contains(e.target) && !anchorEl.contains(e.target)) {
+      dropdown.remove();
+      document.removeEventListener('click', closeDropdown);
+    }
+  }
+  setTimeout(function() { document.addEventListener('click', closeDropdown); }, 10);
+}
+
+async function quickAddVoterToList(voter, listInfo) {
+  var voterName = (voter.first_name || '') + ' ' + (voter.last_name || '');
+  await dropVoterOnList(voter.id, voterName, listInfo);
+}
+
+async function dropVoterOnList(voterId, voterName, listInfo) {
+  var cid = captainState.captain.id;
+  var apiUrl;
+  if (listInfo.type === 'subcaptain' && listInfo.sub_captain_id) {
+    apiUrl = '/api/captains/' + listInfo.sub_captain_id + '/lists/' + listInfo.id + '/voters';
+  } else {
+    apiUrl = '/api/captains/' + cid + '/lists/' + listInfo.id + '/voters';
+  }
+  try {
+    var data = await api(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voter_id: voterId })
+    });
+    if (data.already) {
+      showToast((voterName || 'Voter') + ' is already on ' + listInfo.name, 'warn');
+    } else {
+      showToast((voterName || 'Voter') + ' added to ' + listInfo.name, 'success');
+    }
+    // Refresh list if we're viewing the target list
+    if (captainState.selectedListId === listInfo.id) {
+      await loadListVoters();
+    }
+    refreshSidebar();
+  } catch(err) {
+    showToast('Failed to add voter: ' + (err.message || 'Unknown error'), 'warn');
+  }
+}
+
 async function removeTeamMember(memberId, name) {
   if (!confirm('Remove ' + name + ' from your team? Their captain code will be deactivated.')) return;
   var data = await api('/api/captains/' + captainState.captain.id + '/team/' + memberId, { method: 'DELETE' });
   if (data.success) {
-    // Refresh captain data
-    var loginData = await api('/api/captains/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: captainState.captain.code })
-    });
-    if (loginData.captain) {
-      captainState.captain = loginData.captain;
+    // Refresh captain data (without consuming login rate limit)
+    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
+    if (refreshData.captain) {
+      captainState.captain = refreshData.captain;
     }
     captainState.expandedTeamMember = null;
     refreshSidebar();

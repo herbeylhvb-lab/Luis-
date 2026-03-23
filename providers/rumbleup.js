@@ -26,20 +26,23 @@ function getCredentials() {
   const apiSecret = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_api_secret'").get();
   const phone = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_phone_number'").get();
   const actionId = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_action_id'").get();
+  const campaignId = db.prepare("SELECT value FROM settings WHERE key = 'rumbleup_campaign_id'").get();
   return {
     apiKey: apiKey?.value || '',
     apiSecret: apiSecret?.value || '',
     phoneNumber: phone?.value || '',
-    actionId: actionId?.value || ''
+    actionId: actionId?.value || '',
+    campaignId: campaignId?.value || ''
   };
 }
 
-function saveCredentials({ apiKey, apiSecret, phoneNumber, actionId }) {
+function saveCredentials({ apiKey, apiSecret, phoneNumber, actionId, campaignId }) {
   const upsert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?');
-  if (apiKey) upsert.run('rumbleup_api_key', apiKey, apiKey);
-  if (apiSecret) upsert.run('rumbleup_api_secret', apiSecret, apiSecret);
-  if (phoneNumber) upsert.run('rumbleup_phone_number', phoneNumber, phoneNumber);
+  if (apiKey !== undefined) upsert.run('rumbleup_api_key', apiKey || '', apiKey || '');
+  if (apiSecret !== undefined) upsert.run('rumbleup_api_secret', apiSecret || '', apiSecret || '');
+  if (phoneNumber !== undefined) upsert.run('rumbleup_phone_number', phoneNumber || '', phoneNumber || '');
   if (actionId !== undefined) upsert.run('rumbleup_action_id', actionId || '', actionId || '');
+  if (campaignId !== undefined) upsert.run('rumbleup_campaign_id', campaignId || '', campaignId || '');
 }
 
 function getPublicCredentials() {
@@ -48,18 +51,21 @@ function getPublicCredentials() {
     hasApiKey: !!creds.apiKey,
     hasApiSecret: !!creds.apiSecret,
     phoneNumber: creds.phoneNumber,
-    actionId: creds.actionId
+    actionId: creds.actionId,
+    campaignId: creds.campaignId
   };
 }
 
 function hasCredentials() {
   const creds = getCredentials();
-  return !!(creds.apiKey && creds.apiSecret && creds.actionId);
+  // Only require key+secret — actionId and phone are optional for some operations
+  return !!(creds.apiKey && creds.apiSecret);
 }
 
 // --- HTTP helpers ---
 
-function authHeader(key, secret) {
+function authHeader(key, secret, style) {
+  if (style === 'bearer') return 'Bearer ' + key + ':' + secret;
   const encoded = Buffer.from(key + ':' + secret).toString('base64');
   return 'Basic ' + encoded;
 }
@@ -76,7 +82,7 @@ async function apiRequest(path, body, creds, options = {}) {
 
   const fetchOpts = {
     method,
-    headers: { 'Authorization': authHeader(key, secret) },
+    headers: { 'Authorization': authHeader(key, secret, options.authStyle) },
     signal: controller.signal
   };
 
@@ -176,20 +182,41 @@ async function listAccounts(params) {
 
 // --- Projects (Actions) ---
 
-async function createProject({ name, message, group, campaignId, proxy, media }) {
+async function createProject({ name, message, group, campaignId, proxy, type }) {
   const body = { name, message };
   if (group) body.group = group;
   if (campaignId) body.campaignId = campaignId;
   if (proxy) body.proxy = proxy;
+  if (type) body.type = type; // SMS, MMS, or EVT
   return apiPost('/project/create', body);
+}
+
+/**
+ * Create a project via API. Media must be uploaded on RumbleUp dashboard separately.
+ * RumbleUp's API does not support programmatic media upload.
+ */
+async function createMmsProject({ name, message, group, campaignId, proxy }) {
+  if (!name || !message) throw new Error('Project requires name and message.');
+
+  const safeMessage = /stop|opt.?out|unsubscribe/i.test(message) ? message : message + '\nReply STOP to opt out.';
+  const body = { name, message: safeMessage };
+  if (group) body.group = group;
+  if (campaignId) body.campaignId = campaignId;
+  if (proxy) body.proxy = proxy;
+
+  const result = await apiPost('/project/create', body);
+  const projectId = result.action || result.id || result.aid;
+  console.log('[mms] Project created:', projectId, '— upload image on RumbleUp dashboard');
+  result._projectId = projectId;
+  return result;
 }
 
 async function getProject(projectId) {
   return apiGet('/project/get/' + projectId);
 }
 
-async function updateProject(projectId, updates) {
-  return apiPost('/project/update/' + projectId, updates);
+async function updateProject(projectId, updates, options = {}) {
+  return apiPost('/project/update/' + projectId, updates, null, options);
 }
 
 async function sendTestMessage(projectId, testPhone, message) {
@@ -227,7 +254,14 @@ async function syncContact(contactData) {
   // Always include the action ID so the contact is associated with the active project
   const creds = getCredentials();
   const data = { ...contactData };
-  if (creds.actionId && !data.action) {
+  // RumbleUp requires phone with US country code prefix (11 digits)
+  if (data.phone) {
+    const digits = data.phone.replace(/\D/g, '');
+    data.phone = digits.length === 10 ? '1' + digits : digits;
+  }
+  if (data.action) {
+    data.action = String(data.action);
+  } else if (creds.actionId) {
     data.action = String(creds.actionId);
   }
   return apiPost('/contact/sync', data);
@@ -254,18 +288,27 @@ async function getGroup(groupId) {
 
 // --- Messaging ---
 
-async function sendSms(to, body) {
+async function sendSms(to, body, actionIdOverride, options = {}) {
   const creds = getCredentials();
-  if (!creds.apiKey || !creds.apiSecret || !creds.actionId) {
-    throw new Error('RumbleUp credentials not configured. Set them in Messaging Setup.');
+  if (!creds.apiKey || !creds.apiSecret) {
+    throw new Error('RumbleUp API key and secret are required. Set them in Messaging Setup.');
+  }
+  const actionId = String(actionIdOverride || creds.actionId || '');
+  if (!actionId) {
+    throw new Error('RumbleUp Action/Project ID not configured. Set it in Messaging Setup.');
   }
   const phone = to.replace(/\D/g, '');
   if (phone.length < 10) throw new Error('Invalid phone number: must be at least 10 digits.');
-  return apiPost('/message/send', {
-    phone,
-    action: creds.actionId,
-    text: body
-  });
+
+  const payload = { phone, action: actionId, text: body };
+  // Include MMS media attachment if provided (RumbleUp 'file' field)
+  if (options.mediaUrl) {
+    payload.file = options.mediaUrl;
+    console.log('[sms] Sending MMS via project', actionId, 'with media to', phone.substring(0, 6) + '****');
+  } else {
+    console.log('[sms] Sending SMS via project', actionId, 'to', phone.substring(0, 6) + '****');
+  }
+  return apiPost('/message/send', payload);
 }
 
 async function sendToProject(phone, actionId, text, options = {}) {
@@ -280,13 +323,13 @@ async function sendWhatsApp(_to, _body) {
   throw new Error('RumbleUp does not support WhatsApp messaging.');
 }
 
-async function sendMessage(to, body, channel) {
+async function sendMessage(to, body, channel, actionIdOverride, options = {}) {
   if (channel === 'whatsapp') return sendWhatsApp(to, body);
-  return sendSms(to, body);
+  return sendSms(to, body, actionIdOverride, options);
 }
 
 async function getNextContact(actionId) {
-  return apiPost('/message/next', { action: String(actionId) });
+  return apiGet('/message/next', { action: String(actionId) });
 }
 
 async function getMessageLog(params) {
@@ -315,6 +358,7 @@ function buildEmptyReply() {
 }
 
 function getWebhookData(req) {
+  if (!req.body) return { from: '', body: '' };
   const data = req.body.data || req.body;
   return {
     from: data.phone || data.from || data.From || '',
@@ -326,6 +370,8 @@ module.exports = {
   name: 'rumbleup',
   label: 'RumbleUp',
   responseContentType: 'application/json',
+  // Low-level API (for direct MMS project creation in server.js)
+  apiPost,
   // Credentials
   getCredentials,
   saveCredentials,
@@ -337,6 +383,7 @@ module.exports = {
   listAccounts,
   // Projects
   createProject,
+  createMmsProject,
   getProject,
   updateProject,
   sendTestMessage,
@@ -367,6 +414,7 @@ module.exports = {
     { key: 'apiKey', label: 'API Key', type: 'text', placeholder: 'Your RumbleUp API key' },
     { key: 'apiSecret', label: 'API Secret', type: 'password', placeholder: 'Your RumbleUp API secret' },
     { key: 'actionId', label: 'Action / Project ID', type: 'text', placeholder: 'e.g. 125', hint: 'The project ID for sending messages. Find it in your RumbleUp dashboard.' },
-    { key: 'phoneNumber', label: 'From Number (display only)', type: 'text', placeholder: '+1234567890', hint: 'RumbleUp assigns proxy numbers automatically. This is for your reference.' }
+    { key: 'phoneNumber', label: 'Phone Number', type: 'text', placeholder: '+1234567890', hint: 'Your RumbleUp phone number (optional).' },
+    { key: 'campaignId', label: 'TCR Campaign ID', type: 'text', placeholder: 'e.g. CSDF123', hint: 'Optional — your TCR campaign ID for compliance.' }
   ]
 };

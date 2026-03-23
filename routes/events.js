@@ -6,13 +6,18 @@ const { Jimp } = require('jimp');
 
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 const QRCode = require('qrcode');
-const { asyncHandler } = require('../utils');
+const { asyncHandler, phoneDigits } = require('../utils');
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.userId) return next();
+  return res.status(401).json({ error: 'Authentication required.' });
+}
 
 // List all events (includes has_flyer flag, excludes full base64) — single query with RSVP stats
 router.get('/events', (req, res) => {
   const events = db.prepare(`
     SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_time, e.event_end_time, e.status, e.created_at,
-      e.latitude, e.longitude, e.checkin_radius,
+      e.latitude, e.longitude, e.checkin_radius, e.mms_project_id,
       (e.flyer_image IS NOT NULL) as has_flyer,
       COUNT(er.id) as rsvp_total,
       SUM(CASE WHEN er.rsvp_status = 'confirmed' THEN 1 ELSE 0 END) as rsvp_confirmed,
@@ -31,29 +36,29 @@ router.get('/events', (req, res) => {
 });
 
 // Create event (now accepts flyer_image)
-router.post('/events', (req, res) => {
-  const { title, description, location, event_date, event_time, event_end_time, flyer_image, latitude, longitude, checkin_radius } = req.body;
+router.post('/events', requireAuth, (req, res) => {
+  const { title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'Title and date are required.' });
   const result = db.prepare(
-    'INSERT INTO events (title, description, location, event_date, event_time, event_end_time, flyer_image, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO events (title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(title, description || '', location || '', event_date, event_time || '', event_end_time || '',
-    flyer_image || null,
+    flyer_image || null, mms_project_id || null,
     latitude != null ? latitude : null, longitude != null ? longitude : null,
-    checkin_radius || 500);
+    checkin_radius != null ? checkin_radius : 500);
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
 // Get event detail with RSVPs
 router.get('/events/:id', (req, res) => {
-  const event = db.prepare('SELECT id, title, description, location, event_date, event_time, event_end_time, status, created_at, latitude, longitude, checkin_radius, (flyer_image IS NOT NULL) as has_flyer FROM events WHERE id = ?').get(req.params.id);
+  const event = db.prepare('SELECT id, title, description, location, event_date, event_time, event_end_time, status, created_at, latitude, longitude, checkin_radius, mms_project_id, (flyer_image IS NOT NULL) as has_flyer FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
   event.rsvps = db.prepare('SELECT * FROM event_rsvps WHERE event_id = ? ORDER BY id').all(req.params.id);
   res.json({ event });
 });
 
 // Update event (now accepts flyer_image)
-router.put('/events/:id', (req, res) => {
-  const { title, description, location, event_date, event_time, event_end_time, status, flyer_image, latitude, longitude, checkin_radius } = req.body;
+router.put('/events/:id', requireAuth, (req, res) => {
+  const { title, description, location, event_date, event_time, event_end_time, status, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   // If flyer_image is explicitly provided, update it. Otherwise leave existing.
   let result;
   if (flyer_image !== undefined) {
@@ -62,40 +67,71 @@ router.put('/events/:id', (req, res) => {
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      flyer_image = ?, latitude = ?, longitude = ?, checkin_radius = ? WHERE id = ?`
+      flyer_image = ?, mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status, flyer_image,
+      mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
-      checkin_radius || 500, req.params.id);
+      checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   } else {
     result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      latitude = ?, longitude = ?, checkin_radius = ? WHERE id = ?`
+      mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_time, event_end_time, status,
+      mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
-      checkin_radius || 500, req.params.id);
+      checkin_radius !== undefined ? checkin_radius : null, req.params.id);
   }
   if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
+
+  // Propagate MMS project change to any active P2P sessions for this event
+  if (mms_project_id !== undefined) {
+    db.prepare("UPDATE p2p_sessions SET rumbleup_action_id = ? WHERE source_id = ? AND session_type = 'event' AND status = 'active'")
+      .run(mms_project_id || null, req.params.id);
+  }
+
   res.json({ success: true });
 });
 
 // Delete event
-router.delete('/events/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Event not found.' });
+router.delete('/events/:id', requireAuth, (req, res) => {
+  const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'Event not found.' });
+  // Cascade: clean up associated P2P sessions (by source_id first, fallback to name match)
+  db.transaction(() => {
+    const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE (source_id = ? AND session_type = 'event') OR name = ?").all(req.params.id, 'Event Invite: ' + event.title);
+    for (const s of sessions) {
+      db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+      db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+    }
+    db.prepare('DELETE FROM event_rsvps WHERE event_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM events WHERE id = ?').run(req.params.id);
+  })();
   res.json({ success: true });
 });
 
 // Bulk delete events
-router.post('/events/bulk-delete', bulkDeleteLimiter, (req, res) => {
+router.post('/events/bulk-delete', requireAuth, bulkDeleteLimiter, (req, res) => {
   const { ids } = req.body;
   if (!ids || !ids.length) return res.status(400).json({ error: 'No event IDs provided.' });
-  const del = db.prepare('DELETE FROM events WHERE id = ?');
   const bulkDel = db.transaction((list) => {
     let removed = 0;
-    for (const id of list) { if (del.run(id).changes > 0) removed++; }
+    for (const id of list) {
+      const event = db.prepare('SELECT title FROM events WHERE id = ?').get(id);
+      if (!event) continue;
+      // Cascade: clean up associated sessions
+      const sessions = db.prepare("SELECT id FROM p2p_sessions WHERE (source_id = ? AND session_type = 'event') OR name = ?").all(id, 'Event Invite: ' + event.title);
+      for (const s of sessions) {
+        db.prepare('DELETE FROM p2p_assignments WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM p2p_volunteers WHERE session_id = ?').run(s.id);
+        db.prepare('DELETE FROM p2p_sessions WHERE id = ?').run(s.id);
+      }
+      db.prepare('DELETE FROM event_rsvps WHERE event_id = ?').run(id);
+      if (db.prepare('DELETE FROM events WHERE id = ?').run(id).changes > 0) removed++;
+    }
     return removed;
   });
   const removed = bulkDel(ids);
@@ -130,12 +166,15 @@ router.get('/events/:id/flyer', (req, res) => {
 });
 
 // --- Composite flyer with voter QR code overlay ---
+// Support both /flyer/:token and /flyer/:token.jpg so MMS providers recognize the image URL
 router.get('/events/:eventId/flyer/:voterToken', asyncHandler(async (req, res) => {
   try {
     const event = db.prepare('SELECT flyer_image, title FROM events WHERE id = ?').get(req.params.eventId);
     if (!event || !event.flyer_image) return res.status(404).send('No flyer');
 
-    const voter = db.prepare("SELECT id FROM voters WHERE qr_token = ?").get(req.params.voterToken);
+    // Strip .jpg extension if present (added for MMS provider compatibility)
+    const token = req.params.voterToken.replace(/\.jpg$/, '');
+    const voter = db.prepare("SELECT id FROM voters WHERE qr_token = ?").get(token);
     if (!voter) return res.status(404).send('Invalid voter token');
 
     // Build the check-in URL that the QR code will encode
@@ -179,9 +218,19 @@ router.get('/events/:eventId/flyer/:voterToken', asyncHandler(async (req, res) =
     const margin = 12;
     flyer.composite(whiteBg, flyerWidth - bgSize - margin, flyerHeight - bgSize - margin);
 
-    const outputBuffer = await flyer.getBuffer('image/png');
+    // Output as JPEG to stay under RumbleUp's 750KB MMS limit
+    let outputBuffer = await flyer.getBuffer('image/jpeg', { quality: 85 });
+    // If still over 750KB, reduce quality further
+    if (outputBuffer.length > 750 * 1024) {
+      outputBuffer = await flyer.getBuffer('image/jpeg', { quality: 60 });
+    }
+    if (outputBuffer.length > 750 * 1024) {
+      // Last resort: resize down
+      flyer.resize({ w: Math.round(flyer.width * 0.7) });
+      outputBuffer = await flyer.getBuffer('image/jpeg', { quality: 60 });
+    }
 
-    res.set('Content-Type', 'image/png');
+    res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(outputBuffer);
   } catch (err) {
@@ -209,7 +258,7 @@ router.post('/events/:id/rsvps', (req, res) => {
 });
 
 // Bulk invite from an admin list
-router.post('/events/:id/invite-from-list', (req, res) => {
+router.post('/events/:id/invite-from-list', requireAuth, (req, res) => {
   const { list_id, rsvp_status } = req.body;
   if (!list_id) return res.status(400).json({ error: 'list_id is required.' });
 
@@ -267,7 +316,8 @@ router.put('/events/:id/rsvps/:rsvpId', (req, res) => {
 
 // QR Code check-in (public endpoint, no auth needed)
 router.post('/events/:id/checkin', (req, res) => {
-  const { name, phone } = req.body;
+  const { name } = req.body;
+  const phone = phoneDigits(req.body.phone);
   if (!name || !phone) return res.status(400).json({ error: 'Name and phone are required.' });
   const event = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
@@ -307,8 +357,8 @@ router.post('/events/:id/checkin', (req, res) => {
 router.get('/events/:id/session', (req, res) => {
   const event = db.prepare('SELECT title FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
-  const session = db.prepare("SELECT id, name, join_code, status, code_expires_at FROM p2p_sessions WHERE name = ? ORDER BY id DESC LIMIT 1")
-    .get('Event Invite: ' + event.title);
+  const session = db.prepare("SELECT id, name, join_code, status, code_expires_at FROM p2p_sessions WHERE (source_id = ? AND session_type = 'event') OR name = ? ORDER BY id DESC LIMIT 1")
+    .get(req.params.id, 'Event Invite: ' + event.title);
   res.json({ session: session || null });
 });
 

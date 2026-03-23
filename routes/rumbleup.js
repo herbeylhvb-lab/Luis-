@@ -19,12 +19,6 @@ router.get('/rumbleup/account', asyncHandler(async (req, res) => {
   res.json(account);
 }));
 
-router.get('/rumbleup/accounts', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const result = await ru.listAccounts({ name: req.query.name, q: req.query.q });
-  res.json(result);
-}));
-
 // ========== PROJECTS ==========
 
 router.get('/rumbleup/projects', asyncHandler(async (req, res) => {
@@ -60,12 +54,6 @@ router.post('/rumbleup/projects', asyncHandler(async (req, res) => {
   res.json(project);
 }));
 
-router.patch('/rumbleup/projects/:id', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const result = await ru.updateProject(req.params.id, req.body);
-  res.json(result);
-}));
-
 router.post('/rumbleup/projects/:id/test', asyncHandler(async (req, res) => {
   const ru = getRumbleUp();
   const { test_phone, message } = req.body;
@@ -74,7 +62,7 @@ router.post('/rumbleup/projects/:id/test', asyncHandler(async (req, res) => {
     const result = await ru.sendTestMessage(req.params.id, test_phone, message);
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Operation failed. Please try again.' });
   }
 }));
 
@@ -90,32 +78,7 @@ router.post('/rumbleup/projects/:id/stop', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-router.get('/rumbleup/stats', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const result = await ru.getProjectStats({
-    format: req.query.format || 'json',
-    days: req.query.days ? parseInt(req.query.days) : undefined,
-    since: req.query.since || undefined,
-    before: req.query.before || undefined,
-    project: req.query.project || undefined
-  });
-  res.json(result);
-}));
-
 // ========== CONTACTS ==========
-
-router.post('/rumbleup/contacts/search', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const result = await ru.getContacts(req.body);
-  res.json(result);
-}));
-
-router.post('/rumbleup/contacts/sync', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  if (!req.body.phone) return res.status(400).json({ error: 'phone is required.' });
-  const result = await ru.syncContact(req.body);
-  res.json({ success: true, ...result });
-}));
 
 router.post('/rumbleup/contacts/import', asyncHandler(async (req, res) => {
   const ru = getRumbleUp();
@@ -152,49 +115,7 @@ router.post('/rumbleup/contacts/import', asyncHandler(async (req, res) => {
   res.json({ success: true, imported: voters.length, listName: list.name, ...result });
 }));
 
-router.post('/rumbleup/contacts/download', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  if (!req.body.gid) return res.status(400).json({ error: 'gid (group ID) is required.' });
-  const result = await ru.downloadContacts(req.body);
-  if (result.csv) {
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="rumbleup_contacts.csv"');
-    return res.send(result.csv);
-  }
-  res.json(result);
-}));
-
-// ========== GROUPS ==========
-
-router.get('/rumbleup/groups/:id', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const group = await ru.getGroup(req.params.id);
-  res.json(group);
-}));
-
-// ========== MESSAGING ==========
-
-router.get('/rumbleup/messaging/next', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const actionId = req.query.action || ru.getCredentials().actionId;
-  if (!actionId) return res.status(400).json({ error: 'action (project ID) is required.' });
-  const result = await ru.getNextContact(actionId);
-  res.json(result);
-}));
-
-router.post('/rumbleup/messaging/send', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const { phone, action, text, name, group, flags } = req.body;
-  if (!phone || !text) return res.status(400).json({ error: 'phone and text are required.' });
-  const actionId = action || ru.getCredentials().actionId;
-  if (!actionId) return res.status(400).json({ error: 'action (project ID) is required.' });
-  try {
-    const result = await ru.sendToProject(phone, actionId, text, { name, group, flags });
-    res.json(result);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-}));
+// ========== MESSAGING LOGS ==========
 
 router.get('/rumbleup/messaging/logs', asyncHandler(async (req, res) => {
   const ru = getRumbleUp();
@@ -207,72 +128,6 @@ router.get('/rumbleup/messaging/logs', asyncHandler(async (req, res) => {
     _start: req.query._start
   });
   res.json(result);
-}));
-
-// ========== REPORTS ==========
-
-router.post('/rumbleup/reports', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const { title } = req.body;
-  if (!title) return res.status(400).json({ error: 'title is required.' });
-  const result = await ru.createReport(title, req.body);
-  res.json(result);
-}));
-
-router.get('/rumbleup/reports', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const result = await ru.listReports();
-  res.json(result);
-}));
-
-// ========== DIRECT IMPORT FROM LIST ==========
-// Push an admin list directly to RumbleUp as contacts, then optionally assign to a project
-
-router.post('/rumbleup/push-list', asyncHandler(async (req, res) => {
-  const ru = getRumbleUp();
-  const { list_id, project_id } = req.body;
-  if (!list_id) return res.status(400).json({ error: 'list_id is required.' });
-
-  // Get voters from admin list
-  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(list_id);
-  if (!list) return res.status(404).json({ error: 'List not found.' });
-
-  const voters = db.prepare(`
-    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
-    FROM admin_list_voters alv
-    JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
-  `).all(list_id);
-
-  if (voters.length === 0) return res.status(400).json({ error: 'No voters with phone numbers on this list.' });
-
-  // Sync each contact individually (more reliable than CSV import for smaller lists)
-  let synced = 0;
-  let errors = 0;
-  for (const v of voters) {
-    try {
-      await ru.syncContact({
-        phone: (v.phone || '').replace(/\D/g, ''),
-        first_name: v.first_name || '',
-        last_name: v.last_name || '',
-        city: v.city || '',
-        zipcode: v.zip || '',
-        email: v.email || ''
-      });
-      synced++;
-    } catch (err) {
-      errors++;
-    }
-  }
-
-  res.json({
-    success: true,
-    listName: list.name,
-    total: voters.length,
-    synced,
-    errors,
-    project_id: project_id || null
-  });
 }));
 
 module.exports = router;
