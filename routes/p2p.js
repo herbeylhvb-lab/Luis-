@@ -520,23 +520,27 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
     // Sync to the MMS project if applicable, otherwise default project
     if (provider.syncContact) {
       try {
-        await provider.syncContact({
+        const syncResult = await provider.syncContact({
           phone: phoneDigits(assignment.phone),
           first_name: assignment.first_name || '',
           last_name: assignment.last_name || '',
           city: assignment.city || '',
           action: mmsActionId || undefined
         });
+        console.log('[p2p-send] Contact synced to project', mmsActionId || 'default', ':', JSON.stringify(syncResult));
       } catch (syncErr) {
-        console.warn('[p2p-send] Contact sync failed, proceeding with send:', syncErr.message);
+        console.error('[p2p-send] Contact sync FAILED for', phoneDigits(assignment.phone), 'to project', mmsActionId || 'default', ':', syncErr.message);
       }
     }
 
     // If MMS project, ensure it's in live/sending mode (only once per project)
     if (mmsActionId && provider.goLive) {
       if (!goLiveCache.has(mmsActionId)) {
-        try { await provider.goLive(mmsActionId); } catch (e) {
-          console.log('[p2p-send] goLive for project', mmsActionId, ':', e.message || 'ok');
+        try {
+          const goLiveResult = await provider.goLive(mmsActionId);
+          console.log('[p2p-send] goLive OK for project', mmsActionId, ':', JSON.stringify(goLiveResult));
+        } catch (e) {
+          console.error('[p2p-send] goLive FAILED for project', mmsActionId, ':', e.message);
         }
         goLiveCache.add(mmsActionId);
       }
