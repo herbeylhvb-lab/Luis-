@@ -956,6 +956,14 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function walkerPartyBadge(score) {
+  if (!score) return '';
+  var colors = { D:'#3b82f6', DD:'#3b82f6', DDD:'#3b82f6', R:'#ef4444', RR:'#ef4444', RRR:'#ef4444', SWING:'#a855f7' };
+  var c = colors[score] || '#64748b';
+  var titles = { D:'1 Dem primary', DD:'2 Dem primaries', DDD:'3+ Dem primaries', R:'1 GOP primary', RR:'2 GOP primaries', RRR:'3+ GOP primaries', SWING:'Equal D & R primaries' };
+  return ' <span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;letter-spacing:1px;margin-left:4px" title="' + (titles[score]||score) + '">' + escHtml(score) + '</span>';
+}
+
 // Parse apartment/unit from address string when unit field is empty
 function parseUnitFromAddress(address) {
   if (!address) return { street: '', unit: '' };
@@ -1372,7 +1380,7 @@ function renderAddressList() {
       var voterText = a.voter_name;
       if (a.unit) voterText += ' \u2014 ' + a.unit;
       if (a.voter_age) voterText += ' (age ' + a.voter_age + ')';
-      voter.textContent = voterText;
+      voter.innerHTML = escHtml(voterText) + (a.voter_party_score ? walkerPartyBadge(a.voter_party_score) : '');
       card.appendChild(voter);
     }
 
@@ -1569,6 +1577,8 @@ function openDoor(idx) {
       unit: a.unit || '',
       addr: doorFullAddr,
       age: a.voter_age || null,
+      party_score: a.voter_party_score || '',
+      election_votes: a.election_votes || [],
       isPrimary: true,
       status: 'pending',
       result: null
@@ -1584,6 +1594,8 @@ function openDoor(idx) {
         unit: m.unit || '',
         addr: memberAddr,
         age: m.age || null,
+        party_score: m.party_score || '',
+        election_votes: [],
         isPrimary: false,
         status: 'pending',
         result: null
@@ -1655,9 +1667,21 @@ function renderMemberList() {
     var nameHtml = '<div>';
     nameHtml += '<span class="hh-name">' + escHtml(m.name) + '</span>';
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
+    if (m.party_score) nameHtml += walkerPartyBadge(m.party_score);
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
     nameHtml += '</div>';
     if (m.addr) nameHtml += '<div style="font-size:11px;color:#94a3b8;margin-top:1px">' + escHtml(m.addr) + '</div>';
+    // Show recent election history if available
+    if (m.election_votes && m.election_votes.length > 0) {
+      nameHtml += '<div style="font-size:10px;color:#64748b;margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">';
+      var shown = m.election_votes.slice(0, 5);
+      for (var ev = 0; ev < shown.length; ev++) {
+        var pColor = shown[ev].party === 'D' || shown[ev].party === 'DEM' ? '#3b82f6' : shown[ev].party === 'R' || shown[ev].party === 'REP' ? '#ef4444' : '#64748b';
+        nameHtml += '<span style="background:rgba(255,255,255,0.05);border:1px solid ' + pColor + ';border-radius:4px;padding:1px 4px;color:' + pColor + '">' + escHtml(shown[ev].name) + (shown[ev].party ? ' (' + escHtml(shown[ev].party) + ')' : '') + '</span>';
+      }
+      if (m.election_votes.length > 5) nameHtml += '<span style="color:#64748b">+' + (m.election_votes.length - 5) + ' more</span>';
+      nameHtml += '</div>';
+    }
 
     var statusHtml = '';
     if (m.status === 'talked') {

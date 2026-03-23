@@ -100,7 +100,7 @@ function buildHouseholdFromWalkAddresses(addresses) {
       const parts = (a.voter_name || '').trim().split(' ');
       const firstName = parts[0] || '';
       const lastName = parts.slice(1).join(' ') || '';
-      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '' };
+      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '', party_score: a.voter_party_score || '' };
     });
   }
 }
@@ -765,7 +765,8 @@ router.get('/walks/:id/volunteer', (req, res) => {
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
             wa.assigned_walker,
-            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last,
+            v.party_score as voter_party_score, v.support_level as voter_support
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
@@ -773,6 +774,22 @@ router.get('/walks/:id/volunteer', (req, res) => {
 
   // Build household members — group by address+unit so apartments only show people in the same unit
   buildHouseholdFromWalkAddresses(walk.addresses);
+
+  // Attach election votes (party primary history) for voter info display
+  const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);
+  if (voterIds.length > 0) {
+    const evRows = db.prepare(
+      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+    ).all(...voterIds);
+    const evMap = {};
+    for (const r of evRows) {
+      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
+      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '' });
+    }
+    for (const a of walk.addresses) {
+      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
+    }
+  }
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
@@ -2347,7 +2364,8 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.lat, wa.lng, wa.voter_id,
             wa.assigned_walker,
-            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last,
+            v.party_score as voter_party_score, v.support_level as voter_support
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`

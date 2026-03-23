@@ -374,13 +374,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
               <div class="form-group"><label>ZIP</label><input type="text" id="candZipFilter" placeholder="All" oninput="debounceSearch()"></div>
               <div class="form-group"><label>Precinct</label><input type="text" id="candPrecinctFilter" placeholder="All" oninput="debounceSearch()"></div>
               <div class="form-group" style="grid-column:1/-1"><label>Address</label><input type="text" id="candAddressFilter" placeholder="Street..." oninput="debounceSearch()"></div>
-              <div class="form-group"><label>Party</label>
+              <div class="form-group"><label>Party ID</label>
                 <select id="candPartyFilter" onchange="debounceSearch()">
-                  <option value="">All Parties</option>
-                  <option value="DEM">DEM</option>
-                  <option value="REP">REP</option>
-                  <option value="NPA">NPA</option>
-                  <option value="LPF">LPF</option>
+                  <option value="">All</option>
+                  <option value="DDD">DDD (Strong Dem)</option>
+                  <option value="DD">DD (Mod Dem)</option>
+                  <option value="D">D (Weak Dem)</option>
+                  <option value="RRR">RRR (Strong GOP)</option>
+                  <option value="RR">RR (Mod GOP)</option>
+                  <option value="R">R (Weak GOP)</option>
+                  <option value="SWING">Swing</option>
                 </select>
               </div>
               <div class="form-group"><label>Support</label>
@@ -901,7 +904,7 @@ function createVoterExpandPanel(v) {
   var fields = [
     ['Address', (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '')],
     ['Phone', v.phone || '\u2014'],
-    ['Party', v.party || '\u2014'],
+    ['Party ID', v.party_score || 'No primary history'],
     ['Precinct', v.precinct || '\u2014'],
     ['Voter ID', v.registration_number || v.state_file_id || v.county_file_id || v.vanid || '\u2014'],
     ['Voted', v.early_voted === 1 ? '\u2713 Yes' + (v.early_voted_date ? ' (' + v.early_voted_date + ')' : '') + (v.early_voted_method ? ' \u2014 ' + v.early_voted_method : '') : 'Not yet']
@@ -1527,10 +1530,12 @@ async function searchVoters() {
 
       var meta = document.createElement('div');
       meta.className = 'voter-meta';
-      if (v.party) {
+      if (v.party_score) {
         var partyBadge = document.createElement('span');
-        partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-        partyBadge.textContent = v.party;
+        var pColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+        partyBadge.className = 'badge ' + (pColors[v.party_score] || 'badge-gray');
+        partyBadge.style.cssText = 'font-weight:700;letter-spacing:1px';
+        partyBadge.textContent = v.party_score;
         meta.appendChild(partyBadge);
       }
       meta.appendChild(createVotedBadge(v));
@@ -1972,7 +1977,7 @@ function filterMasterListRight() {
   }
   if (q) {
     filtered = filtered.filter(function(v) {
-      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
+      var text = ((v.first_name || '') + ' ' + (v.middle_name || '') + ' ' + (v.last_name || '') + ' ' + (v.suffix || '') + ' ' + (v.address || '') + ' ' + (v.city || '') + ' ' + (v.phone || '') + ' ' + (v.party_score || v.party || '') + ' ' + (v.precinct || '') + ' ' + (v.state_file_id || '') + ' ' + (v.vanid || '')).toLowerCase();
       (v.lists || []).forEach(function(l) { text += ' ' + l.source_name + ' ' + l.list_name; });
       return text.indexOf(q) !== -1;
     });
@@ -1999,7 +2004,7 @@ function renderMasterRowsRight(voters, container) {
   table.className = 'master-table';
   var thead = document.createElement('thead');
   var headTr = document.createElement('tr');
-  ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'].forEach(function(h) {
+  ['Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone', 'On Lists'].forEach(function(h) {
     var th = document.createElement('th');
     th.textContent = h;
     headTr.appendChild(th);
@@ -2055,10 +2060,12 @@ function renderMasterRowsRight(voters, container) {
     tr.appendChild(tdAddr);
 
     var tdParty = document.createElement('td');
-    if (v.party) {
+    if (v.party_score) {
       var partyBadge = document.createElement('span');
-      partyBadge.className = 'badge ' + (v.party === 'DEM' ? 'badge-blue' : v.party === 'REP' ? 'badge-red' : 'badge-gray');
-      partyBadge.textContent = v.party;
+      var pColors = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+      partyBadge.className = 'badge ' + (pColors[v.party_score] || 'badge-gray');
+      partyBadge.style.cssText = 'font-weight:700;letter-spacing:1px';
+      partyBadge.textContent = v.party_score;
       tdParty.appendChild(partyBadge);
     }
     tr.appendChild(tdParty);
@@ -2211,7 +2218,7 @@ async function loadHousehold(voterId, card) {
       var row = document.createElement('div');
       row.className = 'household-member';
       var info = document.createElement('span');
-      info.textContent = (m.first_name || '') + ' ' + (m.last_name || '') + (m.party ? ' (' + m.party + ')' : '');
+      info.textContent = (m.first_name || '') + ' ' + (m.last_name || '') + (m.party_score ? ' (' + m.party_score + ')' : '');
       row.appendChild(info);
       if (selectedListId) {
         var addBtn = document.createElement('button');
@@ -2411,7 +2418,7 @@ function buildPrintPage(title, subtitle, tableHeaders, rows) {
 function printMasterList() {
   var title = (candidateData.candidate.name || '') + ' \u2014 Master Voter List';
   var subtitle = masterListData.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
-  var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone', 'On Lists'];
+  var headers = ['Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone', 'On Lists'];
   var rows = masterListData.map(function(v) {
     var voted = isVoted(v);
     var listsStr = (v.lists || []).map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join(', ');
@@ -2419,7 +2426,7 @@ function printMasterList() {
       voterFullName(v) + (v.precinct ? ' (Pct ' + v.precinct + ')' : ''),
       voterIdDisplay(v) || '\u2014',
       (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
-      v.party || '',
+      v.party_score || '',
       { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
       v.phone || '',
       listsStr
@@ -2429,10 +2436,10 @@ function printMasterList() {
 }
 
 function downloadMasterCSV() {
-  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Precinct', 'Voted', 'Phone', 'On Lists'];
+  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone', 'On Lists'];
   var rows = masterListData.map(function(v) {
     var listsStr = (v.lists || []).map(function(l) { return l.source_type === 'captain' ? l.source_name : l.list_name; }).join('; ');
-    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', v.precinct || '', isVoted(v) ? 'Yes' : 'No', v.phone || '', listsStr].map(csvEscape).join(',');
+    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party_score || '', v.precinct || '', isVoted(v) ? 'Yes' : 'No', v.phone || '', listsStr].map(csvEscape).join(',');
   });
   var csv = headers.join(',') + '\n' + rows.join('\n');
   var name = (candidateData.candidate.name || 'master').replace(/\s+/g, '_') + '_master_list.csv';
@@ -2442,14 +2449,14 @@ function downloadMasterCSV() {
 function printCaptainList(captainName) {
   var title = captainName + ' \u2014 Voter List';
   var subtitle = captainListVoters.length + ' voter' + (captainListVoters.length !== 1 ? 's' : '') + ' \u00B7 Printed ' + new Date().toLocaleString();
-  var headers = ['Voter', 'Voter ID', 'Address', 'Party', 'Voted', 'Phone'];
+  var headers = ['Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone'];
   var rows = captainListVoters.map(function(v) {
     var voted = isVoted(v);
     return [
       voterFullName(v),
       voterIdDisplay(v) || '\u2014',
       (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
-      v.party || '',
+      v.party_score || '',
       { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
       v.phone || ''
     ];
@@ -2458,9 +2465,9 @@ function printCaptainList(captainName) {
 }
 
 function downloadCaptainListCSV(captainName) {
-  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party', 'Voted', 'Phone'];
+  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Voted', 'Phone'];
   var rows = captainListVoters.map(function(v) {
-    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party || '', isVoted(v) ? 'Yes' : 'No', v.phone || ''].map(csvEscape).join(',');
+    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party_score || '', isVoted(v) ? 'Yes' : 'No', v.phone || ''].map(csvEscape).join(',');
   });
   var csv = headers.join(',') + '\n' + rows.join('\n');
   var name = (captainName || 'captain').replace(/\s+/g, '_') + '_voters.csv';
