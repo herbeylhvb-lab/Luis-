@@ -2379,7 +2379,7 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   const walkerId = parseInt(req.params.walkerId, 10);
   if (isNaN(walkerId) || walkerId <= 0) return res.status(400).json({ error: 'Invalid walker ID.' });
 
-  const walk = db.prepare('SELECT id, name, description, status FROM block_walks WHERE id = ?').get(req.params.id);
+  const walk = db.prepare('SELECT id, name, description, status, script_id FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
   const addresses = db.prepare(
@@ -2405,6 +2405,22 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
 
   // Build household members — group by address+unit so apartments only show people in the same unit
   buildHouseholdFromWalkAddresses(addresses);
+
+  // Attach election votes (party primary history) for voter info display
+  const voterIds = addresses.map(a => a.voter_id).filter(Boolean);
+  if (voterIds.length > 0) {
+    const evRows = db.prepare(
+      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+    ).all(...voterIds);
+    const evMap = {};
+    for (const r of evRows) {
+      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
+      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '' });
+    }
+    for (const a of addresses) {
+      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
+    }
+  }
 
   // Attempt counts
   const attemptCounts = db.prepare('SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id').all(req.params.id);
