@@ -641,9 +641,15 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-group"><label>Message Template</label><textarea id="p2pTemplate" rows="3" placeholder="Hi {firstName}! This is a volunteer with the campaign..."></textarea></div>
           <div class="form-group">
-            <label>MMS Image Project <span style="font-weight:400;color:#64748b">(optional)</span></label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input type="text" id="p2pMmsProjectId" placeholder="RumbleUp Project ID" style="flex:1">
+            <label>MMS Image Project <span style="font-weight:400;color:#64748b">(optional — select to send image with texts)</span></label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="p2pMmsProjectSelect" onchange="document.getElementById('p2pMmsProjectId').value=this.value" style="flex:1;min-width:180px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
+                <option value="">No image (SMS only)</option>
+              </select>
+              <span style="color:#64748b;font-size:12px">or</span>
+              <input type="text" id="p2pMmsProjectId" placeholder="Project ID" style="width:100px">
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
               <button class="btn btn-sm" style="background:#334155;color:#e2e8f0;white-space:nowrap" onclick="checkP2pMmsProject()">Check Project</button>
               <button class="btn btn-sm" style="background:#818cf8;color:#fff;white-space:nowrap" onclick="testP2pMmsSend()">Test Send</button>
             </div>
@@ -2433,7 +2439,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'inbox') { switchInboxTab('needs-response'); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
-    if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); }
+    if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); populateMmsDropdown('p2pMmsProjectSelect'); }
     if (page === 'manage-volunteers') { loadUnifiedVols(); }
     if (page === 'candidates') { loadCandidates(); }
     if (page === 'surveys') { showSurveyList(); loadSurveys(); }
