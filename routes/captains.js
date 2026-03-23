@@ -382,6 +382,11 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   req.session.captainId = captain.id;
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
+  // Include candidate race info for race filter
+  if (captain.candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
+    if (cand) { captain.race_type = cand.race_type; captain.race_value = cand.race_value; }
+  }
   // Sub-captains — full descendant tree (recursive CTE) with parent_captain_id for hierarchy rendering
   captain.sub_captains = db.prepare(`
     WITH RECURSIVE team_tree AS (
@@ -684,7 +689,14 @@ router.get('/captains/:id/lists', requireCaptainAuth, (req, res) => {
     SELECT * FROM team_tree ORDER BY name
   `).all(req.params.id);
 
-  res.json({ lists, sub_captain_lists: subCaptainLists, assigned_lists: assignedLists, team_members: teamMembers, sub_captains: subCaptains });
+  // Include candidate race info for race filter
+  const captain = db.prepare('SELECT candidate_id FROM captains WHERE id = ?').get(req.params.id);
+  let race_type = '', race_value = '';
+  if (captain && captain.candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
+    if (cand) { race_type = cand.race_type || ''; race_value = cand.race_value || ''; }
+  }
+  res.json({ lists, sub_captain_lists: subCaptainLists, assigned_lists: assignedLists, team_members: teamMembers, sub_captains: subCaptains, race_type, race_value });
 });
 
 // Create list — blocked for captains (each captain gets one auto-created "My Voters" list)

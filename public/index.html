@@ -2149,24 +2149,7 @@ tr:hover td{background:#1e293b80}
           </div>
           <div class="form-row-3">
             <div class="form-group"><label>Email</label><input type="email" id="newCandidateEmail" placeholder="candidate@example.com"></div>
-            <div class="form-group"><label>Race / District</label>
-              <select id="newCandidateRaceType" onchange="loadCandidateRaceValues('newCandidateRaceType','newCandidateRaceValue')" style="margin-bottom:4px">
-                <option value="">No race assigned</option>
-                <option value="navigation_port">Navigation Port</option>
-                <option value="port_authority">Port Authority</option>
-                <option value="city_district">City District</option>
-                <option value="county_commissioner">County Commissioner</option>
-                <option value="justice_of_peace">Justice of Peace</option>
-                <option value="state_board_ed">State Board of Ed</option>
-                <option value="state_rep">State Rep</option>
-                <option value="state_senate">State Senate</option>
-                <option value="us_congress">US Congress</option>
-                <option value="school_district">School District</option>
-                <option value="college_district">College District</option>
-                <option value="hospital_district">Hospital District</option>
-              </select>
-              <select id="newCandidateRaceValue"><option value="">Select race type first</option></select>
-            </div>
+            <div class="form-group" style="display:flex;align-items:flex-end"></div>
             <div class="form-group" style="display:flex;align-items:flex-end"><button class="btn btn-sm btn-success" onclick="createCandidate()">Create Candidate</button>&nbsp;<button class="btn btn-sm btn-secondary" onclick="hideAddCandidateForm()">Cancel</button></div>
           </div>
         </div>
@@ -2191,6 +2174,28 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-sm btn-success" onclick="addListToCandidate()">+ List</button>
             <button class="btn btn-sm btn-secondary" onclick="closeCandidateDetail()">Close</button>
           </div>
+        </div>
+
+        <!-- Race/District assignment -->
+        <div id="candidateRaceAssign" style="margin-bottom:16px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:#94a3b8;font-weight:600;white-space:nowrap">Race / District:</span>
+          <select id="candRaceType" onchange="loadCandidateRaceValues('candRaceType','candRaceValue')" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:140px">
+            <option value="">None assigned</option>
+            <option value="navigation_port">Navigation Port</option>
+            <option value="port_authority">Port Authority</option>
+            <option value="city_district">City District</option>
+            <option value="county_commissioner">County Commissioner</option>
+            <option value="justice_of_peace">Justice of Peace</option>
+            <option value="state_board_ed">State Board of Ed</option>
+            <option value="state_rep">State Rep</option>
+            <option value="state_senate">State Senate</option>
+            <option value="us_congress">US Congress</option>
+            <option value="school_district">School District</option>
+            <option value="college_district">College District</option>
+            <option value="hospital_district">Hospital District</option>
+          </select>
+          <select id="candRaceValue" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:100px"><option value="">Select type first</option></select>
+          <button class="btn btn-xs btn-primary" onclick="saveCandidateRace()">Save</button>
         </div>
 
         <!-- Captains with expandable lists -->
@@ -9691,18 +9696,14 @@ async function createCandidate() {
   var office = document.getElementById('newCandidateOffice').value.trim();
   var phone = document.getElementById('newCandidatePhone').value.trim();
   var email = document.getElementById('newCandidateEmail').value.trim();
-  var race_type = document.getElementById('newCandidateRaceType').value;
-  var race_value = document.getElementById('newCandidateRaceValue').value;
   try {
-    var data = await apiPost('/api/candidates', { name: name, office: office, phone: phone, email: email, race_type: race_type, race_value: race_value });
+    var data = await apiPost('/api/candidates', { name: name, office: office, phone: phone, email: email });
     showCandidateShareModal(name, data.code, true);
     hideAddCandidateForm();
     document.getElementById('newCandidateName').value = '';
     document.getElementById('newCandidateOffice').value = '';
     document.getElementById('newCandidatePhone').value = '';
     document.getElementById('newCandidateEmail').value = '';
-    document.getElementById('newCandidateRaceType').value = '';
-    document.getElementById('newCandidateRaceValue').innerHTML = '<option value="">Select race type first</option>';
     loadCandidates();
   } catch (e) { alert('Error: ' + (e.message || e)); }
 }
@@ -9749,6 +9750,16 @@ function refreshCandidateDetail() {
   var name = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
   showCandidateDetail(_candidateDetailId, name, _candidateDetailCode, _candidateRaceType, _candidateRaceValue);
 }
+async function saveCandidateRace() {
+  var rt = document.getElementById('candRaceType').value;
+  var rv = document.getElementById('candRaceValue').value;
+  try {
+    await apiPut('/api/candidates/' + _candidateDetailId, { race_type: rt || '', race_value: rv || '' });
+    _candidateRaceType = rt || '';
+    _candidateRaceValue = rv || '';
+    loadCandidates();
+  } catch (e) { alert('Error saving race: ' + (e.message || e)); }
+}
 async function showCandidateDetail(id, name, code, raceType, raceValue) {
   _candidateDetailId = id;
   if (code !== undefined) _candidateDetailCode = code || null;
@@ -9770,6 +9781,15 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
   };
   titleEl.appendChild(editCandBtn);
   document.getElementById('candidateDetailCard').style.display = '';
+  // Populate race selector with current values
+  document.getElementById('candRaceType').value = _candidateRaceType || '';
+  if (_candidateRaceType) {
+    loadCandidateRaceValues('candRaceType', 'candRaceValue').then(function() {
+      document.getElementById('candRaceValue').value = _candidateRaceValue || '';
+    });
+  } else {
+    document.getElementById('candRaceValue').innerHTML = '<option value="">Select type first</option>';
+  }
   // On mobile, hide the candidates list card and scroll to top
   if (window.innerWidth <= 768) {
     var listCard = document.getElementById('candidateDetailCard').previousElementSibling;
