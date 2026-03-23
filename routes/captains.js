@@ -538,8 +538,8 @@ function requireCaptainAuth(req, res, next) {
 
 // Search voters (captain portal) — name search + dedicated filters for phone, vanid, etc.
 router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
-  const { q, phone, vanid, city, zip, precinct, address, scope } = req.query;
-  const hasFilter = phone || vanid || city || zip || precinct || address;
+  const { q, phone, vanid, city, zip, precinct, address, scope, race } = req.query;
+  const hasFilter = phone || vanid || city || zip || precinct || address || race;
   if ((!q || q.trim().length < 2) && !hasFilter) return res.json({ voters: [] });
 
   // Captains can search the full voter database to build their lists
@@ -584,6 +584,15 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
   if (address) {
     const addrEsc = address.replace(/[\\%_]/g, '\\$&');
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
+  }
+  // Race/district filter: "race_type:race_value" format (e.g. "state_rep:42")
+  if (race && race.includes(':')) {
+    const [raceType, raceValue] = race.split(':', 2);
+    const VALID_RACE_COLS = new Set(['navigation_port','port_authority','city_district','county_commissioner','justice_of_peace','state_board_ed','state_rep','state_senate','us_congress','school_district','college_district','hospital_district']);
+    if (VALID_RACE_COLS.has(raceType) && raceValue) {
+      conditions.push(raceType + ' = ?');
+      params.push(raceValue);
+    }
   }
 
   // Restrict to captain's own voters (from their lists and full descendant tree)
