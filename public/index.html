@@ -12934,9 +12934,105 @@ async function searchGotvChase() {
       var sl = v.support_level || 'unknown';
       var slCls = sl === 'strong_support' || sl === 'lean_support' || sl === 'supporter' ? 'badge-green' : (sl === 'undecided' || sl === 'unknown' ? 'badge-yellow' : 'badge-gray');
       var slLabel = sl.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-      return '<tr><td>' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td class="chase-addr" style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '" style="white-space:nowrap">' + escHtml(slLabel) + '</span></td><td>' + escHtml(v.party_score || v.party || '--') + '</td></tr>';
+      return '<tr style="cursor:pointer" onclick="showVoterModal(' + v.id + ')" onmouseover="this.style.background=\'#1e293b\'" onmouseout="this.style.background=\'\'"><td style="color:#818cf8;font-weight:600">' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td class="chase-addr" style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '" style="white-space:nowrap">' + escHtml(slLabel) + '</span></td><td>' + escHtml(v.party_score || v.party || '--') + '</td></tr>';
     }).join('');
   } catch (e) { alert('Error: ' + e.message); }
+}
+
+// Voter detail modal overlay (used in GOTV and anywhere we don't want to navigate away)
+async function showVoterModal(voterId) {
+  var existing = document.getElementById('voterModalOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'voterModalOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000;padding:16px';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;padding:24px';
+  box.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:24px">Loading voter details...</div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  try {
+    var data = await api('/api/voters/' + voterId);
+    var v = data.voter;
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">';
+    html += '<h3 style="margin:0;font-size:18px">' + escHtml(v.first_name + ' ' + (v.middle_name || '') + ' ' + v.last_name) + '</h3>';
+    html += '<button onclick="document.getElementById(\'voterModalOverlay\').remove()" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer">\u2715</button></div>';
+
+    // Early voting status
+    if (v.early_voted) {
+      var bl = v.early_voted_ballot || '';
+      var evColor = bl === 'Democrat' || bl === 'D' ? '#3b82f6' : bl === 'Republican' || bl === 'R' ? '#ef4444' : '#22c55e';
+      html += '<div style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:8px;padding:10px;margin-bottom:12px">';
+      html += '<strong style="color:' + evColor + '">\u2705 Voted</strong>';
+      if (bl) html += ' <span style="color:#94a3b8;font-size:13px">' + escHtml(bl) + ' ballot</span>';
+      if (v.early_voted_date) html += ' <span style="color:#94a3b8;font-size:13px">on ' + escHtml(v.early_voted_date) + '</span>';
+      if (v.early_voted_method) html += ' <span style="color:#94a3b8;font-size:13px">(' + escHtml(v.early_voted_method) + ')</span>';
+      html += '</div>';
+    } else {
+      html += '<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;margin-bottom:12px">';
+      html += '<span style="color:#f59e0b">\u23F3 Has not voted yet</span></div>';
+    }
+
+    // Info grid
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:13px;margin-bottom:16px">';
+    var fields = [
+      ['Phone', v.phone || '\u2014'], ['Email', v.email || '\u2014'],
+      ['Address', (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '')],
+      ['Precinct', v.precinct || '\u2014'],
+      ['Registration #', v.registration_number || v.state_file_id || '\u2014'],
+      ['Party ID', v.party_score ? partyScoreTitle(v.party_score) : (v.party || 'No primary history')],
+      ['Support Level', (v.support_level || 'unknown').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); })],
+      ['Gender', v.gender || '\u2014'], ['Age', v.age || '\u2014']
+    ];
+    fields.forEach(function(f) {
+      html += '<div><span style="color:#64748b;font-size:11px;text-transform:uppercase">' + f[0] + '</span><div style="color:#e2e8f0">' + escHtml(f[1]) + '</div></div>';
+    });
+    html += '</div>';
+
+    // Election history
+    if (v.election_history && v.election_history.length > 0) {
+      html += '<h4 style="color:#94a3b8;font-size:13px;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Election History</h4>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px">';
+      v.election_history.forEach(function(ev) {
+        var p = ev.party_voted || '';
+        var cls = p === 'DEM' || p === 'Democrat' || p === 'D' ? 'background:#1e3a5f;color:#60a5fa;border:1px solid #2563eb' :
+                  p === 'REP' || p === 'Republican' || p === 'R' ? 'background:#3b1010;color:#fca5a5;border:1px solid #dc2626' :
+                  'background:#1e293b;color:#94a3b8;border:1px solid #334155';
+        html += '<span style="font-size:11px;padding:3px 8px;border-radius:6px;' + cls + '" title="' + escHtml(ev.election_date || '') + '">' + escHtml(ev.election_name) + (p ? ' (' + escHtml(p) + ')' : '') + '</span>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="color:#64748b;font-size:13px;margin-bottom:16px">No election history on file.</div>';
+    }
+
+    // Contact history
+    if (v.contactHistory && v.contactHistory.length > 0) {
+      html += '<h4 style="color:#94a3b8;font-size:13px;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Contact History</h4>';
+      html += '<div style="max-height:200px;overflow-y:auto">';
+      v.contactHistory.forEach(function(c) {
+        html += '<div style="padding:6px 0;border-bottom:1px solid #1e293b;font-size:12px">';
+        html += '<span style="color:#64748b">' + new Date(c.contacted_at).toLocaleDateString() + '</span> ';
+        html += '<span style="color:#818cf8">' + escHtml(c.contact_type) + '</span> ';
+        html += '<span style="color:#e2e8f0">' + escHtml(c.result) + '</span>';
+        if (c.notes) html += ' <span style="color:#94a3b8">\u2014 ' + escHtml(c.notes) + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // View full profile button
+    html += '<div style="margin-top:16px;text-align:center">';
+    html += '<button class="btn btn-sm btn-primary" onclick="document.getElementById(\'voterModalOverlay\').remove(); showPage(\'voters\'); showVoterDetail(' + v.id + ')">View Full Profile</button>';
+    html += '</div>';
+
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<div style="color:#ef4444;padding:24px;text-align:center">Failed to load voter details.</div>';
+  }
 }
 
 async function createChaseList() {
