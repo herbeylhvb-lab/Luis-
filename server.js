@@ -446,6 +446,10 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 
   // Normalize phone to 10-digit for matching against stored contacts
   const fromNormalized = phoneDigits(From);
+  if (!fromNormalized || fromNormalized.length < 10) {
+    console.log('[webhook] Invalid phone number, ignoring');
+    return res.type(replyType).send(provider.buildEmptyReply());
+  }
 
   try {
 
@@ -458,7 +462,6 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
   // Use fast keyword sentiment in webhook path (AI is too slow, risks timeout)
   const sentiment = analyzeSentimentKeywords(Body);
   // AI sentiment will be fire-and-forget AFTER message is inserted (see below)
-  let _webhookMsgId = null; // captured after INSERT for AI update
 
   // Check if this is a survey response (only when the survey is actively running)
   const activeSend = db.prepare(`
@@ -583,22 +586,22 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
       const r = db.prepare("INSERT INTO messages (phone, body, direction, sentiment, session_id, channel) VALUES (?, ?, 'inbound', ?, ?, ?)").run(fromNormalized, Body, sentiment, p2pAssignment.sid, channel);
       return r.lastInsertRowid;
     })();
-    _webhookMsgId = txResult;
+    const savedMsgId = txResult;
     // Fire-and-forget AI sentiment update by exact row ID
     analyzeSentimentAI(Body).then(aiSentiment => {
-      if (aiSentiment !== sentiment && _webhookMsgId) {
-        db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, _webhookMsgId);
+      if (aiSentiment !== sentiment && savedMsgId) {
+        db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, savedMsgId);
       }
     }).catch(() => {});
     return res.type(replyType).send(provider.buildEmptyReply());
   }
 
   const insResult = db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, ?, 'inbound', ?, ?)").run(fromNormalized, Body, sentiment, channel);
-  _webhookMsgId = insResult.lastInsertRowid;
+  const savedMsgId = insResult.lastInsertRowid;
   // Fire-and-forget AI sentiment update by exact row ID
   analyzeSentimentAI(Body).then(aiSentiment => {
-    if (aiSentiment !== sentiment && _webhookMsgId) {
-      db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, _webhookMsgId);
+    if (aiSentiment !== sentiment && savedMsgId) {
+      db.prepare("UPDATE messages SET sentiment = ? WHERE id = ?").run(aiSentiment, savedMsgId);
     }
   }).catch(() => {});
   const autoReply = generateAutoReply(msgText);
