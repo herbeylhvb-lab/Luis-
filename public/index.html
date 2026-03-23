@@ -1045,7 +1045,7 @@ tr:hover td{background:#1e293b80}
         <!-- Per-Walker Breakdown -->
         <div class="card">
           <h3>Worker Performance — <span id="dailyDateLabel" style="color:#818cf8"></span></h3>
-          <div class="table-wrap"><table><thead><tr><th>Walker</th><th>Doors</th><th>Contacts</th><th>Supporters</th><th>Undecided</th><th>Oppose</th><th>Not Home</th><th>Contact Rate</th><th>Doors/Hr</th><th>Hours</th></tr></thead><tbody id="dailyWalkersBody"><tr><td colspan="10" style="color:#64748b;text-align:center">Select a date above</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Walker</th><th>Doors</th><th>Contacts</th><th>Supporters</th><th>Undecided</th><th>Lean Oppose</th><th>Oppose</th><th>Not Home</th><th>Contact Rate</th><th>Doors/Hr</th><th>Hours</th></tr></thead><tbody id="dailyWalkersBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Select a date above</td></tr></tbody></table></div>
         </div>
         <!-- Per-Walk Breakdown -->
         <div class="card">
@@ -2034,7 +2034,7 @@ tr:hover td{background:#1e293b80}
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="undecided" style="accent-color:#f59e0b"> Undecided</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="unknown" style="accent-color:#64748b"> Unknown</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="lean_oppose" style="accent-color:#ef4444"> Lean Oppose</label>
-              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="oppose" style="accent-color:#ef4444"> Oppose</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="strong_oppose" style="accent-color:#ef4444"> Strong Oppose</label>
             </div>
           </div>
           <div class="form-group"><label>Precinct</label>
@@ -5629,13 +5629,15 @@ async function loadDailyReport() {
       '<div class="stat-card"><div class="label">Contacts Made</div><div class="value" style="color:#22c55e">' + (t.total_contacts || 0) + '</div><div class="sub">' + (t.contact_rate || 0) + '% rate</div></div>' +
       '<div class="stat-card"><div class="label">Supporters Found</div><div class="value" style="color:#818cf8">' + (t.total_supporters || 0) + '</div></div>' +
       '<div class="stat-card"><div class="label">Undecided</div><div class="value" style="color:#eab308">' + (t.total_undecided || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Lean Oppose</div><div class="value" style="color:#f97316">' + (t.total_lean_oppose || 0) + '</div></div>' +
+      '<div class="stat-card"><div class="label">Oppose</div><div class="value" style="color:#ef4444">' + (t.total_oppose || 0) + '</div></div>' +
       '<div class="stat-card"><div class="label">Not Home</div><div class="value" style="color:#64748b">' + (t.total_not_home || 0) + '</div></div>' +
       '<div class="stat-card"><div class="label">Walkers Active</div><div class="value">' + (t.total_walkers || 0) + '</div><div class="sub">' + (t.total_walks || 0) + ' walk(s)</div></div>';
 
     // Per-walker table
     var wb = document.getElementById('dailyWalkersBody');
     if (!data.walkers || data.walkers.length === 0) {
-      wb.innerHTML = '<tr><td colspan="10" style="color:#64748b;text-align:center">No activity on this day.</td></tr>';
+      wb.innerHTML = '<tr><td colspan="11" style="color:#64748b;text-align:center">No activity on this day.</td></tr>';
     } else {
       wb.innerHTML = data.walkers.map(function(w, i) {
         var hours = '';
@@ -5650,6 +5652,7 @@ async function loadDailyReport() {
           '<td style="color:#22c55e;font-weight:600">' + w.contacts + '</td>' +
           '<td style="color:#818cf8">' + w.supporters + '</td>' +
           '<td style="color:#eab308">' + w.undecided + '</td>' +
+          '<td style="color:#f97316">' + w.lean_oppose + '</td>' +
           '<td style="color:#ef4444">' + w.oppose + '</td>' +
           '<td style="color:#64748b">' + w.not_home + '</td>' +
           '<td>' + w.contact_rate + '%</td>' +
