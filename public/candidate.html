@@ -1467,7 +1467,8 @@ function onListSelectChange() {
     content.appendChild(empty);
   }
   var q = document.getElementById('voterSearch').value.trim();
-  var hasFilter = (document.getElementById('candPhoneFilter') || {}).value || (document.getElementById('candVanidFilter') || {}).value || (document.getElementById('candCityFilter') || {}).value || (document.getElementById('candZipFilter') || {}).value || (document.getElementById('candPrecinctFilter') || {}).value || (document.getElementById('candAddressFilter') || {}).value;
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  var hasFilter = gv('candPhoneFilter') || gv('candVanidFilter') || gv('candCityFilter') || gv('candZipFilter') || gv('candPrecinctFilter') || gv('candAddressFilter');
   if (q.length >= 2 || hasFilter) searchVoters();
 }
 
@@ -1501,14 +1502,15 @@ async function loadCandidateCityFilter() {
 
 async function searchVoters() {
   var q = document.getElementById('voterSearch').value.trim();
-  var phone = (document.getElementById('candPhoneFilter') || {}).value || '';
-  var vanid = (document.getElementById('candVanidFilter') || {}).value || '';
-  var city = (document.getElementById('candCityFilter') || {}).value || '';
-  var zip = (document.getElementById('candZipFilter') || {}).value || '';
-  var precinct = (document.getElementById('candPrecinctFilter') || {}).value || '';
-  var address = (document.getElementById('candAddressFilter') || {}).value || '';
-  var party = (document.getElementById('candPartyFilter') || {}).value || '';
-  var support = (document.getElementById('candSupportFilter') || {}).value || '';
+  var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
+  var phone = gv('candPhoneFilter').trim();
+  var vanid = gv('candVanidFilter').trim();
+  var city = gv('candCityFilter');
+  var zip = gv('candZipFilter').trim();
+  var precinct = gv('candPrecinctFilter').trim();
+  var address = gv('candAddressFilter').trim();
+  var party = gv('candPartyFilter');
+  var support = gv('candSupportFilter');
   var results = document.getElementById('searchResults');
   var hasFilter = phone || vanid || city || zip || precinct || address || party || support;
   if (q.length < 2 && !hasFilter) {
@@ -1623,7 +1625,15 @@ async function searchVoters() {
       card.appendChild(actions);
       results.appendChild(card);
     });
-  } catch (e) { console.error('search error:', e); }
+  } catch (e) {
+    console.error('search error:', e);
+    results.textContent = '';
+    var errDiv = document.createElement('div');
+    errDiv.className = 'empty-state';
+    errDiv.style.color = '#ef4444';
+    errDiv.textContent = 'Search failed: ' + (e.message || 'Unknown error');
+    results.appendChild(errDiv);
+  }
 }
 
 async function addVoterToList(voterId) {
@@ -2068,10 +2078,10 @@ async function loadMasterListInRight() {
 }
 
 function filterMasterListRight() {
-  var q = (document.getElementById('masterSearchRight') || {}).value || '';
-  q = q.trim().toLowerCase();
-  var votedStatus = (document.getElementById('masterVotedFilterRight') || {}).value || 'all';
-  var captainVal = (document.getElementById('masterCaptainFilterRight') || {}).value || 'all';
+  var gvf = function(id, def) { var e = document.getElementById(id); return e ? e.value : (def || ''); };
+  var q = gvf('masterSearchRight').trim().toLowerCase();
+  var votedStatus = gvf('masterVotedFilterRight', 'all');
+  var captainVal = gvf('masterCaptainFilterRight', 'all');
   var filtered = filterVotersByStatus(masterListData, votedStatus);
   if (captainVal !== 'all') {
     filtered = filtered.filter(function(v) {
