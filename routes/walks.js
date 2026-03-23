@@ -499,7 +499,8 @@ router.get('/walks/daily-report', (req, res) => {
       SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as undecided,
-      SUM(CASE WHEN result IN ('oppose', 'lean_oppose') THEN 1 ELSE 0 END) as oppose,
+      SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as oppose,
+      SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as lean_oppose,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home,
       MIN(attempted_at) as first_knock,
       MAX(attempted_at) as last_knock,
@@ -528,6 +529,8 @@ router.get('/walks/daily-report', (req, res) => {
       SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as total_contacts,
       SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as total_undecided,
+      SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as total_oppose,
+      SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as total_lean_oppose,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as total_not_home,
       COUNT(DISTINCT walker_name) as total_walkers,
       COUNT(DISTINCT walk_id) as total_walks
