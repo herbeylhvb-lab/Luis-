@@ -8638,7 +8638,15 @@ async function loadUnifiedVols() {
     wrap.className = 'table-wrap';
     wrap.appendChild(table);
     el.appendChild(wrap);
-  } catch (e) { /* silent */ }
+  } catch (e) {
+    console.error('Failed to load volunteers:', e);
+    var el = document.getElementById('unifiedVolList');
+    el.textContent = '';
+    var p = document.createElement('p');
+    p.style.cssText = 'color:#ef4444;font-size:13px';
+    p.textContent = 'Failed to load volunteers: ' + (e.message || 'Unknown error') + '. Try refreshing the page.';
+    el.appendChild(p);
+  }
 }
 
 // ===================== LEGACY TEXTING VOLUNTEERS (kept for backward compat) =====================
