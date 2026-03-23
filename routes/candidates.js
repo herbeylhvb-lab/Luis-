@@ -700,12 +700,14 @@ router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateA
 router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth, (req, res) => {
   const listId = req.params.listId;
   const candidateId = req.params.id;
-  // Try captain_lists first
+  // Try captain_lists first (owned or shared captains)
   let list = db.prepare(`
     SELECT cl.*, c.name as captain_name, 'captain' as source FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND c.candidate_id = ?
-  `).get(listId, candidateId);
+    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
+      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+    ))
+  `).get(listId, candidateId, candidateId);
   let voters;
   if (list) {
     voters = db.prepare(`
@@ -755,12 +757,14 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
       FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains c ON cl.captain_id = c.id
-      WHERE c.candidate_id = ?
+      WHERE c.candidate_id = ? OR EXISTS (
+        SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+      )
     ) sources
     JOIN voters v ON sources.voter_id = v.id
     ORDER BY v.last_name, v.first_name
     LIMIT ? OFFSET ?
-  `).all(candidateIdParam, candidateIdParam, limit, offset);
+  `).all(candidateIdParam, candidateIdParam, candidateIdParam, limit, offset);
 
   // Group by voter_id — each voter gets an array of which lists they're on
   const voterMap = new Map();
@@ -968,20 +972,24 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
   if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
 
-  // Validate the candidate owns the source list (captain_lists -> captains -> candidate_id)
+  // Validate the candidate owns the source list (captain_lists -> captains -> owned or shared)
   const sourceList = db.prepare(`
     SELECT cl.id FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND c.candidate_id = ?
-  `).get(sourceListId, candidateId);
+    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
+      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+    ))
+  `).get(sourceListId, candidateId, candidateId);
   if (!sourceList) return res.status(404).json({ error: 'Source list not found or not owned by a captain under this candidate.' });
 
-  // Validate the target list belongs to any captain under this candidate
+  // Validate the target list belongs to any captain under this candidate (owned or shared)
   const targetList = db.prepare(`
     SELECT cl.id FROM captain_lists cl
     JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND c.candidate_id = ?
-  `).get(targetListId, candidateId);
+    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
+      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+    ))
+  `).get(targetListId, candidateId, candidateId);
   if (!targetList) return res.status(404).json({ error: 'Target list not found or does not belong to a captain under this candidate.' });
 
   const doTransfer = db.transaction(() => {
