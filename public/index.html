@@ -1698,8 +1698,10 @@ tr:hover td{background:#1e293b80}
               <select id="eventMmsProjectId" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 14px;color:#e2e8f0;font-size:14px">
                 <option value="">Default (SMS only)</option>
               </select>
+              <button class="btn btn-secondary" style="white-space:nowrap;font-size:12px;padding:8px 12px" onclick="checkEventMmsProject()">Check Project</button>
               <a href="https://app.rumbleup.com" target="_blank" class="btn btn-secondary" style="white-space:nowrap;font-size:12px;padding:8px 12px;text-decoration:none">Create on RumbleUp ↗</a>
             </div>
+            <div id="eventMmsCheckResult" style="margin-top:8px;font-size:13px;display:none"></div>
             <div style="font-size:11px;color:#64748b;margin-top:4px">To include an image: create an MMS project on <a href="https://app.rumbleup.com" target="_blank" style="color:#818cf8">RumbleUp</a> with your flyer attached, then select it here or enter the project ID.</div>
           </div>
           <div id="eventUploadProgress" style="display:none;margin-bottom:12px">
@@ -3013,6 +3015,37 @@ async function populateMmsDropdown(selectId) {
       }
     }
   };
+}
+
+// Check MMS project from event creation form
+async function checkEventMmsProject() {
+  var resultEl = document.getElementById('eventMmsCheckResult');
+  var projectId = (document.getElementById('eventMmsProjectId').value || '').trim();
+  if (!projectId || projectId === '__manual__') { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#ef4444">Select a project first.</span>'; return; }
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<span style="color:#94a3b8">Checking project #' + projectId + '...</span>';
+  try {
+    var data = await api('/api/rumbleup/project/' + projectId);
+    var p = data.project || {};
+    var html = '<div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-top:4px">';
+    html += '<strong style="color:#e2e8f0">Project #' + projectId + ': ' + (p.name || '?') + '</strong><br>';
+    html += '<span style="color:#94a3b8">Type: </span><span style="color:' + (p.type === 'MMS' ? '#22c55e' : '#eab308') + ';font-weight:600">' + (p.type || '?') + '</span><br>';
+    html += '<span style="color:#94a3b8">Status: </span><span style="color:#e2e8f0">' + (p.status || '?') + '</span><br>';
+    html += '<span style="color:#94a3b8">Media: </span>';
+    if (p.media) {
+      html += '<span style="color:#22c55e;font-weight:600">YES</span> — <a href="' + p.media + '" target="_blank" style="color:#818cf8">View Image</a>';
+    } else {
+      html += '<span style="color:#ef4444">NONE</span> — <a href="https://app.rumbleup.com/app/action/' + (p.cid || '') + '/' + projectId + '" target="_blank" style="color:#818cf8">Add image on RumbleUp ↗</a>';
+    }
+    if (p.message) {
+      html += '<br><span style="color:#94a3b8">Message: </span><span style="color:#cbd5e1">' + (p.message || '').replace(/\n/g, '<br>') + '</span>';
+    }
+    html += '<br><span style="color:#94a3b8">Dashboard: </span><a href="' + (p.link || '#') + '" target="_blank" style="color:#818cf8">' + (p.link || 'N/A') + '</a>';
+    html += '</div>';
+    resultEl.innerHTML = html;
+  } catch (err) {
+    resultEl.innerHTML = '<span style="color:#ef4444">Failed: ' + (err.message || 'Error') + '</span>';
+  }
 }
 
 // --- Create MMS project from flyer image ---
