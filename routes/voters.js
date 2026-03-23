@@ -849,12 +849,12 @@ router.get('/voters/precinct-counts', (req, res) => {
     params.push(race_val);
   }
 
-  // Party filter
+  // Party filter — matches voters who voted in a party primary (from election_votes)
   if (party) {
     if (party === 'NP') {
-      sql += " AND (party = '' OR party IS NULL OR party NOT IN ('D','R','I'))";
+      sql += " AND id NOT IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted IN ('D','R'))";
     } else {
-      sql += ' AND party = ?';
+      sql += ' AND id IN (SELECT ev.voter_id FROM election_votes ev WHERE ev.party_voted = ?)';
       params.push(party);
     }
   }
