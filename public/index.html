@@ -9426,6 +9426,7 @@ window.buildUniverse = async function() {
         '<button class="btn btn-success" style="background:#7c3aed;border-color:#6d28d9" onclick="createWalkFromUniverse(' + listId + ', true)">Create Walk per Precinct</button>' +
         '<button class="btn" style="background:#ef4444;border-color:#dc2626;color:#fff" onclick="inviteUniverseToEvent(' + listId + ')">Invite to Event</button>' +
         '<button class="btn" style="background:#0ea5e9;border-color:#0284c7;color:#fff" onclick="broadcastToUniverse(' + listId + ')">Text This List</button>' +
+        '<a class="btn" style="background:#7c3aed;border-color:#6d28d9;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv">Download Mailing List</a>' +
         '<button class="btn btn-primary" onclick="viewUniverseList(' + listId + ')">View List</button>' +
         '</div>';
     }
@@ -11766,25 +11767,14 @@ function showCaptainUploadModal(captain) {
   };
 }
 
-window.exportMailerCSV = async function() {
+window.exportMailerCSV = function() {
   var listId = state.currentAdminListId;
   if (!listId) return;
-  try {
-    var data = await api('/api/admin-lists/' + listId + '/export-mailer');
-    var rows = [['Address','City','Zip','Precinct','Household Members','Household Size'].join(',')];
-    (data.households || []).forEach(function(h) {
-      rows.push([csvEsc(h.address), csvEsc(h.city), csvEsc(h.zip), csvEsc(h.precinct), csvEsc(h.members), h.household_size].join(','));
-    });
-    var blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    var link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'mailer-' + (data.list_name || 'list').replace(/[^a-z0-9]/gi, '_') + '.csv';
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-    alert('Mailer CSV exported: ' + data.total_households + ' households from ' + data.total_voters + ' voters');
-  } catch(e) {
-    alert('Export failed: ' + (e.message || 'Unknown error'));
-  }
+  // Direct CSV download with household dedup (one row per address, "The Smith Family" for multi-person households)
+  var link = document.createElement('a');
+  link.href = '/api/admin-lists/' + listId + '/export-mailing-csv';
+  link.download = '';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 
 function csvEsc(val) {
