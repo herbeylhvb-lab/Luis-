@@ -495,15 +495,38 @@ app.get('/api/stats/live-walkers', (req, res) => {
     }
   }
 
+  // Get approved gap deductions for today and this week
+  const todayGaps = db.prepare(`
+    SELECT walker_name, SUM(gap_minutes) as deducted
+    FROM walker_time_gaps WHERE status = 'approved' AND gap_date = ?
+    GROUP BY walker_name
+  `).all(todayStr);
+  const todayGapMap = {};
+  for (const g of todayGaps) todayGapMap[g.walker_name] = (g.deducted || 0) / 60;
+
+  const weekGaps = db.prepare(`
+    SELECT walker_name, SUM(gap_minutes) as deducted
+    FROM walker_time_gaps WHERE status = 'approved' AND gap_date >= ? AND gap_date < ?
+    GROUP BY walker_name
+  `).all(mondayStr, sundayStr);
+  const weekGapMap = {};
+  for (const g of weekGaps) weekGapMap[g.walker_name] = (g.deducted || 0) / 60;
+
   const walkers = Object.values(walkerAgg)
     .filter(w => w.walks_count > 0)
-    .map(w => ({
-      ...w,
-      total_hours: Math.round(w.total_hours * 10) / 10,
-      today_hours: Math.round((todayMap[w.walker_name]?.hours || 0) * 10) / 10,
-      today_doors: todayMap[w.walker_name]?.doors || 0,
-      week_hours: Math.round((weekMap[w.walker_name] || 0) * 10) / 10
-    }))
+    .map(w => {
+      const rawToday = todayMap[w.walker_name]?.hours || 0;
+      const rawWeek = weekMap[w.walker_name] || 0;
+      const todayDed = todayGapMap[w.walker_name] || 0;
+      const weekDed = weekGapMap[w.walker_name] || 0;
+      return {
+        ...w,
+        total_hours: Math.round(w.total_hours * 10) / 10,
+        today_hours: Math.round(Math.max(0, rawToday - todayDed) * 10) / 10,
+        today_doors: todayMap[w.walker_name]?.doors || 0,
+        week_hours: Math.round(Math.max(0, rawWeek - weekDed) * 10) / 10
+      };
+    })
     .sort((a, b) => {
       if (a.is_live !== b.is_live) return b.is_live - a.is_live;
       return (b.last_knock_at || '').localeCompare(a.last_knock_at || '');
