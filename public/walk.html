@@ -328,7 +328,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <div class="view-toggle">
       <button class="view-toggle-btn active" id="btnListView" onclick="setView('list')">List</button>
       <button class="view-toggle-btn" id="btnMapView" onclick="setView('map')">Map</button>
-      <button class="view-toggle-btn" id="btnResultsView" onclick="setView('results')">Results</button>
     </div>
     <button class="btn btn-sm" id="btnRegeocode" onclick="regeocodeWalk()" style="display:none;background:#334155;color:#e2e8f0;font-size:11px;padding:4px 8px">Fix Map Pins</button>
     <span id="mapRefreshNote" style="font-size:11px;color:#64748b;display:none">Auto-refreshes every 60s</span>
@@ -350,24 +349,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
     </button>
     <div class="map-refresh-indicator" id="mapRefreshIndicator" style="display:none">Updating...</div>
-  </div>
-
-  <!-- All Results Map container -->
-  <div id="resultsMapContainer" style="display:none;height:calc(100vh - 200px);min-height:300px;background:#1e293b;position:relative;overflow:hidden">
-    <div id="resultsMap" style="height:100%;width:100%;z-index:1"></div>
-    <div style="position:absolute;bottom:24px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0">
-      <div style="font-weight:700;margin-bottom:6px;font-size:12px">Disposition</div>
-      <div class="map-legend-item"><div class="map-legend-dot" style="background:#3b82f6"></div> Support</div>
-      <div class="map-legend-item"><div class="map-legend-dot" style="background:#86efac"></div> Lean Support</div>
-      <div class="map-legend-item"><div class="map-legend-dot" style="background:#facc15"></div> Undecided</div>
-      <div class="map-legend-item"><div class="map-legend-dot" style="background:#fb923c"></div> Lean Oppose</div>
-      <div class="map-legend-item"><div class="map-legend-dot" style="background:#ef4444"></div> Oppose</div>
-      <div class="map-legend-item"><div class="map-legend-dot" style="background:#22c55e"></div> Not Home / Other</div>
-      <div id="resultsStats" style="margin-top:8px;padding-top:6px;border-top:1px solid #334155;font-size:11px;color:#94a3b8"></div>
-    </div>
-    <div id="resultsFilters" style="position:absolute;top:10px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px;z-index:1000;font-size:11px;color:#e2e8f0">
-      <div style="font-weight:700;margin-bottom:6px">Filter</div>
-    </div>
   </div>
 
   <!-- Address list -->
@@ -2142,22 +2123,12 @@ var mapState = {
   compassHandler: null
 };
 
-var resultsMapState = {
-  map: null,
-  markers: [],
-  markersByResult: {},
-  initialized: false,
-  filters: {}
-};
-
 function setView(view) {
   mapState.currentView = view;
   document.getElementById('btnListView').className = 'view-toggle-btn' + (view === 'list' ? ' active' : '');
   document.getElementById('btnMapView').className = 'view-toggle-btn' + (view === 'map' ? ' active' : '');
-  document.getElementById('btnResultsView').className = 'view-toggle-btn' + (view === 'results' ? ' active' : '');
   document.getElementById('addrList').style.display = view === 'list' ? '' : 'none';
   document.getElementById('mapContainer').style.display = view === 'map' ? 'block' : 'none';
-  document.getElementById('resultsMapContainer').style.display = view === 'results' ? 'block' : 'none';
   document.getElementById('mapRefreshNote').style.display = view === 'map' ? '' : 'none';
   document.getElementById('btnRegeocode').style.display = view === 'map' ? '' : 'none';
 
@@ -2170,15 +2141,6 @@ function setView(view) {
     // Auto-refresh every 60 seconds so the map updates as others knock doors
     if (!mapState.refreshInterval) {
       mapState.refreshInterval = setInterval(refreshMapData, 60000);
-    }
-  } else if (view === 'results') {
-    setTimeout(function() {
-      initResultsMap();
-      loadResultsData();
-    }, 50);
-    if (mapState.refreshInterval) {
-      clearInterval(mapState.refreshInterval);
-      mapState.refreshInterval = null;
     }
   } else {
     if (mapState.refreshInterval) {
@@ -2762,218 +2724,6 @@ async function triggerGeocode() {
     // Fall back to normal load screen
   }
 })();
-
-// ═══════════════════════════════════════════════════════════
-// ALL RESULTS MAP — combined view of every visited door
-// ═══════════════════════════════════════════════════════════
-
-function getResultMapColor(result) {
-  var colors = {
-    'support': '#3b82f6', 'lean_support': '#86efac', 'undecided': '#facc15',
-    'lean_oppose': '#fb923c', 'oppose': '#ef4444'
-  };
-  return colors[result] || '#22c55e';
-}
-
-function initResultsMap() {
-  if (resultsMapState.initialized && resultsMapState.map) {
-    resultsMapState.map.invalidateSize();
-    return;
-  }
-
-  resultsMapState.map = L.map('resultsMap', {
-    zoomControl: true,
-    attributionControl: false,
-    rotate: true, rotateControl: false,
-    touchRotate: true, shiftKeyRotate: true, bearing: 0
-  }).setView([26.2, -97.7], 12);
-
-  var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
-  var roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
-  var places = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
-  var street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
-
-  sat.addTo(resultsMapState.map);
-  roads.addTo(resultsMapState.map);
-  places.addTo(resultsMapState.map);
-
-  // Precinct boundaries
-  fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }).then(function(geo) {
-    L.geoJSON(geo, {
-      style: function() { return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' }; },
-      onEachFeature: function(feature, layer) {
-        if (feature.properties && feature.properties.precinct) {
-          layer.bindTooltip('Pct ' + feature.properties.precinct, { permanent: true, direction: 'center', className: 'precinct-label' });
-        }
-      }
-    }).addTo(resultsMapState.map);
-  }).catch(function() {});
-
-  L.control.layers(
-    { 'Satellite': sat, 'Street': street },
-    { 'Roads': roads, 'Places': places },
-    { position: 'topright', collapsed: true }
-  ).addTo(resultsMapState.map);
-
-  resultsMapState.initialized = true;
-  setTimeout(function() { resultsMapState.map.invalidateSize(); }, 100);
-}
-
-function loadResultsData() {
-  fetch('/api/walks/all-results-map').then(function(r) { return r.json(); }).then(function(data) {
-    renderResultsMarkers(data.addresses);
-    renderResultsStats(data.stats);
-    buildResultsFilters(data.stats);
-  }).catch(function(e) { console.error('Results map load failed:', e); });
-}
-
-function renderResultsMarkers(addresses) {
-  if (!resultsMapState.map) return;
-
-  // Clear old markers
-  for (var i = 0; i < resultsMapState.markers.length; i++) {
-    resultsMapState.markers[i].remove();
-  }
-  resultsMapState.markers = [];
-  resultsMapState.markersByResult = {};
-
-  // Group by location (same lat/lng = same physical address)
-  var groups = {};
-  for (var i = 0; i < addresses.length; i++) {
-    var a = addresses[i];
-    var key = Number(a.lat).toFixed(5) + ',' + Number(a.lng).toFixed(5);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(a);
-  }
-
-  var bounds = [];
-  // Priority: show the most meaningful contact result per location
-  var contactPriority = ['support', 'lean_support', 'oppose', 'lean_oppose', 'undecided'];
-  var groupKeys = Object.keys(groups);
-
-  for (var g = 0; g < groupKeys.length; g++) {
-    var group = groups[groupKeys[g]];
-    var best = group[0];
-    for (var cp = 0; cp < contactPriority.length; cp++) {
-      for (var gi = 0; gi < group.length; gi++) {
-        if (group[gi].result === contactPriority[cp]) { best = group[gi]; break; }
-      }
-      if (best !== group[0] || best.result === contactPriority[cp]) break;
-    }
-
-    var color = getResultMapColor(best.result);
-    var marker = L.circleMarker([best.lat, best.lng], {
-      radius: 7, fillColor: color, fillOpacity: 0.85,
-      color: '#fff', weight: 1.5, opacity: 0.9
-    });
-
-    // Popup content — all values are sanitized through escHtml() / formatResult()
-    var popup = document.createElement('div');
-    var addrLine = document.createElement('b');
-    addrLine.textContent = best.address + (best.unit ? ' ' + best.unit : '');
-    popup.appendChild(addrLine);
-
-    var resultLine = document.createElement('div');
-    resultLine.style.cssText = 'color:' + color + ';font-weight:700';
-    resultLine.textContent = formatResult(best.result);
-    popup.appendChild(resultLine);
-
-    if (best.voter_name) {
-      var voterLine = document.createElement('div');
-      voterLine.textContent = best.voter_name;
-      popup.appendChild(voterLine);
-    }
-
-    var walkLine = document.createElement('div');
-    walkLine.style.cssText = 'font-size:11px;color:#94a3b8';
-    walkLine.textContent = 'Walk: ' + (best.walk_name || '');
-    popup.appendChild(walkLine);
-
-    if (group.length > 1) {
-      var countLine = document.createElement('div');
-      countLine.style.cssText = 'font-size:11px;color:#94a3b8';
-      countLine.textContent = group.length + ' voters here';
-      popup.appendChild(countLine);
-    }
-
-    marker.bindPopup(popup);
-    marker.addTo(resultsMapState.map);
-    resultsMapState.markers.push(marker);
-
-    var cat = best.result;
-    if (!resultsMapState.markersByResult[cat]) resultsMapState.markersByResult[cat] = [];
-    resultsMapState.markersByResult[cat].push(marker);
-
-    bounds.push([best.lat, best.lng]);
-  }
-
-  if (bounds.length > 0) {
-    resultsMapState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
-  }
-}
-
-function renderResultsStats(stats) {
-  var el = document.getElementById('resultsStats');
-  if (!el || !stats) return;
-  var total = 0;
-  for (var k in stats) total += stats[k];
-  el.textContent = total + ' doors visited across all walks';
-}
-
-function buildResultsFilters(stats) {
-  var container = document.getElementById('resultsFilters');
-  if (!container || !stats) return;
-  container.textContent = '';
-  var title = document.createElement('div');
-  title.style.cssText = 'font-weight:700;margin-bottom:6px';
-  title.textContent = 'Filter';
-  container.appendChild(title);
-
-  var allResults = ['support','lean_support','undecided','lean_oppose','oppose','not_home','refused','moved','deceased','come_back'];
-  for (var i = 0; i < allResults.length; i++) {
-    var r = allResults[i];
-    if (!stats[r]) continue;
-    resultsMapState.filters[r] = true;
-
-    var label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:3px;cursor:pointer';
-
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = true;
-    cb.style.accentColor = '#f59e0b';
-    cb.dataset.result = r;
-    cb.addEventListener('change', function() {
-      resultsMapState.filters[this.dataset.result] = this.checked;
-      applyResultsFilters();
-    });
-
-    var dot = document.createElement('span');
-    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;display:inline-block;background:' + getResultMapColor(r);
-
-    label.appendChild(cb);
-    label.appendChild(dot);
-    label.appendChild(document.createTextNode(' ' + formatResult(r) + ' (' + stats[r] + ')'));
-    container.appendChild(label);
-  }
-}
-
-function applyResultsFilters() {
-  var keys = Object.keys(resultsMapState.markersByResult);
-  for (var i = 0; i < keys.length; i++) {
-    var r = keys[i];
-    var visible = resultsMapState.filters[r] !== false;
-    var markers = resultsMapState.markersByResult[r];
-    for (var j = 0; j < markers.length; j++) {
-      if (visible) {
-        if (!resultsMapState.map.hasLayer(markers[j])) markers[j].addTo(resultsMapState.map);
-      } else {
-        if (resultsMapState.map.hasLayer(markers[j])) resultsMapState.map.removeLayer(markers[j]);
-      }
-    }
-  }
-}
-
 </script>
 </body>
 </html>

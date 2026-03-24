@@ -238,12 +238,37 @@ tr:hover td{background:#1e293b80}
       </div>
       <div class="card">
         <h3>Campaign Activity Log</h3>
-        <div id="activityLog"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
+        <div id="activityLog" style="max-height:300px;overflow-y:auto"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
       </div>
       <div class="card" id="precinctAnalyticsCard">
         <h3>Precinct Analytics</h3>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Engagement by precinct — identify where to focus block walking and outreach.</p>
-        <div class="table-wrap"><table><thead><tr><th>Precinct</th><th>Voters</th><th>Dem</th><th>Rep</th><th>Other</th><th>Supporters</th><th>Undecided</th><th>Touchpoints</th><th>Avg Score</th><th>Priority</th></tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="10" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
+        <div style="margin-bottom:12px;display:flex;align-items:center;gap:10px">
+          <label style="font-size:13px;color:#94a3b8">Race/District:</label>
+          <select id="precinctRaceFilter" onchange="loadPrecinctAnalytics()" class="form-control" style="max-width:300px;padding:6px 10px;font-size:13px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
+            <option value="">All Voters</option>
+          </select>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>Precinct</th><th>Voters</th><th>Dem</th><th>Rep</th><th>Other</th><th>Supporters</th><th>Undecided</th><th>Doors Knocked</th><th>Touchpoints</th><th>Avg Score</th><th>Priority</th></tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
+      </div>
+      <div class="card">
+        <h3>Block Walk Results Map</h3>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">All visited doors across every block walk — color-coded by disposition.</p>
+        <div style="position:relative">
+          <div id="dashResultsMap" style="height:450px;border-radius:8px;z-index:1"></div>
+          <div id="dashResultsFilters" style="position:absolute;top:10px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px;z-index:1000;font-size:11px;color:#e2e8f0">
+            <div style="font-weight:700;margin-bottom:6px">Filter</div>
+          </div>
+          <div style="position:absolute;bottom:10px;left:10px;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0">
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;margin-right:4px"></span> Support</div>
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#86efac;margin-right:4px"></span> Lean Support</div>
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#facc15;margin-right:4px"></span> Undecided</div>
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb923c;margin-right:4px"></span> Lean Oppose</div>
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span> Oppose</div>
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px"></span> Not Home / Other</div>
+            <div id="dashResultsStats" style="margin-top:6px;padding-top:6px;border-top:1px solid #334155;color:#94a3b8"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -3731,7 +3756,10 @@ async function loadDashboard() {
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
   loadSentimentStats();
+  loadPrecinctRaceFilter();
   loadPrecinctAnalytics();
+  initDashResultsMap();
+  loadDashResultsData();
   // Early voting dashboard stat
   try {
     var evData = await api('/api/early-voting/stats');
@@ -3743,20 +3771,31 @@ async function loadDashboard() {
 
 async function loadPrecinctAnalytics() {
   try {
-    var data = await api('/api/analytics/precincts');
+    var raceVal = document.getElementById('precinctRaceFilter').value;
+    var url = '/api/analytics/precincts';
+    if (raceVal) {
+      var parts = raceVal.split('|');
+      url += '?race_col=' + encodeURIComponent(parts[0]) + '&race_val=' + encodeURIComponent(parts[1]);
+    }
+    var data = await api(url);
     var precincts = data.precincts || [];
     var tbody = document.getElementById('precinctAnalyticsBody');
     if (precincts.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters to see analytics.</td></tr>';
+      // Note: innerHTML with static safe string — no user data
+      tbody.innerHTML = '<tr><td colspan="11" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters to see analytics.</td></tr>';
       return;
     }
+    // Note: all dynamic values are either numeric (from DB aggregates) or escaped via escHtml()
     tbody.innerHTML = precincts.map(function(p) {
       var priority = 'Low';
       var prCls = 'badge-gray';
       if (p.undecided > p.total_voters * 0.3 && p.avg_engagement < 20) { priority = 'High'; prCls = 'badge-red'; }
       else if (p.undecided > p.total_voters * 0.2 || p.avg_engagement < 15) { priority = 'Medium'; prCls = 'badge-yellow'; }
       else if (p.avg_engagement >= 40) { priority = 'Saturated'; prCls = 'badge-green'; }
-      return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total_voters + '</td><td style="color:#60a5fa">' + p.dem + '</td><td style="color:#f87171">' + p.rep + '</td><td>' + p.other + '</td><td style="color:#22c55e">' + p.supporters + '</td><td style="color:#eab308">' + p.undecided + '</td><td>' + p.total_touchpoints + '</td><td>' + scoreBadge(p.avg_engagement) + '</td><td><span class="badge ' + prCls + '">' + priority + '</span></td></tr>';
+      var doorsText = p.doors_knocked + '/' + p.doors_total;
+      var doorsPct = p.doors_total > 0 ? Math.round(p.doors_knocked / p.doors_total * 100) : 0;
+      var doorsColor = doorsPct >= 75 ? '#22c55e' : doorsPct >= 40 ? '#eab308' : '#94a3b8';
+      return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total_voters + '</td><td style="color:#60a5fa">' + p.dem + '</td><td style="color:#f87171">' + p.rep + '</td><td>' + p.other + '</td><td style="color:#22c55e">' + p.supporters + '</td><td style="color:#eab308">' + p.undecided + '</td><td style="color:' + doorsColor + '">' + doorsText + (p.doors_total > 0 ? ' <span style="font-size:11px;opacity:0.7">(' + doorsPct + '%)</span>' : '') + '</td><td>' + p.total_touchpoints + '</td><td>' + scoreBadge(p.avg_engagement) + '</td><td><span class="badge ' + prCls + '">' + priority + '</span></td></tr>';
     }).join('');
   } catch (err) {
     console.error('Precinct analytics error:', err);
@@ -13234,6 +13273,203 @@ async function loadLeaderboard() {
   await loadDashboard();
   loadComposeLists();
 })();
+
+// ═══════════════════════════════════════════════════════════
+// PRECINCT RACE FILTER — populate dropdown from race-precincts API
+// ═══════════════════════════════════════════════════════════
+
+async function loadPrecinctRaceFilter() {
+  try {
+    var data = await api('/api/voters/race-precincts');
+    var sel = document.getElementById('precinctRaceFilter');
+    (data.races || []).filter(function(r) { return r.precincts && r.precincts.length > 0; }).forEach(function(r) {
+      var opt = document.createElement('option');
+      opt.value = r.type + '|' + r.district;
+      opt.textContent = r.race;
+      sel.appendChild(opt);
+    });
+  } catch (e) {}
+}
+
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD RESULTS MAP — all visited doors across every walk
+// ═══════════════════════════════════════════════════════════
+
+var dashResultsState = {
+  map: null,
+  markers: [],
+  markersByResult: {},
+  initialized: false,
+  filters: {}
+};
+
+function getDashResultColor(result) {
+  var colors = {
+    'support': '#3b82f6', 'lean_support': '#86efac', 'undecided': '#facc15',
+    'lean_oppose': '#fb923c', 'oppose': '#ef4444'
+  };
+  return colors[result] || '#22c55e';
+}
+
+function initDashResultsMap() {
+  if (dashResultsState.initialized && dashResultsState.map) return;
+
+  dashResultsState.map = L.map('dashResultsMap', {
+    zoomControl: true, attributionControl: false
+  }).setView([26.2, -97.7], 12);
+
+  var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var places = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+  var street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+
+  sat.addTo(dashResultsState.map);
+  roads.addTo(dashResultsState.map);
+  places.addTo(dashResultsState.map);
+
+  // Precinct boundaries
+  fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }).then(function(geo) {
+    L.geoJSON(geo, {
+      style: function() { return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' }; },
+      onEachFeature: function(feature, layer) {
+        if (feature.properties && feature.properties.precinct) {
+          layer.bindTooltip('Pct ' + feature.properties.precinct, { permanent: true, direction: 'center', className: 'precinct-label' });
+        }
+      }
+    }).addTo(dashResultsState.map);
+  }).catch(function() {});
+
+  L.control.layers(
+    { 'Satellite': sat, 'Street': street },
+    { 'Roads': roads, 'Places': places },
+    { position: 'topright', collapsed: true }
+  ).addTo(dashResultsState.map);
+
+  dashResultsState.initialized = true;
+  setTimeout(function() { dashResultsState.map.invalidateSize(); }, 200);
+}
+
+function loadDashResultsData() {
+  fetch('/api/walks/all-results-map').then(function(r) { return r.json(); }).then(function(data) {
+    renderDashResultsMarkers(data.addresses || []);
+    var statsEl = document.getElementById('dashResultsStats');
+    var total = 0;
+    for (var k in (data.stats || {})) total += data.stats[k];
+    statsEl.textContent = total + ' doors visited';
+    buildDashResultsFilters(data.stats || {});
+  }).catch(function(e) { console.error('Dash results map error:', e); });
+}
+
+function renderDashResultsMarkers(addresses) {
+  if (!dashResultsState.map) return;
+  for (var i = 0; i < dashResultsState.markers.length; i++) dashResultsState.markers[i].remove();
+  dashResultsState.markers = [];
+  dashResultsState.markersByResult = {};
+
+  var groups = {};
+  for (var i = 0; i < addresses.length; i++) {
+    var a = addresses[i];
+    var key = Number(a.lat).toFixed(5) + ',' + Number(a.lng).toFixed(5);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(a);
+  }
+
+  var bounds = [];
+  var contactPriority = ['support', 'lean_support', 'oppose', 'lean_oppose', 'undecided'];
+  var groupKeys = Object.keys(groups);
+
+  for (var g = 0; g < groupKeys.length; g++) {
+    var group = groups[groupKeys[g]];
+    var best = group[0];
+    for (var cp = 0; cp < contactPriority.length; cp++) {
+      for (var gi = 0; gi < group.length; gi++) {
+        if (group[gi].result === contactPriority[cp]) { best = group[gi]; break; }
+      }
+      if (best !== group[0] || best.result === contactPriority[cp]) break;
+    }
+
+    var color = getDashResultColor(best.result);
+    var marker = L.circleMarker([best.lat, best.lng], {
+      radius: 7, fillColor: color, fillOpacity: 0.85,
+      color: '#fff', weight: 1.5, opacity: 0.9
+    });
+
+    // Build popup with safe DOM methods
+    var popup = document.createElement('div');
+    var addrB = document.createElement('b');
+    addrB.textContent = best.address + (best.unit ? ' ' + best.unit : '');
+    popup.appendChild(addrB);
+    var resDiv = document.createElement('div');
+    resDiv.style.cssText = 'color:' + color + ';font-weight:700';
+    resDiv.textContent = formatResult(best.result);
+    popup.appendChild(resDiv);
+    if (best.voter_name) { var vn = document.createElement('div'); vn.textContent = best.voter_name; popup.appendChild(vn); }
+    var wn = document.createElement('div');
+    wn.style.cssText = 'font-size:11px;color:#94a3b8';
+    wn.textContent = 'Walk: ' + (best.walk_name || '');
+    popup.appendChild(wn);
+    if (group.length > 1) { var cn = document.createElement('div'); cn.style.cssText = 'font-size:11px;color:#94a3b8'; cn.textContent = group.length + ' voters here'; popup.appendChild(cn); }
+
+    marker.bindPopup(popup);
+    marker.addTo(dashResultsState.map);
+    dashResultsState.markers.push(marker);
+
+    var cat = best.result;
+    if (!dashResultsState.markersByResult[cat]) dashResultsState.markersByResult[cat] = [];
+    dashResultsState.markersByResult[cat].push(marker);
+    bounds.push([best.lat, best.lng]);
+  }
+
+  if (bounds.length > 0) {
+    dashResultsState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  }
+}
+
+function buildDashResultsFilters(stats) {
+  var container = document.getElementById('dashResultsFilters');
+  if (!container) return;
+  container.textContent = '';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-weight:700;margin-bottom:6px';
+  title.textContent = 'Filter';
+  container.appendChild(title);
+
+  var allResults = ['support','lean_support','undecided','lean_oppose','oppose','not_home','refused','moved','deceased','come_back'];
+  for (var i = 0; i < allResults.length; i++) {
+    var r = allResults[i];
+    if (!stats[r]) continue;
+    dashResultsState.filters[r] = true;
+
+    var label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:3px;cursor:pointer';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = true; cb.style.accentColor = '#f59e0b'; cb.dataset.result = r;
+    cb.addEventListener('change', function() {
+      dashResultsState.filters[this.dataset.result] = this.checked;
+      applyDashResultsFilters();
+    });
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;display:inline-block;background:' + getDashResultColor(r);
+    label.appendChild(cb);
+    label.appendChild(dot);
+    label.appendChild(document.createTextNode(' ' + formatResult(r) + ' (' + stats[r] + ')'));
+    container.appendChild(label);
+  }
+}
+
+function applyDashResultsFilters() {
+  var keys = Object.keys(dashResultsState.markersByResult);
+  for (var i = 0; i < keys.length; i++) {
+    var r = keys[i];
+    var visible = dashResultsState.filters[r] !== false;
+    var markers = dashResultsState.markersByResult[r];
+    for (var j = 0; j < markers.length; j++) {
+      if (visible) { if (!dashResultsState.map.hasLayer(markers[j])) markers[j].addTo(dashResultsState.map); }
+      else { if (dashResultsState.map.hasLayer(markers[j])) dashResultsState.map.removeLayer(markers[j]); }
+    }
+  }
+}
+
 </script>
 </body>
 </html>
