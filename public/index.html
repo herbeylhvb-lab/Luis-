@@ -275,7 +275,7 @@ tr:hover td{background:#1e293b80}
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <h3 style="margin:0">Block Walk Results Map</h3>
-          <button class="btn btn-sm" id="btnGeocodeAll" onclick="geocodeAllWalks()" style="display:none;background:#334155;color:#e2e8f0;font-size:11px;padding:4px 10px">Geocode All Walks</button>
+          <button class="btn btn-sm" id="btnGeocodeAll" onclick="geocodeAllWalks()" style="background:#334155;color:#e2e8f0;font-size:11px;padding:4px 10px">Geocode All Walks</button>
         </div>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">All visited doors across every block walk — color-coded by disposition.</p>
         <div style="position:relative">
@@ -3784,7 +3784,10 @@ async function loadDashboard() {
   loadPrecinctAnalytics();
   // New dashboard features — wrapped in try/catch so errors don't break navigation
   try { loadDashFilters(); } catch(e) { console.error('DashFilters error:', e); }
-  try { setTimeout(function() { initDashResultsMap(); loadDashResultsData(); }, 200); } catch(e) { console.error('ResultsMap error:', e); }
+  setTimeout(function() {
+    try { initDashResultsMap(); } catch(e) { console.error('ResultsMap init error:', e); }
+    try { loadDashResultsData(); } catch(e) { console.error('ResultsMap data error:', e); }
+  }, 500);
   // Early voting dashboard stat
   try {
     var evData = await api('/api/early-voting/stats');
@@ -13455,18 +13458,15 @@ function loadDashResultsData() {
     var total = 0;
     for (var k in (data.stats || {})) total += data.stats[k];
     var knocked = total - ((data.stats || {}).not_visited || 0);
-    var geocodeBtn = document.getElementById('btnGeocodeAll');
     if (total === 0 && data.debug) {
       if (data.debug.totalKnocked > 0 && data.debug.needsGeocoding > 0) {
-        statsEl.textContent = data.debug.totalKnocked + ' doors knocked but ' + data.debug.needsGeocoding + ' need geocoding.';
-        if (geocodeBtn) geocodeBtn.style.display = '';
+        statsEl.textContent = data.debug.totalKnocked + ' doors knocked, ' + data.debug.needsGeocoding + ' need geocoding. Click "Geocode All Walks" above.';
       } else if (data.debug.totalKnocked === 0) {
         statsEl.textContent = 'No doors knocked yet across any walk.';
       } else {
         statsEl.textContent = 'No geocoded walk data yet.';
       }
     } else {
-      if (geocodeBtn) geocodeBtn.style.display = 'none';
       statsEl.textContent = univId ? (knocked + ' knocked / ' + total + ' total doors') : (total + ' doors visited');
     }
     buildDashResultsFilters(data.stats || {});
