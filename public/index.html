@@ -13505,73 +13505,46 @@ async function loadFilteredDashStats() {
 }
 
 function renderDashResultsMarkers(addresses) {
-  console.log('[ResultsMap] renderDashResultsMarkers called with', addresses.length, 'addresses, map exists:', !!dashResultsState.map);
-  if (!dashResultsState.map) { console.error('[ResultsMap] Map not initialized — markers cannot render'); return; }
+  console.log('[ResultsMap] render called, addresses:', addresses.length, 'map:', !!dashResultsState.map);
+  if (!dashResultsState.map) { console.error('[ResultsMap] NO MAP'); return; }
+
+  // Clear old
   for (var i = 0; i < dashResultsState.markers.length; i++) dashResultsState.markers[i].remove();
   dashResultsState.markers = [];
   dashResultsState.markersByResult = {};
 
-  var groups = {};
-  for (var i = 0; i < addresses.length; i++) {
-    var a = addresses[i];
-    var key = Number(a.lat).toFixed(5) + ',' + Number(a.lng).toFixed(5);
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(a);
-  }
+  if (addresses.length === 0) return;
 
   var bounds = [];
-  var contactPriority = ['support', 'lean_support', 'oppose', 'lean_oppose', 'undecided'];
-  var groupKeys = Object.keys(groups);
 
-  for (var g = 0; g < groupKeys.length; g++) {
-    var group = groups[groupKeys[g]];
-    var best = group[0];
-    for (var cp = 0; cp < contactPriority.length; cp++) {
-      for (var gi = 0; gi < group.length; gi++) {
-        if (group[gi].result === contactPriority[cp]) { best = group[gi]; break; }
-      }
-      if (best !== group[0] || best.result === contactPriority[cp]) break;
-    }
+  // Simple approach: one marker per address, no grouping
+  for (var i = 0; i < addresses.length; i++) {
+    var a = addresses[i];
+    if (!a.lat || !a.lng) continue;
+    var color = getDashResultColor(a.result);
 
-    var color = getDashResultColor(best.result);
-    var marker = L.circleMarker([best.lat, best.lng], {
-      radius: 8, fillColor: color, fillOpacity: 0.9,
-      color: '#000', weight: 2, opacity: 1
+    // Use L.marker with divIcon instead of circleMarker (more reliable rendering)
+    var icon = L.divIcon({
+      className: '',
+      html: '<div style="width:12px;height:12px;border-radius:50%;background:' + color + ';border:2px solid #000;"></div>',
+      iconSize: [12, 12],
+      iconAnchor: [6, 6]
     });
-
-    // Build popup with safe DOM methods
-    var popup = document.createElement('div');
-    var addrB = document.createElement('b');
-    addrB.textContent = best.address + (best.unit ? ' ' + best.unit : '');
-    popup.appendChild(addrB);
-    var resDiv = document.createElement('div');
-    resDiv.style.cssText = 'color:' + color + ';font-weight:700';
-    resDiv.textContent = formatResult(best.result);
-    popup.appendChild(resDiv);
-    if (best.voter_name) { var vn = document.createElement('div'); vn.textContent = best.voter_name; popup.appendChild(vn); }
-    var wn = document.createElement('div');
-    wn.style.cssText = 'font-size:11px;color:#94a3b8';
-    wn.textContent = 'Walk: ' + (best.walk_name || '');
-    popup.appendChild(wn);
-    if (group.length > 1) { var cn = document.createElement('div'); cn.style.cssText = 'font-size:11px;color:#94a3b8'; cn.textContent = group.length + ' voters here'; popup.appendChild(cn); }
-
-    marker.bindPopup(popup);
+    var marker = L.marker([a.lat, a.lng], { icon: icon });
+    marker.bindPopup('<b>' + escHtml(a.address) + '</b><br>' + formatResult(a.result));
     marker.addTo(dashResultsState.map);
     dashResultsState.markers.push(marker);
 
-    var cat = best.result;
+    var cat = a.result;
     if (!dashResultsState.markersByResult[cat]) dashResultsState.markersByResult[cat] = [];
     dashResultsState.markersByResult[cat].push(marker);
-    bounds.push([best.lat, best.lng]);
+    bounds.push([a.lat, a.lng]);
   }
 
-  console.log('[ResultsMap] Placed', dashResultsState.markers.length, 'markers,', bounds.length, 'bounds points');
+  console.log('[ResultsMap] Placed', dashResultsState.markers.length, 'markers');
+
   if (bounds.length > 0) {
-    dashResultsState.map.invalidateSize();
-    setTimeout(function() {
-      dashResultsState.map.invalidateSize();
-      dashResultsState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
-    }, 100);
+    dashResultsState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
   }
 }
 
