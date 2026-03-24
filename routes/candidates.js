@@ -629,10 +629,16 @@ router.get('/candidates/:id/household', requireCandidateAuth, (req, res) => {
   }
 
   // Simple normalized address match
+  // Deduplicate by registration_number (VUID) to prevent same person appearing twice
   const norm = voter.address.trim().toLowerCase().replace(/\b(apt|unit|suite|ste|#)\b\.?\s*\S*/gi, '').replace(/\s+/g, ' ').trim();
+  const seen = new Set();
   const household = candidates.filter(c => {
     const cn = (c.address || '').trim().toLowerCase().replace(/\b(apt|unit|suite|ste|#)\b\.?\s*\S*/gi, '').replace(/\s+/g, ' ').trim();
-    return cn === norm;
+    if (cn !== norm) return false;
+    const key = (c.registration_number || c.id).toString().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
   res.json({ household });
 });

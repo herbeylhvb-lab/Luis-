@@ -689,7 +689,15 @@ router.get('/captains/:id/household', requireCaptainAuth, (req, res) => {
   }
 
   // Filter candidates: normalized address must match (ignores apt/unit differences)
-  const household = candidates.filter(c => normalizeAddress(c.address) === normalizedAddr);
+  // Deduplicate by registration_number (VUID) to prevent same person appearing twice
+  const seen = new Set();
+  const household = candidates.filter(c => {
+    if (normalizeAddress(c.address) !== normalizedAddr) return false;
+    const key = (c.registration_number || c.id).toString().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   res.json({ household });
 });
