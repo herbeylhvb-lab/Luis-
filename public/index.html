@@ -13373,6 +13373,10 @@ function initDashResultsMap() {
     zoomControl: true, attributionControl: false
   }).setView([26.2, -97.7], 12);
 
+  // Custom pane so markers render ABOVE precinct polygons
+  dashResultsState.map.createPane('markerPane');
+  dashResultsState.map.getPane('markerPane').style.zIndex = 650;
+
   var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
   var roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
   var places = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
@@ -13385,6 +13389,7 @@ function initDashResultsMap() {
   // Precinct boundaries
   fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }).then(function(geo) {
     L.geoJSON(geo, {
+      interactive: false,
       style: function() { return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' }; },
       onEachFeature: function(feature, layer) {
         if (feature.properties && feature.properties.precinct) {
@@ -13467,7 +13472,8 @@ function renderDashResultsMarkers(addresses) {
     var color = getDashResultColor(best.result);
     var marker = L.circleMarker([best.lat, best.lng], {
       radius: 7, fillColor: color, fillOpacity: 0.85,
-      color: '#fff', weight: 1.5, opacity: 0.9
+      color: '#fff', weight: 1.5, opacity: 0.9,
+      pane: 'markerPane'
     });
 
     // Build popup with safe DOM methods
