@@ -450,11 +450,59 @@ app.get('/api/stats/live-walkers', (req, res) => {
     }
   }
 
+  // Get today's hours per walker (first knock to last knock, excluding after 8:30 PM Central)
+  const now = new Date();
+  const central = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const todayStr = central.toISOString().split('T')[0];
+  const todayRows = db.prepare(`
+    SELECT walker_name, MIN(attempted_at) as first_knock, MAX(attempted_at) as last_knock, COUNT(*) as doors
+    FROM walk_attempts
+    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ? AND time(attempted_at, '-6 hours') <= '20:30:00'
+    GROUP BY walker_name
+  `).all(todayStr);
+  const todayMap = {};
+  for (const r of todayRows) {
+    let hrs = 0;
+    if (r.first_knock && r.last_knock && r.first_knock !== r.last_knock) {
+      hrs = Math.max(0, (new Date(r.last_knock) - new Date(r.first_knock)) / 3600000);
+    }
+    todayMap[r.walker_name] = { hours: Math.round(hrs * 100) / 100, doors: r.doors };
+  }
+
+  // Get this week's hours per walker (Mon-Sun, excluding after 8:30 PM Central)
+  const day = central.getDay();
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const monday = new Date(central);
+  monday.setDate(central.getDate() + diffToMon);
+  const mondayStr = monday.toISOString().split('T')[0];
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 7);
+  const sundayStr = sunday.toISOString().split('T')[0];
+
+  const weekRows = db.prepare(`
+    SELECT walker_name, date(attempted_at, '-6 hours') as knock_date,
+           MIN(attempted_at) as first_knock, MAX(attempted_at) as last_knock
+    FROM walk_attempts
+    WHERE walker_name != '' AND date(attempted_at, '-6 hours') >= ? AND date(attempted_at, '-6 hours') < ?
+      AND time(attempted_at, '-6 hours') <= '20:30:00'
+    GROUP BY walker_name, date(attempted_at, '-6 hours')
+  `).all(mondayStr, sundayStr);
+  const weekMap = {};
+  for (const r of weekRows) {
+    if (!weekMap[r.walker_name]) weekMap[r.walker_name] = 0;
+    if (r.first_knock && r.last_knock && r.first_knock !== r.last_knock) {
+      weekMap[r.walker_name] += Math.max(0, (new Date(r.last_knock) - new Date(r.first_knock)) / 3600000);
+    }
+  }
+
   const walkers = Object.values(walkerAgg)
     .filter(w => w.walks_count > 0)
     .map(w => ({
       ...w,
-      total_hours: Math.round(w.total_hours * 10) / 10
+      total_hours: Math.round(w.total_hours * 10) / 10,
+      today_hours: Math.round((todayMap[w.walker_name]?.hours || 0) * 10) / 10,
+      today_doors: todayMap[w.walker_name]?.doors || 0,
+      week_hours: Math.round((weekMap[w.walker_name] || 0) * 10) / 10
     }))
     .sort((a, b) => {
       if (a.is_live !== b.is_live) return b.is_live - a.is_live;
