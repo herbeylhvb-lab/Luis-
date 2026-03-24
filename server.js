@@ -385,44 +385,59 @@ app.get('/api/stats/sentiment', (req, res) => {
 
 // --- Live walkers across all walks ---
 app.get('/api/stats/live-walkers', (req, res) => {
-  // Get all in_progress walks with their group members
-  const walks = db.prepare("SELECT id, name, status FROM block_walks WHERE status = 'in_progress'").all();
-  const liveWalkers = [];
+  // Get all walks that have group members (any status)
+  const walks = db.prepare("SELECT id, name, status FROM block_walks WHERE id IN (SELECT DISTINCT walk_id FROM walk_group_members)").all();
+  const allWalkers = [];
+  let liveCount = 0;
 
   for (const walk of walks) {
     const members = db.prepare(
       'SELECT walker_name, joined_at, doors_knocked, contacts_made, first_knock_at, last_knock_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at'
     ).all(walk.id);
 
-    // Get total/knocked door counts for the walk
-    const doorStats = db.prepare(
-      "SELECT COUNT(*) as total, SUM(CASE WHEN result != 'not_visited' THEN 1 ELSE 0 END) as knocked FROM walk_addresses WHERE walk_id = ?"
-    ).get(walk.id);
-
     for (const m of members) {
-      // Calculate hours walking from joined_at to now
-      const joinedMs = new Date(m.joined_at + 'Z').getTime();
-      const nowMs = Date.now();
-      const hoursWalking = Math.max(0, (nowMs - joinedMs) / 3600000);
+      // Calculate hours walking: use first_knock_at to last_knock_at if available, otherwise joined_at to now
+      let hours = 0;
+      if (m.first_knock_at && m.last_knock_at) {
+        const startMs = new Date(m.first_knock_at + (m.first_knock_at.endsWith('Z') ? '' : 'Z')).getTime();
+        const endMs = new Date(m.last_knock_at + (m.last_knock_at.endsWith('Z') ? '' : 'Z')).getTime();
+        hours = Math.max(0, (endMs - startMs) / 3600000);
+      } else if (m.joined_at) {
+        const joinedMs = new Date(m.joined_at + (m.joined_at.endsWith('Z') ? '' : 'Z')).getTime();
+        hours = Math.max(0, (Date.now() - joinedMs) / 3600000);
+      }
 
-      liveWalkers.push({
+      const isLive = walk.status === 'in_progress';
+      if (isLive) liveCount++;
+
+      allWalkers.push({
         walker_name: m.walker_name,
         walk_id: walk.id,
         walk_name: walk.name,
+        walk_status: walk.status,
         joined_at: m.joined_at,
-        hours: Math.round(hoursWalking * 10) / 10,
+        hours: Math.round(hours * 10) / 10,
         doors_knocked: m.doors_knocked || 0,
         contacts_made: m.contacts_made || 0,
         first_knock_at: m.first_knock_at,
-        last_knock_at: m.last_knock_at
+        last_knock_at: m.last_knock_at,
+        is_live: isLive
       });
     }
   }
 
+  // Sort: live walkers first, then by most recent activity
+  allWalkers.sort((a, b) => {
+    if (a.is_live !== b.is_live) return b.is_live - a.is_live;
+    return (b.last_knock_at || b.joined_at || '').localeCompare(a.last_knock_at || a.joined_at || '');
+  });
+
   res.json({
-    liveWalkCount: walks.length,
-    liveWalkerCount: liveWalkers.length,
-    walkers: liveWalkers
+    liveWalkCount: walks.filter(w => w.status === 'in_progress').length,
+    totalWalkCount: walks.length,
+    liveWalkerCount: liveCount,
+    totalWalkerCount: allWalkers.length,
+    walkers: allWalkers
   });
 });
 
