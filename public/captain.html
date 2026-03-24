@@ -1451,6 +1451,30 @@ function toggleMoreFilters() {
   icon.textContent = isOpen ? '\u25B6' : '\u25BC';
 }
 
+function resetSearch() {
+  document.getElementById('voterSearch').value = '';
+  var filters = ['capPhoneFilter', 'capVanidFilter', 'capZipFilter', 'capPrecinctFilter', 'capAddressFilter'];
+  for (var i = 0; i < filters.length; i++) {
+    var el = document.getElementById(filters[i]);
+    if (el) el.value = '';
+  }
+  var cityEl = document.getElementById('capCityFilter');
+  if (cityEl) cityEl.value = '';
+  var sr = document.getElementById('searchResults');
+  sr.textContent = '';
+  var emptyDiv = document.createElement('div');
+  emptyDiv.className = 'empty-state';
+  var icon = document.createElement('div');
+  icon.className = 'icon';
+  icon.textContent = '\uD83D\uDD0D';
+  emptyDiv.appendChild(icon);
+  var p = document.createElement('p');
+  p.textContent = 'Search for voters to add them to your lists.';
+  emptyDiv.appendChild(p);
+  sr.appendChild(emptyDiv);
+  document.getElementById('voterSearch').focus();
+}
+
 // ===================== SEARCH =====================
 
 function debouncedSearch() {
@@ -2137,6 +2161,7 @@ async function submitAddVoter(voterId) {
 
   await loadListVoters();
   refreshSidebar();
+  resetSearch();
 }
 
 function showToast(msg, type) {
@@ -2967,6 +2992,7 @@ async function dropVoterOnList(voterId, voterName, listInfo) {
       await loadListVoters();
     }
     refreshSidebar();
+    resetSearch();
   } catch(err) {
     showToast('Failed to add voter: ' + (err.message || 'Unknown error'), 'warn');
   }
