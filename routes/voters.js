@@ -1191,7 +1191,7 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
-  const { race_col, race_val } = req.query;
+  const { race_col, race_val, universe_id } = req.query;
   const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   // Build optional race/district filter
@@ -1241,15 +1241,21 @@ router.get('/analytics/precincts', (req, res) => {
   for (const r of captainByPct) captainMap[r.precinct] = r.c;
 
   // Walk universe progress by precinct
+  let doorUniverseFilter = '';
+  const doorParams = [...raceParams];
+  if (universe_id) {
+    doorUniverseFilter = ' AND wa.universe_id = ?';
+    doorParams.push(universe_id);
+  }
   const doorsByPct = db.prepare(`
     SELECT v.precinct,
       COUNT(DISTINCT wa.id) as total_doors,
       COUNT(DISTINCT CASE WHEN wa.result != 'not_visited' THEN wa.id END) as knocked_doors
     FROM walk_addresses wa
     JOIN voters v ON wa.voter_id = v.id
-    WHERE v.precinct != ''${raceFilter}
+    WHERE v.precinct != ''${raceFilter}${doorUniverseFilter}
     GROUP BY v.precinct
-  `).all(...raceParams);
+  `).all(...doorParams);
   const doorsMap = {};
   for (const r of doorsByPct) doorsMap[r.precinct] = r;
 

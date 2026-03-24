@@ -124,38 +124,44 @@ router.get('/broadcast/campaigns', (req, res) => {
 
 // GOTV Dashboard stats
 router.get('/gotv/stats', (req, res) => {
-  const total = (db.prepare('SELECT COUNT(*) as c FROM voters').get() || { c: 0 }).c;
-  const earlyVoted = (db.prepare('SELECT COUNT(*) as c FROM voters WHERE early_voted = 1').get() || { c: 0 }).c;
+  const { race_col, race_val } = req.query;
+  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
+
+  let raceFilter = '';
+  const raceParams = [];
+  if (race_col && validCols.includes(race_col) && race_val) {
+    raceFilter = ` AND ${race_col} = ?`;
+    raceParams.push(race_val);
+  }
+
+  const total = (db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${raceFilter}`).get(...raceParams) || { c: 0 }).c;
+  const earlyVoted = (db.prepare(`SELECT COUNT(*) as c FROM voters WHERE early_voted = 1${raceFilter}`).get(...raceParams) || { c: 0 }).c;
   const notVoted = total - earlyVoted;
 
-  // Supporters who haven't voted (priority targets)
   const supportersNotVoted = (db.prepare(`
     SELECT COUNT(*) as c FROM voters
-    WHERE early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter')
-  `).get() || { c: 0 }).c;
+    WHERE early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter')${raceFilter}
+  `).get(...raceParams) || { c: 0 }).c;
 
-  // By support level (not voted)
   const bySupport = db.prepare(`
     SELECT support_level, COUNT(*) as count
-    FROM voters WHERE early_voted != 1
+    FROM voters WHERE early_voted != 1${raceFilter}
     GROUP BY support_level ORDER BY count DESC
-  `).all();
+  `).all(...raceParams);
 
-  // By precinct (not voted)
   const byPrecinct = db.prepare(`
     SELECT precinct, COUNT(*) as total,
       SUM(CASE WHEN early_voted = 1 THEN 1 ELSE 0 END) as voted,
       SUM(CASE WHEN early_voted != 1 THEN 1 ELSE 0 END) as not_voted,
       SUM(CASE WHEN early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter') THEN 1 ELSE 0 END) as supporters_remaining
-    FROM voters WHERE precinct != ''
+    FROM voters WHERE precinct != ''${raceFilter}
     GROUP BY precinct ORDER BY supporters_remaining DESC
-  `).all();
+  `).all(...raceParams);
 
-  // With phone (contactable)
   const withPhone = (db.prepare(`
     SELECT COUNT(*) as c FROM voters
-    WHERE early_voted != 1 AND phone != '' AND phone IS NOT NULL
-  `).get() || { c: 0 }).c;
+    WHERE early_voted != 1 AND phone != '' AND phone IS NOT NULL${raceFilter}
+  `).get(...raceParams) || { c: 0 }).c;
 
   res.json({ total, earlyVoted, notVoted, supportersNotVoted, withPhone, bySupport, byPrecinct });
 });

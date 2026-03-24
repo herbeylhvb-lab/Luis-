@@ -302,8 +302,8 @@ app.get('/app', (req, res) => {
   }
 });
 
-// --- Stats (single query) ---
-const _statsQuery = db.prepare(`
+// --- Stats ---
+const _statsQueryDefault = db.prepare(`
   SELECT
     (SELECT COUNT(*) FROM contacts) as contacts,
     (SELECT COUNT(*) FROM messages WHERE direction = 'outbound') as sent,
@@ -317,7 +317,36 @@ const _statsQuery = db.prepare(`
     (SELECT COUNT(*) FROM voters WHERE support_level = 'undecided') as undecided
 `);
 app.get('/api/stats', (req, res) => {
-  res.json(_statsQuery.get());
+  const { race_col, race_val, universe_id } = req.query;
+  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
+
+  // If no filters, use fast prepared statement
+  if (!race_col && !universe_id) return res.json(_statsQueryDefault.get());
+
+  let voterFilter = '';
+  let doorFilter = " AND result != 'not_visited'";
+  const vParams = [];
+  const dParams = [];
+
+  if (race_col && validCols.includes(race_col) && race_val) {
+    voterFilter += ` AND ${race_col} = ?`;
+    vParams.push(race_val);
+  }
+  if (universe_id) {
+    doorFilter += ' AND universe_id = ?';
+    dParams.push(universe_id);
+  }
+
+  const stats = _statsQueryDefault.get(); // base stats (messages, events, etc. aren't filtered)
+  // Override voter-related stats with filtered versions
+  const vr = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${voterFilter}`).get(...vParams);
+  stats.voters = vr.c;
+  stats.supporters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level IN ('strong_support','lean_support')${voterFilter}`).get(...vParams).c;
+  stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${voterFilter}`).get(...vParams).c;
+  if (universe_id) {
+    stats.doorsKnocked = db.prepare(`SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND universe_id = ?`).get(universe_id).c;
+  }
+  res.json(stats);
 });
 
 // --- Activity log ---

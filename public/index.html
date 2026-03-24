@@ -225,6 +225,21 @@ tr:hover td{background:#1e293b80}
 
     <!-- ==================== DASHBOARD ==================== -->
     <div class="page active" id="page-dashboard">
+      <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:700;color:#f59e0b">Dashboard Settings</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:12px;color:#94a3b8">Race/District:</label>
+          <select id="dashRaceFilter" onchange="applyDashSettings()" class="form-control" style="max-width:280px;padding:5px 8px;font-size:12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
+            <option value="">All Voters</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:12px;color:#94a3b8">Universe:</label>
+          <select id="dashUniverseFilter" onchange="applyDashSettings()" class="form-control" style="max-width:280px;padding:5px 8px;font-size:12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
+            <option value="">All Walks</option>
+          </select>
+        </div>
+      </div>
       <div class="stats-grid">
         <div class="stat-card"><div class="label">Total Sent</div><div class="value" id="statSent">0</div><div class="sub">Across all campaigns</div></div>
         <div class="stat-card"><div class="label">Responses</div><div class="value" id="statResponses">0</div><div class="sub" id="statResponseRate">0% response rate</div></div>
@@ -242,13 +257,7 @@ tr:hover td{background:#1e293b80}
       </div>
       <div class="card" id="precinctAnalyticsCard">
         <h3>Precinct Analytics</h3>
-        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Engagement by precinct — identify where to focus block walking and outreach.</p>
-        <div style="margin-bottom:12px;display:flex;align-items:center;gap:10px">
-          <label style="font-size:13px;color:#94a3b8">Race/District:</label>
-          <select id="precinctRaceFilter" onchange="loadPrecinctAnalytics()" class="form-control" style="max-width:300px;padding:6px 10px;font-size:13px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
-            <option value="">All Voters</option>
-          </select>
-        </div>
+        <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Engagement by precinct — filtered by dashboard settings above.</p>
         <div class="table-wrap"><table><thead><tr><th>Precinct</th><th>Voters</th><th>Dem</th><th>Rep</th><th>Other</th><th>Supporters</th><th>Undecided</th><th>Doors Knocked</th><th>Touchpoints</th><th>Avg Score</th><th>Priority</th></tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
       </div>
       <div class="card">
@@ -266,6 +275,7 @@ tr:hover td{background:#1e293b80}
             <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#fb923c;margin-right:4px"></span> Lean Oppose</div>
             <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:4px"></span> Oppose</div>
             <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:4px"></span> Not Home / Other</div>
+            <div class="map-legend-item"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;margin-right:4px"></span> Not Visited</div>
             <div id="dashResultsStats" style="margin-top:6px;padding-top:6px;border-top:1px solid #334155;color:#94a3b8"></div>
           </div>
         </div>
@@ -1060,7 +1070,7 @@ tr:hover td{background:#1e293b80}
               <button class="btn btn-xs btn-secondary" onclick="shiftDailyDate(-1)">&larr; Prev Day</button>
               <input type="date" id="dailyReportDate" onchange="loadDailyReport()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
               <button class="btn btn-xs btn-secondary" onclick="shiftDailyDate(1)">Next Day &rarr;</button>
-              <button class="btn btn-xs btn-primary" onclick="document.getElementById('dailyReportDate').value=new Date().toISOString().split('T')[0];loadDailyReport()">Today</button>
+              <button class="btn btn-xs btn-primary" onclick="document.getElementById('dailyReportDate').value=new Date().toLocaleDateString('en-CA');loadDailyReport()">Today</button>
             </div>
           </div>
           <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">See exactly how your team performed each day — doors hit, contacts made, supporters found.</p>
@@ -3756,10 +3766,11 @@ async function loadDashboard() {
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
   loadSentimentStats();
-  loadPrecinctRaceFilter();
+  loadDashFilters();
   loadPrecinctAnalytics();
   initDashResultsMap();
   loadDashResultsData();
+  loadFilteredDashStats();
   // Early voting dashboard stat
   try {
     var evData = await api('/api/early-voting/stats');
@@ -3771,13 +3782,7 @@ async function loadDashboard() {
 
 async function loadPrecinctAnalytics() {
   try {
-    var raceVal = document.getElementById('precinctRaceFilter').value;
-    var url = '/api/analytics/precincts';
-    if (raceVal) {
-      var parts = raceVal.split('|');
-      url += '?race_col=' + encodeURIComponent(parts[0]) + '&race_val=' + encodeURIComponent(parts[1]);
-    }
-    var data = await api(url);
+    var data = await api('/api/analytics/precincts' + getDashFilterParams());
     var precincts = data.precincts || [];
     var tbody = document.getElementById('precinctAnalyticsBody');
     if (precincts.length === 0) {
@@ -5335,7 +5340,7 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
     document.getElementById(target).style.display = '';
     if (target === 'walks-scripts') loadScripts();
     if (target === 'walks-universes') { loadUniverses(); loadWalkElectionDropdowns(); }
-    if (target === 'walks-daily') { document.getElementById('dailyReportDate').value = new Date().toISOString().split('T')[0]; loadDailyReport(); }
+    if (target === 'walks-daily') { document.getElementById('dailyReportDate').value = new Date().toLocaleDateString('en-CA'); loadDailyReport(); }
     if (target === 'walks-leaderboard') loadLeaderboard();
     if (target === 'walks-precinctmap') initPctMap();
   });
@@ -6041,7 +6046,7 @@ window.deleteVoter = async function(id) {
 };
 
 window.markEarlyVoted = async function(id) {
-  await apiPost('/api/voters/' + id + '/early-voted', { vote_date: new Date().toISOString().split('T')[0], vote_method: 'early' });
+  await apiPost('/api/voters/' + id + '/early-voted', { vote_date: new Date().toLocaleDateString('en-CA'), vote_method: 'early' });
   loadVoterDetail(id);
   searchVoters();
 };
@@ -6648,7 +6653,7 @@ window.extractRemainingVoters = async function() {
   var gv = function(id) { var e = document.getElementById(id); return e ? e.value : ''; };
   var precinct = gv('voterPrecinctFilter');
   var party = gv('voterPartyFilter');
-  var listName = prompt('Name for the GOTV list:', 'GOTV - Not Yet Voted (' + new Date().toISOString().split('T')[0] + ')');
+  var listName = prompt('Name for the GOTV list:', 'GOTV - Not Yet Voted (' + new Date().toLocaleDateString('en-CA') + ')');
   if (!listName) return;
   var statusEl = document.getElementById('evImportStatus');
   statusEl.textContent = 'Extracting...';
@@ -9440,7 +9445,7 @@ window.previewUniverse = async function() {
 
 window.buildUniverse = async function() {
   var b = buildUniversePayload();
-  var today = new Date().toISOString().split('T')[0];
+  var today = new Date().toLocaleDateString('en-CA');
   var listName = prompt('List name:', 'Targeted Voters ' + today);
   if (!listName) return;
   b.payload.list_name = listName;
@@ -12927,7 +12932,16 @@ async function loadGotvPage() {
 
 async function loadGotvStats() {
   try {
-    var data = await api('/api/gotv/stats');
+    // Use race filter from dashboard settings for GOTV stats
+    var raceParams = [];
+    var raceVal = document.getElementById('dashRaceFilter').value;
+    if (raceVal) {
+      var parts = raceVal.split('|');
+      raceParams.push('race_col=' + encodeURIComponent(parts[0]));
+      raceParams.push('race_val=' + encodeURIComponent(parts[1]));
+    }
+    var gotvUrl = '/api/gotv/stats' + (raceParams.length ? '?' + raceParams.join('&') : '');
+    var data = await api(gotvUrl);
     document.getElementById('gotvTotal').textContent = data.total || 0;
     document.getElementById('gotvVoted').textContent = data.earlyVoted || 0;
     document.getElementById('gotvRemaining').textContent = data.notVoted || 0;
@@ -12954,7 +12968,10 @@ async function loadGotvStats() {
 
 async function loadGotvPrecincts() {
   try {
-    var data = await api('/api/gotv/stats');
+    var raceParams = [];
+    var raceVal = document.getElementById('dashRaceFilter').value;
+    if (raceVal) { var parts = raceVal.split('|'); raceParams.push('race_col=' + encodeURIComponent(parts[0])); raceParams.push('race_val=' + encodeURIComponent(parts[1])); }
+    var data = await api('/api/gotv/stats' + (raceParams.length ? '?' + raceParams.join('&') : ''));
     var tbody = document.getElementById('gotvPrecinctBody');
     if (!data.byPrecinct || data.byPrecinct.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters.</td></tr>';
@@ -13278,10 +13295,11 @@ async function loadLeaderboard() {
 // PRECINCT RACE FILTER — populate dropdown from race-precincts API
 // ═══════════════════════════════════════════════════════════
 
-async function loadPrecinctRaceFilter() {
+async function loadDashFilters() {
+  // Populate race/district dropdown
   try {
     var data = await api('/api/voters/race-precincts');
-    var sel = document.getElementById('precinctRaceFilter');
+    var sel = document.getElementById('dashRaceFilter');
     (data.races || []).filter(function(r) { return r.precincts && r.precincts.length > 0; }).forEach(function(r) {
       var opt = document.createElement('option');
       opt.value = r.type + '|' + r.district;
@@ -13289,6 +13307,41 @@ async function loadPrecinctRaceFilter() {
       sel.appendChild(opt);
     });
   } catch (e) {}
+  // Populate universe dropdown
+  try {
+    var uData = await api('/api/walk-universes');
+    var uSel = document.getElementById('dashUniverseFilter');
+    (uData.universes || []).forEach(function(u) {
+      var opt = document.createElement('option');
+      opt.value = u.id;
+      opt.textContent = u.name + ' (' + u.knocked_doors + '/' + u.assigned_doors + ' doors)';
+      uSel.appendChild(opt);
+    });
+  } catch (e) {}
+}
+
+function getDashFilterParams() {
+  var params = [];
+  var raceVal = document.getElementById('dashRaceFilter').value;
+  if (raceVal) {
+    var parts = raceVal.split('|');
+    params.push('race_col=' + encodeURIComponent(parts[0]));
+    params.push('race_val=' + encodeURIComponent(parts[1]));
+  }
+  var univId = document.getElementById('dashUniverseFilter').value;
+  if (univId) params.push('universe_id=' + encodeURIComponent(univId));
+  return params.length > 0 ? '?' + params.join('&') : '';
+}
+
+function applyDashSettings() {
+  loadFilteredDashStats();
+  loadPrecinctAnalytics();
+  loadDashResultsData();
+  // Also refresh GOTV if that page has been loaded
+  if (document.getElementById('gotvTotal')) {
+    loadGotvStats();
+    loadGotvPrecincts();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -13306,7 +13359,7 @@ var dashResultsState = {
 function getDashResultColor(result) {
   var colors = {
     'support': '#3b82f6', 'lean_support': '#86efac', 'undecided': '#facc15',
-    'lean_oppose': '#fb923c', 'oppose': '#ef4444'
+    'lean_oppose': '#fb923c', 'oppose': '#ef4444', 'not_visited': '#64748b'
   };
   return colors[result] || '#22c55e';
 }
@@ -13350,14 +13403,35 @@ function initDashResultsMap() {
 }
 
 function loadDashResultsData() {
-  fetch('/api/walks/all-results-map').then(function(r) { return r.json(); }).then(function(data) {
+  // Use universe_id from dash filter for map (race filter doesn't apply to walk_addresses directly)
+  var univId = document.getElementById('dashUniverseFilter').value;
+  var mapUrl = '/api/walks/all-results-map';
+  if (univId) mapUrl += '?universe_id=' + encodeURIComponent(univId);
+  fetch(mapUrl).then(function(r) { return r.json(); }).then(function(data) {
     renderDashResultsMarkers(data.addresses || []);
     var statsEl = document.getElementById('dashResultsStats');
     var total = 0;
     for (var k in (data.stats || {})) total += data.stats[k];
-    statsEl.textContent = total + ' doors visited';
+    var knocked = total - ((data.stats || {}).not_visited || 0);
+    statsEl.textContent = univId ? (knocked + ' knocked / ' + total + ' total doors') : (total + ' doors visited');
     buildDashResultsFilters(data.stats || {});
   }).catch(function(e) { console.error('Dash results map error:', e); });
+}
+
+async function loadFilteredDashStats() {
+  try {
+    var data = await api('/api/stats' + getDashFilterParams());
+    document.getElementById('statSent').textContent = data.sent || 0;
+    document.getElementById('statResponses').textContent = data.responses || 0;
+    document.getElementById('statContacts').textContent = data.contacts || 0;
+    document.getElementById('statSupporters').textContent = data.supporters || 0;
+    document.getElementById('statSupportersSub').textContent = (data.undecided || 0) + ' undecided';
+    document.getElementById('statDoors').textContent = data.doorsKnocked || 0;
+    document.getElementById('statWalks').textContent = (data.walks || 0) + ' block walks';
+    document.getElementById('statVoters').textContent = data.voters || 0;
+    var rRate = data.sent > 0 ? Math.round(data.responses / data.sent * 100) : 0;
+    document.getElementById('statResponseRate').textContent = rRate + '% response rate';
+  } catch (e) {}
 }
 
 function renderDashResultsMarkers(addresses) {

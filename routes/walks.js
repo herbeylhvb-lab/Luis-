@@ -625,25 +625,39 @@ router.get('/walks/leaderboard', (req, res) => {
   res.json({ leaderboard, overall });
 });
 
-// All visited addresses across every walk — for the combined results map
+// All addresses across walks — for the combined results map
+// ?universe_id=X filters to a specific universe (shows all addresses including unvisited)
+// Without universe_id, shows only visited addresses across all walks
 router.get('/walks/all-results-map', (req, res) => {
+  const { universe_id } = req.query;
+  let where = 'wa.lat IS NOT NULL AND wa.lng IS NOT NULL';
+  const params = [];
+
+  if (universe_id) {
+    // When a universe is selected, show ALL addresses (including unvisited gray dots)
+    where += ' AND wa.universe_id = ?';
+    params.push(universe_id);
+  } else {
+    // Without universe, only show visited
+    where += " AND wa.result != 'not_visited'";
+  }
+
   const addresses = db.prepare(`
     SELECT wa.id, wa.address, wa.unit, wa.city, wa.result, wa.lat, wa.lng, wa.knocked_at,
            wa.voter_name, wa.walk_id, bw.name as walk_name
     FROM walk_addresses wa
     JOIN block_walks bw ON wa.walk_id = bw.id
-    WHERE wa.result != 'not_visited'
-      AND wa.lat IS NOT NULL AND wa.lng IS NOT NULL
+    WHERE ${where}
     ORDER BY wa.knocked_at DESC
-  `).all();
+  `).all(...params);
 
   const stats = {};
   db.prepare(`
     SELECT result, COUNT(*) as count
     FROM walk_addresses
-    WHERE result != 'not_visited' AND lat IS NOT NULL AND lng IS NOT NULL
+    WHERE ${where.replace('wa.', '')}
     GROUP BY result
-  `).all().forEach(r => { stats[r.result] = r.count; });
+  `).all(...params).forEach(r => { stats[r.result] = r.count; });
 
   res.json({ addresses, stats });
 });
