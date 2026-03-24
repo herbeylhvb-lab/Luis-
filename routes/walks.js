@@ -666,7 +666,11 @@ router.get('/walks/all-results-map', (req, res) => {
     GROUP BY result
   `).all(...params).forEach(r => { stats[r.result] = r.count; });
 
-  res.json({ addresses, stats });
+  // Include debug counts so frontend knows if geocoding is needed
+  const totalKnocked = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited'").get() || {}).c || 0;
+  const withCoords = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND lat IS NOT NULL AND lng IS NOT NULL").get() || {}).c || 0;
+
+  res.json({ addresses, stats, debug: { totalKnocked, withCoords, needsGeocoding: totalKnocked - withCoords } });
 });
 
 // List all block walks with stats (single query instead of N+1)

@@ -273,7 +273,10 @@ tr:hover td{background:#1e293b80}
         </tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
       </div>
       <div class="card">
-        <h3>Block Walk Results Map</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 style="margin:0">Block Walk Results Map</h3>
+          <button class="btn btn-sm" id="btnGeocodeAll" onclick="geocodeAllWalks()" style="display:none;background:#334155;color:#e2e8f0;font-size:11px;padding:4px 10px">Geocode All Walks</button>
+        </div>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">All visited doors across every block walk — color-coded by disposition.</p>
         <div style="position:relative">
           <div id="dashResultsMap" style="height:450px;border-radius:8px;z-index:1"></div>
@@ -13452,9 +13455,18 @@ function loadDashResultsData() {
     var total = 0;
     for (var k in (data.stats || {})) total += data.stats[k];
     var knocked = total - ((data.stats || {}).not_visited || 0);
-    if (total === 0) {
-      statsEl.textContent = 'No geocoded walk data yet. Open a walk map to trigger geocoding.';
+    var geocodeBtn = document.getElementById('btnGeocodeAll');
+    if (total === 0 && data.debug) {
+      if (data.debug.totalKnocked > 0 && data.debug.needsGeocoding > 0) {
+        statsEl.textContent = data.debug.totalKnocked + ' doors knocked but ' + data.debug.needsGeocoding + ' need geocoding.';
+        if (geocodeBtn) geocodeBtn.style.display = '';
+      } else if (data.debug.totalKnocked === 0) {
+        statsEl.textContent = 'No doors knocked yet across any walk.';
+      } else {
+        statsEl.textContent = 'No geocoded walk data yet.';
+      }
     } else {
+      if (geocodeBtn) geocodeBtn.style.display = 'none';
       statsEl.textContent = univId ? (knocked + ' knocked / ' + total + ' total doors') : (total + ' doors visited');
     }
     buildDashResultsFilters(data.stats || {});
@@ -13585,6 +13597,33 @@ function applyDashResultsFilters() {
       if (visible) { if (!dashResultsState.map.hasLayer(markers[j])) markers[j].addTo(dashResultsState.map); }
       else { if (dashResultsState.map.hasLayer(markers[j])) dashResultsState.map.removeLayer(markers[j]); }
     }
+  }
+}
+
+async function geocodeAllWalks() {
+  var btn = document.getElementById('btnGeocodeAll');
+  btn.textContent = 'Geocoding...';
+  btn.disabled = true;
+  try {
+    // Get all walks, trigger geocode for each
+    var data = await api('/api/walks');
+    var walks = data || [];
+    if (Array.isArray(walks)) {
+      for (var i = 0; i < walks.length; i++) {
+        btn.textContent = 'Geocoding walk ' + (i + 1) + '/' + walks.length + '...';
+        try { await fetch('/api/walks/' + walks[i].id + '/geocode', { method: 'POST' }); } catch(e) {}
+      }
+    }
+    // Wait a bit for geocoding to complete, then reload map
+    btn.textContent = 'Waiting for results...';
+    setTimeout(function() {
+      loadDashResultsData();
+      btn.textContent = 'Geocode All Walks';
+      btn.disabled = false;
+    }, 5000);
+  } catch(e) {
+    btn.textContent = 'Geocode All Walks';
+    btn.disabled = false;
   }
 }
 
