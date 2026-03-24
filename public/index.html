@@ -251,6 +251,15 @@ tr:hover td{background:#1e293b80}
         <div class="stat-card"><div class="label">Sentiment</div><div class="value" style="font-size:16px" id="statSentiment">--</div><div class="sub">Response mood</div></div>
         <div class="stat-card"><div class="label">Early Voted</div><div class="value" style="color:#22c55e" id="statEarlyVoted">0</div><div class="sub" id="statEarlyVotedSub">0% of voter file</div></div>
       </div>
+      <div class="card" id="liveWalkersCard">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 style="margin:0;display:flex;align-items:center;gap:8px"><span id="liveWalkerDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b"></span> Live Block Walkers</h3>
+          <span style="font-size:12px;color:#64748b" id="liveWalkerSummary"></span>
+        </div>
+        <div id="liveWalkersContent">
+          <div style="color:#64748b;font-size:13px">Loading...</div>
+        </div>
+      </div>
       <div class="card">
         <h3>Campaign Activity Log</h3>
         <div id="activityLog" style="max-height:300px;overflow-y:auto"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
@@ -3765,6 +3774,7 @@ async function loadDashboard() {
     else { el.innerHTML = data.logs.map(l => '<div class="log-entry"><span class="log-time">' + utcToLocal(l.created_at).toLocaleString() + '</span> &mdash; ' + escHtml(l.message) + '</div>').join(''); }
   } catch (err) {}
   document.getElementById('lastUpdated').textContent = 'Last updated: ' + new Date().toLocaleString();
+  loadLiveWalkers();
   loadSentimentStats();
   loadPrecinctAnalytics();
   try { loadDashFilters(); } catch(e) { console.error('DashFilters error:', e); }
@@ -3775,6 +3785,66 @@ async function loadDashboard() {
     var evPct = evData.total > 0 ? Math.round(evData.earlyVoted / evData.total * 100) : 0;
     document.getElementById('statEarlyVotedSub').textContent = evPct + '% of voter file';
   } catch (e) {}
+}
+
+var _liveWalkerInterval = null;
+async function loadLiveWalkers() {
+  try {
+    var data = await api('/api/stats/live-walkers');
+    var dot = document.getElementById('liveWalkerDot');
+    var summary = document.getElementById('liveWalkerSummary');
+    var content = document.getElementById('liveWalkersContent');
+    var isLive = data.liveWalkerCount > 0;
+    dot.style.background = isLive ? '#22c55e' : '#64748b';
+    if (isLive) dot.style.animation = 'pulse-dot 1.5s ease-in-out infinite';
+    else dot.style.animation = 'none';
+    summary.textContent = data.liveWalkerCount + ' walker' + (data.liveWalkerCount !== 1 ? 's' : '') + ' across ' + data.liveWalkCount + ' walk' + (data.liveWalkCount !== 1 ? 's' : '');
+
+    if (!isLive) {
+      content.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px 0">No walkers are currently out walking.</div>';
+    } else {
+      var html = '<div class="table-wrap"><table><thead><tr><th>Walker</th><th>Block Walk</th><th>Hours</th><th>Doors</th><th>Contacts</th><th>Last Knock</th></tr></thead><tbody>';
+      for (var i = 0; i < data.walkers.length; i++) {
+        var w = data.walkers[i];
+        var lastKnock = w.last_knock_at ? timeAgo(w.last_knock_at) : '<span style="color:#64748b">--</span>';
+        var hoursColor = w.hours > 3 ? '#f59e0b' : '#e2e8f0';
+        html += '<tr>' +
+          '<td style="font-weight:600">' + escHtml(w.walker_name) + '</td>' +
+          '<td><a href="#" onclick="navigateToWalk(' + w.walk_id + ');return false" style="color:#818cf8;text-decoration:none">' + escHtml(w.walk_name) + '</a></td>' +
+          '<td style="color:' + hoursColor + '">' + w.hours + 'h</td>' +
+          '<td>' + w.doors_knocked + '</td>' +
+          '<td>' + w.contacts_made + '</td>' +
+          '<td>' + lastKnock + '</td>' +
+          '</tr>';
+      }
+      html += '</tbody></table></div>';
+      content.innerHTML = html;
+    }
+    // Auto-refresh every 60s while on dashboard
+    if (_liveWalkerInterval) clearInterval(_liveWalkerInterval);
+    _liveWalkerInterval = setInterval(function() {
+      var dashPage = document.getElementById('page-dashboard');
+      if (dashPage && dashPage.classList.contains('active')) loadLiveWalkers();
+      else { clearInterval(_liveWalkerInterval); _liveWalkerInterval = null; }
+    }, 60000);
+  } catch (e) {
+    document.getElementById('liveWalkersContent').innerHTML = '<div style="color:#64748b;font-size:13px">Could not load live walker data.</div>';
+  }
+}
+
+function timeAgo(utcStr) {
+  var d = new Date(utcStr + (utcStr.endsWith('Z') ? '' : 'Z'));
+  var secs = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (secs < 60) return 'just now';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
+function navigateToWalk(walkId) {
+  // Navigate to the Block Walks page and highlight the walk
+  var navItem = document.querySelector('[data-page="walks"]');
+  if (navItem) navItem.click();
 }
 
 var _precinctData = [];

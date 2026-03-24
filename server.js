@@ -383,6 +383,49 @@ app.get('/api/stats/sentiment', (req, res) => {
 });
 
 
+// --- Live walkers across all walks ---
+app.get('/api/stats/live-walkers', (req, res) => {
+  // Get all in_progress walks with their group members
+  const walks = db.prepare("SELECT id, name, status FROM block_walks WHERE status = 'in_progress'").all();
+  const liveWalkers = [];
+
+  for (const walk of walks) {
+    const members = db.prepare(
+      'SELECT walker_name, joined_at, doors_knocked, contacts_made, first_knock_at, last_knock_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at'
+    ).all(walk.id);
+
+    // Get total/knocked door counts for the walk
+    const doorStats = db.prepare(
+      "SELECT COUNT(*) as total, SUM(CASE WHEN result != 'not_visited' THEN 1 ELSE 0 END) as knocked FROM walk_addresses WHERE walk_id = ?"
+    ).get(walk.id);
+
+    for (const m of members) {
+      // Calculate hours walking from joined_at to now
+      const joinedMs = new Date(m.joined_at + 'Z').getTime();
+      const nowMs = Date.now();
+      const hoursWalking = Math.max(0, (nowMs - joinedMs) / 3600000);
+
+      liveWalkers.push({
+        walker_name: m.walker_name,
+        walk_id: walk.id,
+        walk_name: walk.name,
+        joined_at: m.joined_at,
+        hours: Math.round(hoursWalking * 10) / 10,
+        doors_knocked: m.doors_knocked || 0,
+        contacts_made: m.contacts_made || 0,
+        first_knock_at: m.first_knock_at,
+        last_knock_at: m.last_knock_at
+      });
+    }
+  }
+
+  res.json({
+    liveWalkCount: walks.length,
+    liveWalkerCount: liveWalkers.length,
+    walkers: liveWalkers
+  });
+});
+
 // --- Messaging provider endpoints ---
 
 // List available providers and which is active
