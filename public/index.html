@@ -862,7 +862,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-walktab="walks-universes">Distributed</div>
         <div class="sub-tab" data-walktab="walks-daily">Daily Report</div>
         <div class="sub-tab" data-walktab="walks-weekly">Weekly Hours</div>
-        <div class="sub-tab" data-walktab="walks-leaderboard">Leaderboard</div>
+        <div class="sub-tab" data-walktab="walks-timegaps">Time Gaps</div>
         <div class="sub-tab" data-walktab="walks-precinctmap">Precinct Map</div>
       </div>
 
@@ -1072,7 +1072,6 @@ tr:hover td{background:#1e293b80}
         </div>
       </div>
 
-      <!-- LEADERBOARD TAB -->
       <!-- DAILY REPORT TAB -->
       <div class="walk-subtab" id="walks-daily" style="display:none">
         <div class="card">
@@ -1109,15 +1108,27 @@ tr:hover td{background:#1e293b80}
         </div>
       </div>
 
-      <div class="walk-subtab" id="walks-leaderboard" style="display:none">
+      <!-- TIME GAPS TAB -->
+      <div class="walk-subtab" id="walks-timegaps" style="display:none">
         <div class="card">
-          <h3>Canvasser Leaderboard</h3>
-          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Track canvasser performance across all walks — doors knocked, contact rates, and doors per hour.</p>
-          <div class="stats-grid" id="overallCanvassStats"></div>
-        </div>
-        <div class="card">
-          <h3>Top Canvassers</h3>
-          <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Total Doors</th><th>Contacts</th><th>Supporters Found</th><th>Contact Rate</th><th>Doors/Hr</th><th>Walks</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+            <h3 style="margin-bottom:0">Time Gap Review</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="gapFilterStatus" onchange="loadTimeGaps()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
+                <option value="pending">Pending Review</option>
+                <option value="">All Gaps</option>
+                <option value="approved">Approved (Deducted)</option>
+                <option value="denied">Denied (Kept)</option>
+              </select>
+              <select id="gapFilterWalker" onchange="loadTimeGaps()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
+                <option value="">All Walkers</option>
+              </select>
+              <button class="btn btn-xs btn-primary" onclick="scanForGaps()">Scan for Gaps</button>
+            </div>
+          </div>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Breaks longer than 15 minutes between knocks. Approve a gap to deduct that time from the walker's hours. Deny to keep the time counted.</p>
+          <div id="gapSummaryStats" class="stats-grid" style="margin-bottom:16px"></div>
+          <div id="timeGapsContent"><div style="color:#64748b;font-size:13px">Click "Scan for Gaps" to detect breaks, or filter existing gaps.</div></div>
         </div>
       </div>
 
@@ -5476,7 +5487,7 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
     if (target === 'walks-universes') { loadUniverses(); loadWalkElectionDropdowns(); }
     if (target === 'walks-daily') { document.getElementById('dailyReportDate').value = new Date().toLocaleDateString('en-CA'); loadDailyReport(); }
     if (target === 'walks-weekly') loadWeeklyHours();
-    if (target === 'walks-leaderboard') loadLeaderboard();
+    if (target === 'walks-timegaps') loadTimeGaps();
     if (target === 'walks-precinctmap') initPctMap();
   });
 });
@@ -5513,18 +5524,23 @@ async function loadWeeklyHours() {
     html += '<th style="text-align:center;color:#f59e0b;font-weight:700">Total</th><th style="text-align:center">Days</th><th style="text-align:center">Doors</th></tr></thead><tbody>';
 
     var grandTotal = 0;
+    var grandDeducted = 0;
     for (var i = 0; i < data.walkers.length; i++) {
       var w = data.walkers[i];
       grandTotal += w.total_hours;
+      grandDeducted += (w.total_deducted || 0);
       html += '<tr><td style="font-weight:600">' + escHtml(w.walker_name) + '</td>';
       for (var d = 0; d < w.daily_hours.length; d++) {
         var h = w.daily_hours[d];
+        var ded = (w.daily_deducted && w.daily_deducted[d]) || 0;
         var cellColor = h === 0 ? '#334155' : h >= 4 ? '#22c55e' : h >= 2 ? '#818cf8' : '#94a3b8';
         var cellBg = h > 0 ? 'rgba(99,102,241,0.1)' : 'transparent';
-        html += '<td style="text-align:center;color:' + cellColor + ';background:' + cellBg + '">' + (h > 0 ? h.toFixed(1) + 'h' : '<span style="color:#334155">-</span>') + '</td>';
+        var dedNote = ded > 0 ? '<div style="font-size:9px;color:#ef4444">-' + ded.toFixed(1) + 'h gap</div>' : '';
+        html += '<td style="text-align:center;color:' + cellColor + ';background:' + cellBg + '">' + (h > 0 ? h.toFixed(1) + 'h' : '<span style="color:#334155">-</span>') + dedNote + '</td>';
       }
       var totalColor = w.total_hours >= 20 ? '#22c55e' : w.total_hours >= 10 ? '#f59e0b' : '#e2e8f0';
-      html += '<td style="text-align:center;font-weight:700;color:' + totalColor + '">' + w.total_hours.toFixed(1) + 'h</td>';
+      var dedTotal = (w.total_deducted || 0) > 0 ? ' <span style="font-size:10px;color:#ef4444">(-' + w.total_deducted.toFixed(1) + 'h)</span>' : '';
+      html += '<td style="text-align:center;font-weight:700;color:' + totalColor + '">' + w.total_hours.toFixed(1) + 'h' + dedTotal + '</td>';
       html += '<td style="text-align:center">' + w.days_worked + '</td>';
       html += '<td style="text-align:center">' + w.total_doors + '</td>';
       html += '</tr>';
@@ -5886,7 +5902,158 @@ window.deleteUniverse = async function(id) {
   loadUniverses();
 };
 
-// ===================== LEADERBOARD =====================
+// ===================== TIME GAPS =====================
+var _gapWalkersLoaded = false;
+
+async function scanForGaps() {
+  try {
+    var data = await api('/api/walks/time-gaps/scan', { method: 'POST' });
+    var msg = 'Scan complete: ' + data.new_gaps_found + ' new gap(s) found.';
+    if (data.new_gaps_found > 0) {
+      document.getElementById('gapFilterStatus').value = 'pending';
+    }
+    loadTimeGaps();
+    alert(msg);
+  } catch (e) {
+    alert('Scan failed: ' + e.message);
+  }
+}
+
+async function loadTimeGaps() {
+  var status = document.getElementById('gapFilterStatus').value;
+  var walker = document.getElementById('gapFilterWalker').value;
+  var url = '/api/walks/time-gaps?status=' + encodeURIComponent(status) + '&walker=' + encodeURIComponent(walker);
+  try {
+    var data = await api(url);
+
+    // Populate walker filter on first load
+    if (!_gapWalkersLoaded && data.gaps.length > 0) {
+      var names = {};
+      for (var i = 0; i < data.gaps.length; i++) names[data.gaps[i].walker_name] = true;
+      // Also load all walkers from all gaps
+      var allData = await api('/api/walks/time-gaps?status=&walker=');
+      for (var i = 0; i < allData.gaps.length; i++) names[allData.gaps[i].walker_name] = true;
+      var sel = document.getElementById('gapFilterWalker');
+      var sorted = Object.keys(names).sort();
+      sel.innerHTML = '<option value="">All Walkers</option>';
+      for (var i = 0; i < sorted.length; i++) {
+        sel.innerHTML += '<option value="' + escHtml(sorted[i]) + '">' + escHtml(sorted[i]) + '</option>';
+      }
+      _gapWalkersLoaded = true;
+    }
+
+    // Summary stats
+    var statsHtml = '';
+    var pending = 0, pendingMin = 0, approved = 0, approvedMin = 0, denied = 0, deniedMin = 0;
+    for (var i = 0; i < data.summary.length; i++) {
+      var s = data.summary[i];
+      if (s.status === 'pending') { pending = s.count; pendingMin = s.total_minutes || 0; }
+      if (s.status === 'approved') { approved = s.count; approvedMin = s.total_minutes || 0; }
+      if (s.status === 'denied') { denied = s.count; deniedMin = s.total_minutes || 0; }
+    }
+    statsHtml += '<div class="stat-card"><div class="label">Pending Review</div><div class="value" style="color:#f59e0b">' + pending + '</div><div class="sub">' + (pendingMin / 60).toFixed(1) + ' hours</div></div>';
+    statsHtml += '<div class="stat-card"><div class="label">Approved (Deducted)</div><div class="value" style="color:#ef4444">' + approved + '</div><div class="sub">' + (approvedMin / 60).toFixed(1) + ' hours deducted</div></div>';
+    statsHtml += '<div class="stat-card"><div class="label">Denied (Kept)</div><div class="value" style="color:#22c55e">' + denied + '</div><div class="sub">' + (deniedMin / 60).toFixed(1) + ' hours kept</div></div>';
+    document.getElementById('gapSummaryStats').innerHTML = statsHtml;
+
+    // Gaps table
+    var content = document.getElementById('timeGapsContent');
+    if (data.gaps.length === 0) {
+      content.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px 0">No gaps found matching your filters.</div>';
+      return;
+    }
+
+    var html = '<div style="margin-bottom:12px;display:flex;gap:8px">';
+    if (status === 'pending') {
+      html += '<button class="btn btn-xs" style="background:#ef4444;color:#fff" onclick="bulkGapAction(\'approved\')">Approve Selected (Deduct Time)</button>';
+      html += '<button class="btn btn-xs" style="background:#22c55e;color:#fff" onclick="bulkGapAction(\'denied\')">Deny Selected (Keep Time)</button>';
+      html += '<label style="color:#94a3b8;font-size:12px;margin-left:8px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="gapSelectAll" onchange="toggleAllGaps(this.checked)"> Select All</label>';
+    }
+    html += '</div>';
+
+    html += '<div class="table-wrap"><table><thead><tr>';
+    if (status === 'pending') html += '<th style="width:36px"></th>';
+    html += '<th>Walker</th><th>Date</th><th>Gap Start</th><th>Gap End</th><th>Duration</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+
+    for (var i = 0; i < data.gaps.length; i++) {
+      var g = data.gaps[i];
+      var gapStart = formatCentralTime(g.gap_start);
+      var gapEnd = formatCentralTime(g.gap_end);
+      var durColor = g.gap_minutes >= 60 ? '#ef4444' : g.gap_minutes >= 30 ? '#f59e0b' : '#e2e8f0';
+      var durText = g.gap_minutes >= 60 ? Math.round(g.gap_minutes / 60 * 10) / 10 + 'h' : Math.round(g.gap_minutes) + 'min';
+
+      var statusBadge = '';
+      if (g.status === 'pending') statusBadge = '<span style="background:#92400e;color:#fbbf24;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:600">PENDING</span>';
+      else if (g.status === 'approved') statusBadge = '<span style="background:#991b1b;color:#fca5a5;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:600">DEDUCTED</span>';
+      else statusBadge = '<span style="background:#166534;color:#86efac;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:600">KEPT</span>';
+
+      var actions = '';
+      if (g.status === 'pending') {
+        actions = '<button class="btn btn-xs" style="background:#ef4444;color:#fff;padding:2px 6px;font-size:10px" onclick="updateGap(' + g.id + ',\'approved\')">Deduct</button> ';
+        actions += '<button class="btn btn-xs" style="background:#22c55e;color:#fff;padding:2px 6px;font-size:10px" onclick="updateGap(' + g.id + ',\'denied\')">Keep</button>';
+      } else {
+        actions = '<button class="btn btn-xs btn-secondary" style="padding:2px 6px;font-size:10px" onclick="updateGap(' + g.id + ',\'pending\')">Undo</button>';
+      }
+
+      html += '<tr>';
+      if (status === 'pending') html += '<td><input type="checkbox" class="gap-check" value="' + g.id + '"></td>';
+      html += '<td style="font-weight:600">' + escHtml(g.walker_name) + '</td>';
+      html += '<td>' + formatGapDate(g.gap_date) + '</td>';
+      html += '<td>' + gapStart + '</td>';
+      html += '<td>' + gapEnd + '</td>';
+      html += '<td style="color:' + durColor + ';font-weight:600">' + durText + '</td>';
+      html += '<td>' + statusBadge + '</td>';
+      html += '<td>' + actions + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+  } catch (e) {
+    document.getElementById('timeGapsContent').innerHTML = '<div style="color:#ef4444;font-size:13px">Failed to load time gaps.</div>';
+  }
+}
+
+function formatCentralTime(utcStr) {
+  if (!utcStr) return '--';
+  var d = new Date(utcStr + (utcStr.endsWith('Z') ? '' : 'Z'));
+  var c = new Date(d.getTime() - 6 * 60 * 60 * 1000);
+  var h = c.getUTCHours(), m = c.getUTCMinutes();
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+}
+
+function formatGapDate(dateStr) {
+  if (!dateStr) return '--';
+  var d = new Date(dateStr + 'T12:00:00');
+  return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+}
+
+async function updateGap(id, status) {
+  try {
+    await api('/api/walks/time-gaps/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: status }) });
+    loadTimeGaps();
+  } catch (e) { alert('Failed to update gap'); }
+}
+
+function toggleAllGaps(checked) {
+  var boxes = document.querySelectorAll('.gap-check');
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = checked;
+}
+
+async function bulkGapAction(status) {
+  var boxes = document.querySelectorAll('.gap-check:checked');
+  if (boxes.length === 0) { alert('No gaps selected.'); return; }
+  var ids = [];
+  for (var i = 0; i < boxes.length; i++) ids.push(parseInt(boxes[i].value));
+  var action = status === 'approved' ? 'DEDUCT time for' : 'KEEP time for';
+  if (!confirm(action + ' ' + ids.length + ' gap(s)?')) return;
+  try {
+    await api('/api/walks/time-gaps-bulk', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids, status: status }) });
+    loadTimeGaps();
+  } catch (e) { alert('Bulk update failed'); }
+}
+
 // ===================== DAILY REPORT =====================
 function shiftDailyDate(delta) {
   var input = document.getElementById('dailyReportDate');
@@ -6001,39 +6168,6 @@ async function loadDailyReport() {
   } catch (err) {
     document.getElementById('dailyTotals').innerHTML = '<div style="color:#ef4444;padding:12px">Failed to load: ' + escHtml(err.message || 'Unknown error') + '</div>';
   }
-}
-
-async function loadLeaderboard() {
-  try {
-    var data = await api('/api/walks/leaderboard');
-    // Overall stats
-    var ov = data.overall || {};
-    document.getElementById('overallCanvassStats').innerHTML =
-      '<div class="stat-card"><div class="label">Total Attempts</div><div class="value">' + (ov.total_attempts || 0) + '</div></div>' +
-      '<div class="stat-card"><div class="label">Unique Doors</div><div class="value">' + (ov.unique_doors || 0) + '</div></div>' +
-      '<div class="stat-card"><div class="label">Contacts Made</div><div class="value">' + (ov.total_contacts || 0) + '</div></div>' +
-      '<div class="stat-card"><div class="label">Supporters Found</div><div class="value">' + (ov.total_supporters || 0) + '</div></div>' +
-      '<div class="stat-card"><div class="label">Contact Rate</div><div class="value">' + (ov.contact_rate || 0) + '%</div></div>' +
-      '<div class="stat-card"><div class="label">Total Walkers</div><div class="value">' + (ov.total_walkers || 0) + '</div></div>';
-
-    // Leaderboard table
-    var tbody = document.getElementById('leaderboardBody');
-    if (!data.leaderboard || data.leaderboard.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="color:#64748b;text-align:center">No canvassing data yet. Send walkers out!</td></tr>';
-      return;
-    }
-    tbody.innerHTML = data.leaderboard.map(function(w, i) {
-      var medal = i === 0 ? '\uD83E\uDD47 ' : i === 1 ? '\uD83E\uDD48 ' : i === 2 ? '\uD83E\uDD49 ' : '';
-      return '<tr><td style="text-align:center;font-weight:700">' + medal + (i + 1) + '</td>' +
-        '<td style="font-weight:600">' + escHtml(w.name) + '</td>' +
-        '<td>' + w.total_doors + '</td>' +
-        '<td>' + w.contacts + '</td>' +
-        '<td style="color:#22c55e;font-weight:600">' + w.supporters_found + '</td>' +
-        '<td>' + w.contact_rate + '%</td>' +
-        '<td>' + w.doors_per_hour + '</td>' +
-        '<td>' + w.walks_participated + '</td></tr>';
-    }).join('');
-  } catch (e) { /* silent */ }
 }
 
 // ===================== PRINT & TURF REFRESH =====================

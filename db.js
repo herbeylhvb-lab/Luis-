@@ -852,6 +852,25 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_wu_code ON walk_universes(share_code);
 `);
 
+// --- Time Gap Flags (breaks > 15 min between knocks, admin must approve deduction) ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS walker_time_gaps (
+    id INTEGER PRIMARY KEY,
+    walker_name TEXT NOT NULL,
+    gap_date TEXT NOT NULL,
+    gap_start TEXT NOT NULL,
+    gap_end TEXT NOT NULL,
+    gap_minutes REAL NOT NULL,
+    status TEXT DEFAULT 'pending',
+    reviewed_at TEXT DEFAULT NULL,
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_wtg_walker ON walker_time_gaps(walker_name);
+  CREATE INDEX IF NOT EXISTS idx_wtg_date ON walker_time_gaps(gap_date);
+  CREATE INDEX IF NOT EXISTS idx_wtg_status ON walker_time_gaps(status);
+`);
+
 // Track which voters are already assigned in a universe to avoid duplication
 addColumn("ALTER TABLE walk_addresses ADD COLUMN universe_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE walk_addresses ADD COLUMN geo_flagged INTEGER DEFAULT 0");
