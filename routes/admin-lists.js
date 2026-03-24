@@ -205,6 +205,36 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
   res.send(csv);
 });
 
+// Save VBM matched voters as a mail universe list
+router.post('/admin-lists/vbm-save', (req, res) => {
+  const { name, voter_ids } = req.body;
+  if (!name || !Array.isArray(voter_ids) || voter_ids.length === 0) {
+    return res.status(400).json({ error: 'name and voter_ids array required' });
+  }
+
+  const saveTx = db.transaction(() => {
+    const r = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)').run(
+      name, 'Vote by Mail mailing list', 'mail'
+    );
+    const listId = r.lastInsertRowid;
+    const ins = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
+    let added = 0;
+    for (const vid of voter_ids) {
+      const result = ins.run(listId, vid);
+      added += result.changes;
+    }
+    return { listId, added };
+  });
+
+  const result = saveTx();
+  const householdCount = (db.prepare(`
+    SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+    FROM voters v INNER JOIN admin_list_voters alv ON v.id = alv.voter_id WHERE alv.list_id = ?
+  `).get(result.listId) || { c: 0 }).c;
+
+  res.json({ success: true, listId: result.listId, added: result.added, households: householdCount });
+});
+
 // Get distinct precincts within a list (for precinct sub-filtering)
 router.get('/admin-lists/:id/precincts', (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(req.params.id);

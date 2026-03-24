@@ -1832,9 +1832,10 @@ tr:hover td{background:#1e293b80}
               <div id="vbmFilterInfo" style="margin-top:8px;font-size:12px;color:#94a3b8"></div>
             </div>
 
-            <div style="display:flex;gap:8px;margin-bottom:16px">
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
               <button class="btn btn-primary" onclick="exportVbmMailingList()">Export Mailing List CSV</button>
               <button class="btn btn-secondary" onclick="exportVbmUnmatched()">Export Unmatched CSV</button>
+              <button class="btn btn-success" onclick="saveVbmAsMailUniverse()">Save as Mail Universe</button>
             </div>
             <div id="vbmResultsTable"></div>
           </div>
@@ -9916,6 +9917,21 @@ function exportVbmUnmatched() {
       csvField(r.address) + ',' + csvField(r.city) + ',' + csvField(r.zip) + '\n';
   }
   downloadCsv(csv, 'vbm_unmatched.csv');
+}
+
+async function saveVbmAsMailUniverse() {
+  var rows = getVbmFilteredMatched();
+  if (rows.length === 0) { alert('No voters in the filtered mailing list.'); return; }
+  var today = new Date().toLocaleDateString('en-CA');
+  var listName = prompt('Mail universe name:', 'VBM Mailing List ' + today);
+  if (!listName) return;
+  var voterIds = rows.map(function(r) { return r.voter_id; });
+  try {
+    var data = await apiPost('/api/admin-lists/vbm-save', { name: listName, voter_ids: voterIds });
+    alert('Saved "' + listName + '" with ' + data.added + ' voters across ' + data.households + ' households.\n\nYou can find it in your lists and download the mailing list from there.');
+  } catch (e) {
+    alert('Failed to save: ' + (e.message || 'Unknown error'));
+  }
 }
 
 function csvField(val) {
