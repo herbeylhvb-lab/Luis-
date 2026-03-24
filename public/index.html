@@ -1832,9 +1832,10 @@ tr:hover td{background:#1e293b80}
               <div id="vbmFilterInfo" style="margin-top:8px;font-size:12px;color:#94a3b8"></div>
             </div>
 
-            <div style="display:flex;gap:8px;margin-bottom:16px">
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
               <button class="btn btn-primary" onclick="exportVbmMailingList()">Export Mailing List CSV</button>
               <button class="btn btn-secondary" onclick="exportVbmUnmatched()">Export Unmatched CSV</button>
+              <button class="btn btn-success" onclick="saveVbmAsMailUniverse()">Save as Mail Universe</button>
             </div>
             <div id="vbmResultsTable"></div>
           </div>
@@ -9883,14 +9884,25 @@ function renderVbmResults() {
 function exportVbmMailingList() {
   var rows = getVbmFilteredMatched();
   if (rows.length === 0) { alert('No voters in the filtered mailing list.'); return; }
-  var csv = 'First Name,Last Name,Address,City,State,Zip,Zip4,Phone,Email,Registration Number,Precinct,Party,Support Level,Match Method\n';
+  // Group by household (same address+city+zip) like Universe Builder
+  var households = {};
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    csv += csvField(r.first_name) + ',' + csvField(r.last_name) + ',' + csvField(r.address) + ',' +
-      csvField(r.city) + ',' + csvField(r.state || 'TX') + ',' + csvField(r.zip) + ',' + csvField(r.zip4 || '') + ',' +
-      csvField(r.phone || '') + ',' + csvField(r.email || '') + ',' + csvField(r.registration_number || '') + ',' +
-      csvField(r.precinct || '') + ',' + csvField(r.party || '') + ',' + csvField(r.support_level || '') + ',' +
-      csvField(r.match_method) + '\n';
+    var key = ((r.address || '') + '|' + (r.city || '') + '|' + (r.zip || '')).toLowerCase().trim();
+    if (!households[key]) {
+      households[key] = { members: [], address: r.address, city: r.city, state: r.state || 'TX', zip: r.zip, zip4: r.zip4 || '', precinct: r.precinct || '', last_name: r.last_name };
+    }
+    households[key].members.push(r);
+    // Use first last_name alphabetically for family name
+    if (r.last_name && r.last_name < households[key].last_name) households[key].last_name = r.last_name;
+  }
+  var csv = 'Name,Address,City,State,Zip,Precinct,Household Size\n';
+  var keys = Object.keys(households);
+  for (var j = 0; j < keys.length; j++) {
+    var h = households[keys[j]];
+    var name = h.members.length > 1 ? 'The ' + h.last_name + ' Family' : (h.members[0].first_name + ' ' + h.members[0].last_name);
+    csv += csvField(name) + ',' + csvField(h.address) + ',' + csvField(h.city) + ',' +
+      csvField(h.state) + ',' + csvField(h.zip) + ',' + csvField(h.precinct) + ',' + h.members.length + '\n';
   }
   downloadCsv(csv, 'vbm_mailing_list.csv');
 }
@@ -9905,6 +9917,21 @@ function exportVbmUnmatched() {
       csvField(r.address) + ',' + csvField(r.city) + ',' + csvField(r.zip) + '\n';
   }
   downloadCsv(csv, 'vbm_unmatched.csv');
+}
+
+async function saveVbmAsMailUniverse() {
+  var rows = getVbmFilteredMatched();
+  if (rows.length === 0) { alert('No voters in the filtered mailing list.'); return; }
+  var today = new Date().toLocaleDateString('en-CA');
+  var listName = prompt('Mail universe name:', 'VBM Mailing List ' + today);
+  if (!listName) return;
+  var voterIds = rows.map(function(r) { return r.voter_id; });
+  try {
+    var data = await apiPost('/api/admin-lists/vbm-save', { name: listName, voter_ids: voterIds });
+    alert('Saved "' + listName + '" with ' + data.added + ' voters across ' + data.households + ' households.\n\nYou can find it in your lists and download the mailing list from there.');
+  } catch (e) {
+    alert('Failed to save: ' + (e.message || 'Unknown error'));
+  }
 }
 
 function csvField(val) {
