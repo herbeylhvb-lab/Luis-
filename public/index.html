@@ -3827,25 +3827,28 @@ async function loadLiveWalkers() {
     if (!hasAny) {
       content.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px 0">No walkers have joined any block walks yet.</div>';
     } else {
-      var html = '<div class="table-wrap"><table><thead><tr><th>Walker</th><th>Current Walk</th><th>Status</th><th>Hours</th><th>Doors</th><th>Contacts</th><th>Walks</th><th>Last Knock</th></tr></thead><tbody>';
+      var html = '<div class="table-wrap"><table><thead><tr><th>Walker</th><th>Current Walk</th><th>Status</th><th>Today</th><th>This Week</th><th>Doors</th><th>Contacts</th><th>Last Knock</th></tr></thead><tbody>';
       for (var i = 0; i < data.walkers.length; i++) {
         var w = data.walkers[i];
         var lastKnock = w.last_knock_at ? timeAgo(w.last_knock_at) : '<span style="color:#64748b">--</span>';
-        var hoursColor = w.total_hours > 3 ? '#f59e0b' : '#e2e8f0';
         var statusBadge = w.is_live
           ? '<span style="background:#16a34a;color:#fff;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:600">LIVE</span>'
           : '<span style="background:#334155;color:#94a3b8;font-size:10px;padding:2px 7px;border-radius:9px">done</span>';
         var walkLink = w.current_walk_id
           ? '<a href="#" onclick="navigateToWalk(' + w.current_walk_id + ');return false" style="color:#818cf8;text-decoration:none">' + escHtml(w.current_walk_name) + '</a>'
           : '<span style="color:#64748b">--</span>';
+        var todayColor = w.today_hours > 0 ? (w.today_hours >= 4 ? '#22c55e' : '#818cf8') : '#334155';
+        var todayText = w.today_hours > 0 ? w.today_hours + 'h' : '-';
+        var weekColor = w.week_hours >= 20 ? '#22c55e' : w.week_hours >= 10 ? '#f59e0b' : w.week_hours > 0 ? '#e2e8f0' : '#334155';
+        var weekText = w.week_hours > 0 ? w.week_hours + 'h' : '-';
         html += '<tr>' +
           '<td style="font-weight:600">' + escHtml(w.walker_name) + '</td>' +
           '<td>' + walkLink + '</td>' +
           '<td>' + statusBadge + '</td>' +
-          '<td style="color:' + hoursColor + '">' + w.total_hours + 'h</td>' +
+          '<td style="color:' + todayColor + ';font-weight:600">' + todayText + '</td>' +
+          '<td style="color:' + weekColor + ';font-weight:600">' + weekText + '</td>' +
           '<td>' + w.total_doors + '</td>' +
           '<td>' + w.total_contacts + '</td>' +
-          '<td>' + w.walks_count + '</td>' +
           '<td>' + lastKnock + '</td>' +
           '</tr>';
       }
