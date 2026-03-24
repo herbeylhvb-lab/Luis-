@@ -260,9 +260,10 @@ tr:hover td{background:#1e293b80}
           <div style="color:#64748b;font-size:13px">Loading...</div>
         </div>
       </div>
-      <div class="card">
-        <h3>Campaign Activity Log</h3>
-        <div id="activityLog" style="max-height:300px;overflow-y:auto"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
+      <div class="card" style="text-align:center;padding:32px">
+        <h3>Block Walk Results Map</h3>
+        <p style="color:#94a3b8;margin:12px 0;font-size:13px">View all visited doors across every block walk — color-coded by disposition with filters.</p>
+        <a href="/results-map.html" class="btn btn-primary" style="display:inline-block;padding:12px 32px;font-size:15px;text-decoration:none;border-radius:8px">Open Results Map</a>
       </div>
       <div class="card" id="precinctAnalyticsCard">
         <h3>Precinct Analytics</h3>
@@ -281,10 +282,9 @@ tr:hover td{background:#1e293b80}
           <th>Priority</th>
         </tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
       </div>
-      <div class="card" style="text-align:center;padding:32px">
-        <h3>Block Walk Results Map</h3>
-        <p style="color:#94a3b8;margin:12px 0;font-size:13px">View all visited doors across every block walk — color-coded by disposition with filters.</p>
-        <a href="/results-map.html" class="btn btn-primary" style="display:inline-block;padding:12px 32px;font-size:15px;text-decoration:none;border-radius:8px">Open Results Map</a>
+      <div class="card">
+        <h3>Campaign Activity Log</h3>
+        <div id="activityLog" style="max-height:300px;overflow-y:auto"><div class="log-entry" style="color:#64748b">No activity yet.</div></div>
       </div>
     </div>
 
@@ -3794,23 +3794,31 @@ async function loadLiveWalkers() {
     var dot = document.getElementById('liveWalkerDot');
     var summary = document.getElementById('liveWalkerSummary');
     var content = document.getElementById('liveWalkersContent');
-    var isLive = data.liveWalkerCount > 0;
-    dot.style.background = isLive ? '#22c55e' : '#64748b';
-    if (isLive) dot.style.animation = 'pulse-dot 1.5s ease-in-out infinite';
+    var hasLive = data.liveWalkerCount > 0;
+    var hasAny = data.totalWalkerCount > 0;
+    dot.style.background = hasLive ? '#22c55e' : '#64748b';
+    if (hasLive) dot.style.animation = 'pulse-dot 1.5s ease-in-out infinite';
     else dot.style.animation = 'none';
-    summary.textContent = data.liveWalkerCount + ' walker' + (data.liveWalkerCount !== 1 ? 's' : '') + ' across ' + data.liveWalkCount + ' walk' + (data.liveWalkCount !== 1 ? 's' : '');
+    var parts = [];
+    if (hasLive) parts.push(data.liveWalkerCount + ' live now');
+    parts.push(data.totalWalkerCount + ' total across ' + data.totalWalkCount + ' walk' + (data.totalWalkCount !== 1 ? 's' : ''));
+    summary.textContent = parts.join(' \u2022 ');
 
-    if (!isLive) {
-      content.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px 0">No walkers are currently out walking.</div>';
+    if (!hasAny) {
+      content.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px 0">No walkers have joined any block walks yet.</div>';
     } else {
-      var html = '<div class="table-wrap"><table><thead><tr><th>Walker</th><th>Block Walk</th><th>Hours</th><th>Doors</th><th>Contacts</th><th>Last Knock</th></tr></thead><tbody>';
+      var html = '<div class="table-wrap"><table><thead><tr><th>Walker</th><th>Block Walk</th><th>Status</th><th>Hours</th><th>Doors</th><th>Contacts</th><th>Last Knock</th></tr></thead><tbody>';
       for (var i = 0; i < data.walkers.length; i++) {
         var w = data.walkers[i];
         var lastKnock = w.last_knock_at ? timeAgo(w.last_knock_at) : '<span style="color:#64748b">--</span>';
         var hoursColor = w.hours > 3 ? '#f59e0b' : '#e2e8f0';
+        var statusBadge = w.is_live
+          ? '<span style="background:#16a34a;color:#fff;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:600">LIVE</span>'
+          : '<span style="background:#334155;color:#94a3b8;font-size:10px;padding:2px 7px;border-radius:9px">' + escHtml(w.walk_status || 'done') + '</span>';
         html += '<tr>' +
           '<td style="font-weight:600">' + escHtml(w.walker_name) + '</td>' +
           '<td><a href="#" onclick="navigateToWalk(' + w.walk_id + ');return false" style="color:#818cf8;text-decoration:none">' + escHtml(w.walk_name) + '</a></td>' +
+          '<td>' + statusBadge + '</td>' +
           '<td style="color:' + hoursColor + '">' + w.hours + 'h</td>' +
           '<td>' + w.doors_knocked + '</td>' +
           '<td>' + w.contacts_made + '</td>' +
