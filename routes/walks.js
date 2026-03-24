@@ -626,17 +626,17 @@ router.get('/walks/leaderboard', (req, res) => {
 });
 
 // All addresses across walks — for the combined results map
-// ?universe_id=X filters to a specific universe (shows all addresses including unvisited)
-// Without universe_id, shows only visited addresses across all walks
+// ?list_id=X filters to voters in an admin_list universe (shows all addresses including unvisited)
+// Without list_id, shows only visited addresses across all walks
 router.get('/walks/all-results-map', (req, res) => {
-  const { universe_id } = req.query;
+  const { list_id } = req.query;
   let where = 'wa.lat IS NOT NULL AND wa.lng IS NOT NULL';
   const params = [];
 
-  if (universe_id) {
-    // When a universe is selected, show ALL addresses (including unvisited gray dots)
-    where += ' AND wa.universe_id = ?';
-    params.push(universe_id);
+  if (list_id) {
+    // When a universe (admin_list) is selected, show ALL addresses for voters in that list
+    where += ' AND wa.voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    params.push(list_id);
   } else {
     // Without universe, only show visited
     where += " AND wa.result != 'not_visited'";
@@ -652,10 +652,17 @@ router.get('/walks/all-results-map', (req, res) => {
   `).all(...params);
 
   const stats = {};
+  // Build stats query without table alias
+  let statsWhere = 'lat IS NOT NULL AND lng IS NOT NULL';
+  if (list_id) {
+    statsWhere += ' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+  } else {
+    statsWhere += " AND result != 'not_visited'";
+  }
   db.prepare(`
     SELECT result, COUNT(*) as count
     FROM walk_addresses
-    WHERE ${where.replace('wa.', '')}
+    WHERE ${statsWhere}
     GROUP BY result
   `).all(...params).forEach(r => { stats[r.result] = r.count; });
 

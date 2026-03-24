@@ -1191,15 +1191,24 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
-  const { race_col, race_val, universe_id } = req.query;
+  const { race_col, race_val, list_id } = req.query;
   const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   // Build optional race/district filter
   let raceFilter = '';
   const raceParams = [];
   if (race_col && validCols.includes(race_col) && race_val) {
-    raceFilter = ` AND ${race_col} = ?`;
+    raceFilter += ` AND ${race_col} = ?`;
     raceParams.push(race_val);
+  }
+  // list_id filter — uses different column ref depending on context
+  // raceFilter is for standalone voter queries, joinRaceFilter is for JOINed queries with v. alias
+  let listFilter = '';
+  let joinListFilter = '';
+  if (list_id) {
+    listFilter = ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    joinListFilter = ' AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    raceParams.push(list_id);
   }
 
   // Get all precincts with voter counts and party breakdown
@@ -1211,14 +1220,14 @@ router.get('/analytics/precincts', (req, res) => {
       SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other,
       SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
-    FROM voters WHERE precinct != ''${raceFilter}
+    FROM voters WHERE precinct != ''${raceFilter}${listFilter}
     GROUP BY precinct ORDER BY precinct
   `).all(...raceParams);
 
   // Compute touchpoints per precinct using JOINs (scalable to 300K+)
   const contactsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vc.id) as c FROM voter_contacts vc
-    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != ''${raceFilter}
+    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != ''${raceFilter}${joinListFilter}
     GROUP BY v.precinct
   `).all(...raceParams);
   const contactMap = {};
@@ -1226,7 +1235,7 @@ router.get('/analytics/precincts', (req, res) => {
 
   const checkinsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vck.id) as c FROM voter_checkins vck
-    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != ''${raceFilter}
+    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != ''${raceFilter}${joinListFilter}
     GROUP BY v.precinct
   `).all(...raceParams);
   const checkinMap = {};
@@ -1234,28 +1243,22 @@ router.get('/analytics/precincts', (req, res) => {
 
   const captainByPct = db.prepare(`
     SELECT v.precinct, COUNT(clv.id) as c FROM captain_list_voters clv
-    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != ''${raceFilter}
+    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != ''${raceFilter}${joinListFilter}
     GROUP BY v.precinct
   `).all(...raceParams);
   const captainMap = {};
   for (const r of captainByPct) captainMap[r.precinct] = r.c;
 
   // Walk universe progress by precinct
-  let doorUniverseFilter = '';
-  const doorParams = [...raceParams];
-  if (universe_id) {
-    doorUniverseFilter = ' AND wa.universe_id = ?';
-    doorParams.push(universe_id);
-  }
   const doorsByPct = db.prepare(`
     SELECT v.precinct,
       COUNT(DISTINCT wa.id) as total_doors,
       COUNT(DISTINCT CASE WHEN wa.result != 'not_visited' THEN wa.id END) as knocked_doors
     FROM walk_addresses wa
     JOIN voters v ON wa.voter_id = v.id
-    WHERE v.precinct != ''${raceFilter}${doorUniverseFilter}
+    WHERE v.precinct != ''${raceFilter}${joinListFilter}
     GROUP BY v.precinct
-  `).all(...doorParams);
+  `).all(...raceParams);
   const doorsMap = {};
   for (const r of doorsByPct) doorsMap[r.precinct] = r;
 

@@ -13307,14 +13307,16 @@ async function loadDashFilters() {
       sel.appendChild(opt);
     });
   } catch (e) {}
-  // Populate universe dropdown
+  // Populate universe dropdown from My Universes (admin_lists with list_type=universe)
   try {
-    var uData = await api('/api/walk-universes');
+    var uData = await api('/api/admin-lists');
     var uSel = document.getElementById('dashUniverseFilter');
-    (uData.universes || []).forEach(function(u) {
+    var universes = (uData.lists || []).filter(function(l) { return l.list_type === 'universe'; });
+    if (universes.length === 0) universes = uData.lists || []; // fallback to all lists
+    universes.forEach(function(u) {
       var opt = document.createElement('option');
       opt.value = u.id;
-      opt.textContent = u.name + ' (' + u.knocked_doors + '/' + u.assigned_doors + ' doors)';
+      opt.textContent = u.name + ' (' + u.voterCount + ' voters)';
       uSel.appendChild(opt);
     });
   } catch (e) {}
@@ -13329,7 +13331,7 @@ function getDashFilterParams() {
     params.push('race_val=' + encodeURIComponent(parts[1]));
   }
   var univId = document.getElementById('dashUniverseFilter').value;
-  if (univId) params.push('universe_id=' + encodeURIComponent(univId));
+  if (univId) params.push('list_id=' + encodeURIComponent(univId));
   return params.length > 0 ? '?' + params.join('&') : '';
 }
 
@@ -13403,10 +13405,10 @@ function initDashResultsMap() {
 }
 
 function loadDashResultsData() {
-  // Use universe_id from dash filter for map (race filter doesn't apply to walk_addresses directly)
+  // Use list_id from dash filter for map
   var univId = document.getElementById('dashUniverseFilter').value;
   var mapUrl = '/api/walks/all-results-map';
-  if (univId) mapUrl += '?universe_id=' + encodeURIComponent(univId);
+  if (univId) mapUrl += '?list_id=' + encodeURIComponent(univId);
   fetch(mapUrl).then(function(r) { return r.json(); }).then(function(data) {
     renderDashResultsMarkers(data.addresses || []);
     var statsEl = document.getElementById('dashResultsStats');

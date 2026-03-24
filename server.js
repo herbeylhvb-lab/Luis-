@@ -317,34 +317,33 @@ const _statsQueryDefault = db.prepare(`
     (SELECT COUNT(*) FROM voters WHERE support_level = 'undecided') as undecided
 `);
 app.get('/api/stats', (req, res) => {
-  const { race_col, race_val, universe_id } = req.query;
+  const { race_col, race_val, list_id } = req.query;
   const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   // If no filters, use fast prepared statement
-  if (!race_col && !universe_id) return res.json(_statsQueryDefault.get());
+  if (!race_col && !list_id) return res.json(_statsQueryDefault.get());
 
   let voterFilter = '';
-  let doorFilter = " AND result != 'not_visited'";
   const vParams = [];
-  const dParams = [];
 
   if (race_col && validCols.includes(race_col) && race_val) {
     voterFilter += ` AND ${race_col} = ?`;
     vParams.push(race_val);
   }
-  if (universe_id) {
-    doorFilter += ' AND universe_id = ?';
-    dParams.push(universe_id);
+  // Filter voters by admin_list membership (My Universes)
+  if (list_id) {
+    voterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    vParams.push(list_id);
   }
 
   const stats = _statsQueryDefault.get(); // base stats (messages, events, etc. aren't filtered)
   // Override voter-related stats with filtered versions
-  const vr = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${voterFilter}`).get(...vParams);
-  stats.voters = vr.c;
+  stats.voters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${voterFilter}`).get(...vParams).c;
   stats.supporters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level IN ('strong_support','lean_support')${voterFilter}`).get(...vParams).c;
   stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${voterFilter}`).get(...vParams).c;
-  if (universe_id) {
-    stats.doorsKnocked = db.prepare(`SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND universe_id = ?`).get(universe_id).c;
+  // Doors knocked for voters in this list
+  if (list_id) {
+    stats.doorsKnocked = db.prepare(`SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`).get(list_id).c;
   }
   res.json(stats);
 });
