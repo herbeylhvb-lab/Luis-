@@ -625,6 +625,52 @@ router.get('/walks/leaderboard', (req, res) => {
   res.json({ leaderboard, overall });
 });
 
+// Google Civic Info — polling locations for a voter's address
+// Uses the same GOOGLE_GEOCODE_KEY (enable Civic Information API in Google Cloud Console)
+const civicInfoCache = {};
+router.get('/walks/civic-info', async (req, res) => {
+  const { address } = req.query;
+  if (!address) return res.status(400).json({ error: 'Address required.' });
+  if (!GOOGLE_GEOCODE_KEY) return res.json({ error: 'No Google API key configured.', pollingLocations: [], earlyVoteSites: [] });
+
+  // Check cache
+  const cacheKey = address.trim().toLowerCase();
+  if (civicInfoCache[cacheKey]) return res.json(civicInfoCache[cacheKey]);
+
+  try {
+    const url = 'https://www.googleapis.com/civicinfo/v2/voterinfo?key=' + encodeURIComponent(GOOGLE_GEOCODE_KEY) + '&address=' + encodeURIComponent(address) + '&returnAllAvailableData=true';
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    const result = {
+      election: data.election ? data.election.name : null,
+      electionDay: data.election ? data.election.electionDay : null,
+      pollingLocations: (data.pollingLocations || []).map(p => ({
+        name: p.address ? p.address.locationName : '',
+        address: p.address ? [p.address.line1, p.address.city, p.address.state, p.address.zip].filter(Boolean).join(', ') : '',
+        hours: p.pollingHours || '',
+        notes: p.notes || ''
+      })),
+      earlyVoteSites: (data.earlyVoteSites || []).map(s => ({
+        name: s.address ? s.address.locationName : '',
+        address: s.address ? [s.address.line1, s.address.city, s.address.state, s.address.zip].filter(Boolean).join(', ') : '',
+        hours: s.pollingHours || '',
+        startDate: s.startDate || '',
+        endDate: s.endDate || ''
+      })),
+      dropOffLocations: (data.dropOffLocations || []).map(d => ({
+        name: d.address ? d.address.locationName : '',
+        address: d.address ? [d.address.line1, d.address.city, d.address.state, d.address.zip].filter(Boolean).join(', ') : ''
+      }))
+    };
+
+    civicInfoCache[cacheKey] = result;
+    res.json(result);
+  } catch (e) {
+    res.json({ error: e.message, pollingLocations: [], earlyVoteSites: [] });
+  }
+});
+
 // All addresses across walks — for the combined results map
 // ?list_id=X filters to voters in an admin_list universe (shows all addresses including unvisited)
 // Without list_id, shows only visited addresses across all walks

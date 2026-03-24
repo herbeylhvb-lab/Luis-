@@ -156,7 +156,9 @@ app.get('/texter', (req, res) => res.sendFile(path.join(__dirname, 'public', 'te
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
+  '/api/config/public',
   '/api/walks/all-results-map',
+  '/api/walks/civic-info',
   '/api/walks/join',
   '/api/auth/',
   '/api/voters/qr/',
@@ -349,6 +351,11 @@ app.get('/api/stats', (req, res) => {
 });
 
 // --- Activity log ---
+// Public config — non-sensitive keys for frontend Google API usage
+app.get('/api/config/public', (req, res) => {
+  res.json({ mapsKey: process.env.GOOGLE_GEOCODE_KEY || '' });
+});
+
 app.get('/api/activity', (req, res) => {
   const logs = db.prepare('SELECT * FROM activity_log ORDER BY id DESC LIMIT 50').all();
   res.json({ logs });

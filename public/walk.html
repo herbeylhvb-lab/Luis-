@@ -259,9 +259,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <input type="text" id="newWalkName" placeholder="e.g. Oak Street Block" maxlength="100">
         </div>
         <div style="margin-bottom:8px">
-          <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Addresses to knock (one per line)</label>
+          <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Search and add addresses</label>
+          <input type="text" id="addressAutocomplete" placeholder="Start typing an address..." style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;outline:none;margin-bottom:6px">
+          <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Or paste addresses (one per line)</label>
           <textarea id="newWalkAddresses" placeholder="123 Main St&#10;456 Oak Ave&#10;789 Elm Blvd" style="width:100%;min-height:120px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;outline:none"></textarea>
-          <div style="font-size:11px;color:#64748b;margin-top:4px">Enter street addresses, one per line. You can add city/zip like: 123 Main St, Springfield, 62704</div>
+          <div style="font-size:11px;color:#64748b;margin-top:4px">Type in the search box to autocomplete, or paste addresses one per line with city/zip.</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-walk" style="flex:1" id="btnCreateWalk" onclick="createWalk()">Create Walk</button>
@@ -364,6 +366,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <a class="door-gmaps" id="doorGmapsLink" href="#" target="_blank" rel="noopener">&#x1F4CD; Open in Google Maps</a>
+    <div id="doorPollingLocation" style="font-size:12px;margin:6px 0 4px;display:none"></div>
     <div id="doorAttemptInfo" style="font-size:12px;color:#94a3b8;margin-bottom:8px"></div>
 
     <!-- STEP 1: Who lives here — select who you talked to -->
@@ -1550,6 +1553,9 @@ function openDoor(idx) {
   document.getElementById('doorAddr').textContent = displayAddr + (displayUnit ? ' ' + displayUnit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
   document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
 
+  // Fetch polling location (async — doesn't block door opening)
+  loadPollingLocation(a.address + (a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : ''));
+
   // Show attempt info
   var attemptInfo = document.getElementById('doorAttemptInfo');
   if (a.attempt_count && a.attempt_count > 0) {
@@ -2724,6 +2730,113 @@ async function triggerGeocode() {
     // Fall back to normal load screen
   }
 })();
+
+// Google Places Autocomplete for address input
+(function() {
+  fetch('/api/config/public').then(function(r){return r.json()}).then(function(cfg) {
+    if (!cfg.mapsKey) return;
+    var script = document.createElement('script');
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.mapsKey) + '&libraries=places&callback=initPlacesAutocomplete';
+    script.async = true;
+    document.head.appendChild(script);
+  }).catch(function(){});
+})();
+
+function initPlacesAutocomplete() {
+  var input = document.getElementById('addressAutocomplete');
+  if (!input || !window.google || !google.maps || !google.maps.places) return;
+
+  var autocomplete = new google.maps.places.Autocomplete(input, {
+    types: ['address'],
+    componentRestrictions: { country: 'us' }
+  });
+
+  autocomplete.addListener('place_changed', function() {
+    var place = autocomplete.getPlace();
+    if (!place || !place.address_components) return;
+
+    var street = '', city = '', zip = '';
+    var streetNum = '', route = '';
+    for (var i = 0; i < place.address_components.length; i++) {
+      var c = place.address_components[i];
+      if (c.types.indexOf('street_number') >= 0) streetNum = c.long_name;
+      if (c.types.indexOf('route') >= 0) route = c.long_name;
+      if (c.types.indexOf('locality') >= 0) city = c.long_name;
+      if (c.types.indexOf('postal_code') >= 0) zip = c.short_name;
+    }
+    street = (streetNum + ' ' + route).trim();
+    if (!street) street = place.formatted_address || '';
+
+    var line = street;
+    if (city) line += ', ' + city;
+    if (zip) line += ', ' + zip;
+
+    var textarea = document.getElementById('newWalkAddresses');
+    if (textarea.value.trim()) textarea.value += '\n';
+    textarea.value += line;
+    input.value = '';
+    input.focus();
+  });
+}
+
+// Polling location lookup via Google Civic Info API
+var _pollingCache = {};
+function loadPollingLocation(fullAddress) {
+  var el = document.getElementById('doorPollingLocation');
+  el.style.display = 'none';
+  el.textContent = '';
+  if (!fullAddress || !fullAddress.trim()) return;
+
+  var cacheKey = fullAddress.trim().toLowerCase();
+  if (_pollingCache[cacheKey]) { showPollingInfo(_pollingCache[cacheKey]); return; }
+
+  fetch('/api/walks/civic-info?address=' + encodeURIComponent(fullAddress))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      _pollingCache[cacheKey] = data;
+      showPollingInfo(data);
+    })
+    .catch(function() {});
+}
+
+function showPollingInfo(data) {
+  var el = document.getElementById('doorPollingLocation');
+  el.textContent = '';
+
+  if (data.error && !data.pollingLocations) { el.style.display = 'none'; return; }
+
+  var items = [];
+
+  if (data.pollingLocations && data.pollingLocations.length > 0) {
+    var p = data.pollingLocations[0];
+    var text = 'Polling: ' + (p.name ? p.name + ' — ' : '') + p.address;
+    if (p.hours) text += ' (' + p.hours + ')';
+    items.push({ icon: '\uD83D\uDDF3\uFE0F', text: text, addr: p.address });
+  }
+
+  if (data.earlyVoteSites && data.earlyVoteSites.length > 0) {
+    var e = data.earlyVoteSites[0];
+    var text = 'Early Vote: ' + (e.name ? e.name + ' — ' : '') + e.address;
+    if (e.hours) text += ' (' + e.hours + ')';
+    items.push({ icon: '\u2705', text: text, addr: e.address });
+  }
+
+  if (items.length === 0) { el.style.display = 'none'; return; }
+
+  el.style.display = '';
+  for (var i = 0; i < items.length; i++) {
+    var row = document.createElement('div');
+    row.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;margin-bottom:4px;font-size:11px;color:#94a3b8';
+    var link = document.createElement('a');
+    link.href = 'https://www.google.com/maps/search/' + encodeURIComponent(items[i].addr);
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.style.cssText = 'color:#60a5fa;text-decoration:none';
+    link.textContent = items[i].icon + ' ' + items[i].text;
+    row.appendChild(link);
+    el.appendChild(row);
+  }
+}
 </script>
 </body>
 </html>

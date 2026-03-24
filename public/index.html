@@ -984,8 +984,11 @@ tr:hover td{background:#1e293b80}
         </div>
         <div class="card">
           <h3>Add Addresses</h3>
-          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Paste addresses, one per line. Format: address, unit, city, zip, voter name (only address is required).</p>
-          <div class="form-group"><textarea id="walkAddressInput" rows="5" placeholder="123 Main St, , Austin, 78701, John Doe&#10;456 Oak Ave, Apt 2, Austin, 78701, Jane Smith"></textarea></div>
+          <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Search to autocomplete, or paste addresses one per line.</p>
+          <div class="form-group">
+            <input type="text" id="adminAddressAutocomplete" placeholder="Start typing an address..." class="form-control" style="margin-bottom:8px">
+            <textarea id="walkAddressInput" rows="5" placeholder="123 Main St, , Austin, 78701, John Doe&#10;456 Oak Ave, Apt 2, Austin, 78701, Jane Smith"></textarea>
+          </div>
           <button class="btn btn-success btn-sm" id="btnAddWalkAddresses">Add Addresses</button>
         </div>
         <div class="card">
@@ -13376,6 +13379,50 @@ function applyDashSettings() {
 // DASHBOARD RESULTS MAP — all visited doors across every walk
 // Dashboard results map moved to standalone /results-map.html
 
+// Google Places Autocomplete for admin address input
+(function() {
+  fetch('/api/config/public').then(function(r){return r.json()}).then(function(cfg) {
+    if (!cfg.mapsKey) return;
+    var script = document.createElement('script');
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.mapsKey) + '&libraries=places&callback=initAdminPlacesAutocomplete';
+    script.async = true;
+    document.head.appendChild(script);
+  }).catch(function(){});
+})();
+
+function initAdminPlacesAutocomplete() {
+  var input = document.getElementById('adminAddressAutocomplete');
+  if (!input || !window.google || !google.maps || !google.maps.places) return;
+
+  var autocomplete = new google.maps.places.Autocomplete(input, {
+    types: ['address'],
+    componentRestrictions: { country: 'us' }
+  });
+
+  autocomplete.addListener('place_changed', function() {
+    var place = autocomplete.getPlace();
+    if (!place || !place.address_components) return;
+
+    var street = '', city = '', zip = '';
+    var streetNum = '', route = '';
+    for (var i = 0; i < place.address_components.length; i++) {
+      var c = place.address_components[i];
+      if (c.types.indexOf('street_number') >= 0) streetNum = c.long_name;
+      if (c.types.indexOf('route') >= 0) route = c.long_name;
+      if (c.types.indexOf('locality') >= 0) city = c.long_name;
+      if (c.types.indexOf('postal_code') >= 0) zip = c.short_name;
+    }
+    street = (streetNum + ' ' + route).trim();
+
+    // Format: address, unit, city, zip
+    var line = street + ', , ' + city + ', ' + zip;
+    var textarea = document.getElementById('walkAddressInput');
+    if (textarea.value.trim()) textarea.value += '\n';
+    textarea.value += line;
+    input.value = '';
+    input.focus();
+  });
+}
 
 </script>
 </body>
