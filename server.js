@@ -383,61 +383,92 @@ app.get('/api/stats/sentiment', (req, res) => {
 });
 
 
-// --- Live walkers across all walks ---
+// --- Live walkers across all walks (aggregated per walker) ---
 app.get('/api/stats/live-walkers', (req, res) => {
-  // Get all walks that have group members (any status)
+  // Get all walks that have group members
   const walks = db.prepare("SELECT id, name, status FROM block_walks WHERE id IN (SELECT DISTINCT walk_id FROM walk_group_members)").all();
-  const allWalkers = [];
-  let liveCount = 0;
+  const walkMap = {};
+  for (const w of walks) walkMap[w.id] = w;
 
-  for (const walk of walks) {
-    const members = db.prepare(
-      'SELECT walker_name, joined_at, doors_knocked, contacts_made, first_knock_at, last_knock_at FROM walk_group_members WHERE walk_id = ? ORDER BY joined_at'
-    ).all(walk.id);
+  // Get all group memberships with activity, aggregate per unique walker
+  const allMembers = db.prepare(`
+    SELECT wgm.walker_name, wgm.walk_id, wgm.doors_knocked, wgm.contacts_made,
+           wgm.first_knock_at, wgm.last_knock_at, wgm.joined_at
+    FROM walk_group_members wgm
+    ORDER BY wgm.last_knock_at DESC NULLS LAST
+  `).all();
 
-    for (const m of members) {
-      // Calculate hours walking: use first_knock_at to last_knock_at if available, otherwise joined_at to now
-      let hours = 0;
+  const walkerAgg = {};
+  for (const m of allMembers) {
+    const walk = walkMap[m.walk_id];
+    if (!walk) continue;
+
+    const name = m.walker_name;
+    if (!walkerAgg[name]) {
+      walkerAgg[name] = {
+        walker_name: name,
+        total_doors: 0,
+        total_contacts: 0,
+        total_hours: 0,
+        walks_count: 0,
+        active_walks: 0,
+        current_walk_id: null,
+        current_walk_name: null,
+        is_live: false,
+        last_knock_at: null
+      };
+    }
+    const agg = walkerAgg[name];
+
+    // Only count walks where they actually knocked doors or walk is in_progress
+    const hasActivity = (m.doors_knocked || 0) > 0;
+    const isLive = walk.status === 'in_progress';
+
+    if (hasActivity || isLive) {
+      agg.total_doors += m.doors_knocked || 0;
+      agg.total_contacts += m.contacts_made || 0;
+      agg.walks_count++;
+
+      // Calculate hours for this walk
       if (m.first_knock_at && m.last_knock_at) {
         const startMs = new Date(m.first_knock_at + (m.first_knock_at.endsWith('Z') ? '' : 'Z')).getTime();
         const endMs = new Date(m.last_knock_at + (m.last_knock_at.endsWith('Z') ? '' : 'Z')).getTime();
-        hours = Math.max(0, (endMs - startMs) / 3600000);
-      } else if (m.joined_at) {
-        const joinedMs = new Date(m.joined_at + (m.joined_at.endsWith('Z') ? '' : 'Z')).getTime();
-        hours = Math.max(0, (Date.now() - joinedMs) / 3600000);
+        agg.total_hours += Math.max(0, (endMs - startMs) / 3600000);
       }
 
-      const isLive = walk.status === 'in_progress';
-      if (isLive) liveCount++;
+      if (isLive) {
+        agg.active_walks++;
+        agg.is_live = true;
+      }
 
-      allWalkers.push({
-        walker_name: m.walker_name,
-        walk_id: walk.id,
-        walk_name: walk.name,
-        walk_status: walk.status,
-        joined_at: m.joined_at,
-        hours: Math.round(hours * 10) / 10,
-        doors_knocked: m.doors_knocked || 0,
-        contacts_made: m.contacts_made || 0,
-        first_knock_at: m.first_knock_at,
-        last_knock_at: m.last_knock_at,
-        is_live: isLive
-      });
+      // Track most recent walk as "current"
+      if (!agg.last_knock_at || (m.last_knock_at && m.last_knock_at > agg.last_knock_at)) {
+        agg.last_knock_at = m.last_knock_at;
+        agg.current_walk_id = walk.id;
+        agg.current_walk_name = walk.name;
+      }
     }
   }
 
-  // Sort: live walkers first, then by most recent activity
-  allWalkers.sort((a, b) => {
-    if (a.is_live !== b.is_live) return b.is_live - a.is_live;
-    return (b.last_knock_at || b.joined_at || '').localeCompare(a.last_knock_at || a.joined_at || '');
-  });
+  const walkers = Object.values(walkerAgg)
+    .filter(w => w.walks_count > 0)
+    .map(w => ({
+      ...w,
+      total_hours: Math.round(w.total_hours * 10) / 10
+    }))
+    .sort((a, b) => {
+      if (a.is_live !== b.is_live) return b.is_live - a.is_live;
+      return (b.last_knock_at || '').localeCompare(a.last_knock_at || '');
+    });
+
+  const liveWalkCount = walks.filter(w => w.status === 'in_progress').length;
 
   res.json({
-    liveWalkCount: walks.filter(w => w.status === 'in_progress').length,
+    liveWalkCount,
     totalWalkCount: walks.length,
-    liveWalkerCount: liveCount,
-    totalWalkerCount: allWalkers.length,
-    walkers: allWalkers
+    liveWalkerCount: walkers.filter(w => w.is_live).length,
+    totalWalkerCount: walkers.length,
+    walkers
   });
 });
 
