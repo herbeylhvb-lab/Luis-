@@ -859,6 +859,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-walktab="walks-scripts">Scripts</div>
         <div class="sub-tab" data-walktab="walks-universes">Distributed</div>
         <div class="sub-tab" data-walktab="walks-daily">Daily Report</div>
+        <div class="sub-tab" data-walktab="walks-weekly">Weekly Hours</div>
         <div class="sub-tab" data-walktab="walks-leaderboard">Leaderboard</div>
         <div class="sub-tab" data-walktab="walks-precinctmap">Precinct Map</div>
       </div>
@@ -1115,6 +1116,23 @@ tr:hover td{background:#1e293b80}
         <div class="card">
           <h3>Top Canvassers</h3>
           <div class="table-wrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Total Doors</th><th>Contacts</th><th>Supporters Found</th><th>Contact Rate</th><th>Doors/Hr</th><th>Walks</th></tr></thead><tbody id="leaderboardBody"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- WEEKLY HOURS TAB -->
+      <div class="walk-subtab" id="walks-weekly" style="display:none">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+            <h3 style="margin-bottom:0">Weekly Walker Hours</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-xs btn-secondary" onclick="shiftWeek(-1)">&larr; Prev Week</button>
+              <select id="weeklyWeekSelect" onchange="loadWeeklyHours()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px"></select>
+              <button class="btn btn-xs btn-secondary" onclick="shiftWeek(1)">Next Week &rarr;</button>
+              <button class="btn btn-xs btn-primary" onclick="document.getElementById('weeklyWeekSelect').value='';loadWeeklyHours()">This Week</button>
+            </div>
+          </div>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Hours per walker based on first knock to last knock each day. Knocks after 8:30 PM are excluded.</p>
+          <div id="weeklyHoursContent"><div style="color:#64748b;font-size:13px">Loading...</div></div>
         </div>
       </div>
 
@@ -5452,10 +5470,91 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
     if (target === 'walks-scripts') loadScripts();
     if (target === 'walks-universes') { loadUniverses(); loadWalkElectionDropdowns(); }
     if (target === 'walks-daily') { document.getElementById('dailyReportDate').value = new Date().toLocaleDateString('en-CA'); loadDailyReport(); }
+    if (target === 'walks-weekly') loadWeeklyHours();
     if (target === 'walks-leaderboard') loadLeaderboard();
     if (target === 'walks-precinctmap') initPctMap();
   });
 });
+
+// ===================== WEEKLY HOURS =====================
+var _weeklyWeeksLoaded = false;
+async function loadWeeklyHours() {
+  var sel = document.getElementById('weeklyWeekSelect');
+  var weekOf = sel.value || '';
+  var url = '/api/walks/weekly-hours' + (weekOf ? '?week_of=' + weekOf : '');
+  try {
+    var data = await api(url);
+    // Populate week selector on first load
+    if (!_weeklyWeeksLoaded && data.activeWeeks && data.activeWeeks.length > 0) {
+      sel.innerHTML = '<option value="">This Week</option>';
+      for (var i = 0; i < data.activeWeeks.length; i++) {
+        var w = data.activeWeeks[i];
+        sel.innerHTML += '<option value="' + w + '"' + (w === data.week_of ? ' selected' : '') + '>Week of ' + formatWeekDate(w) + '</option>';
+      }
+      _weeklyWeeksLoaded = true;
+    }
+
+    var content = document.getElementById('weeklyHoursContent');
+    if (!data.walkers || data.walkers.length === 0) {
+      content.innerHTML = '<div style="color:#64748b;font-size:13px;padding:8px 0">No walking activity this week.</div>';
+      return;
+    }
+
+    // Build table
+    var html = '<div class="table-wrap"><table><thead><tr><th>Walker</th>';
+    for (var d = 0; d < data.day_names.length; d++) {
+      html += '<th style="text-align:center">' + data.day_names[d] + '<div style="font-size:10px;color:#64748b;font-weight:400">' + formatShortDate(data.week_dates[d]) + '</div></th>';
+    }
+    html += '<th style="text-align:center;color:#f59e0b;font-weight:700">Total</th><th style="text-align:center">Days</th><th style="text-align:center">Doors</th></tr></thead><tbody>';
+
+    var grandTotal = 0;
+    for (var i = 0; i < data.walkers.length; i++) {
+      var w = data.walkers[i];
+      grandTotal += w.total_hours;
+      html += '<tr><td style="font-weight:600">' + escHtml(w.walker_name) + '</td>';
+      for (var d = 0; d < w.daily_hours.length; d++) {
+        var h = w.daily_hours[d];
+        var cellColor = h === 0 ? '#334155' : h >= 4 ? '#22c55e' : h >= 2 ? '#818cf8' : '#94a3b8';
+        var cellBg = h > 0 ? 'rgba(99,102,241,0.1)' : 'transparent';
+        html += '<td style="text-align:center;color:' + cellColor + ';background:' + cellBg + '">' + (h > 0 ? h.toFixed(1) + 'h' : '<span style="color:#334155">-</span>') + '</td>';
+      }
+      var totalColor = w.total_hours >= 20 ? '#22c55e' : w.total_hours >= 10 ? '#f59e0b' : '#e2e8f0';
+      html += '<td style="text-align:center;font-weight:700;color:' + totalColor + '">' + w.total_hours.toFixed(1) + 'h</td>';
+      html += '<td style="text-align:center">' + w.days_worked + '</td>';
+      html += '<td style="text-align:center">' + w.total_doors + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody><tfoot><tr style="border-top:2px solid #334155"><td style="font-weight:700">Team Total</td>';
+    // Sum each day column
+    for (var d = 0; d < data.day_names.length; d++) {
+      var daySum = 0;
+      for (var i = 0; i < data.walkers.length; i++) daySum += data.walkers[i].daily_hours[d];
+      html += '<td style="text-align:center;font-weight:600;color:#94a3b8">' + (daySum > 0 ? daySum.toFixed(1) + 'h' : '-') + '</td>';
+    }
+    html += '<td style="text-align:center;font-weight:700;color:#f59e0b">' + grandTotal.toFixed(1) + 'h</td>';
+    html += '<td></td><td></td></tr></tfoot></table></div>';
+    content.innerHTML = html;
+  } catch (e) {
+    document.getElementById('weeklyHoursContent').innerHTML = '<div style="color:#ef4444;font-size:13px">Failed to load weekly hours.</div>';
+  }
+}
+
+function shiftWeek(dir) {
+  var sel = document.getElementById('weeklyWeekSelect');
+  var opts = sel.options;
+  var idx = sel.selectedIndex + (dir > 0 ? -1 : 1); // -1 = newer week (earlier in list), +1 = older week
+  if (idx >= 0 && idx < opts.length) { sel.selectedIndex = idx; loadWeeklyHours(); }
+}
+
+function formatWeekDate(dateStr) {
+  var d = new Date(dateStr + 'T12:00:00');
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+function formatShortDate(dateStr) {
+  var d = new Date(dateStr + 'T12:00:00');
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
 
 // ===================== PRECINCT MAP =====================
 var pctMap = null;
