@@ -625,6 +625,29 @@ router.get('/walks/leaderboard', (req, res) => {
   res.json({ leaderboard, overall });
 });
 
+// All visited addresses across every walk — for the combined results map
+router.get('/walks/all-results-map', (req, res) => {
+  const addresses = db.prepare(`
+    SELECT wa.id, wa.address, wa.unit, wa.city, wa.result, wa.lat, wa.lng, wa.knocked_at,
+           wa.voter_name, wa.walk_id, bw.name as walk_name
+    FROM walk_addresses wa
+    JOIN block_walks bw ON wa.walk_id = bw.id
+    WHERE wa.result != 'not_visited'
+      AND wa.lat IS NOT NULL AND wa.lng IS NOT NULL
+    ORDER BY wa.knocked_at DESC
+  `).all();
+
+  const stats = {};
+  db.prepare(`
+    SELECT result, COUNT(*) as count
+    FROM walk_addresses
+    WHERE result != 'not_visited' AND lat IS NOT NULL AND lng IS NOT NULL
+    GROUP BY result
+  `).all().forEach(r => { stats[r.result] = r.count; });
+
+  res.json({ addresses, stats });
+});
+
 // List all block walks with stats (single query instead of N+1)
 // Count unique doors (address+unit) not individual voter rows
 router.get('/walks', (req, res) => {

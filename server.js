@@ -156,6 +156,7 @@ app.get('/texter', (req, res) => res.sendFile(path.join(__dirname, 'public', 'te
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
+  '/api/walks/all-results-map',
   '/api/walks/join',
   '/api/auth/',
   '/api/voters/qr/',
