@@ -2157,4 +2157,141 @@ router.post('/universe/preview', (req, res) => {
   });
 });
 
+// ===================== VOTE BY MAIL MATCHING =====================
+router.post('/voters/vbm-match', (req, res) => {
+  const { voters } = req.body; // array of { first_name, last_name, vuid, address, city, zip }
+  if (!Array.isArray(voters) || voters.length === 0) {
+    return res.status(400).json({ error: 'voters array required' });
+  }
+
+  // Prepare match queries
+  const byVuid = db.prepare(`
+    SELECT id, first_name, last_name, address, city, state, zip, zip4, phone, email,
+           registration_number, precinct, party, support_level
+    FROM voters WHERE registration_number = ? COLLATE NOCASE LIMIT 1
+  `);
+  const byStateFileId = db.prepare(`
+    SELECT id, first_name, last_name, address, city, state, zip, zip4, phone, email,
+           registration_number, precinct, party, support_level
+    FROM voters WHERE state_file_id = ? COLLATE NOCASE LIMIT 1
+  `);
+  const byName = db.prepare(`
+    SELECT id, first_name, last_name, address, city, state, zip, zip4, phone, email,
+           registration_number, precinct, party, support_level
+    FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) LIMIT 10
+  `);
+  const byNameCity = db.prepare(`
+    SELECT id, first_name, last_name, address, city, state, zip, zip4, phone, email,
+           registration_number, precinct, party, support_level
+    FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND LOWER(city) = LOWER(?) LIMIT 5
+  `);
+  const byNameZip = db.prepare(`
+    SELECT id, first_name, last_name, address, city, state, zip, zip4, phone, email,
+           registration_number, precinct, party, support_level
+    FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND zip = ? LIMIT 5
+  `);
+
+  const matched = [];
+  const unmatched = [];
+  const matchMethods = { vuid: 0, state_file_id: 0, name_address: 0, name_city: 0, name_zip: 0, name_only: 0 };
+
+  for (const v of voters) {
+    const firstName = (v.first_name || '').trim();
+    const lastName = (v.last_name || '').trim();
+    const vuid = (v.vuid || '').trim();
+    const addr = (v.address || '').trim().toLowerCase();
+    const city = (v.city || '').trim();
+    const zip = (v.zip || '').trim();
+    let found = null;
+    let method = '';
+
+    // 1. Match by VUID / registration number
+    if (vuid && !found) {
+      found = byVuid.get(vuid);
+      if (!found) found = byStateFileId.get(vuid);
+      if (found) method = found ? 'vuid' : '';
+    }
+
+    // 2. Match by name + city
+    if (!found && firstName && lastName && city) {
+      const candidates = byNameCity.all(firstName, lastName, city);
+      if (candidates.length === 1) {
+        found = candidates[0];
+        method = 'name_city';
+      } else if (candidates.length > 1 && addr) {
+        // Try to narrow by address
+        found = candidates.find(c => c.address && c.address.toLowerCase().includes(addr.substring(0, 10))) || null;
+        if (found) method = 'name_address';
+      }
+    }
+
+    // 3. Match by name + zip
+    if (!found && firstName && lastName && zip) {
+      const candidates = byNameZip.all(firstName, lastName, zip);
+      if (candidates.length === 1) {
+        found = candidates[0];
+        method = 'name_zip';
+      } else if (candidates.length > 1 && addr) {
+        found = candidates.find(c => c.address && c.address.toLowerCase().includes(addr.substring(0, 10))) || null;
+        if (found) method = 'name_address';
+      }
+    }
+
+    // 4. Match by name only (only accept if unique)
+    if (!found && firstName && lastName) {
+      const candidates = byName.all(firstName, lastName);
+      if (candidates.length === 1) {
+        found = candidates[0];
+        method = 'name_only';
+      } else if (candidates.length > 1 && addr) {
+        found = candidates.find(c => c.address && c.address.toLowerCase().includes(addr.substring(0, 10))) || null;
+        if (found) method = 'name_address';
+      }
+    }
+
+    if (found) {
+      matchMethods[method]++;
+      matched.push({
+        input_first: firstName,
+        input_last: lastName,
+        input_vuid: vuid,
+        match_method: method,
+        voter_id: found.id,
+        first_name: found.first_name,
+        last_name: found.last_name,
+        address: found.address,
+        city: found.city,
+        state: found.state || 'TX',
+        zip: found.zip,
+        zip4: found.zip4,
+        phone: found.phone,
+        email: found.email,
+        registration_number: found.registration_number,
+        precinct: found.precinct,
+        party: found.party,
+        support_level: found.support_level
+      });
+    } else {
+      unmatched.push({
+        first_name: firstName,
+        last_name: lastName,
+        vuid: vuid,
+        address: v.address || '',
+        city: city,
+        zip: zip
+      });
+    }
+  }
+
+  res.json({
+    total: voters.length,
+    matched_count: matched.length,
+    unmatched_count: unmatched.length,
+    match_rate: voters.length > 0 ? Math.round(matched.length / voters.length * 100) : 0,
+    match_methods: matchMethods,
+    matched,
+    unmatched
+  });
+});
+
 module.exports = router;
