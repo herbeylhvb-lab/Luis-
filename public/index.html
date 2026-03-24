@@ -239,6 +239,8 @@ tr:hover td{background:#1e293b80}
             <option value="">All Walks</option>
           </select>
         </div>
+        <button id="btnLockDash" onclick="toggleDashLock()" class="btn btn-sm" style="padding:4px 12px;font-size:12px;border-radius:6px;background:#334155;color:#94a3b8;border:1px solid #475569;cursor:pointer" title="Save these settings as default">&#128274; Set</button>
+        <span id="dashLockStatus" style="font-size:11px;color:#22c55e;display:none">Saved!</span>
       </div>
       <div class="stats-grid">
         <div class="stat-card"><div class="label">Total Sent</div><div class="value" id="statSent">0</div><div class="sub">Across all campaigns</div></div>
@@ -13530,6 +13532,66 @@ async function loadDashFilters() {
       uSel.appendChild(opt);
     });
   } catch (e) {}
+  // Restore saved dashboard settings
+  restoreDashLock();
+}
+
+function toggleDashLock() {
+  var race = document.getElementById('dashRaceFilter').value;
+  var univ = document.getElementById('dashUniverseFilter').value;
+  var saved = { race: race, universe: univ };
+  localStorage.setItem('dashSettings', JSON.stringify(saved));
+  // Update button appearance
+  updateDashLockBtn(true);
+  var status = document.getElementById('dashLockStatus');
+  status.style.display = '';
+  setTimeout(function() { status.style.display = 'none'; }, 2000);
+}
+
+function restoreDashLock() {
+  try {
+    var raw = localStorage.getItem('dashSettings');
+    if (!raw) return;
+    var saved = JSON.parse(raw);
+    var raceSel = document.getElementById('dashRaceFilter');
+    var univSel = document.getElementById('dashUniverseFilter');
+    if (saved.race) {
+      // Check if the saved option exists in the dropdown
+      for (var i = 0; i < raceSel.options.length; i++) {
+        if (raceSel.options[i].value === saved.race) { raceSel.value = saved.race; break; }
+      }
+    }
+    if (saved.universe) {
+      for (var i = 0; i < univSel.options.length; i++) {
+        if (univSel.options[i].value === saved.universe) { univSel.value = saved.universe; break; }
+      }
+    }
+    updateDashLockBtn(true);
+    // Apply the restored settings
+    if (saved.race || saved.universe) applyDashSettings();
+  } catch (e) {}
+}
+
+function clearDashLock() {
+  localStorage.removeItem('dashSettings');
+  updateDashLockBtn(false);
+}
+
+function updateDashLockBtn(isSet) {
+  var btn = document.getElementById('btnLockDash');
+  if (isSet) {
+    btn.innerHTML = '&#128275; Change';
+    btn.style.background = '#1e3a5f';
+    btn.style.color = '#60a5fa';
+    btn.style.borderColor = '#2563eb';
+    btn.title = 'Click to save current settings as new default';
+  } else {
+    btn.innerHTML = '&#128274; Set';
+    btn.style.background = '#334155';
+    btn.style.color = '#94a3b8';
+    btn.style.borderColor = '#475569';
+    btn.title = 'Save these settings as default';
+  }
 }
 
 function getDashFilterParams() {
