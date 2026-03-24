@@ -12244,7 +12244,7 @@ async function loadMyUniverses() {
     return;
   }
   el.textContent = '';
-  var universes = (data.lists || []).filter(function(l) { return l.list_type === 'universe'; });
+  var universes = (data.lists || []).filter(function(l) { return l.list_type === 'universe' || l.list_type === 'mail'; });
   // Also include any lists that have "universe" or "targeted" in the name (in case they were created with wrong type)
   var allLists = data.lists || [];
   if (universes.length === 0) {
