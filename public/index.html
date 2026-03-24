@@ -3787,7 +3787,7 @@ async function loadDashboard() {
   setTimeout(function() {
     try { initDashResultsMap(); } catch(e) { console.error('ResultsMap init error:', e); }
     try { loadDashResultsData(); } catch(e) { console.error('ResultsMap data error:', e); }
-  }, 500);
+  }, 1000);
   // Early voting dashboard stat
   try {
     var evData = await api('/api/early-voting/stats');
@@ -13417,13 +13417,22 @@ function getDashResultColor(result) {
 
 function initDashResultsMap() {
   console.log('[ResultsMap] initDashResultsMap called, already initialized:', dashResultsState.initialized);
-  if (dashResultsState.initialized && dashResultsState.map) return;
+  if (dashResultsState.initialized && dashResultsState.map) {
+    dashResultsState.map.invalidateSize();
+    return;
+  }
+
+  var container = document.getElementById('dashResultsMap');
+  if (!container) { console.error('[ResultsMap] Container #dashResultsMap not found'); return; }
+
+  // Force container to have dimensions before Leaflet init
+  container.style.height = '450px';
+  container.style.width = '100%';
 
   dashResultsState.map = L.map('dashResultsMap', {
     zoomControl: true, attributionControl: false
   }).setView([26.2, -97.7], 12);
 
-  // Custom pane so markers render ABOVE precinct polygons
   dashResultsState.map.createPane('markerPane');
   dashResultsState.map.getPane('markerPane').style.zIndex = 650;
 
@@ -13436,8 +13445,6 @@ function initDashResultsMap() {
   roads.addTo(dashResultsState.map);
   places.addTo(dashResultsState.map);
 
-  // Precinct boundaries disabled — was covering markers
-
   L.control.layers(
     { 'Satellite': sat, 'Street': street },
     { 'Roads': roads, 'Places': places },
@@ -13445,7 +13452,11 @@ function initDashResultsMap() {
   ).addTo(dashResultsState.map);
 
   dashResultsState.initialized = true;
-  setTimeout(function() { dashResultsState.map.invalidateSize(); }, 200);
+
+  // Keep invalidating size until container is properly rendered
+  setTimeout(function() { dashResultsState.map.invalidateSize(); }, 300);
+  setTimeout(function() { dashResultsState.map.invalidateSize(); }, 1000);
+  setTimeout(function() { dashResultsState.map.invalidateSize(); }, 3000);
 }
 
 function loadDashResultsData() {
@@ -13556,7 +13567,11 @@ function renderDashResultsMarkers(addresses) {
 
   console.log('[ResultsMap] Placed', dashResultsState.markers.length, 'markers,', bounds.length, 'bounds points');
   if (bounds.length > 0) {
-    dashResultsState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+    dashResultsState.map.invalidateSize();
+    setTimeout(function() {
+      dashResultsState.map.invalidateSize();
+      dashResultsState.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+    }, 100);
   }
 }
 
