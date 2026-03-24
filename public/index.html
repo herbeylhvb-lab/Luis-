@@ -275,6 +275,7 @@ tr:hover td{background:#1e293b80}
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <h3 style="margin:0">Block Walk Results Map</h3>
+          <button class="btn btn-sm" onclick="loadDashResultsData()" style="background:#334155;color:#e2e8f0;font-size:11px;padding:4px 10px">Reload Map</button>
           <button class="btn btn-sm" id="btnGeocodeAll" onclick="geocodeAllWalks()" style="background:#334155;color:#e2e8f0;font-size:11px;padding:4px 10px">Geocode All Walks</button>
         </div>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">All visited doors across every block walk — color-coded by disposition.</p>
@@ -13433,9 +13434,6 @@ function initDashResultsMap() {
     zoomControl: true, attributionControl: false
   }).setView([26.2, -97.7], 12);
 
-  dashResultsState.map.createPane('markerPane');
-  dashResultsState.map.getPane('markerPane').style.zIndex = 650;
-
   var sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
   var roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
   var places = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
@@ -13466,8 +13464,11 @@ function loadDashResultsData() {
   if (univId) mapUrl += '?list_id=' + encodeURIComponent(univId);
   console.log('[ResultsMap] Loading from:', mapUrl);
   fetch(mapUrl).then(function(r) { return r.json(); }).then(function(data) {
-    console.log('[ResultsMap] API returned:', (data.addresses || []).length, 'addresses, debug:', JSON.stringify(data.debug));
+    var addrCount = (data.addresses || []).length;
+    console.log('[ResultsMap] API returned:', addrCount, 'addresses, debug:', JSON.stringify(data.debug));
     renderDashResultsMarkers(data.addresses || []);
+    // Always show address count so user knows data is loading
+    document.getElementById('dashResultsStats').textContent = addrCount + ' addresses loaded, ' + dashResultsState.markers.length + ' markers placed';
     var statsEl = document.getElementById('dashResultsStats');
     var total = 0;
     for (var k in (data.stats || {})) total += data.stats[k];
@@ -13534,9 +13535,8 @@ function renderDashResultsMarkers(addresses) {
 
     var color = getDashResultColor(best.result);
     var marker = L.circleMarker([best.lat, best.lng], {
-      radius: 7, fillColor: color, fillOpacity: 0.85,
-      color: '#fff', weight: 1.5, opacity: 0.9,
-      pane: 'markerPane'
+      radius: 8, fillColor: color, fillOpacity: 0.9,
+      color: '#000', weight: 2, opacity: 1
     });
 
     // Build popup with safe DOM methods
