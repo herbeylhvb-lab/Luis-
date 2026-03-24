@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Results Map Test</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>body{margin:0;background:#0f172a;color:#e2e8f0;font-family:sans-serif}#map{height:80vh;width:100%}#info{padding:16px;font-size:14px}</style>
+</head><body>
+<div id="info">Loading results map...</div>
+<div id="map"></div>
+<script>
+var map = L.map('map').setView([26.0, -97.5], 13);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {maxZoom:19}).addTo(map);
+
+var info = document.getElementById('info');
+info.textContent = 'Map created, fetching data...';
+
+fetch('/api/walks/all-results-map').then(function(r){return r.json()}).then(function(data){
+  var addrs = data.addresses || [];
+  info.textContent = 'Got ' + addrs.length + ' addresses. Placing markers...';
+  var bounds = [];
+  var placed = 0;
+  for (var i = 0; i < addrs.length; i++) {
+    var a = addrs[i];
+    if (!a.lat || !a.lng) continue;
+    var colors = {'support':'#3b82f6','lean_support':'#86efac','undecided':'#facc15','lean_oppose':'#fb923c','oppose':'#ef4444','not_visited':'#64748b'};
+    var color = colors[a.result] || '#22c55e';
+    var icon = L.divIcon({
+      className: '',
+      html: '<div style="width:44px;height:44px;position:relative;cursor:pointer"><div style="position:absolute;top:15px;left:15px;width:14px;height:14px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5)"></div></div>',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    });
+    L.marker([a.lat, a.lng], {icon: icon, zIndexOffset: 1000}).addTo(map);
+    bounds.push([a.lat, a.lng]);
+    placed++;
+  }
+  info.textContent = 'Placed ' + placed + ' markers out of ' + addrs.length + ' addresses.';
+  if (bounds.length > 0) map.fitBounds(bounds, {padding:[30,30], maxZoom:16});
+}).catch(function(e){ info.textContent = 'ERROR: ' + e.message; });
+</script>
+</body></html>
