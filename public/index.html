@@ -13605,24 +13605,37 @@ async function geocodeAllWalks() {
   btn.textContent = 'Geocoding...';
   btn.disabled = true;
   try {
-    // Get all walks, trigger geocode for each
     var data = await api('/api/walks');
-    var walks = data || [];
-    if (Array.isArray(walks)) {
-      for (var i = 0; i < walks.length; i++) {
-        btn.textContent = 'Geocoding walk ' + (i + 1) + '/' + walks.length + '...';
-        try { await fetch('/api/walks/' + walks[i].id + '/geocode', { method: 'POST' }); } catch(e) {}
-      }
+    var walks = data.walks || data || [];
+    if (!Array.isArray(walks)) walks = [];
+    btn.textContent = 'Found ' + walks.length + ' walks, geocoding...';
+    for (var i = 0; i < walks.length; i++) {
+      btn.textContent = 'Geocoding walk ' + (i + 1) + '/' + walks.length + '...';
+      try { await apiPost('/api/walks/' + walks[i].id + '/geocode', {}); } catch(e) { console.error('Geocode walk ' + walks[i].id + ':', e); }
     }
-    // Wait a bit for geocoding to complete, then reload map
-    btn.textContent = 'Waiting for results...';
-    setTimeout(function() {
-      loadDashResultsData();
-      btn.textContent = 'Geocode All Walks';
-      btn.disabled = false;
-    }, 5000);
+    // Poll every 3 seconds until dots appear (up to 30 seconds)
+    btn.textContent = 'Waiting for geocoding to finish...';
+    var attempts = 0;
+    var pollInterval = setInterval(function() {
+      attempts++;
+      fetch('/api/walks/all-results-map').then(function(r) { return r.json(); }).then(function(d) {
+        var count = (d.addresses || []).length;
+        btn.textContent = 'Checking... (' + count + ' addresses with coords)';
+        if (count > 0 || attempts >= 10) {
+          clearInterval(pollInterval);
+          loadDashResultsData();
+          btn.textContent = count > 0 ? 'Done! ' + count + ' addresses mapped' : 'No coordinates found — check walk maps';
+          btn.disabled = false;
+        }
+      }).catch(function() {
+        clearInterval(pollInterval);
+        btn.textContent = 'Geocode All Walks';
+        btn.disabled = false;
+      });
+    }, 3000);
   } catch(e) {
-    btn.textContent = 'Geocode All Walks';
+    console.error('geocodeAllWalks error:', e);
+    btn.textContent = 'Error — check console';
     btn.disabled = false;
   }
 }
