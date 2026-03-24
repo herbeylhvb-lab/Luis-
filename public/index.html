@@ -1216,6 +1216,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-subtab="lists-tab">My Lists</div>
         <div class="sub-tab" data-subtab="universes-tab">My Universes</div>
         <div class="sub-tab" data-subtab="universe-tab">Universe Builder</div>
+        <div class="sub-tab" data-subtab="vbm-tab">Vote by Mail</div>
       </div>
       <!-- SUB-TAB: VOTERS -->
       <div class="sub-page active" id="voters-tab">
@@ -1739,6 +1740,76 @@ tr:hover td{background:#1e293b80}
         <div id="universeBuildResult" style="display:none"></div>
       </div>
       </div><!-- end universe-tab sub-page -->
+
+      <!-- SUB-TAB: VOTE BY MAIL -->
+      <div class="sub-page" id="vbm-tab">
+        <div class="card">
+          <h3>Vote by Mail Upload</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Upload a list of voters who voted by mail. The system will match them against your voter file by name, VUID, or address and build a mailing list with full addresses.</p>
+
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
+            <h4 style="margin-bottom:8px;font-size:14px;color:#f59e0b">Step 1: Upload VBM List</h4>
+            <p style="color:#64748b;font-size:12px;margin-bottom:10px">Upload a CSV or paste data. Must include at least a name or voter ID column.</p>
+            <input type="file" id="vbmFileUpload" accept=".csv,.txt" onchange="handleVbmFile(this)" style="margin-bottom:10px;font-size:13px;color:#e2e8f0">
+            <div style="margin-bottom:8px;font-size:11px;color:#64748b">— or paste CSV data below —</div>
+            <textarea id="vbmCsvData" rows="6" placeholder="Paste CSV data here (with headers)..." style="width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:10px;color:#e2e8f0;font-size:12px;font-family:monospace;resize:vertical"></textarea>
+          </div>
+
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
+            <h4 style="margin-bottom:8px;font-size:14px;color:#f59e0b">Step 2: Map Columns</h4>
+            <p style="color:#64748b;font-size:12px;margin-bottom:10px">Tell us which columns to use for matching. We'll auto-detect common names.</p>
+            <div id="vbmColumnMapping" style="display:none">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">First Name</label>
+                  <select id="vbmColFirst" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px"></select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Last Name</label>
+                  <select id="vbmColLast" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px"></select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Voter ID / VUID</label>
+                  <select id="vbmColVuid" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px"></select>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Address (optional)</label>
+                  <select id="vbmColAddress" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px"></select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">City (optional)</label>
+                  <select id="vbmColCity" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px"></select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Zip (optional)</label>
+                  <select id="vbmColZip" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px"></select>
+                </div>
+              </div>
+              <div style="margin-bottom:8px;font-size:12px;color:#94a3b8" id="vbmPreviewCount"></div>
+              <button class="btn btn-primary" onclick="matchVbmVoters()">Match & Build Mailing List</button>
+            </div>
+          </div>
+
+          <div id="vbmMatchProgress" style="display:none;margin-bottom:16px">
+            <div style="background:#334155;border-radius:6px;height:8px;overflow:hidden">
+              <div id="vbmProgressBar" style="background:#818cf8;height:100%;width:0%;transition:width 0.3s"></div>
+            </div>
+            <div id="vbmProgressText" style="font-size:12px;color:#94a3b8;margin-top:4px"></div>
+          </div>
+
+          <div id="vbmResults" style="display:none">
+            <div class="stats-grid" id="vbmResultStats" style="margin-bottom:16px"></div>
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <button class="btn btn-primary" onclick="exportVbmMailingList()">Export Mailing List CSV</button>
+              <button class="btn btn-secondary" onclick="exportVbmUnmatched()">Export Unmatched CSV</button>
+            </div>
+            <div id="vbmResultsTable"></div>
+          </div>
+        </div>
+      </div><!-- end vbm-tab sub-page -->
+
     </div>
 
     <!-- ==================== EVENTS ==================== -->
@@ -2633,6 +2704,7 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       if (subtab === 'lists-tab') loadAdminLists();
       if (subtab === 'universes-tab') loadMyUniverses();
       if (subtab === 'universe-tab') loadUniverseBuilder();
+      if (subtab === 'vbm-tab') { /* VBM tab ready */ }
       if (subtab === 'checkins-tab') loadCheckinPage();
       if (subtab === 'voters-tab') { showVoterList(); searchVoters(); }
       if (subtab === 'events-tab') { showEventList(); loadEvents(); }
@@ -9502,6 +9574,233 @@ function showVoterQrModal(url, voterName) {
     fallback.textContent = 'QR library not loaded. Copy the link instead.';
     box.insertBefore(fallback, linkEl);
   }
+}
+
+// ===================== VOTE BY MAIL =====================
+var _vbmParsedRows = [];
+var _vbmHeaders = [];
+var _vbmMatchResults = null;
+
+function handleVbmFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('vbmCsvData').value = e.target.result;
+    parseVbmCsv();
+  };
+  reader.readAsText(file);
+}
+
+function parseVbmCsv() {
+  var raw = document.getElementById('vbmCsvData').value.trim();
+  if (!raw) return;
+  var lines = raw.split(/\r?\n/);
+  if (lines.length < 2) { alert('CSV needs at least a header row and one data row.'); return; }
+
+  // Parse headers
+  _vbmHeaders = parseCsvLine(lines[0]).map(function(h) { return h.trim(); });
+  _vbmParsedRows = [];
+  for (var i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    var cols = parseCsvLine(lines[i]);
+    var row = {};
+    for (var j = 0; j < _vbmHeaders.length; j++) {
+      row[_vbmHeaders[j]] = (cols[j] || '').trim();
+    }
+    _vbmParsedRows.push(row);
+  }
+
+  // Show column mapping
+  var mapDiv = document.getElementById('vbmColumnMapping');
+  mapDiv.style.display = '';
+  var optNone = '<option value="">(not mapped)</option>';
+  var opts = optNone;
+  for (var i = 0; i < _vbmHeaders.length; i++) {
+    opts += '<option value="' + escHtml(_vbmHeaders[i]) + '">' + escHtml(_vbmHeaders[i]) + '</option>';
+  }
+  document.getElementById('vbmColFirst').innerHTML = opts;
+  document.getElementById('vbmColLast').innerHTML = opts;
+  document.getElementById('vbmColVuid').innerHTML = opts;
+  document.getElementById('vbmColAddress').innerHTML = opts;
+  document.getElementById('vbmColCity').innerHTML = opts;
+  document.getElementById('vbmColZip').innerHTML = opts;
+
+  // Auto-detect columns
+  var lowerHeaders = _vbmHeaders.map(function(h) { return h.toLowerCase().replace(/[^a-z0-9]/g, ''); });
+  var firstNames = ['firstname','first','fname','givenname','first_name'];
+  var lastNames = ['lastname','last','lname','surname','last_name'];
+  var vuids = ['vuid','voterid','registrationnumber','statefileid','voter_id','registration_number','state_file_id'];
+  var addrs = ['address','streetaddress','street','mailingaddress','homeaddress','residential_address','resaddress'];
+  var cities = ['city','mailing_city','rescity','residential_city'];
+  var zips = ['zip','zipcode','zip_code','postalcode','zip5','mailing_zip','reszip'];
+
+  function autoSelect(selId, aliases) {
+    for (var a = 0; a < aliases.length; a++) {
+      var idx = lowerHeaders.indexOf(aliases[a]);
+      if (idx >= 0) { document.getElementById(selId).value = _vbmHeaders[idx]; return; }
+    }
+  }
+  autoSelect('vbmColFirst', firstNames);
+  autoSelect('vbmColLast', lastNames);
+  autoSelect('vbmColVuid', vuids);
+  autoSelect('vbmColAddress', addrs);
+  autoSelect('vbmColCity', cities);
+  autoSelect('vbmColZip', zips);
+
+  document.getElementById('vbmPreviewCount').textContent = _vbmParsedRows.length + ' rows detected. Review column mapping and click Match.';
+}
+
+// Listen for paste in textarea
+document.getElementById('vbmCsvData').addEventListener('change', parseVbmCsv);
+document.getElementById('vbmCsvData').addEventListener('paste', function() { setTimeout(parseVbmCsv, 100); });
+
+async function matchVbmVoters() {
+  if (_vbmParsedRows.length === 0) { alert('No data loaded. Upload or paste a CSV first.'); return; }
+
+  var colFirst = document.getElementById('vbmColFirst').value;
+  var colLast = document.getElementById('vbmColLast').value;
+  var colVuid = document.getElementById('vbmColVuid').value;
+  var colAddr = document.getElementById('vbmColAddress').value;
+  var colCity = document.getElementById('vbmColCity').value;
+  var colZip = document.getElementById('vbmColZip').value;
+
+  if (!colFirst && !colLast && !colVuid) {
+    alert('Map at least a name or voter ID column.');
+    return;
+  }
+
+  // Build voter array for API
+  var voters = [];
+  for (var i = 0; i < _vbmParsedRows.length; i++) {
+    var r = _vbmParsedRows[i];
+    voters.push({
+      first_name: colFirst ? r[colFirst] : '',
+      last_name: colLast ? r[colLast] : '',
+      vuid: colVuid ? r[colVuid] : '',
+      address: colAddr ? r[colAddr] : '',
+      city: colCity ? r[colCity] : '',
+      zip: colZip ? r[colZip] : ''
+    });
+  }
+
+  // Send in batches of 500
+  var batchSize = 500;
+  var allMatched = [];
+  var allUnmatched = [];
+  var totalMethods = { vuid: 0, state_file_id: 0, name_address: 0, name_city: 0, name_zip: 0, name_only: 0 };
+
+  document.getElementById('vbmMatchProgress').style.display = '';
+  document.getElementById('vbmResults').style.display = 'none';
+
+  for (var b = 0; b < voters.length; b += batchSize) {
+    var batch = voters.slice(b, b + batchSize);
+    var pct = Math.round((b + batch.length) / voters.length * 100);
+    document.getElementById('vbmProgressBar').style.width = pct + '%';
+    document.getElementById('vbmProgressText').textContent = 'Matching... ' + (b + batch.length) + ' / ' + voters.length;
+
+    try {
+      var data = await api('/api/voters/vbm-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voters: batch })
+      });
+      allMatched = allMatched.concat(data.matched);
+      allUnmatched = allUnmatched.concat(data.unmatched);
+      for (var k in data.match_methods) {
+        if (totalMethods[k] !== undefined) totalMethods[k] += data.match_methods[k];
+      }
+    } catch (e) {
+      alert('Match failed on batch starting at row ' + b + ': ' + e.message);
+      break;
+    }
+  }
+
+  document.getElementById('vbmProgressBar').style.width = '100%';
+  document.getElementById('vbmProgressText').textContent = 'Done!';
+
+  _vbmMatchResults = { matched: allMatched, unmatched: allUnmatched, methods: totalMethods };
+
+  // Show results
+  document.getElementById('vbmResults').style.display = '';
+  var matchRate = voters.length > 0 ? Math.round(allMatched.length / voters.length * 100) : 0;
+  var rateColor = matchRate >= 80 ? '#22c55e' : matchRate >= 50 ? '#f59e0b' : '#ef4444';
+
+  document.getElementById('vbmResultStats').innerHTML =
+    '<div class="stat-card"><div class="label">Total Uploaded</div><div class="value">' + voters.length + '</div></div>' +
+    '<div class="stat-card"><div class="label">Matched</div><div class="value" style="color:#22c55e">' + allMatched.length + '</div></div>' +
+    '<div class="stat-card"><div class="label">Unmatched</div><div class="value" style="color:#ef4444">' + allUnmatched.length + '</div></div>' +
+    '<div class="stat-card"><div class="label">Match Rate</div><div class="value" style="color:' + rateColor + '">' + matchRate + '%</div></div>' +
+    '<div class="stat-card"><div class="label">By Voter ID</div><div class="value">' + (totalMethods.vuid + totalMethods.state_file_id) + '</div></div>' +
+    '<div class="stat-card"><div class="label">By Name+Address</div><div class="value">' + totalMethods.name_address + '</div></div>';
+
+  // Build results table (show first 100)
+  var showCount = Math.min(allMatched.length, 100);
+  var html = '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Showing ' + showCount + ' of ' + allMatched.length + ' matched voters with addresses for mailing</div>';
+  html += '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Address</th><th>City</th><th>State</th><th>Zip</th><th>Precinct</th><th>Party</th><th>Match</th></tr></thead><tbody>';
+  for (var i = 0; i < showCount; i++) {
+    var m = allMatched[i];
+    var methodBadge = '<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:#1e293b;color:#94a3b8">' + m.match_method + '</span>';
+    html += '<tr>' +
+      '<td style="font-weight:600">' + escHtml(m.first_name) + ' ' + escHtml(m.last_name) + '</td>' +
+      '<td>' + escHtml(m.address || '--') + '</td>' +
+      '<td>' + escHtml(m.city || '--') + '</td>' +
+      '<td>' + escHtml(m.state || 'TX') + '</td>' +
+      '<td>' + escHtml(m.zip || '--') + '</td>' +
+      '<td>' + escHtml(m.precinct || '--') + '</td>' +
+      '<td>' + escHtml(m.party || '--') + '</td>' +
+      '<td>' + methodBadge + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+  document.getElementById('vbmResultsTable').innerHTML = html;
+}
+
+function exportVbmMailingList() {
+  if (!_vbmMatchResults || _vbmMatchResults.matched.length === 0) { alert('No matched voters to export.'); return; }
+  var rows = _vbmMatchResults.matched;
+  var csv = 'First Name,Last Name,Address,City,State,Zip,Zip4,Phone,Email,Registration Number,Precinct,Party,Support Level,Match Method\n';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    csv += csvField(r.first_name) + ',' + csvField(r.last_name) + ',' + csvField(r.address) + ',' +
+      csvField(r.city) + ',' + csvField(r.state || 'TX') + ',' + csvField(r.zip) + ',' + csvField(r.zip4 || '') + ',' +
+      csvField(r.phone || '') + ',' + csvField(r.email || '') + ',' + csvField(r.registration_number || '') + ',' +
+      csvField(r.precinct || '') + ',' + csvField(r.party || '') + ',' + csvField(r.support_level || '') + ',' +
+      csvField(r.match_method) + '\n';
+  }
+  downloadCsv(csv, 'vbm_mailing_list.csv');
+}
+
+function exportVbmUnmatched() {
+  if (!_vbmMatchResults || _vbmMatchResults.unmatched.length === 0) { alert('No unmatched voters to export.'); return; }
+  var rows = _vbmMatchResults.unmatched;
+  var csv = 'First Name,Last Name,VUID,Address,City,Zip\n';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    csv += csvField(r.first_name) + ',' + csvField(r.last_name) + ',' + csvField(r.vuid) + ',' +
+      csvField(r.address) + ',' + csvField(r.city) + ',' + csvField(r.zip) + '\n';
+  }
+  downloadCsv(csv, 'vbm_unmatched.csv');
+}
+
+function csvField(val) {
+  if (!val) return '';
+  val = String(val);
+  if (val.indexOf(',') >= 0 || val.indexOf('"') >= 0 || val.indexOf('\n') >= 0) {
+    return '"' + val.replace(/"/g, '""') + '"';
+  }
+  return val;
+}
+
+function downloadCsv(csv, filename) {
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ===================== UNIVERSE BUILDER =====================
