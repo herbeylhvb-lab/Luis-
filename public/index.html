@@ -1801,6 +1801,37 @@ tr:hover td{background:#1e293b80}
 
           <div id="vbmResults" style="display:none">
             <div class="stats-grid" id="vbmResultStats" style="margin-bottom:16px"></div>
+
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
+              <h4 style="margin-bottom:8px;font-size:14px;color:#f59e0b">Filter by Race / District</h4>
+              <p style="color:#64748b;font-size:12px;margin-bottom:10px">Narrow the mailing list to only voters in your race's precincts.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end">
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Race</label>
+                  <select id="vbmRaceFilter" onchange="filterVbmByRace()" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px">
+                    <option value="">All Precincts (no filter)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Precinct (optional, further narrow)</label>
+                  <select id="vbmPrecinctFilter" onchange="renderVbmResults()" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px">
+                    <option value="">All in Race</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:11px;color:#94a3b8;font-weight:600;display:block;margin-bottom:3px">Party</label>
+                  <select id="vbmPartyFilter" onchange="renderVbmResults()" style="width:100%;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px">
+                    <option value="">All Parties</option>
+                    <option value="D">Democrat</option>
+                    <option value="R">Republican</option>
+                    <option value="I">Independent</option>
+                    <option value="NP">No Party</option>
+                  </select>
+                </div>
+              </div>
+              <div id="vbmFilterInfo" style="margin-top:8px;font-size:12px;color:#94a3b8"></div>
+            </div>
+
             <div style="display:flex;gap:8px;margin-bottom:16px">
               <button class="btn btn-primary" onclick="exportVbmMailingList()">Export Mailing List CSV</button>
               <button class="btn btn-secondary" onclick="exportVbmUnmatched()">Export Unmatched CSV</button>
@@ -9719,27 +9750,121 @@ async function matchVbmVoters() {
   document.getElementById('vbmProgressBar').style.width = '100%';
   document.getElementById('vbmProgressText').textContent = 'Done!';
 
-  _vbmMatchResults = { matched: allMatched, unmatched: allUnmatched, methods: totalMethods };
+  _vbmMatchResults = { matched: allMatched, unmatched: allUnmatched, methods: totalMethods, total: voters.length };
 
   // Show results
   document.getElementById('vbmResults').style.display = '';
-  var matchRate = voters.length > 0 ? Math.round(allMatched.length / voters.length * 100) : 0;
+
+  // Load race filter dropdown
+  loadVbmRaceFilter();
+
+  // Render with no filter
+  renderVbmResults();
+}
+
+var _vbmRacePrecincts = null;
+
+async function loadVbmRaceFilter() {
+  if (_vbmRacePrecincts) return;
+  try {
+    var data = await api('/api/voters/race-precincts');
+    _vbmRacePrecincts = data.races || [];
+    var sel = document.getElementById('vbmRaceFilter');
+    sel.innerHTML = '<option value="">All Precincts (no filter)</option>';
+    for (var i = 0; i < _vbmRacePrecincts.length; i++) {
+      var r = _vbmRacePrecincts[i];
+      sel.innerHTML += '<option value="' + r.type + '|' + r.district + '">' + escHtml(r.race) + '</option>';
+    }
+  } catch (e) { /* silent */ }
+}
+
+function filterVbmByRace() {
+  // Populate precinct dropdown based on selected race
+  var raceVal = document.getElementById('vbmRaceFilter').value;
+  var pctSel = document.getElementById('vbmPrecinctFilter');
+  pctSel.innerHTML = '<option value="">All in Race</option>';
+
+  if (raceVal && _vbmRacePrecincts) {
+    var parts = raceVal.split('|');
+    var race = _vbmRacePrecincts.find(function(r) { return r.type === parts[0] && r.district === parts[1]; });
+    if (race && race.precincts) {
+      var sorted = race.precincts.slice().sort();
+      for (var i = 0; i < sorted.length; i++) {
+        pctSel.innerHTML += '<option value="' + escHtml(sorted[i]) + '">Pct ' + escHtml(sorted[i]) + '</option>';
+      }
+    }
+  }
+  renderVbmResults();
+}
+
+function getVbmFilteredMatched() {
+  if (!_vbmMatchResults) return [];
+  var matched = _vbmMatchResults.matched;
+  var raceVal = document.getElementById('vbmRaceFilter').value;
+  var pctVal = document.getElementById('vbmPrecinctFilter').value;
+  var partyVal = document.getElementById('vbmPartyFilter').value;
+
+  // Filter by race (precincts in that race)
+  if (raceVal && _vbmRacePrecincts) {
+    var parts = raceVal.split('|');
+    var race = _vbmRacePrecincts.find(function(r) { return r.type === parts[0] && r.district === parts[1]; });
+    if (race && race.precincts) {
+      var pctSet = {};
+      for (var i = 0; i < race.precincts.length; i++) pctSet[race.precincts[i]] = true;
+      matched = matched.filter(function(m) { return m.precinct && pctSet[m.precinct]; });
+    }
+  }
+
+  // Filter by specific precinct
+  if (pctVal) {
+    matched = matched.filter(function(m) { return m.precinct === pctVal; });
+  }
+
+  // Filter by party
+  if (partyVal) {
+    matched = matched.filter(function(m) { return m.party === partyVal; });
+  }
+
+  return matched;
+}
+
+function renderVbmResults() {
+  if (!_vbmMatchResults) return;
+  var allMatched = _vbmMatchResults.matched;
+  var allUnmatched = _vbmMatchResults.unmatched;
+  var totalMethods = _vbmMatchResults.methods;
+  var total = _vbmMatchResults.total;
+
+  var matchRate = total > 0 ? Math.round(allMatched.length / total * 100) : 0;
   var rateColor = matchRate >= 80 ? '#22c55e' : matchRate >= 50 ? '#f59e0b' : '#ef4444';
 
+  // Get filtered results
+  var filtered = getVbmFilteredMatched();
+
   document.getElementById('vbmResultStats').innerHTML =
-    '<div class="stat-card"><div class="label">Total Uploaded</div><div class="value">' + voters.length + '</div></div>' +
+    '<div class="stat-card"><div class="label">Total Uploaded</div><div class="value">' + total + '</div></div>' +
     '<div class="stat-card"><div class="label">Matched</div><div class="value" style="color:#22c55e">' + allMatched.length + '</div></div>' +
     '<div class="stat-card"><div class="label">Unmatched</div><div class="value" style="color:#ef4444">' + allUnmatched.length + '</div></div>' +
     '<div class="stat-card"><div class="label">Match Rate</div><div class="value" style="color:' + rateColor + '">' + matchRate + '%</div></div>' +
-    '<div class="stat-card"><div class="label">By Voter ID</div><div class="value">' + (totalMethods.vuid + totalMethods.state_file_id) + '</div></div>' +
-    '<div class="stat-card"><div class="label">By Name+Address</div><div class="value">' + totalMethods.name_address + '</div></div>';
+    '<div class="stat-card"><div class="label">In Mailing List</div><div class="value" style="color:#818cf8">' + filtered.length + '</div></div>' +
+    '<div class="stat-card"><div class="label">By Voter ID</div><div class="value">' + (totalMethods.vuid + totalMethods.state_file_id) + '</div></div>';
 
-  // Build results table (show first 100)
-  var showCount = Math.min(allMatched.length, 100);
-  var html = '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Showing ' + showCount + ' of ' + allMatched.length + ' matched voters with addresses for mailing</div>';
+  // Filter info
+  var raceVal = document.getElementById('vbmRaceFilter').value;
+  var filterInfo = document.getElementById('vbmFilterInfo');
+  if (raceVal) {
+    var raceName = document.getElementById('vbmRaceFilter').options[document.getElementById('vbmRaceFilter').selectedIndex].text;
+    filterInfo.innerHTML = 'Showing <strong style="color:#818cf8">' + filtered.length + '</strong> voters in <strong style="color:#f59e0b">' + escHtml(raceName) + '</strong> (filtered from ' + allMatched.length + ' total matches)';
+  } else {
+    filterInfo.textContent = 'No race filter applied — showing all ' + allMatched.length + ' matched voters.';
+  }
+
+  // Build table
+  var showCount = Math.min(filtered.length, 200);
+  var html = '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Showing ' + showCount + ' of ' + filtered.length + ' voters in mailing list</div>';
   html += '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Address</th><th>City</th><th>State</th><th>Zip</th><th>Precinct</th><th>Party</th><th>Match</th></tr></thead><tbody>';
   for (var i = 0; i < showCount; i++) {
-    var m = allMatched[i];
+    var m = filtered[i];
     var methodBadge = '<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:#1e293b;color:#94a3b8">' + m.match_method + '</span>';
     html += '<tr>' +
       '<td style="font-weight:600">' + escHtml(m.first_name) + ' ' + escHtml(m.last_name) + '</td>' +
@@ -9756,8 +9881,8 @@ async function matchVbmVoters() {
 }
 
 function exportVbmMailingList() {
-  if (!_vbmMatchResults || _vbmMatchResults.matched.length === 0) { alert('No matched voters to export.'); return; }
-  var rows = _vbmMatchResults.matched;
+  var rows = getVbmFilteredMatched();
+  if (rows.length === 0) { alert('No voters in the filtered mailing list.'); return; }
   var csv = 'First Name,Last Name,Address,City,State,Zip,Zip4,Phone,Email,Registration Number,Precinct,Party,Support Level,Match Method\n';
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
