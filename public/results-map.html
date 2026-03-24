@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Block Walk Results Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+#header{background:#1e293b;border-bottom:1px solid #334155;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+#header h1{font-size:18px;font-weight:700;color:#f59e0b}
+#header a{color:#818cf8;font-size:13px;text-decoration:none}
+#header a:hover{text-decoration:underline}
+#map{height:calc(100vh - 52px);width:100%}
+.panel{position:absolute;background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:10px;padding:10px 14px;z-index:1000;font-size:11px;color:#e2e8f0}
+#stats{bottom:16px;right:16px;max-width:220px;font-size:13px}
+#stats .row{display:flex;justify-content:space-between;padding:2px 0}
+#stats .lbl{color:#94a3b8}
+#stats .val{font-weight:700}
+#legend{bottom:16px;left:16px}
+.leg-item{display:flex;align-items:center;gap:6px;margin-bottom:3px;cursor:pointer}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.leg-item.off{opacity:0.3}
+#loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(30,41,59,0.95);border:1px solid #334155;border-radius:12px;padding:20px 30px;z-index:2000;font-size:15px;text-align:center}
+</style>
+</head><body>
+<div id="header">
+  <h1>Block Walk Results Map</h1>
+  <a href="/app">Back to Dashboard</a>
+</div>
+<div style="position:relative">
+  <div id="map"></div>
+  <div id="loading">Loading map data...</div>
+  <div id="legend" class="panel"></div>
+  <div id="stats" class="panel"></div>
+</div>
+<script>
+function escHtml(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function fmtResult(r){return({'support':'Support','lean_support':'Lean Support','undecided':'Undecided','lean_oppose':'Lean Oppose','oppose':'Oppose','not_home':'Not Home','refused':'Refused','moved':'Moved','deceased':'Deceased','come_back':'Come Back','not_visited':'Not Visited'})[r]||r;}
+
+var RC = {
+  'support':'#3b82f6','lean_support':'#86efac','undecided':'#facc15',
+  'lean_oppose':'#fb923c','oppose':'#ef4444','not_home':'#22c55e',
+  'refused':'#22c55e','moved':'#94a3b8','deceased':'#94a3b8',
+  'come_back':'#22c55e','not_visited':'#64748b'
+};
+var ORDER = ['support','lean_support','undecided','lean_oppose','oppose','not_home','refused','moved','come_back'];
+
+var map = L.map('map',{zoomControl:true,attributionControl:false}).setView([26.0,-97.5],13);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19}).addTo(map);
+
+var byResult = {};
+var filters = {};
+
+fetch('/api/walks/all-results-map').then(function(r){return r.json()}).then(function(data){
+  var addrs = data.addresses || [];
+  var stats = data.stats || {};
+  var bounds = [];
+
+  for (var i = 0; i < addrs.length; i++) {
+    var a = addrs[i];
+    if (!a.lat || !a.lng) continue;
+    var color = RC[a.result] || '#22c55e';
+    var done = a.result && a.result !== 'not_visited';
+    var ds = done ? 14 : 20;
+    var ts = 44;
+    var o = (ts - ds) / 2;
+
+    var icon = L.divIcon({
+      className: '',
+      html: '<div style="width:'+ts+'px;height:'+ts+'px;position:relative;cursor:pointer"><div style="position:absolute;top:'+o+'px;left:'+o+'px;width:'+ds+'px;height:'+ds+'px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:'+(done?'0.8':'1')+'"></div></div>',
+      iconSize: [ts, ts], iconAnchor: [ts/2, ts/2], popupAnchor: [0, -ts/2]
+    });
+
+    var pop = document.createElement('div');
+    var b = document.createElement('b');
+    b.textContent = a.address + (a.unit ? ' ' + a.unit : '');
+    pop.appendChild(b);
+    var rd = document.createElement('div');
+    rd.style.cssText = 'color:'+color+';font-weight:700';
+    rd.textContent = fmtResult(a.result);
+    pop.appendChild(rd);
+    if (a.voter_name) { var vn = document.createElement('div'); vn.textContent = a.voter_name; pop.appendChild(vn); }
+    if (a.walk_name) { var wn = document.createElement('div'); wn.style.cssText = 'font-size:11px;color:#94a3b8'; wn.textContent = 'Walk: ' + a.walk_name; pop.appendChild(wn); }
+
+    var marker = L.marker([a.lat, a.lng], {icon: icon, zIndexOffset: 1000}).bindPopup(pop);
+    marker.addTo(map);
+    if (!byResult[a.result]) byResult[a.result] = [];
+    byResult[a.result].push(marker);
+    bounds.push([a.lat, a.lng]);
+  }
+
+  if (bounds.length > 0) map.fitBounds(bounds, {padding:[30,30], maxZoom:16});
+
+  // Build stats
+  var total = 0;
+  for (var k in stats) total += stats[k];
+  var sp = document.getElementById('stats');
+  sp.textContent = '';
+  var hdr = document.createElement('div');
+  hdr.style.cssText = 'font-weight:700;margin-bottom:6px;font-size:14px';
+  hdr.textContent = total + ' Doors Visited';
+  sp.appendChild(hdr);
+  for (var s = 0; s < ORDER.length; s++) {
+    if (!stats[ORDER[s]]) continue;
+    var row = document.createElement('div');
+    row.className = 'row';
+    var lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = fmtResult(ORDER[s]);
+    var val = document.createElement('span');
+    val.className = 'val';
+    val.style.color = RC[ORDER[s]] || '#e2e8f0';
+    val.textContent = stats[ORDER[s]];
+    row.appendChild(lbl);
+    row.appendChild(val);
+    sp.appendChild(row);
+  }
+
+  // Build legend
+  var lg = document.getElementById('legend');
+  lg.textContent = '';
+  var lhdr = document.createElement('div');
+  lhdr.style.cssText = 'font-weight:700;margin-bottom:6px';
+  lhdr.textContent = 'Filter (click to toggle)';
+  lg.appendChild(lhdr);
+  for (var l = 0; l < ORDER.length; l++) {
+    var r = ORDER[l];
+    if (!stats[r]) continue;
+    filters[r] = true;
+    var item = document.createElement('div');
+    item.className = 'leg-item';
+    item.dataset.result = r;
+    var dot = document.createElement('div');
+    dot.className = 'leg-dot';
+    dot.style.background = RC[r] || '#22c55e';
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(fmtResult(r) + ' (' + stats[r] + ')'));
+    (function(res, el) {
+      el.addEventListener('click', function() {
+        filters[res] = !filters[res];
+        el.className = filters[res] ? 'leg-item' : 'leg-item off';
+        var ms = byResult[res] || [];
+        for (var m = 0; m < ms.length; m++) {
+          if (filters[res]) { if (!map.hasLayer(ms[m])) ms[m].addTo(map); }
+          else { map.removeLayer(ms[m]); }
+        }
+      });
+    })(r, item);
+    lg.appendChild(item);
+  }
+
+  document.getElementById('loading').style.display = 'none';
+}).catch(function(e){
+  document.getElementById('loading').textContent = 'Error: ' + e.message;
+});
+</script>
+</body></html>
