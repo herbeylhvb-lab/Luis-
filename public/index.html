@@ -258,7 +258,19 @@ tr:hover td{background:#1e293b80}
       <div class="card" id="precinctAnalyticsCard">
         <h3>Precinct Analytics</h3>
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Engagement by precinct — filtered by dashboard settings above.</p>
-        <div class="table-wrap"><table><thead><tr><th>Precinct</th><th>Voters</th><th>Dem</th><th>Rep</th><th>Other</th><th>Supporters</th><th>Undecided</th><th>Doors Knocked</th><th>Touchpoints</th><th>Avg Score</th><th>Priority</th></tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('precinct')">Precinct <span id="sortArrow_precinct"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('total_voters')">Voters <span id="sortArrow_total_voters"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('dem')">Dem <span id="sortArrow_dem"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('rep')">Rep <span id="sortArrow_rep"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('other')">Other <span id="sortArrow_other"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('supporters')">Supporters <span id="sortArrow_supporters"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('undecided')">Undecided <span id="sortArrow_undecided"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('doors_knocked')">Doors Knocked <span id="sortArrow_doors_knocked"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('total_touchpoints')">Touchpoints <span id="sortArrow_total_touchpoints"></span></th>
+          <th style="cursor:pointer" onclick="sortPrecinctTable('avg_engagement')">Avg Score <span id="sortArrow_avg_engagement"></span></th>
+          <th>Priority</th>
+        </tr></thead><tbody id="precinctAnalyticsBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table></div>
       </div>
       <div class="card">
         <h3>Block Walk Results Map</h3>
@@ -3780,31 +3792,64 @@ async function loadDashboard() {
   } catch (e) {}
 }
 
+var _precinctData = [];
+var _precinctSort = { col: null, asc: true };
+
 async function loadPrecinctAnalytics() {
   try {
     var data = await api('/api/analytics/precincts' + getDashFilterParams());
-    var precincts = data.precincts || [];
-    var tbody = document.getElementById('precinctAnalyticsBody');
-    if (precincts.length === 0) {
-      // Note: innerHTML with static safe string — no user data
-      tbody.innerHTML = '<tr><td colspan="11" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters to see analytics.</td></tr>';
-      return;
-    }
-    // Note: all dynamic values are either numeric (from DB aggregates) or escaped via escHtml()
-    tbody.innerHTML = precincts.map(function(p) {
-      var priority = 'Low';
-      var prCls = 'badge-gray';
-      if (p.undecided > p.total_voters * 0.3 && p.avg_engagement < 20) { priority = 'High'; prCls = 'badge-red'; }
-      else if (p.undecided > p.total_voters * 0.2 || p.avg_engagement < 15) { priority = 'Medium'; prCls = 'badge-yellow'; }
-      else if (p.avg_engagement >= 40) { priority = 'Saturated'; prCls = 'badge-green'; }
-      var doorsText = p.doors_knocked + '/' + p.doors_total;
-      var doorsPct = p.doors_total > 0 ? Math.round(p.doors_knocked / p.doors_total * 100) : 0;
-      var doorsColor = doorsPct >= 75 ? '#22c55e' : doorsPct >= 40 ? '#eab308' : '#94a3b8';
-      return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total_voters + '</td><td style="color:#60a5fa">' + p.dem + '</td><td style="color:#f87171">' + p.rep + '</td><td>' + p.other + '</td><td style="color:#22c55e">' + p.supporters + '</td><td style="color:#eab308">' + p.undecided + '</td><td style="color:' + doorsColor + '">' + doorsText + (p.doors_total > 0 ? ' <span style="font-size:11px;opacity:0.7">(' + doorsPct + '%)</span>' : '') + '</td><td>' + p.total_touchpoints + '</td><td>' + scoreBadge(p.avg_engagement) + '</td><td><span class="badge ' + prCls + '">' + priority + '</span></td></tr>';
-    }).join('');
+    _precinctData = data.precincts || [];
+    _precinctSort = { col: null, asc: true };
+    renderPrecinctTable();
   } catch (err) {
     console.error('Precinct analytics error:', err);
   }
+}
+
+function sortPrecinctTable(col) {
+  // Clear all arrows
+  var cols = ['precinct','total_voters','dem','rep','other','supporters','undecided','doors_knocked','total_touchpoints','avg_engagement'];
+  for (var i = 0; i < cols.length; i++) {
+    var arrow = document.getElementById('sortArrow_' + cols[i]);
+    if (arrow) arrow.textContent = '';
+  }
+  // Toggle direction
+  if (_precinctSort.col === col) { _precinctSort.asc = !_precinctSort.asc; }
+  else { _precinctSort.col = col; _precinctSort.asc = false; } // default: highest first
+  // Show arrow
+  var activeArrow = document.getElementById('sortArrow_' + col);
+  if (activeArrow) activeArrow.textContent = _precinctSort.asc ? ' \u25B2' : ' \u25BC';
+  // Sort
+  _precinctData.sort(function(a, b) {
+    var va = a[col], vb = b[col];
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb || '').toLowerCase(); }
+    if (va < vb) return _precinctSort.asc ? -1 : 1;
+    if (va > vb) return _precinctSort.asc ? 1 : -1;
+    return 0;
+  });
+  renderPrecinctTable();
+}
+
+function renderPrecinctTable() {
+  var precincts = _precinctData;
+  var tbody = document.getElementById('precinctAnalyticsBody');
+  if (precincts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters to see analytics.</td></tr>';
+    return;
+  }
+  // Note: all dynamic values are either numeric (from DB aggregates) or escaped via escHtml()
+  tbody.innerHTML = precincts.map(function(p) {
+    var priority = 'Low';
+    var prCls = 'badge-gray';
+    if (p.undecided > p.total_voters * 0.3 && p.avg_engagement < 20) { priority = 'High'; prCls = 'badge-red'; }
+    else if (p.undecided > p.total_voters * 0.2 || p.avg_engagement < 15) { priority = 'Medium'; prCls = 'badge-yellow'; }
+    else if (p.avg_engagement >= 40) { priority = 'Saturated'; prCls = 'badge-green'; }
+    var doorsText = p.doors_knocked + '/' + p.doors_total;
+    var doorsPct = p.doors_total > 0 ? Math.round(p.doors_knocked / p.doors_total * 100) : 0;
+    var doorsColor = doorsPct >= 75 ? '#22c55e' : doorsPct >= 40 ? '#eab308' : '#94a3b8';
+    return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total_voters + '</td><td style="color:#60a5fa">' + p.dem + '</td><td style="color:#f87171">' + p.rep + '</td><td>' + p.other + '</td><td style="color:#22c55e">' + p.supporters + '</td><td style="color:#eab308">' + p.undecided + '</td><td style="color:' + doorsColor + '">' + doorsText + (p.doors_total > 0 ? ' <span style="font-size:11px;opacity:0.7">(' + doorsPct + '%)</span>' : '') + '</td><td>' + p.total_touchpoints + '</td><td>' + scoreBadge(p.avg_engagement) + '</td><td><span class="badge ' + prCls + '">' + priority + '</span></td></tr>';
+  }).join('');
+}
 }
 
 async function loadPrecinctFilter() {
@@ -13386,18 +13431,7 @@ function initDashResultsMap() {
   roads.addTo(dashResultsState.map);
   places.addTo(dashResultsState.map);
 
-  // Precinct boundaries
-  fetch('/cameron-precincts.geojson').then(function(r) { return r.json(); }).then(function(geo) {
-    L.geoJSON(geo, {
-      interactive: false,
-      style: function() { return { color: '#f59e0b', weight: 2, opacity: 0.8, fillOpacity: 0.05, fillColor: '#f59e0b' }; },
-      onEachFeature: function(feature, layer) {
-        if (feature.properties && feature.properties.precinct) {
-          layer.bindTooltip('Pct ' + feature.properties.precinct, { permanent: true, direction: 'center', className: 'precinct-label' });
-        }
-      }
-    }).addTo(dashResultsState.map);
-  }).catch(function() {});
+  // Precinct boundaries disabled — was covering markers
 
   L.control.layers(
     { 'Satellite': sat, 'Street': street },
@@ -13420,7 +13454,11 @@ function loadDashResultsData() {
     var total = 0;
     for (var k in (data.stats || {})) total += data.stats[k];
     var knocked = total - ((data.stats || {}).not_visited || 0);
-    statsEl.textContent = univId ? (knocked + ' knocked / ' + total + ' total doors') : (total + ' doors visited');
+    if (total === 0) {
+      statsEl.textContent = 'No geocoded walk data yet. Open a walk map to trigger geocoding.';
+    } else {
+      statsEl.textContent = univId ? (knocked + ' knocked / ' + total + ' total doors') : (total + ' doors visited');
+    }
     buildDashResultsFilters(data.stats || {});
   }).catch(function(e) { console.error('Dash results map error:', e); });
 }
