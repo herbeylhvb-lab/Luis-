@@ -13517,20 +13517,24 @@ function renderDashResultsMarkers(addresses) {
 
   var bounds = [];
 
-  // Simple approach: one marker per address, no grouping
+  // Same approach as the working walk.html map — L.marker + L.divIcon with 44px tap target
   for (var i = 0; i < addresses.length; i++) {
     var a = addresses[i];
     if (!a.lat || !a.lng) continue;
     var color = getDashResultColor(a.result);
-
-    // Use L.marker with divIcon instead of circleMarker (more reliable rendering)
+    var isDone = a.result && a.result !== 'not_visited';
+    var dotSize = isDone ? 14 : 20;
+    var tapSize = 44;
+    var offset = (tapSize - dotSize) / 2;
     var icon = L.divIcon({
       className: '',
-      html: '<div style="width:12px;height:12px;border-radius:50%;background:' + color + ';border:2px solid #000;"></div>',
-      iconSize: [12, 12],
-      iconAnchor: [6, 6]
+      html: '<div style="width:' + tapSize + 'px;height:' + tapSize + 'px;position:relative;cursor:pointer">' +
+        '<div style="position:absolute;top:' + offset + 'px;left:' + offset + 'px;width:' + dotSize + 'px;height:' + dotSize + 'px;border-radius:50%;background:' + color + ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:' + (isDone ? '0.7' : '1') + '"></div></div>',
+      iconSize: [tapSize, tapSize],
+      iconAnchor: [tapSize / 2, tapSize / 2],
+      popupAnchor: [0, -tapSize / 2]
     });
-    var marker = L.marker([a.lat, a.lng], { icon: icon });
+    var marker = L.marker([a.lat, a.lng], { icon: icon, zIndexOffset: 1000 });
     marker.bindPopup('<b>' + escHtml(a.address) + '</b><br>' + formatResult(a.result));
     marker.addTo(dashResultsState.map);
     dashResultsState.markers.push(marker);
