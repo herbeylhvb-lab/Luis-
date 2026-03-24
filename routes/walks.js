@@ -582,6 +582,107 @@ router.get('/walks/daily-report', (req, res) => {
   res.json({ date: targetDate, walkers, totals, history: history.reverse(), walkBreakdown, activeDays });
 });
 
+// ===================== WEEKLY HOURS (must be before /walks/:id) =====================
+router.get('/walks/weekly-hours', (req, res) => {
+  // week_of = Monday date (YYYY-MM-DD). Default to current week's Monday in Central Time.
+  const now = new Date();
+  const central = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const day = central.getDay(); // 0=Sun
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const defaultMonday = new Date(central);
+  defaultMonday.setDate(central.getDate() + diffToMon);
+  const weekOf = req.query.week_of || defaultMonday.toISOString().split('T')[0];
+
+  // Get all knocks for the 7-day window (Mon-Sun), excluding knocks after 20:30 Central
+  // Central Time = UTC-6, so 20:30 Central = time(attempted_at, '-6 hours') <= '20:30'
+  const weekEnd = new Date(weekOf);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+  const rows = db.prepare(`
+    SELECT
+      walker_name,
+      date(attempted_at, '-6 hours') as knock_date,
+      time(attempted_at, '-6 hours') as knock_time,
+      attempted_at
+    FROM walk_attempts
+    WHERE walker_name != ''
+      AND date(attempted_at, '-6 hours') >= ?
+      AND date(attempted_at, '-6 hours') < ?
+      AND time(attempted_at, '-6 hours') <= '20:30:00'
+    ORDER BY walker_name, attempted_at
+  `).all(weekOf, weekEndStr);
+
+  // Group by walker + day, find first/last knock per day
+  const walkerDays = {}; // { walkerName: { 'YYYY-MM-DD': { first, last } } }
+  for (const r of rows) {
+    if (!walkerDays[r.walker_name]) walkerDays[r.walker_name] = {};
+    const wd = walkerDays[r.walker_name];
+    if (!wd[r.knock_date]) wd[r.knock_date] = { first: r.attempted_at, last: r.attempted_at, knocks: 0 };
+    const entry = wd[r.knock_date];
+    if (r.attempted_at < entry.first) entry.first = r.attempted_at;
+    if (r.attempted_at > entry.last) entry.last = r.attempted_at;
+    entry.knocks++;
+  }
+
+  // Build per-walker weekly summary
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const weekDates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekOf);
+    d.setDate(d.getDate() + i);
+    weekDates.push(d.toISOString().split('T')[0]);
+  }
+
+  const walkers = [];
+  for (const [name, days] of Object.entries(walkerDays)) {
+    const dailyHours = [];
+    let totalHours = 0;
+    let totalDoors = 0;
+    let daysWorked = 0;
+
+    for (const dateStr of weekDates) {
+      const entry = days[dateStr];
+      if (entry && entry.first !== entry.last) {
+        const hrs = (new Date(entry.last) - new Date(entry.first)) / 3600000;
+        dailyHours.push(Math.round(hrs * 100) / 100);
+        totalHours += hrs;
+        totalDoors += entry.knocks;
+        daysWorked++;
+      } else if (entry) {
+        // Only one knock that day — count as minimal time
+        dailyHours.push(0);
+        totalDoors += entry.knocks;
+        daysWorked++;
+      } else {
+        dailyHours.push(0);
+      }
+    }
+
+    walkers.push({
+      walker_name: name,
+      daily_hours: dailyHours,
+      total_hours: Math.round(totalHours * 100) / 100,
+      total_doors: totalDoors,
+      days_worked: daysWorked
+    });
+  }
+
+  // Sort by total hours descending
+  walkers.sort((a, b) => b.total_hours - a.total_hours);
+
+  // Available weeks (weeks that have any activity)
+  const activeWeeks = db.prepare(`
+    SELECT DISTINCT date(attempted_at, '-6 hours', 'weekday 1', '-7 days') as monday
+    FROM walk_attempts
+    WHERE walker_name != ''
+    ORDER BY monday DESC
+    LIMIT 26
+  `).all().map(r => r.monday);
+
+  res.json({ week_of: weekOf, week_dates: weekDates, day_names: dayNames, walkers, activeWeeks });
+});
+
 // ===================== LEADERBOARD (must be before /walks/:id) =====================
 router.get('/walks/leaderboard', (req, res) => {
   const leaderboard = db.prepare(`
