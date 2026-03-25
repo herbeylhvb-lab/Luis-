@@ -578,7 +578,83 @@ router.get('/pushcard/qr-data', asyncHandler(async (req, res) => {
 }));
 
 // Combined voting push card: Early Voting + Election Day in one QR code
-// The QR points to /voting-pushcard?params... which shows stacked calendar popups
+// The QR points directly to a combined .ics file so phones prompt "Add to Calendar" natively
+
+// Generate combined .ics with both Early Voting + Election Day events
+router.get('/voting-reminders/combined-ics', (req, res) => {
+  const { ev_title, ev_date, ev_end_date, ev_start_time, ev_end_time, ev_location, ev_description,
+          ed_title, ed_date, ed_start_time, ed_end_time, ed_location, ed_description } = req.query;
+  if (!ev_title || !ev_date || !ed_title || !ed_date) {
+    return res.status(400).send('Early Voting and Election Day title/date are required');
+  }
+
+  const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+  function buildVEvent(title, date, endDate, startTime, endTime, location, description, uidSuffix) {
+    const dateClean = date.replace(/-/g, '');
+    let dtStart, dtEnd;
+    const isMultiDay = endDate && endDate !== date;
+
+    if (isMultiDay) {
+      dtStart = dateClean;
+      const endExcl = new Date(endDate);
+      endExcl.setDate(endExcl.getDate() + 1);
+      dtEnd = endExcl.toISOString().slice(0, 10).replace(/-/g, '');
+    } else if (startTime) {
+      const st = startTime.replace(/:/g, '');
+      dtStart = dateClean + 'T' + st + '00';
+      if (endTime) {
+        dtEnd = dateClean + 'T' + endTime.replace(/:/g, '') + '00';
+      } else {
+        const h = parseInt(startTime.split(':')[0], 10);
+        const m = startTime.split(':')[1] || '00';
+        dtEnd = dateClean + 'T' + String(h + 1).padStart(2, '0') + m + '00';
+      }
+    } else {
+      dtStart = dateClean;
+      const next = new Date(date);
+      next.setDate(next.getDate() + 1);
+      dtEnd = next.toISOString().slice(0, 10).replace(/-/g, '');
+    }
+
+    const isAllDay = isMultiDay || !startTime;
+    const lines = [
+      'BEGIN:VEVENT',
+      'UID:voting-' + uidSuffix + '-' + dateClean + '@campaigntext',
+      'DTSTAMP:' + now,
+    ];
+    if (isAllDay) {
+      lines.push('DTSTART;VALUE=DATE:' + dtStart);
+      lines.push('DTEND;VALUE=DATE:' + dtEnd);
+    } else {
+      lines.push('DTSTART:' + dtStart);
+      lines.push('DTEND:' + dtEnd);
+    }
+    lines.push('SUMMARY:' + (title || 'Vote').replace(/[,;\\]/g, ''));
+    if (description) lines.push('DESCRIPTION:' + description.replace(/\n/g, '\\n').replace(/[,;\\]/g, ''));
+    if (location) lines.push('LOCATION:' + location.replace(/[,;\\]/g, ''));
+    lines.push('BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder: ' + title, 'END:VALARM');
+    lines.push('BEGIN:VALARM', 'TRIGGER:-PT8H', 'ACTION:DISPLAY', 'DESCRIPTION:Don\'t forget: ' + title, 'END:VALARM');
+    lines.push('END:VEVENT');
+    return lines.join('\r\n');
+  }
+
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//CampaignText//Voting Reminder//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    buildVEvent(ev_title, ev_date, ev_end_date || '', ev_start_time || '', ev_end_time || '', ev_location || '', ev_description || '', 'ev'),
+    buildVEvent(ed_title, ed_date, '', ed_start_time || '', ed_end_time || '', ed_location || '', ed_description || '', 'ed'),
+    'END:VCALENDAR'
+  ].join('\r\n');
+
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="voting-reminders.ics"');
+  res.send(ics);
+});
+
 router.get('/events/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
   const { ev_title, ev_date, ed_title, ed_date } = req.query;
   if (!ev_title || !ev_date || !ed_title || !ed_date) {
@@ -589,13 +665,13 @@ router.get('/events/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
     ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
     : req.protocol + '://' + req.get('host');
 
-  // Pass all params through to the public page
+  // Pass all params to the combined .ics endpoint (direct calendar download, no webpage)
   const params = new URLSearchParams();
   for (const [key, val] of Object.entries(req.query)) {
     if (val) params.set(key, val);
   }
 
-  const url = origin + '/voting-pushcard?' + params.toString();
+  const url = origin + '/api/voting-reminders/combined-ics?' + params.toString();
 
   const qrDataUrl = await QRCode.toDataURL(url, {
     width: 400,
