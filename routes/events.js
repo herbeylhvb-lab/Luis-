@@ -709,21 +709,28 @@ router.get('/events/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
     ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
     : req.protocol + '://' + req.get('host');
 
-  // Pass all params to the combined .ics endpoint (direct calendar download, no webpage)
+  // Build full ICS URL
   const params = new URLSearchParams();
   for (const [key, val] of Object.entries(req.query)) {
     if (val) params.set(key, val);
   }
+  const fullUrl = origin + '/api/voting-reminders/combined-ics?' + params.toString();
 
-  const url = origin + '/api/voting-reminders/combined-ics?' + params.toString();
+  // Create short link for compact QR code
+  const crypto = require('crypto');
+  const code = crypto.randomBytes(3).toString('hex'); // 6 char code
+  try {
+    db.prepare('INSERT INTO short_links (code, target_url) VALUES (?, ?)').run(code, fullUrl);
+  } catch(e) {}
+  const shortUrl = origin + '/r/' + code;
 
-  const qrDataUrl = await QRCode.toDataURL(url, {
+  const qrDataUrl = await QRCode.toDataURL(shortUrl, {
     width: 400,
     margin: 2,
     color: { dark: '#000000', light: '#FFFFFF' }
   });
 
-  res.json({ qr: qrDataUrl, url });
+  res.json({ qr: qrDataUrl, url: shortUrl });
 }));
 
 module.exports = router;

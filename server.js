@@ -117,6 +117,18 @@ app.get('/volunteer', (req, res) => res.sendFile(path.join(__dirname, 'public', 
 app.get('/walk', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walk.html')));
 app.get('/scanner', (req, res) => res.sendFile(path.join(__dirname, 'public', 'scanner.html')));
 app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkin.html')));
+// Short link redirects (for compact QR codes)
+app.get('/r/:code', (req, res) => {
+  const link = db.prepare('SELECT target_url FROM short_links WHERE code = ?').get(req.params.code);
+  if (!link) return res.status(404).send('Link not found');
+  // Track scan
+  try {
+    db.prepare('INSERT INTO qr_scans (url_hash, ip, user_agent) VALUES (?, ?, ?)').run(req.params.code, req.ip, req.get('user-agent') || '');
+    db.prepare('UPDATE saved_qr_codes SET scan_count = scan_count + 1 WHERE ics_url LIKE ?').run('%/r/' + req.params.code + '%');
+  } catch(e) {}
+  res.redirect(link.target_url);
+});
+
 app.get('/v/:token', (req, res) => {
   const eventId = req.query.e;
   const voter = db.prepare("SELECT id, first_name, last_name, phone FROM voters WHERE qr_token = ?").get(req.params.token);
@@ -255,6 +267,8 @@ app.use((req, res, next) => {
   // Allow push card event lookup (public QR code destination — no auth needed)
   if (req.path.startsWith('/api/events/pushcard')) return next();
   if (req.path.startsWith('/api/events/voting-pushcard')) return next();
+  // Allow short links (QR code redirects)
+  if (req.path.startsWith('/r/')) return next();
   // Allow voter check-in links (QR code destinations)
   if (req.path.startsWith('/v/')) return next();
   // Debug sync-status requires admin auth (contains phone numbers)

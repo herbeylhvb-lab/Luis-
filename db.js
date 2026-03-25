@@ -977,6 +977,14 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS short_links (
+    id INTEGER PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    target_url TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_short_links_code ON short_links(code);
+
   CREATE TABLE IF NOT EXISTS qr_scans (
     id INTEGER PRIMARY KEY,
     url_hash TEXT NOT NULL,
