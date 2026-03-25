@@ -1849,6 +1849,7 @@ tr:hover td{background:#1e293b80}
       <div class="sub-tabs" id="eventSubTabs">
         <div class="sub-tab active" data-subtab="events-tab">Events</div>
         <div class="sub-tab" data-subtab="checkins-tab">QR Check-In</div>
+        <div class="sub-tab" data-subtab="voting-reminders-tab">Voting Reminders</div>
       </div>
       <!-- SUB-TAB: EVENTS -->
       <div class="sub-page active" id="events-tab">
@@ -2041,6 +2042,85 @@ tr:hover td{background:#1e293b80}
         <div id="qrVoterResults"></div>
       </div>
       </div><!-- end checkins-tab sub-page -->
+
+      <!-- SUB-TAB: VOTING REMINDERS -->
+      <div class="sub-page" id="voting-reminders-tab">
+      <div class="card">
+        <h3>Voting Reminder QR Codes</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Generate QR codes that prompt voters to add Early Voting and Election Day reminders to their phone calendar. Print them on flyers, door hangers, and mailers.</p>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+          <div>
+            <h4 style="margin-bottom:12px;color:#f1f5f9">Early Voting Reminder</h4>
+            <div class="form-group"><label>Title</label><input type="text" id="evTitle" value="Early Voting Starts!" placeholder="Early Voting Starts!"></div>
+            <div class="form-group"><label>Start Date</label><input type="date" id="evStartDate"></div>
+            <div class="form-group"><label>End Date (optional)</label><input type="date" id="evEndDate"></div>
+            <div class="form-row">
+              <div class="form-group"><label>Start Time</label><input type="time" id="evStartTime" value="08:00"></div>
+              <div class="form-group"><label>End Time</label><input type="time" id="evEndTime" value="17:00"></div>
+            </div>
+            <div class="form-group"><label>Location</label><input type="text" id="evLocation" placeholder="Your local polling place"></div>
+            <div class="form-group"><label>Description</label><input type="text" id="evDescription" value="Don't forget to vote early! Check your county website for polling locations."></div>
+            <button class="btn" onclick="generateVotingReminderQR('ev')">Generate QR Code</button>
+            <div id="evQRResult" style="margin-top:16px;text-align:center;display:none">
+              <img id="evQRImage" style="max-width:280px;border-radius:8px;border:2px solid #334155">
+              <div style="margin-top:8px">
+                <button class="btn btn-sm" onclick="downloadVotingQR('ev')">Download PNG</button>
+                <button class="btn btn-sm btn-secondary" onclick="copyVotingLink('ev')" style="margin-left:8px">Copy Link</button>
+              </div>
+              <input type="hidden" id="evIcsUrl">
+            </div>
+          </div>
+          <div>
+            <h4 style="margin-bottom:12px;color:#f1f5f9">Election Day Reminder</h4>
+            <div class="form-group"><label>Title</label><input type="text" id="edTitle" value="Election Day — Go Vote!" placeholder="Election Day - Go Vote!"></div>
+            <div class="form-group"><label>Election Date</label><input type="date" id="edDate"></div>
+            <div class="form-row">
+              <div class="form-group"><label>Polls Open</label><input type="time" id="edStartTime" value="07:00"></div>
+              <div class="form-group"><label>Polls Close</label><input type="time" id="edEndTime" value="19:00"></div>
+            </div>
+            <div class="form-group"><label>Location</label><input type="text" id="edLocation" placeholder="Your local polling place"></div>
+            <div class="form-group"><label>Description</label><input type="text" id="edDescription" value="Today is Election Day! Polls are open. Make your voice heard!"></div>
+            <button class="btn" onclick="generateVotingReminderQR('ed')">Generate QR Code</button>
+            <div id="edQRResult" style="margin-top:16px;text-align:center;display:none">
+              <img id="edQRImage" style="max-width:280px;border-radius:8px;border:2px solid #334155">
+              <div style="margin-top:8px">
+                <button class="btn btn-sm" onclick="downloadVotingQR('ed')">Download PNG</button>
+                <button class="btn btn-sm btn-secondary" onclick="copyVotingLink('ed')" style="margin-left:8px">Copy Link</button>
+              </div>
+              <input type="hidden" id="edIcsUrl">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Custom Voting Reminder</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Create a QR code for any custom voting-related reminder (runoff, registration deadline, etc.).</p>
+        <div class="form-row">
+          <div class="form-group"><label>Title</label><input type="text" id="customReminderTitle" placeholder="Voter Registration Deadline"></div>
+          <div class="form-group"><label>Date</label><input type="date" id="customReminderDate"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Start Time</label><input type="time" id="customReminderStartTime"></div>
+          <div class="form-group"><label>End Time</label><input type="time" id="customReminderEndTime"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Location</label><input type="text" id="customReminderLocation" placeholder="Optional"></div>
+          <div class="form-group"><label>Description</label><input type="text" id="customReminderDesc" placeholder="Optional"></div>
+        </div>
+        <button class="btn" onclick="generateVotingReminderQR('custom')">Generate QR Code</button>
+        <div id="customQRResult" style="margin-top:16px;text-align:center;display:none">
+          <img id="customQRImage" style="max-width:280px;border-radius:8px;border:2px solid #334155">
+          <div style="margin-top:8px">
+            <button class="btn btn-sm" onclick="downloadVotingQR('custom')">Download PNG</button>
+            <button class="btn btn-sm btn-secondary" onclick="copyVotingLink('custom')" style="margin-left:8px">Copy Link</button>
+          </div>
+          <input type="hidden" id="customIcsUrl">
+        </div>
+      </div>
+      </div><!-- end voting-reminders-tab sub-page -->
+
     </div>
 
     <!-- ==================== POLLS & SURVEYS ==================== -->
@@ -9606,6 +9686,71 @@ function showVoterQrModal(url, voterName) {
     fallback.textContent = 'QR library not loaded. Copy the link instead.';
     box.insertBefore(fallback, linkEl);
   }
+}
+
+// ===================== VOTING REMINDER QR CODES =====================
+async function generateVotingReminderQR(prefix) {
+  var title, date, startTime, endTime, location, description;
+  if (prefix === 'ev') {
+    title = document.getElementById('evTitle').value.trim();
+    date = document.getElementById('evStartDate').value;
+    startTime = document.getElementById('evStartTime').value;
+    endTime = document.getElementById('evEndTime').value;
+    location = document.getElementById('evLocation').value.trim();
+    description = document.getElementById('evDescription').value.trim();
+  } else if (prefix === 'ed') {
+    title = document.getElementById('edTitle').value.trim();
+    date = document.getElementById('edDate').value;
+    startTime = document.getElementById('edStartTime').value;
+    endTime = document.getElementById('edEndTime').value;
+    location = document.getElementById('edLocation').value.trim();
+    description = document.getElementById('edDescription').value.trim();
+  } else {
+    title = document.getElementById('customReminderTitle').value.trim();
+    date = document.getElementById('customReminderDate').value;
+    startTime = document.getElementById('customReminderStartTime').value;
+    endTime = document.getElementById('customReminderEndTime').value;
+    location = document.getElementById('customReminderLocation').value.trim();
+    description = document.getElementById('customReminderDesc').value.trim();
+  }
+  if (!title || !date) { alert('Title and date are required.'); return; }
+
+  var params = new URLSearchParams();
+  params.set('title', title);
+  params.set('date', date);
+  if (startTime) params.set('start_time', startTime);
+  if (endTime) params.set('end_time', endTime);
+  if (location) params.set('location', location);
+  if (description) params.set('description', description);
+
+  try {
+    var data = await api('/api/voting-reminders/qr-data?' + params.toString());
+    var resultEl = document.getElementById(prefix + 'QRResult');
+    var imgEl = document.getElementById(prefix + 'QRImage');
+    var urlEl = document.getElementById(prefix + 'IcsUrl');
+    imgEl.src = data.qr;
+    urlEl.value = data.icsUrl;
+    resultEl.style.display = 'block';
+  } catch (err) {
+    alert('Error generating QR code: ' + (err.message || err));
+  }
+}
+
+function downloadVotingQR(prefix) {
+  var imgEl = document.getElementById(prefix + 'QRImage');
+  if (!imgEl.src) return;
+  var a = document.createElement('a');
+  a.href = imgEl.src;
+  a.download = prefix + '-voting-reminder-qr.png';
+  a.click();
+}
+
+function copyVotingLink(prefix) {
+  var urlEl = document.getElementById(prefix + 'IcsUrl');
+  if (!urlEl.value) return;
+  navigator.clipboard.writeText(urlEl.value).then(function() {
+    alert('Calendar link copied to clipboard!');
+  });
 }
 
 // ===================== VOTE BY MAIL =====================

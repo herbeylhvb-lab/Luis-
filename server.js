@@ -248,6 +248,8 @@ app.use((req, res, next) => {
   if (req.path === '/app') return next();
   // Allow event flyer images (needed for MMS — RumbleUp fetches these URLs)
   if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
+  // Allow voting reminder .ics downloads (QR code destinations — no auth needed)
+  if (req.path.startsWith('/api/voting-reminders/ics')) return next();
   // Allow voter check-in links (QR code destinations)
   if (req.path.startsWith('/v/')) return next();
   // Debug sync-status requires admin auth (contains phone numbers)
