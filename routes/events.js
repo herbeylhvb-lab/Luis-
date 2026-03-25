@@ -556,7 +556,7 @@ router.get('/pushcard/qr-data', asyncHandler(async (req, res) => {
 
 // Combined voting push card: Early Voting + Election Day in one QR code
 // The QR points to /voting-pushcard?params... which shows stacked calendar popups
-router.get('/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
+router.get('/events/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
   const { ev_title, ev_date, ed_title, ed_date } = req.query;
   if (!ev_title || !ev_date || !ed_title || !ed_date) {
     return res.status(400).json({ error: 'Early Voting and Election Day title/date are required' });
