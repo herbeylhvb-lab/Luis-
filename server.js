@@ -283,6 +283,136 @@ const { generateJoinCode, asyncHandler, phoneDigits, personalizeTemplate } = req
 
 const STOP_KEYWORDS = ['stop', 'unsubscribe', 'cancel', 'quit', 'end'];
 
+// --- Public compliance pages (no auth required) ---
+
+app.get('/privacy', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Privacy Policy - Luis for Port of Brownsville Place 4</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:720px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.7;background:#fff}h1{color:#0f172a;border-bottom:2px solid #e2e8f0;padding-bottom:12px}h2{color:#334155;margin-top:28px}p,li{font-size:15px}a{color:#2563eb}</style></head><body>
+<h1>Privacy Policy</h1>
+<p><strong>Effective Date:</strong> March 2026</p>
+<p><strong>Campaign:</strong> Luis for Port of Brownsville Place 4</p>
+
+<h2>Information We Collect</h2>
+<p>We collect the following information when you voluntarily provide it through our website sign-up form, text-to-join, or in-person event sign-ups:</p>
+<ul><li>Name (first and last)</li><li>Phone number</li><li>Email address (if provided)</li><li>Mailing address (if provided)</li></ul>
+
+<h2>How We Use Your Information</h2>
+<ul><li>To send campaign updates, event invitations, and election reminders via text message</li><li>To communicate important voting information such as polling locations and early voting dates</li><li>To respond to your inquiries</li></ul>
+
+<h2>Text Messaging</h2>
+<p>By providing your phone number and opting in, you consent to receive recurring campaign text messages from Luis for Port of Brownsville Place 4. Message frequency varies. Message and data rates may apply.</p>
+<p><strong>Opt-out:</strong> Reply STOP at any time to unsubscribe from text messages.</p>
+<p><strong>Help:</strong> Reply HELP for assistance.</p>
+
+<h2>Information Sharing</h2>
+<p>We do not sell, rent, or share your personal information with third parties for their marketing purposes. We may share information with campaign staff, volunteers, and service providers who assist with campaign operations under confidentiality agreements.</p>
+
+<h2>Data Security</h2>
+<p>We implement reasonable security measures to protect your personal information from unauthorized access, alteration, or disclosure.</p>
+
+<h2>Your Rights</h2>
+<p>You may request to view, update, or delete your personal information at any time by contacting us.</p>
+
+<h2>Contact Us</h2>
+<p>Luis for Port of Brownsville Place 4<br>Brownsville, TX<br>Email: campaign@luisforport.com</p>
+
+<h2>Changes to This Policy</h2>
+<p>We may update this policy from time to time. Changes will be posted on this page with an updated effective date.</p>
+</body></html>`);
+});
+
+app.get('/terms', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Terms of Service - Luis for Port of Brownsville Place 4</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:720px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.7;background:#fff}h1{color:#0f172a;border-bottom:2px solid #e2e8f0;padding-bottom:12px}h2{color:#334155;margin-top:28px}p,li{font-size:15px}a{color:#2563eb}</style></head><body>
+<h1>Terms of Service</h1>
+<p><strong>Effective Date:</strong> March 2026</p>
+<p><strong>Campaign:</strong> Luis for Port of Brownsville Place 4</p>
+
+<h2>Acceptance of Terms</h2>
+<p>By signing up to receive text messages from Luis for Port of Brownsville Place 4, you agree to these Terms of Service and our <a href="/privacy">Privacy Policy</a>.</p>
+
+<h2>Text Messaging Program</h2>
+<ul>
+<li><strong>Program:</strong> Campaign updates, event notifications, voting reminders, and election information from Luis for Port of Brownsville Place 4.</li>
+<li><strong>Frequency:</strong> Message frequency varies. You may receive up to 10 messages per month during active campaign periods.</li>
+<li><strong>Message and data rates may apply.</strong> Check with your mobile carrier for details.</li>
+<li><strong>Opt-out:</strong> Text STOP to cancel at any time. You will receive a confirmation message.</li>
+<li><strong>Help:</strong> Text HELP for assistance or contact us at campaign@luisforport.com.</li>
+</ul>
+
+<h2>Consent</h2>
+<p>By providing your phone number through our website sign-up form, texting a keyword to our campaign number, or signing up at an in-person event, you expressly consent to receive recurring campaign text messages from Luis for Port of Brownsville Place 4. Consent is not a condition of any purchase or service.</p>
+
+<h2>Eligibility</h2>
+<p>You must be 18 years or older and a resident of the United States to participate in this text messaging program.</p>
+
+<h2>Supported Carriers</h2>
+<p>Major carriers supported include AT&T, Verizon, T-Mobile, Sprint, and others. Carrier support may vary.</p>
+
+<h2>Disclaimer</h2>
+<p>This campaign is not affiliated with any government entity. Messages are political campaign communications paid for by Luis for Port of Brownsville Place 4.</p>
+
+<h2>Contact</h2>
+<p>Luis for Port of Brownsville Place 4<br>Brownsville, TX<br>Email: campaign@luisforport.com</p>
+</body></html>`);
+});
+
+app.get('/sms-signup', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Sign Up for Campaign Updates - Luis for Port of Brownsville Place 4</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1e293b;line-height:1.7;background:#f8fafc}
+.card{background:#fff;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,.1);margin-top:24px}
+h1{color:#0f172a;text-align:center;margin-bottom:4px}
+.subtitle{text-align:center;color:#64748b;font-size:14px;margin-bottom:24px}
+label{display:block;font-weight:600;margin-bottom:4px;font-size:14px;color:#334155}
+input{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:16px;margin-bottom:16px;box-sizing:border-box}
+input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+button{width:100%;padding:14px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer}
+button:hover{background:#1d4ed8}
+.consent{font-size:12px;color:#64748b;margin-top:16px;line-height:1.5}
+.consent a{color:#2563eb}
+.success{display:none;text-align:center;padding:24px}
+.success h2{color:#16a34a}
+</style></head><body>
+<div class="card">
+  <h1>📱 Stay Updated</h1>
+  <p class="subtitle">Luis for Port of Brownsville Place 4</p>
+  <form id="signupForm" onsubmit="submitSignup(event)">
+    <label>First Name</label>
+    <input type="text" id="sfName" required placeholder="Your first name">
+    <label>Last Name</label>
+    <input type="text" id="slName" required placeholder="Your last name">
+    <label>Phone Number</label>
+    <input type="tel" id="sPhone" required placeholder="(956) 555-1234" pattern="[0-9\\-\\(\\)\\s\\.\\+]{10,}">
+    <label>Email <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
+    <input type="email" id="sEmail" placeholder="you@email.com">
+    <div style="margin-bottom:16px">
+      <label style="display:flex;align-items:flex-start;gap:8px;font-weight:400;cursor:pointer">
+        <input type="checkbox" id="sConsent" required style="width:auto;margin-top:3px">
+        <span style="font-size:13px">I agree to receive recurring campaign text messages from Luis for Port of Brownsville Place 4. Message frequency varies. Msg & data rates may apply. Reply STOP to cancel. I agree to the <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span>
+      </label>
+    </div>
+    <button type="submit">Sign Up for Updates</button>
+  </form>
+  <div class="success" id="signupSuccess">
+    <h2>✅ You're signed up!</h2>
+    <p>You'll receive a confirmation text shortly. Reply STOP anytime to unsubscribe.</p>
+  </div>
+  <p class="consent">By signing up, you consent to receive recurring campaign text messages from Luis for Port of Brownsville Place 4 at the phone number provided. Message frequency varies. Message and data rates may apply. Reply STOP to opt out. Reply HELP for help. View our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+</div>
+<script>
+async function submitSignup(e) {
+  e.preventDefault();
+  var body = { first_name: document.getElementById('sfName').value, last_name: document.getElementById('slName').value, phone: document.getElementById('sPhone').value, email: document.getElementById('sEmail').value, tags: 'sms-signup', source: 'website' };
+  try {
+    var r = await fetch('/api/contacts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (r.ok) { document.getElementById('signupForm').style.display='none'; document.getElementById('signupSuccess').style.display='block'; }
+    else { alert('Something went wrong. Please try again.'); }
+  } catch(err) { alert('Network error. Please try again.'); }
+}
+</script>
+</body></html>`);
+});
+
 // --- Mount API routes ---
 
 app.use('/api', require('./routes/contacts'));
