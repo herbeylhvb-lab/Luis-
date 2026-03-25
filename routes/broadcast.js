@@ -174,8 +174,21 @@ router.get('/gotv/chase', (req, res) => {
 
   if (support) {
     const levels = support.split(',');
-    sql += ' AND support_level IN (' + levels.map(() => '?').join(',') + ')';
-    params.push(...levels);
+    const supportLevels = levels.filter(l => l !== 'refused');
+    const includesRefused = levels.includes('refused');
+
+    if (supportLevels.length && includesRefused) {
+      // Match support_level OR voters who were refused in walk_attempts
+      sql += ' AND (support_level IN (' + supportLevels.map(() => '?').join(',') + ') OR id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL))';
+      params.push(...supportLevels, 'refused');
+    } else if (includesRefused) {
+      // Only refused
+      sql += ' AND id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL)';
+      params.push('refused');
+    } else if (supportLevels.length) {
+      sql += ' AND support_level IN (' + supportLevels.map(() => '?').join(',') + ')';
+      params.push(...supportLevels);
+    }
   }
   if (precinct) {
     sql += ' AND precinct = ?';
@@ -202,8 +215,18 @@ router.post('/gotv/create-chase-list', (req, res) => {
   const params = [];
 
   if (support_levels && support_levels.length) {
-    sql += ' AND support_level IN (' + support_levels.map(() => '?').join(',') + ')';
-    params.push(...support_levels);
+    const supportOnly = support_levels.filter(l => l !== 'refused');
+    const includesRefused = support_levels.includes('refused');
+    if (supportOnly.length && includesRefused) {
+      sql += ' AND (support_level IN (' + supportOnly.map(() => '?').join(',') + ') OR id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL))';
+      params.push(...supportOnly, 'refused');
+    } else if (includesRefused) {
+      sql += ' AND id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL)';
+      params.push('refused');
+    } else if (supportOnly.length) {
+      sql += ' AND support_level IN (' + supportOnly.map(() => '?').join(',') + ')';
+      params.push(...supportOnly);
+    }
   }
   if (precinct) {
     sql += ' AND precinct = ?';
