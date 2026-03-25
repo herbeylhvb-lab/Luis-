@@ -1002,6 +1002,19 @@ try {
   db.exec("ALTER TABLE saved_qr_codes ADD COLUMN scan_count INTEGER DEFAULT 0");
 }
 
+// Backfill: set support_level='refused' for voters who were refused during block walks
+try {
+  const updated = db.prepare(`
+    UPDATE voters SET support_level = 'refused', updated_at = datetime('now')
+    WHERE id IN (
+      SELECT DISTINCT wa.voter_id FROM walk_addresses wa
+      JOIN walk_attempts wt ON wt.address_id = wa.id
+      WHERE wt.result = 'refused' AND wa.voter_id IS NOT NULL
+    ) AND (support_level IS NULL OR support_level = '' OR support_level = 'unknown')
+  `).run();
+  if (updated.changes > 0) console.log('[migrate] Backfilled ' + updated.changes + ' voters with refused support_level');
+} catch(e) {}
+
 // Migrate existing texting_volunteers and walkers into unified table (one-time)
 try {
   const volCount = (db.prepare('SELECT COUNT(*) as c FROM volunteers').get() || {}).c || 0;
