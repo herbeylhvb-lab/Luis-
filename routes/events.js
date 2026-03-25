@@ -554,4 +554,33 @@ router.get('/pushcard/qr-data', asyncHandler(async (req, res) => {
   res.json({ qr: qrDataUrl, url: pushcardUrl });
 }));
 
+// Combined voting push card: Early Voting + Election Day in one QR code
+// The QR points to /voting-pushcard?params... which shows stacked calendar popups
+router.get('/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
+  const { ev_title, ev_date, ed_title, ed_date } = req.query;
+  if (!ev_title || !ev_date || !ed_title || !ed_date) {
+    return res.status(400).json({ error: 'Early Voting and Election Day title/date are required' });
+  }
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  // Pass all params through to the public page
+  const params = new URLSearchParams();
+  for (const [key, val] of Object.entries(req.query)) {
+    if (val) params.set(key, val);
+  }
+
+  const url = origin + '/voting-pushcard?' + params.toString();
+
+  const qrDataUrl = await QRCode.toDataURL(url, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.json({ qr: qrDataUrl, url });
+}));
+
 module.exports = router;
