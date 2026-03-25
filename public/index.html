@@ -1862,7 +1862,11 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Event Title</label><input type="text" id="eventTitle" placeholder="Downtown Rally"></div>
             <div class="form-group"><label>Location</label><input type="text" id="eventLocation" placeholder="City Hall Plaza"></div>
           </div>
-          <div class="form-group" style="margin-bottom:12px"><label>Date</label><input type="date" id="eventDate"></div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div class="form-group"><label>Start Date</label><input type="date" id="eventDate"></div>
+            <div class="form-group"><label>End Date (optional)</label><input type="date" id="eventEndDate"></div>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-bottom:12px">Set an end date for multi-day events. They will show as all-day events spanning all days in calendars.</div>
           <div class="form-row" style="margin-bottom:12px">
             <div class="form-group"><label>Start Time</label><input type="time" id="eventTime"></div>
             <div class="form-group"><label>End Time</label><input type="time" id="eventEndTime"></div>
@@ -7854,7 +7858,9 @@ async function loadEvents() {
   el.innerHTML = data.events.map(e => {
     const s = e.rsvpStats || {};
     const flyerBadge = e.has_flyer ? ' <span class="badge" style="background:#2e1065;color:#c084fc">Has Flyer</span>' : '';
-    return '<div class="event-card"><div style="display:flex;align-items:center;gap:12px"><input type="checkbox" class="event-select-cb" value="' + e.id + '" style="accent-color:#818cf8" onchange="updateEventSelection()"><div class="event-info"><h4><a href="#" onclick="showEventDetail(' + e.id + ');return false">' + escHtml(e.title) + '</a></h4><div class="event-meta">' + e.event_date + (e.event_time ? ' at ' + e.event_time : '') + ' &mdash; ' + escHtml(e.location || 'TBD') + '</div><div style="margin-top:6px">' + statusBadge(e.status) + flyerBadge + ' <span style="font-size:12px;color:#64748b;margin-left:8px">' + (s.total || 0) + ' invited, ' + (s.confirmed || 0) + ' confirmed</span></div></div></div><div><button class="btn btn-danger btn-xs" onclick="deleteEvent(' + e.id + ')">Delete</button></div></div>';
+    var dateDisplay = e.event_date;
+    if (e.event_end_date && e.event_end_date !== e.event_date) dateDisplay += ' through ' + e.event_end_date;
+    return '<div class="event-card"><div style="display:flex;align-items:center;gap:12px"><input type="checkbox" class="event-select-cb" value="' + e.id + '" style="accent-color:#818cf8" onchange="updateEventSelection()"><div class="event-info"><h4><a href="#" onclick="showEventDetail(' + e.id + ');return false">' + escHtml(e.title) + '</a></h4><div class="event-meta">' + dateDisplay + (e.event_time ? ' at ' + e.event_time : '') + ' &mdash; ' + escHtml(e.location || 'TBD') + '</div><div style="margin-top:6px">' + statusBadge(e.status) + flyerBadge + ' <span style="font-size:12px;color:#64748b;margin-left:8px">' + (s.total || 0) + ' invited, ' + (s.confirmed || 0) + ' confirmed</span></div></div></div><div><button class="btn btn-danger btn-xs" onclick="deleteEvent(' + e.id + ')">Delete</button></div></div>';
   }).join('');
 }
 window.toggleAllEvents = function(checked) {
@@ -7878,7 +7884,9 @@ async function loadEventDetail(id) {
   const data = await api('/api/events/' + id);
   const e = data.event;
   document.getElementById('eventDetailTitle').textContent = e.title;
-  document.getElementById('eventDetailDate').textContent = e.event_date;
+  var detailDate = e.event_date;
+  if (e.event_end_date && e.event_end_date !== e.event_date) detailDate += ' through ' + e.event_end_date;
+  document.getElementById('eventDetailDate').textContent = detailDate;
   document.getElementById('eventDetailTime').textContent = e.event_time || 'TBD';
   document.getElementById('eventDetailLocation').textContent = e.location || 'TBD';
   document.getElementById('eventDetailDesc').textContent = e.description || '';
@@ -8208,6 +8216,7 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
     title,
     location: document.getElementById('eventLocation').value.trim(),
     event_date: date,
+    event_end_date: document.getElementById('eventEndDate').value || '',
     event_time: document.getElementById('eventTime').value,
     event_end_time: document.getElementById('eventEndTime').value,
     description: document.getElementById('eventDesc').value.trim(),
@@ -8230,8 +8239,8 @@ document.getElementById('btnCreateEvent').addEventListener('click', async () => 
       await apiPost('/api/events', payload);
     }
     document.getElementById('eventTitle').value = ''; document.getElementById('eventLocation').value = '';
-    document.getElementById('eventDate').value = ''; document.getElementById('eventTime').value = '';
-    document.getElementById('eventEndTime').value = '';
+    document.getElementById('eventDate').value = ''; document.getElementById('eventEndDate').value = '';
+    document.getElementById('eventTime').value = ''; document.getElementById('eventEndTime').value = '';
     document.getElementById('eventDesc').value = ''; flyerInput.value = '';
     document.getElementById('eventLat').value = ''; document.getElementById('eventLng').value = '';
     loadEvents();
@@ -9754,7 +9763,10 @@ function copyCombinedLink() {
       label.appendChild(cb);
       var text = document.createElement('span');
       var meta = e.title;
-      if (e.event_date) meta += ' \u2014 ' + e.event_date;
+      if (e.event_date) {
+        meta += ' \u2014 ' + e.event_date;
+        if (e.event_end_date && e.event_end_date !== e.event_date) meta += ' through ' + e.event_end_date;
+      }
       if (e.location) meta += ' \u2014 ' + e.location;
       text.textContent = meta;
       label.appendChild(text);

@@ -221,7 +221,9 @@
             var meta = document.createElement('div');
             meta.className = 'event-meta';
             var dateSpan = document.createElement('span');
-            dateSpan.textContent = '\uD83D\uDCC5 ' + e.event_date;
+            var dateText = e.event_date;
+            if (e.event_end_date && e.event_end_date !== e.event_date) dateText += ' through ' + e.event_end_date;
+            dateSpan.textContent = '\uD83D\uDCC5 ' + dateText;
             meta.appendChild(dateSpan);
             if (e.event_time) {
               var timeSpan = document.createElement('span');

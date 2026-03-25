@@ -631,8 +631,8 @@ router.get('/voters/qr/:token', (req, res) => {
 
   // Get active/upcoming events (today or future, limited to recent)
   const events = db.prepare(`
-    SELECT id, title, event_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
-    WHERE status = 'upcoming' AND event_date >= date('now', '-1 day')
+    SELECT id, title, event_date, event_end_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
+    WHERE status = 'upcoming' AND (event_date >= date('now', '-1 day') OR (event_end_date != '' AND event_end_date >= date('now')))
     ORDER BY event_date ASC LIMIT 5
   `).all();
 
@@ -773,8 +773,9 @@ router.post('/voters/qr/:token/scan-checkin', checkinLimiter, (req, res) => {
 // --- Today's events for volunteer scanner auto-detect ---
 router.get('/voters/checkins/today-events', (req, res) => {
   const events = db.prepare(`
-    SELECT id, title, event_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
-    WHERE event_date = date('now', 'localtime') AND status IN ('upcoming', 'in_progress')
+    SELECT id, title, event_date, event_end_date, event_time, event_end_time, location, latitude, longitude, checkin_radius FROM events
+    WHERE (event_date = date('now', 'localtime') OR (event_end_date != '' AND event_date <= date('now', 'localtime') AND event_end_date >= date('now', 'localtime')))
+    AND status IN ('upcoming', 'in_progress')
     ORDER BY event_time ASC
   `).all();
   res.json({ events });
