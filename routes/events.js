@@ -497,4 +497,61 @@ router.get('/voting-reminders/qr-data', asyncHandler(async (req, res) => {
   res.json({ qr: qrDataUrl, icsUrl });
 }));
 
+// Public endpoint: get event details by IDs for push card calendar popups (no auth)
+router.get('/pushcard', (req, res) => {
+  const ids = (req.query.e || '').split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+  if (ids.length === 0) return res.json({ events: [] });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const events = db.prepare(
+    `SELECT id, title, event_date, event_time, event_end_time, location
+     FROM events WHERE id IN (${placeholders})
+     ORDER BY event_date, event_time`
+  ).all(...ids);
+
+  res.json({ events });
+});
+
+// Generate QR code for push card (encodes /pushcard?e=1,2 URL)
+router.get('/pushcard/qr', asyncHandler(async (req, res) => {
+  const ids = req.query.e;
+  if (!ids) return res.status(400).json({ error: 'Event IDs required (e=1,2)' });
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  const pushcardUrl = origin + '/pushcard?e=' + ids;
+
+  const qrBuffer = await QRCode.toBuffer(pushcardUrl, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(qrBuffer);
+}));
+
+// Get push card QR as base64 (for embedding in admin UI)
+router.get('/pushcard/qr-data', asyncHandler(async (req, res) => {
+  const ids = req.query.e;
+  if (!ids) return res.status(400).json({ error: 'Event IDs required (e=1,2)' });
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  const pushcardUrl = origin + '/pushcard?e=' + ids;
+
+  const qrDataUrl = await QRCode.toDataURL(pushcardUrl, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.json({ qr: qrDataUrl, url: pushcardUrl });
+}));
+
 module.exports = router;
