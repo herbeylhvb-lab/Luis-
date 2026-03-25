@@ -982,11 +982,13 @@ function renderStats(stats) {
   grid.textContent = '';
   var totalVoters = stats.total_voters || 0;
   var totalVoted = stats.total_voted || 0;
+  var totalUndecided = stats.total_undecided || 0;
   var votedPct = totalVoters > 0 ? Math.round((totalVoted / totalVoters) * 100) : 0;
   var items = [
     { num: totalVoters, label: 'Total Voters' },
     { num: totalVoted, label: 'Voted', cls: 'voted-green' },
     { num: totalVoters - totalVoted, label: 'Not Voted', cls: 'voted-amber' },
+    { num: totalUndecided, label: 'Undecided', cls: 'undecided-yellow' },
     { num: votedPct + '%', label: 'Completion', isVoted: true }
   ];
   items.forEach(function(item) {
@@ -999,6 +1001,7 @@ function renderStats(stats) {
     }
     if (item.cls === 'voted-green') num.style.color = '#86efac';
     if (item.cls === 'voted-amber') num.style.color = '#fbbf24';
+    if (item.cls === 'undecided-yellow') num.style.color = '#facc15';
     num.textContent = item.num;
     card.appendChild(num);
     var label = document.createElement('div');
