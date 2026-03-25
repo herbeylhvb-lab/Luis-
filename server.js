@@ -251,7 +251,7 @@ app.use((req, res, next) => {
   // Allow event flyer images (needed for MMS — RumbleUp fetches these URLs)
   if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
   // Allow voting reminder .ics downloads (QR code destinations — no auth needed)
-  if (req.path.startsWith('/api/voting-reminders/ics')) return next();
+  if (req.path.startsWith('/api/voting-reminders/')) return next();
   // Allow push card event lookup (public QR code destination — no auth needed)
   if (req.path.startsWith('/api/events/pushcard')) return next();
   if (req.path.startsWith('/api/events/voting-pushcard')) return next();
