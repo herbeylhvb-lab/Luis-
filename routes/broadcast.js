@@ -178,12 +178,10 @@ router.get('/gotv/chase', (req, res) => {
     const includesRefused = levels.includes('refused');
 
     if (supportLevels.length && includesRefused) {
-      // Match support_level OR voters who were refused in walk_attempts
-      sql += ' AND (support_level IN (' + supportLevels.map(() => '?').join(',') + ') OR id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL))';
+      sql += ' AND (support_level IN (' + supportLevels.map(() => '?').join(',') + ') OR id IN (SELECT DISTINCT wa.voter_id FROM walk_addresses wa JOIN walk_attempts wt ON wt.address_id = wa.id WHERE wt.result = ? AND wa.voter_id IS NOT NULL))';
       params.push(...supportLevels, 'refused');
     } else if (includesRefused) {
-      // Only refused
-      sql += ' AND id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL)';
+      sql += ' AND id IN (SELECT DISTINCT wa.voter_id FROM walk_addresses wa JOIN walk_attempts wt ON wt.address_id = wa.id WHERE wt.result = ? AND wa.voter_id IS NOT NULL)';
       params.push('refused');
     } else if (supportLevels.length) {
       sql += ' AND support_level IN (' + supportLevels.map(() => '?').join(',') + ')';
@@ -218,10 +216,10 @@ router.post('/gotv/create-chase-list', (req, res) => {
     const supportOnly = support_levels.filter(l => l !== 'refused');
     const includesRefused = support_levels.includes('refused');
     if (supportOnly.length && includesRefused) {
-      sql += ' AND (support_level IN (' + supportOnly.map(() => '?').join(',') + ') OR id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL))';
+      sql += ' AND (support_level IN (' + supportOnly.map(() => '?').join(',') + ') OR id IN (SELECT DISTINCT wa.voter_id FROM walk_addresses wa JOIN walk_attempts wt ON wt.address_id = wa.id WHERE wt.result = ? AND wa.voter_id IS NOT NULL))';
       params.push(...supportOnly, 'refused');
     } else if (includesRefused) {
-      sql += ' AND id IN (SELECT DISTINCT voter_id FROM walk_attempts WHERE result = ? AND voter_id IS NOT NULL)';
+      sql += ' AND id IN (SELECT DISTINCT wa.voter_id FROM walk_addresses wa JOIN walk_attempts wt ON wt.address_id = wa.id WHERE wt.result = ? AND wa.voter_id IS NOT NULL)';
       params.push('refused');
     } else if (supportOnly.length) {
       sql += ' AND support_level IN (' + supportOnly.map(() => '?').join(',') + ')';
