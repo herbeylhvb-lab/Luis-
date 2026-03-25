@@ -12744,7 +12744,7 @@ async function loadMyUniverses() {
     dlBtn.textContent = '⬇ CSV';
     dlBtn.style.background = '#1e40af';
     dlBtn.addEventListener('click', function() {
-      window.open('/api/voters/admin-lists/' + l.id + '/download', '_blank');
+      window.open('/api/admin-lists/' + l.id + '/download', '_blank');
     });
     right.appendChild(dlBtn);
     var ruBtn = document.createElement('button');
