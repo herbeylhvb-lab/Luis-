@@ -362,4 +362,139 @@ router.get('/events/:id/session', (req, res) => {
   res.json({ session: session || null });
 });
 
+// --- Voting Reminder QR Codes ---
+// Generate .ics calendar file for a voting reminder
+router.get('/voting-reminders/ics', (req, res) => {
+  const { title, date, start_time, end_time, location, description } = req.query;
+  if (!title || !date) return res.status(400).send('title and date are required');
+
+  // Format date for iCal (YYYYMMDD or YYYYMMDDTHHMMSS)
+  const dateClean = date.replace(/-/g, '');
+  let dtStart, dtEnd;
+  if (start_time) {
+    const st = start_time.replace(/:/g, '');
+    dtStart = dateClean + 'T' + st + '00';
+    if (end_time) {
+      const et = end_time.replace(/:/g, '');
+      dtEnd = dateClean + 'T' + et + '00';
+    } else {
+      // Default 1 hour duration
+      const startH = parseInt(start_time.split(':')[0], 10);
+      const startM = start_time.split(':')[1] || '00';
+      dtEnd = dateClean + 'T' + String(startH + 1).padStart(2, '0') + startM + '00';
+    }
+  } else {
+    // All-day event
+    dtStart = dateClean;
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+    dtEnd = nextDay.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+
+  const uid = 'voting-reminder-' + dateClean + '@campaigntext';
+  const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+  let ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//CampaignText//Voting Reminder//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    'UID:' + uid,
+    'DTSTAMP:' + now,
+  ];
+
+  if (start_time) {
+    ics.push('DTSTART:' + dtStart);
+    ics.push('DTEND:' + dtEnd);
+  } else {
+    ics.push('DTSTART;VALUE=DATE:' + dtStart);
+    ics.push('DTEND;VALUE=DATE:' + dtEnd);
+  }
+
+  ics.push('SUMMARY:' + (title || 'Vote Today!').replace(/[,;\\]/g, ''));
+  if (description) ics.push('DESCRIPTION:' + description.replace(/\n/g, '\\n').replace(/[,;\\]/g, ''));
+  if (location) ics.push('LOCATION:' + location.replace(/[,;\\]/g, ''));
+
+  // Add reminder alert 1 hour before
+  ics.push('BEGIN:VALARM');
+  ics.push('TRIGGER:-PT1H');
+  ics.push('ACTION:DISPLAY');
+  ics.push('DESCRIPTION:Reminder: ' + title);
+  ics.push('END:VALARM');
+
+  // Add reminder alert on the morning of (8 AM)
+  ics.push('BEGIN:VALARM');
+  ics.push('TRIGGER:-PT8H');
+  ics.push('ACTION:DISPLAY');
+  ics.push('DESCRIPTION:Today is ' + title + '! Don\'t forget to vote!');
+  ics.push('END:VALARM');
+
+  ics.push('END:VEVENT');
+  ics.push('END:VCALENDAR');
+
+  res.set('Content-Type', 'text/calendar; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="' + title.replace(/[^a-zA-Z0-9]/g, '_') + '.ics"');
+  res.send(ics.join('\r\n'));
+});
+
+// Generate QR code image (PNG) that links to the .ics download
+router.get('/voting-reminders/qr', asyncHandler(async (req, res) => {
+  const { title, date, start_time, end_time, location, description } = req.query;
+  if (!title || !date) return res.status(400).json({ error: 'title and date are required' });
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  const params = new URLSearchParams();
+  params.set('title', title);
+  params.set('date', date);
+  if (start_time) params.set('start_time', start_time);
+  if (end_time) params.set('end_time', end_time);
+  if (location) params.set('location', location);
+  if (description) params.set('description', description);
+
+  const icsUrl = origin + '/api/voting-reminders/ics?' + params.toString();
+
+  const qrBuffer = await QRCode.toBuffer(icsUrl, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(qrBuffer);
+}));
+
+// Get QR code as base64 data URL (for embedding in the admin UI)
+router.get('/voting-reminders/qr-data', asyncHandler(async (req, res) => {
+  const { title, date, start_time, end_time, location, description } = req.query;
+  if (!title || !date) return res.status(400).json({ error: 'title and date are required' });
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  const params = new URLSearchParams();
+  params.set('title', title);
+  params.set('date', date);
+  if (start_time) params.set('start_time', start_time);
+  if (end_time) params.set('end_time', end_time);
+  if (location) params.set('location', location);
+  if (description) params.set('description', description);
+
+  const icsUrl = origin + '/api/voting-reminders/ics?' + params.toString();
+
+  const qrDataUrl = await QRCode.toDataURL(icsUrl, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.json({ qr: qrDataUrl, icsUrl });
+}));
+
 module.exports = router;

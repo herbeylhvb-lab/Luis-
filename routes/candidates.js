@@ -355,10 +355,27 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
     JOIN voters v ON sub.voter_id = v.id
     WHERE v.early_voted = 1
   `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
+  const totalUndecided1 = (db.prepare(`
+    SELECT COUNT(DISTINCT sub.voter_id) as n FROM (
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
+      UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captain_candidates cc ON cl.captain_id = cc.captain_id WHERE cc.candidate_id = ?
+      UNION
+      SELECT alv.voter_id FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+    ) sub
+    JOIN voters v ON sub.voter_id = v.id
+    WHERE v.support_level = 'undecided'
+  `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
   const stats = {
     total_captains: captains.length,
     total_voters: allVoterCount,
     total_voted: totalVoted,
+    total_undecided: totalUndecided1,
     total_lists: lists.length,
     captain_lists: captains.reduce((sum, c) => sum + (c.lists || []).length, 0)
   };
@@ -462,11 +479,28 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     JOIN voters v ON sub.voter_id = v.id
     WHERE v.early_voted = 1
   `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
+  const totalUndecided2 = (db.prepare(`
+    SELECT COUNT(DISTINCT sub.voter_id) as n FROM (
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captains cap ON cl.captain_id = cap.id WHERE cap.candidate_id = ?
+      UNION
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN captain_lists cl ON clv.list_id = cl.id
+      JOIN captain_candidates cc ON cl.captain_id = cc.captain_id WHERE cc.candidate_id = ?
+      UNION
+      SELECT alv.voter_id FROM admin_list_voters alv
+      JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+    ) sub
+    JOIN voters v ON sub.voter_id = v.id
+    WHERE v.support_level = 'undecided'
+  `).get(candidate.id, candidate.id, candidate.id) || { n: 0 }).n;
 
   const stats = {
     total_captains: captains.length,
     total_voters: allVoterCount,
     total_voted: totalVoted,
+    total_undecided: totalUndecided2,
     total_lists: lists.length,
     captain_lists: captains.reduce((sum, c) => sum + (c.lists || []).length, 0)
   };
