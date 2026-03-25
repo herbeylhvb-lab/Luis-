@@ -1748,6 +1748,15 @@ tr:hover td{background:#1e293b80}
           <h3>📱 Phone Number Cleanup</h3>
           <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Use Twilio Lookup to validate every phone number in your voter file. Identifies mobile, landline, VoIP, and invalid numbers so you only text mobile phones.</p>
 
+          <!-- Universe Selector -->
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
+            <h4 style="margin-bottom:8px;font-size:14px">🎯 Scope — Which numbers to validate?</h4>
+            <p style="color:#64748b;font-size:12px;margin-bottom:10px">Select a universe to only validate those numbers (saves money). Results persist — already-checked numbers won't be re-checked.</p>
+            <select id="phoneCleanupListId" class="form-control" style="max-width:400px;font-size:13px" onchange="loadPhoneValidationStats()">
+              <option value="">All Voters (entire database)</option>
+            </select>
+          </div>
+
           <!-- Twilio Credentials -->
           <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
             <h4 style="margin-bottom:12px;font-size:14px">Twilio Credentials</h4>
@@ -14768,7 +14777,23 @@ function initAdminPlacesAutocomplete() {
 
 // ===================== Phone Validation (Twilio) =====================
 
+var phoneCleanupListsLoaded = false;
 async function loadPhoneValidationStats() {
+  // Load universe list into dropdown (once)
+  if (!phoneCleanupListsLoaded) {
+    phoneCleanupListsLoaded = true;
+    try {
+      var listsData = await api('/api/admin-lists');
+      var sel = document.getElementById('phoneCleanupListId');
+      (listsData.lists || []).forEach(function(l) {
+        var opt = document.createElement('option');
+        opt.value = l.id;
+        opt.textContent = l.name + ' (' + l.voterCount + ' voters, ' + (l.withPhone || 0) + ' with phone)';
+        sel.appendChild(opt);
+      });
+    } catch(e) {}
+  }
+
   // Load saved creds
   try {
     var creds = await api('/api/settings/twilio_account_sid');
@@ -14779,8 +14804,11 @@ async function loadPhoneValidationStats() {
     if (creds2.isSet) document.getElementById('twilioToken').value = '••••••••';
   } catch(e) {}
 
+  // Get stats scoped to selected universe
+  var listId = document.getElementById('phoneCleanupListId').value;
+  var statsUrl = '/api/voters/phone-cleanup-stats' + (listId ? '?listId=' + listId : '');
   try {
-    var data = await api('/api/voters/phone-cleanup-stats');
+    var data = await api(statsUrl);
     document.getElementById('statMobile').textContent = (data.mobile || 0).toLocaleString();
     document.getElementById('statLandline').textContent = (data.landline || 0).toLocaleString();
     document.getElementById('statVoip').textContent = (data.voip || 0).toLocaleString();
@@ -14788,7 +14816,6 @@ async function loadPhoneValidationStats() {
     document.getElementById('statNotChecked').textContent = (data.not_checked || 0).toLocaleString();
     document.getElementById('costEstimateCount').textContent = (data.not_checked || 0).toLocaleString();
     document.getElementById('costEstimate').textContent = ((data.not_checked || 0) * 0.005).toFixed(2);
-    // If cleanup is running, show progress
     if (data.progress && data.progress.running) {
       pollPhoneCleanup();
     }
@@ -14815,11 +14842,13 @@ async function saveTwilioCreds() {
 }
 
 async function startPhoneCleanup() {
-  if (!confirm('This will validate all unchecked phone numbers using Twilio Lookup API. Each lookup costs $0.005. Continue?')) return;
+  var listId = document.getElementById('phoneCleanupListId').value;
+  var scopeMsg = listId ? 'selected universe' : 'ALL voters in the database';
+  if (!confirm('This will validate unchecked phone numbers in ' + scopeMsg + ' using Twilio Lookup API. Each lookup costs $0.005. Continue?')) return;
   document.getElementById('btnValidateAll').disabled = true;
   document.getElementById('btnValidateAll').textContent = '⏳ Starting...';
   try {
-    await apiPost('/api/voters/phone-cleanup');
+    await apiPost('/api/voters/phone-cleanup', { listId: listId || undefined });
     pollPhoneCleanup();
   } catch(e) {
     alert('Failed to start cleanup: ' + (e.message || 'Unknown error'));

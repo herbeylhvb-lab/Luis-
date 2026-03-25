@@ -2310,17 +2310,23 @@ function getTwilioClient() {
 
 // Get phone cleanup stats
 router.get('/voters/phone-cleanup-stats', requireAuth, (req, res) => {
+  const listId = req.query.listId;
+  const fromClause = listId
+    ? 'FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ?'
+    : 'FROM voters v WHERE 1=1';
+  const params = listId ? [listId] : [];
+
   const stats = db.prepare(`
     SELECT
-      COUNT(CASE WHEN phone != '' THEN 1 END) as total_with_phone,
-      COUNT(CASE WHEN phone_type = 'mobile' THEN 1 END) as mobile,
-      COUNT(CASE WHEN phone_type = 'landline' THEN 1 END) as landline,
-      COUNT(CASE WHEN phone_type = 'voip' THEN 1 END) as voip,
-      COUNT(CASE WHEN phone_type = 'invalid' THEN 1 END) as invalid,
-      COUNT(CASE WHEN phone_type = 'unknown' THEN 1 END) as unknown_type,
-      COUNT(CASE WHEN phone != '' AND phone_validated_at = '' THEN 1 END) as not_checked
-    FROM voters
-  `).get();
+      COUNT(CASE WHEN v.phone != '' THEN 1 END) as total_with_phone,
+      COUNT(CASE WHEN v.phone_type = 'mobile' THEN 1 END) as mobile,
+      COUNT(CASE WHEN v.phone_type = 'landline' THEN 1 END) as landline,
+      COUNT(CASE WHEN v.phone_type = 'voip' THEN 1 END) as voip,
+      COUNT(CASE WHEN v.phone_type = 'invalid' THEN 1 END) as invalid,
+      COUNT(CASE WHEN v.phone_type = 'unknown' THEN 1 END) as unknown_type,
+      COUNT(CASE WHEN v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL) THEN 1 END) as not_checked
+    ${fromClause}
+  `).get(...params);
   res.json({ ...stats, progress: phoneCleanupProgress });
 });
 
@@ -2347,15 +2353,26 @@ router.post('/voters/phone-lookup', requireAuth, async (req, res) => {
   }
 });
 
-// Bulk phone cleanup — runs in background
+// Bulk phone cleanup — runs in background, scoped to a universe/list
 router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
   if (phoneCleanupProgress.running) return res.json({ message: 'Cleanup already running', progress: phoneCleanupProgress });
 
   const client = getTwilioClient();
   if (!client) return res.status(400).json({ error: 'Twilio credentials not configured. Go to Settings and add your Twilio Account SID and Auth Token.' });
 
-  // Get all voters with phone but not validated
-  const voters = db.prepare("SELECT id, phone FROM voters WHERE phone != '' AND (phone_validated_at = '' OR phone_validated_at IS NULL)").all();
+  const { listId } = req.body;
+
+  // Get voters scoped to universe or all
+  let voters;
+  if (listId) {
+    voters = db.prepare(`
+      SELECT v.id, v.phone FROM voters v
+      JOIN admin_list_voters alv ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL)
+    `).all(listId);
+  } else {
+    voters = db.prepare("SELECT id, phone FROM voters WHERE phone != '' AND (phone_validated_at = '' OR phone_validated_at IS NULL)").all();
+  }
 
   if (voters.length === 0) return res.json({ message: 'All phone numbers already validated', progress: phoneCleanupProgress });
 
