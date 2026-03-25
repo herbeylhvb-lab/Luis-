@@ -1216,6 +1216,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-subtab="lists-tab">My Lists</div>
         <div class="sub-tab" data-subtab="universes-tab">My Universes</div>
         <div class="sub-tab" data-subtab="universe-tab">Universe Builder</div>
+        <div class="sub-tab" data-subtab="phone-validation-tab">Phone Cleanup</div>
         <div class="sub-tab" data-subtab="vbm-tab">Vote by Mail</div>
       </div>
       <!-- SUB-TAB: VOTERS -->
@@ -1740,6 +1741,81 @@ tr:hover td{background:#1e293b80}
         <div id="universeBuildResult" style="display:none"></div>
       </div>
       </div><!-- end universe-tab sub-page -->
+
+      <!-- SUB-TAB: PHONE CLEANUP (TWILIO) -->
+      <div class="sub-page" id="phone-validation-tab">
+        <div class="card">
+          <h3>📱 Phone Number Cleanup</h3>
+          <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Use Twilio Lookup to validate every phone number in your voter file. Identifies mobile, landline, VoIP, and invalid numbers so you only text mobile phones.</p>
+
+          <!-- Twilio Credentials -->
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
+            <h4 style="margin-bottom:12px;font-size:14px">Twilio Credentials</h4>
+            <p style="color:#64748b;font-size:12px;margin-bottom:12px">Get these from <a href="https://console.twilio.com" target="_blank" style="color:#818cf8">console.twilio.com</a> → Account SID and Auth Token</p>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <div style="flex:1;min-width:200px">
+                <label style="font-size:12px;color:#94a3b8">Account SID</label>
+                <input type="text" id="twilioSid" placeholder="ACxxxxxxxxx" class="form-control" style="font-size:13px">
+              </div>
+              <div style="flex:1;min-width:200px">
+                <label style="font-size:12px;color:#94a3b8">Auth Token</label>
+                <input type="password" id="twilioToken" placeholder="xxxxxxxxx" class="form-control" style="font-size:13px">
+              </div>
+              <div style="display:flex;align-items:flex-end">
+                <button class="btn btn-primary btn-sm" onclick="saveTwilioCreds()">Save</button>
+              </div>
+            </div>
+            <div id="twilioCredStatus" style="margin-top:8px;font-size:12px"></div>
+          </div>
+
+          <!-- Stats -->
+          <div id="phoneStatsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px">
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:700;color:#22c55e" id="statMobile">-</div>
+              <div style="font-size:11px;color:#94a3b8">📱 Mobile</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:700;color:#f59e0b" id="statLandline">-</div>
+              <div style="font-size:11px;color:#94a3b8">📞 Landline</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:700;color:#818cf8" id="statVoip">-</div>
+              <div style="font-size:11px;color:#94a3b8">🌐 VoIP</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:700;color:#ef4444" id="statInvalid">-</div>
+              <div style="font-size:11px;color:#94a3b8">❌ Invalid</div>
+            </div>
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;text-align:center">
+              <div style="font-size:22px;font-weight:700;color:#64748b" id="statNotChecked">-</div>
+              <div style="font-size:11px;color:#94a3b8">⏳ Not Checked</div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+            <button class="btn btn-primary" id="btnValidateAll" onclick="startPhoneCleanup()">🔍 Validate All Numbers</button>
+            <button class="btn btn-danger btn-sm" onclick="removeBadNumbers()">🗑️ Remove Invalid Numbers</button>
+          </div>
+
+          <!-- Progress -->
+          <div id="phoneCleanupProgress" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+              <span style="color:#e2e8f0;font-size:13px" id="cleanupStatusText">Validating...</span>
+              <span style="color:#94a3b8;font-size:13px" id="cleanupCountText">0 / 0</span>
+            </div>
+            <div style="background:#1e293b;border-radius:4px;height:8px;overflow:hidden">
+              <div id="cleanupBar" style="background:linear-gradient(90deg,#22c55e,#3b82f6);height:100%;width:0%;transition:width 0.3s ease;border-radius:4px"></div>
+            </div>
+            <div style="margin-top:8px;font-size:11px;color:#64748b" id="cleanupEstimate"></div>
+          </div>
+
+          <!-- Cost estimate -->
+          <div style="margin-top:16px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+            <p style="color:#64748b;font-size:12px;margin:0">💡 <strong style="color:#94a3b8">Cost:</strong> Twilio charges $0.005 per lookup. Your <span id="costEstimateCount">0</span> unvalidated numbers = ~$<span id="costEstimate">0</span></p>
+          </div>
+        </div>
+      </div><!-- end phone-validation-tab -->
 
       <!-- SUB-TAB: VOTE BY MAIL -->
       <div class="sub-page" id="vbm-tab">
@@ -2820,6 +2896,7 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       if (subtab === 'universes-tab') loadMyUniverses();
       if (subtab === 'universe-tab') loadUniverseBuilder();
       if (subtab === 'vbm-tab') { /* VBM tab ready */ }
+      if (subtab === 'phone-validation-tab') loadPhoneValidationStats();
       if (subtab === 'checkins-tab') loadCheckinPage();
       if (subtab === 'voters-tab') { showVoterList(); searchVoters(); }
       if (subtab === 'events-tab') { showEventList(); loadEvents(); }
@@ -12653,6 +12730,14 @@ async function loadMyUniverses() {
       }
     });
     right.appendChild(delBtn);
+    var dlBtn = document.createElement('button');
+    dlBtn.className = 'btn btn-sm btn-secondary';
+    dlBtn.textContent = '⬇ Download';
+    dlBtn.style.background = '#1e40af';
+    dlBtn.addEventListener('click', function() {
+      window.open('/api/voters/admin-lists/' + l.id + '/download', '_blank');
+    });
+    right.appendChild(dlBtn);
     row.appendChild(right);
     el.appendChild(row);
   });
@@ -14679,6 +14764,110 @@ function initAdminPlacesAutocomplete() {
     input.value = '';
     input.focus();
   });
+}
+
+// ===================== Phone Validation (Twilio) =====================
+
+async function loadPhoneValidationStats() {
+  // Load saved creds
+  try {
+    var creds = await api('/api/settings/twilio_account_sid');
+    if (creds.value && creds.value !== '********') document.getElementById('twilioSid').value = creds.value;
+  } catch(e) {}
+  try {
+    var creds2 = await api('/api/settings/twilio_auth_token');
+    if (creds2.isSet) document.getElementById('twilioToken').value = '••••••••';
+  } catch(e) {}
+
+  try {
+    var data = await api('/api/voters/phone-cleanup-stats');
+    document.getElementById('statMobile').textContent = (data.mobile || 0).toLocaleString();
+    document.getElementById('statLandline').textContent = (data.landline || 0).toLocaleString();
+    document.getElementById('statVoip').textContent = (data.voip || 0).toLocaleString();
+    document.getElementById('statInvalid').textContent = (data.invalid || 0).toLocaleString();
+    document.getElementById('statNotChecked').textContent = (data.not_checked || 0).toLocaleString();
+    document.getElementById('costEstimateCount').textContent = (data.not_checked || 0).toLocaleString();
+    document.getElementById('costEstimate').textContent = ((data.not_checked || 0) * 0.005).toFixed(2);
+    // If cleanup is running, show progress
+    if (data.progress && data.progress.running) {
+      pollPhoneCleanup();
+    }
+  } catch(e) {
+    console.error('Failed to load phone stats:', e);
+  }
+}
+
+async function saveTwilioCreds() {
+  var sid = document.getElementById('twilioSid').value.trim();
+  var token = document.getElementById('twilioToken').value.trim();
+  if (!sid || !token || token === '••••••••') {
+    document.getElementById('twilioCredStatus').innerHTML = '<span style="color:#ef4444">Enter both SID and Token</span>';
+    return;
+  }
+  try {
+    await apiPut('/api/settings/twilio_account_sid', { value: sid });
+    await apiPut('/api/settings/twilio_auth_token', { value: token });
+    document.getElementById('twilioCredStatus').innerHTML = '<span style="color:#22c55e">✅ Saved!</span>';
+    document.getElementById('twilioToken').value = '••••••••';
+  } catch(e) {
+    document.getElementById('twilioCredStatus').innerHTML = '<span style="color:#ef4444">Failed to save: ' + escHtml(e.message) + '</span>';
+  }
+}
+
+async function startPhoneCleanup() {
+  if (!confirm('This will validate all unchecked phone numbers using Twilio Lookup API. Each lookup costs $0.005. Continue?')) return;
+  document.getElementById('btnValidateAll').disabled = true;
+  document.getElementById('btnValidateAll').textContent = '⏳ Starting...';
+  try {
+    await apiPost('/api/voters/phone-cleanup');
+    pollPhoneCleanup();
+  } catch(e) {
+    alert('Failed to start cleanup: ' + (e.message || 'Unknown error'));
+    document.getElementById('btnValidateAll').disabled = false;
+    document.getElementById('btnValidateAll').textContent = '🔍 Validate All Numbers';
+  }
+}
+
+var phoneCleanupPollTimer = null;
+function pollPhoneCleanup() {
+  var progDiv = document.getElementById('phoneCleanupProgress');
+  progDiv.style.display = 'block';
+  document.getElementById('btnValidateAll').disabled = true;
+  document.getElementById('btnValidateAll').textContent = '⏳ Running...';
+
+  if (phoneCleanupPollTimer) clearInterval(phoneCleanupPollTimer);
+  phoneCleanupPollTimer = setInterval(async function() {
+    try {
+      var data = await api('/api/voters/phone-cleanup-progress');
+      var pct = data.total > 0 ? Math.round(data.done / data.total * 100) : 0;
+      document.getElementById('cleanupBar').style.width = pct + '%';
+      document.getElementById('cleanupCountText').textContent = data.done.toLocaleString() + ' / ' + data.total.toLocaleString();
+      document.getElementById('cleanupStatusText').textContent = data.running ? 'Validating...' : '✅ Complete!';
+      var r = data.results || {};
+      document.getElementById('cleanupEstimate').textContent = '📱 ' + (r.mobile||0) + ' mobile | 📞 ' + (r.landline||0) + ' landline | 🌐 ' + (r.voip||0) + ' VoIP | ❌ ' + (r.invalid||0) + ' invalid';
+
+      if (!data.running) {
+        clearInterval(phoneCleanupPollTimer);
+        phoneCleanupPollTimer = null;
+        document.getElementById('btnValidateAll').disabled = false;
+        document.getElementById('btnValidateAll').textContent = '🔍 Validate All Numbers';
+        loadPhoneValidationStats();
+      }
+    } catch(e) {
+      console.error('Poll error:', e);
+    }
+  }, 2000);
+}
+
+async function removeBadNumbers() {
+  if (!confirm('This will clear the phone field for all voters with INVALID phone numbers. Continue?')) return;
+  try {
+    var data = await apiPost('/api/voters/phone-remove-bad');
+    alert('Removed ' + data.removed + ' invalid phone numbers.');
+    loadPhoneValidationStats();
+  } catch(e) {
+    alert('Failed: ' + (e.message || 'Unknown error'));
+  }
 }
 
 </script>

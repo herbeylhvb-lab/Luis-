@@ -428,6 +428,14 @@ addColumn("ALTER TABLE voters ADD COLUMN middle_name TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN state TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone TEXT DEFAULT ''");
 
+// --- Twilio phone validation columns ---
+addColumn("ALTER TABLE voters ADD COLUMN phone_type TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN phone_carrier TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN phone_validated_at TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_type TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_carrier TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_validated_at TEXT DEFAULT ''");
+
 // County voter file fields (VAN exports, county file imports)
 addColumn("ALTER TABLE voters ADD COLUMN county_file_id TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN vanid TEXT DEFAULT ''");

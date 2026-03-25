@@ -8,10 +8,11 @@ const db = require('../db');
 const SETTINGS_ALLOWLIST = [
   'anthropic_api_key', 'candidate_name', 'campaign_name', 'campaign_info',
   'opt_out_footer', 'auto_reply_enabled', 'default_area_code',
+  'twilio_account_sid', 'twilio_auth_token',
 ];
 
 // Keys that are write-only (sensitive credentials should not be readable)
-const WRITE_ONLY_KEYS = ['anthropic_api_key'];
+const WRITE_ONLY_KEYS = ['anthropic_api_key', 'twilio_auth_token'];
 
 router.get('/settings/:key', (req, res) => {
   if (!SETTINGS_ALLOWLIST.includes(req.params.key)) {
