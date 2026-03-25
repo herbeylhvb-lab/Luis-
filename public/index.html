@@ -14848,10 +14848,17 @@ async function startPhoneCleanup() {
   document.getElementById('btnValidateAll').disabled = true;
   document.getElementById('btnValidateAll').textContent = '⏳ Starting...';
   try {
-    await apiPost('/api/voters/phone-cleanup', { listId: listId || undefined });
+    var result = await apiPost('/api/voters/phone-cleanup', { listId: listId || undefined });
+    if (result.error) {
+      alert('Error: ' + result.error);
+      document.getElementById('btnValidateAll').disabled = false;
+      document.getElementById('btnValidateAll').textContent = '🔍 Validate All Numbers';
+      return;
+    }
+    document.getElementById('cleanupStatusText').textContent = result.message || 'Starting...';
     pollPhoneCleanup();
   } catch(e) {
-    alert('Failed to start cleanup: ' + (e.message || 'Unknown error'));
+    alert('Failed to start cleanup: ' + (e.message || e.error || JSON.stringify(e)));
     document.getElementById('btnValidateAll').disabled = false;
     document.getElementById('btnValidateAll').textContent = '🔍 Validate All Numbers';
   }
@@ -14875,6 +14882,9 @@ function pollPhoneCleanup() {
       var r = data.results || {};
       document.getElementById('cleanupEstimate').textContent = '📱 ' + (r.mobile||0) + ' mobile | 📞 ' + (r.landline||0) + ' landline | 🌐 ' + (r.voip||0) + ' VoIP | ❌ ' + (r.invalid||0) + ' invalid';
 
+      if (data.error) {
+        document.getElementById('cleanupEstimate').textContent = '❌ Error: ' + data.error;
+      }
       if (!data.running) {
         clearInterval(phoneCleanupPollTimer);
         phoneCleanupPollTimer = null;
