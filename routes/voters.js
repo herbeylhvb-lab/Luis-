@@ -2309,7 +2309,7 @@ function getTwilioClient() {
 }
 
 // Get phone cleanup stats
-router.get('/phone-cleanup-stats', requireAuth, (req, res) => {
+router.get('/voters/phone-cleanup-stats', requireAuth, (req, res) => {
   const stats = db.prepare(`
     SELECT
       COUNT(CASE WHEN phone != '' THEN 1 END) as total_with_phone,
@@ -2325,7 +2325,7 @@ router.get('/phone-cleanup-stats', requireAuth, (req, res) => {
 });
 
 // Single phone lookup
-router.post('/phone-lookup', requireAuth, async (req, res) => {
+router.post('/voters/phone-lookup', requireAuth, async (req, res) => {
   const client = getTwilioClient();
   if (!client) return res.status(400).json({ error: 'Twilio credentials not configured. Go to Settings and add your Twilio Account SID and Auth Token.' });
 
@@ -2348,7 +2348,7 @@ router.post('/phone-lookup', requireAuth, async (req, res) => {
 });
 
 // Bulk phone cleanup — runs in background
-router.post('/phone-cleanup', requireAuth, async (req, res) => {
+router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
   if (phoneCleanupProgress.running) return res.json({ message: 'Cleanup already running', progress: phoneCleanupProgress });
 
   const client = getTwilioClient();
@@ -2398,12 +2398,12 @@ router.post('/phone-cleanup', requireAuth, async (req, res) => {
 });
 
 // Get cleanup progress (polled by frontend)
-router.get('/phone-cleanup-progress', requireAuth, (req, res) => {
+router.get('/voters/phone-cleanup-progress', requireAuth, (req, res) => {
   res.json(phoneCleanupProgress);
 });
 
 // Remove bad numbers (clear phone field for invalid/deactivated)
-router.post('/phone-remove-bad', requireAuth, (req, res) => {
+router.post('/voters/phone-remove-bad', requireAuth, (req, res) => {
   const result = db.prepare("UPDATE voters SET phone = '', phone_type = '', phone_carrier = '', phone_validated_at = '' WHERE phone_type = 'invalid'").run();
   triggerSync(req);
   res.json({ removed: result.changes });
