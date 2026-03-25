@@ -973,8 +973,18 @@ db.exec(`
     qr_data_url TEXT NOT NULL,
     ics_url TEXT,
     config_json TEXT,
+    scan_count INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS qr_scans (
+    id INTEGER PRIMARY KEY,
+    url_hash TEXT NOT NULL,
+    scanned_at TEXT DEFAULT (datetime('now')),
+    ip TEXT,
+    user_agent TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_qr_scans_hash ON qr_scans(url_hash);
 `);
 
 // Migrate existing texting_volunteers and walkers into unified table (one-time)

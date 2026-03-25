@@ -383,6 +383,13 @@ router.get('/voting-reminders/ics', (req, res) => {
   const { title, date, end_date, start_time, end_time, location, description } = req.query;
   if (!title || !date) return res.status(400).send('title and date are required');
 
+  // Track scan
+  try {
+    const urlHash = require('crypto').createHash('md5').update(req.originalUrl).digest('hex');
+    db.prepare('INSERT INTO qr_scans (url_hash, ip, user_agent) VALUES (?, ?, ?)').run(urlHash, req.ip, req.get('user-agent') || '');
+    db.prepare('UPDATE saved_qr_codes SET scan_count = scan_count + 1 WHERE ics_url LIKE ?').run('%' + req.path + '%');
+  } catch(e) {}
+
   // Format date for iCal (YYYYMMDD or YYYYMMDDTHHMMSS)
   const dateClean = date.replace(/-/g, '');
   let dtStart, dtEnd;
@@ -594,6 +601,13 @@ router.get('/voting-reminders/combined-ics', (req, res) => {
   if (!ev_title || !ev_date || !ed_title || !ed_date) {
     return res.status(400).send('Early Voting and Election Day title/date are required');
   }
+
+  // Track scan
+  try {
+    const urlHash = require('crypto').createHash('md5').update(req.originalUrl).digest('hex');
+    db.prepare('INSERT INTO qr_scans (url_hash, ip, user_agent) VALUES (?, ?, ?)').run(urlHash, req.ip, req.get('user-agent') || '');
+    db.prepare('UPDATE saved_qr_codes SET scan_count = scan_count + 1 WHERE ics_url LIKE ?').run('%combined-ics%');
+  } catch(e) {}
 
   const now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 

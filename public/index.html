@@ -9852,6 +9852,18 @@ async function loadSavedQRCodes() {
       info.appendChild(metaEl);
       row.appendChild(info);
 
+      var scanBadge = document.createElement('div');
+      scanBadge.style.cssText = 'text-align:center;padding:4px 10px;background:#1e293b;border:1px solid #334155;border-radius:8px;min-width:50px';
+      var scanNum = document.createElement('div');
+      scanNum.style.cssText = 'font-size:18px;font-weight:700;color:#4a9eff';
+      scanNum.textContent = qr.scan_count || 0;
+      scanBadge.appendChild(scanNum);
+      var scanLabel = document.createElement('div');
+      scanLabel.style.cssText = 'font-size:10px;color:#64748b';
+      scanLabel.textContent = 'scans';
+      scanBadge.appendChild(scanLabel);
+      row.appendChild(scanBadge);
+
       var dlBtn = document.createElement('button');
       dlBtn.className = 'btn btn-xs btn-secondary';
       dlBtn.textContent = 'Download';
