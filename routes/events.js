@@ -443,14 +443,10 @@ router.get('/voting-reminders/ics', (req, res) => {
   const isAllDay = (end_date && end_date !== date) || !start_time;
   if (isAllDay) {
     // All-day event starts at midnight — use positive offsets from start
-    // 8 PM night before
-    ics.push('BEGIN:VALARM', 'TRIGGER:-PT4H', 'ACTION:DISPLAY', 'DESCRIPTION:Tomorrow: ' + title + '! Get ready to vote!', 'END:VALARM');
-    // 8 AM day-of
-    ics.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT8H', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder: ' + title, 'END:VALARM');
+    // 7 PM night before
+    ics.push('BEGIN:VALARM', 'TRIGGER:-PT5H', 'ACTION:DISPLAY', 'DESCRIPTION:Tomorrow: ' + title + '! Get ready to vote!', 'END:VALARM');
     // Noon day-of
-    ics.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT12H', 'ACTION:DISPLAY', 'DESCRIPTION:Lunch reminder: ' + title + ' — go vote!', 'END:VALARM');
-    // 5 PM day-of (after work)
-    ics.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT17H', 'ACTION:DISPLAY', 'DESCRIPTION:Off work? Go vote! ' + title, 'END:VALARM');
+    ics.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT12H', 'ACTION:DISPLAY', 'DESCRIPTION:Go vote! ' + title, 'END:VALARM');
   } else {
     // Timed event — remind 1 hour and 3 hours before
     ics.push('BEGIN:VALARM');
@@ -645,10 +641,8 @@ router.get('/voting-reminders/combined-ics', (req, res) => {
     if (description) lines.push('DESCRIPTION:' + description.replace(/\n/g, '\\n').replace(/[,;\\]/g, ''));
     if (location) lines.push('LOCATION:' + location.replace(/[,;\\]/g, ''));
     if (isAllDay) {
-      lines.push('BEGIN:VALARM', 'TRIGGER:-PT4H', 'ACTION:DISPLAY', 'DESCRIPTION:Tomorrow: ' + title + '! Get ready to vote!', 'END:VALARM');
-      lines.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT8H', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder: ' + title, 'END:VALARM');
-      lines.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT12H', 'ACTION:DISPLAY', 'DESCRIPTION:Lunch reminder: ' + title + ' — go vote!', 'END:VALARM');
-      lines.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT17H', 'ACTION:DISPLAY', 'DESCRIPTION:Off work? Go vote! ' + title, 'END:VALARM');
+      lines.push('BEGIN:VALARM', 'TRIGGER:-PT5H', 'ACTION:DISPLAY', 'DESCRIPTION:Tomorrow: ' + title + '! Get ready to vote!', 'END:VALARM');
+      lines.push('BEGIN:VALARM', 'TRIGGER;RELATED=START:PT12H', 'ACTION:DISPLAY', 'DESCRIPTION:Go vote! ' + title, 'END:VALARM');
     } else {
       lines.push('BEGIN:VALARM', 'TRIGGER:-PT1H', 'ACTION:DISPLAY', 'DESCRIPTION:Reminder: ' + title, 'END:VALARM');
       lines.push('BEGIN:VALARM', 'TRIGGER:-PT3H', 'ACTION:DISPLAY', 'DESCRIPTION:Coming up: ' + title, 'END:VALARM');
