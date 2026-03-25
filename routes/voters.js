@@ -962,6 +962,113 @@ router.get('/voters/precinct-counts', (req, res) => {
   res.json({ precincts: rows.map(r => ({ precinct: r.precinct, count: r.cnt })), total });
 });
 
+// ===================== Twilio Phone Validation =====================
+// MUST be before /voters/:id wildcard routes
+
+// In-memory progress tracker for bulk lookups
+let phoneCleanupProgress = { running: false, total: 0, done: 0, results: {} };
+
+function getTwilioClient() {
+  const sid = (db.prepare("SELECT value FROM settings WHERE key = 'twilio_account_sid'").get() || {}).value;
+  const token = (db.prepare("SELECT value FROM settings WHERE key = 'twilio_auth_token'").get() || {}).value;
+  if (!sid || !token) return null;
+  const twilio = require('twilio');
+  return twilio(sid, token);
+}
+
+router.get('/voters/phone-cleanup-stats', requireAuth, (req, res) => {
+  const listId = req.query.listId;
+  const fromClause = listId
+    ? 'FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ?'
+    : 'FROM voters v WHERE 1=1';
+  const params = listId ? [listId] : [];
+  const stats = db.prepare(`
+    SELECT
+      COUNT(CASE WHEN v.phone != '' THEN 1 END) as total_with_phone,
+      COUNT(CASE WHEN v.phone_type = 'mobile' THEN 1 END) as mobile,
+      COUNT(CASE WHEN v.phone_type = 'landline' THEN 1 END) as landline,
+      COUNT(CASE WHEN v.phone_type = 'voip' THEN 1 END) as voip,
+      COUNT(CASE WHEN v.phone_type = 'invalid' THEN 1 END) as invalid,
+      COUNT(CASE WHEN v.phone_type = 'unknown' THEN 1 END) as unknown_type,
+      COUNT(CASE WHEN v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL) THEN 1 END) as not_checked
+    ${fromClause}
+  `).get(...params);
+  res.json({ ...stats, progress: phoneCleanupProgress });
+});
+
+router.get('/voters/phone-cleanup-progress', requireAuth, (req, res) => {
+  res.json(phoneCleanupProgress);
+});
+
+router.post('/voters/phone-lookup', requireAuth, async (req, res) => {
+  const client = getTwilioClient();
+  if (!client) return res.status(400).json({ error: 'Twilio credentials not configured.' });
+  const { phone } = req.body;
+  const e164 = toE164(phone);
+  if (!e164.startsWith('+1') || e164.length !== 12) return res.status(400).json({ error: 'Invalid phone number' });
+  try {
+    const result = await client.lookups.v2.phoneNumbers(e164).fetch({ fields: 'line_type_intelligence' });
+    const lineType = result.lineTypeIntelligence?.type || 'unknown';
+    const carrier = result.lineTypeIntelligence?.carrier_name || '';
+    const valid = result.valid;
+    const phoneType = !valid ? 'invalid' : (lineType === 'mobile' ? 'mobile' : lineType === 'landline' ? 'landline' : lineType === 'voip' || lineType === 'nonFixedVoip' ? 'voip' : 'unknown');
+    res.json({ phone: e164, phoneType, carrier, valid, rawType: lineType });
+  } catch (err) {
+    res.status(500).json({ error: 'Twilio lookup failed: ' + err.message });
+  }
+});
+
+router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
+  try {
+    if (phoneCleanupProgress.running) return res.json({ message: 'Cleanup already running', progress: phoneCleanupProgress });
+    const client = getTwilioClient();
+    if (!client) return res.status(400).json({ error: 'Twilio credentials not configured.' });
+    const listId = req.body ? req.body.listId : null;
+    let voters;
+    if (listId) {
+      voters = db.prepare(`SELECT v.id, v.phone FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ? AND v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL)`).all(listId);
+    } else {
+      voters = db.prepare("SELECT id, phone FROM voters WHERE phone != '' AND (phone_validated_at = '' OR phone_validated_at IS NULL)").all();
+    }
+    if (voters.length === 0) return res.json({ message: 'All phone numbers already validated', progress: phoneCleanupProgress });
+    phoneCleanupProgress = { running: true, total: voters.length, done: 0, results: { mobile: 0, landline: 0, voip: 0, invalid: 0, unknown: 0, error: 0 } };
+    res.json({ message: 'Cleanup started for ' + voters.length + ' numbers', progress: phoneCleanupProgress });
+    (async () => {
+      try {
+        const update = db.prepare("UPDATE voters SET phone_type = ?, phone_carrier = ?, phone_validated_at = datetime('now') WHERE id = ?");
+        const batchSize = 30;
+        for (let i = 0; i < voters.length; i += batchSize) {
+          const batch = voters.slice(i, i + batchSize);
+          await Promise.all(batch.map(async (v) => {
+            const e164 = toE164(v.phone);
+            if (!e164.startsWith('+1') || e164.length !== 12) { update.run('invalid', '', v.id); phoneCleanupProgress.results.invalid++; phoneCleanupProgress.done++; return; }
+            try {
+              const result = await client.lookups.v2.phoneNumbers(e164).fetch({ fields: 'line_type_intelligence' });
+              const lt = result.lineTypeIntelligence?.type || 'unknown';
+              const carrier = result.lineTypeIntelligence?.carrier_name || '';
+              const pt = !result.valid ? 'invalid' : (lt === 'mobile' ? 'mobile' : lt === 'landline' ? 'landline' : lt === 'voip' || lt === 'nonFixedVoip' ? 'voip' : 'unknown');
+              update.run(pt, carrier, v.id);
+              phoneCleanupProgress.results[pt] = (phoneCleanupProgress.results[pt] || 0) + 1;
+            } catch (err) { update.run('unknown', 'error', v.id); phoneCleanupProgress.results.error = (phoneCleanupProgress.results.error || 0) + 1; }
+            phoneCleanupProgress.done++;
+          }));
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      } catch (bgErr) { console.error('[phone-cleanup] Error:', bgErr.message); phoneCleanupProgress.error = bgErr.message; }
+      phoneCleanupProgress.running = false;
+    })();
+  } catch (err) {
+    phoneCleanupProgress.running = false;
+    res.status(500).json({ error: 'Phone cleanup failed: ' + err.message });
+  }
+});
+
+router.post('/voters/phone-remove-bad', requireAuth, (req, res) => {
+  const result = db.prepare("UPDATE voters SET phone = '', phone_type = '', phone_carrier = '', phone_validated_at = '' WHERE phone_type = 'invalid'").run();
+  triggerSync(req);
+  res.json({ removed: result.changes });
+});
+
 // --- Wildcard :id routes MUST come after all static-segment routes above ---
 
 // Get voter detail with contact history and election votes
@@ -2293,149 +2400,6 @@ router.post('/voters/vbm-match', (req, res) => {
     matched,
     unmatched
   });
-});
-
-// ===================== Twilio Phone Validation =====================
-
-// In-memory progress tracker for bulk lookups
-let phoneCleanupProgress = { running: false, total: 0, done: 0, results: {} };
-
-function getTwilioClient() {
-  const sid = (db.prepare("SELECT value FROM settings WHERE key = 'twilio_account_sid'").get() || {}).value;
-  const token = (db.prepare("SELECT value FROM settings WHERE key = 'twilio_auth_token'").get() || {}).value;
-  if (!sid || !token) return null;
-  const twilio = require('twilio');
-  return twilio(sid, token);
-}
-
-// Get phone cleanup stats
-router.get('/voters/phone-cleanup-stats', requireAuth, (req, res) => {
-  const listId = req.query.listId;
-  const fromClause = listId
-    ? 'FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ?'
-    : 'FROM voters v WHERE 1=1';
-  const params = listId ? [listId] : [];
-
-  const stats = db.prepare(`
-    SELECT
-      COUNT(CASE WHEN v.phone != '' THEN 1 END) as total_with_phone,
-      COUNT(CASE WHEN v.phone_type = 'mobile' THEN 1 END) as mobile,
-      COUNT(CASE WHEN v.phone_type = 'landline' THEN 1 END) as landline,
-      COUNT(CASE WHEN v.phone_type = 'voip' THEN 1 END) as voip,
-      COUNT(CASE WHEN v.phone_type = 'invalid' THEN 1 END) as invalid,
-      COUNT(CASE WHEN v.phone_type = 'unknown' THEN 1 END) as unknown_type,
-      COUNT(CASE WHEN v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL) THEN 1 END) as not_checked
-    ${fromClause}
-  `).get(...params);
-  res.json({ ...stats, progress: phoneCleanupProgress });
-});
-
-// Single phone lookup
-router.post('/voters/phone-lookup', requireAuth, async (req, res) => {
-  const client = getTwilioClient();
-  if (!client) return res.status(400).json({ error: 'Twilio credentials not configured. Go to Settings and add your Twilio Account SID and Auth Token.' });
-
-  const { phone } = req.body;
-  const e164 = toE164(phone);
-  if (!e164.startsWith('+1') || e164.length !== 12) return res.status(400).json({ error: 'Invalid phone number' });
-
-  try {
-    const result = await client.lookups.v2.phoneNumbers(e164).fetch({ fields: 'line_type_intelligence' });
-    const lineType = result.lineTypeIntelligence?.type || 'unknown';
-    const carrier = result.lineTypeIntelligence?.carrier_name || '';
-    const valid = result.valid;
-
-    const phoneType = !valid ? 'invalid' : (lineType === 'mobile' ? 'mobile' : lineType === 'landline' ? 'landline' : lineType === 'voip' || lineType === 'nonFixedVoip' ? 'voip' : 'unknown');
-
-    res.json({ phone: e164, phoneType, carrier, valid, rawType: lineType });
-  } catch (err) {
-    res.status(500).json({ error: 'Twilio lookup failed: ' + err.message });
-  }
-});
-
-// Bulk phone cleanup — runs in background, scoped to a universe/list
-router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
-  try {
-    if (phoneCleanupProgress.running) return res.json({ message: 'Cleanup already running', progress: phoneCleanupProgress });
-
-    const client = getTwilioClient();
-    if (!client) return res.status(400).json({ error: 'Twilio credentials not configured. Go to Settings and add your Twilio Account SID and Auth Token.' });
-
-    const listId = req.body ? req.body.listId : null;
-
-    // Get voters scoped to universe or all
-    let voters;
-    if (listId) {
-      voters = db.prepare(`
-        SELECT v.id, v.phone FROM voters v
-        JOIN admin_list_voters alv ON alv.voter_id = v.id
-        WHERE alv.list_id = ? AND v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL)
-      `).all(listId);
-    } else {
-      voters = db.prepare("SELECT id, phone FROM voters WHERE phone != '' AND (phone_validated_at = '' OR phone_validated_at IS NULL)").all();
-    }
-
-    if (voters.length === 0) return res.json({ message: 'All phone numbers already validated', progress: phoneCleanupProgress });
-
-    phoneCleanupProgress = { running: true, total: voters.length, done: 0, results: { mobile: 0, landline: 0, voip: 0, invalid: 0, unknown: 0, error: 0 } };
-    res.json({ message: 'Cleanup started for ' + voters.length + ' numbers', progress: phoneCleanupProgress });
-
-    // Process in background — wrap in async IIFE so errors don't crash server
-    (async () => {
-      try {
-        const update = db.prepare("UPDATE voters SET phone_type = ?, phone_carrier = ?, phone_validated_at = datetime('now') WHERE id = ?");
-        const batchSize = 30;
-        for (let i = 0; i < voters.length; i += batchSize) {
-          const batch = voters.slice(i, i + batchSize);
-          const promises = batch.map(async (v) => {
-            const e164 = toE164(v.phone);
-            if (!e164.startsWith('+1') || e164.length !== 12) {
-              update.run('invalid', '', v.id);
-              phoneCleanupProgress.results.invalid++;
-              phoneCleanupProgress.done++;
-              return;
-            }
-            try {
-              const result = await client.lookups.v2.phoneNumbers(e164).fetch({ fields: 'line_type_intelligence' });
-              const lineType = result.lineTypeIntelligence?.type || 'unknown';
-              const carrier = result.lineTypeIntelligence?.carrier_name || '';
-              const valid = result.valid;
-              const phoneType = !valid ? 'invalid' : (lineType === 'mobile' ? 'mobile' : lineType === 'landline' ? 'landline' : lineType === 'voip' || lineType === 'nonFixedVoip' ? 'voip' : 'unknown');
-              update.run(phoneType, carrier, v.id);
-              phoneCleanupProgress.results[phoneType] = (phoneCleanupProgress.results[phoneType] || 0) + 1;
-            } catch (err) {
-              update.run('unknown', 'lookup_error: ' + (err.message || '').slice(0, 50), v.id);
-              phoneCleanupProgress.results.error = (phoneCleanupProgress.results.error || 0) + 1;
-            }
-            phoneCleanupProgress.done++;
-          });
-          await Promise.all(promises);
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      } catch (bgErr) {
-        console.error('[phone-cleanup] Background error:', bgErr.message);
-        phoneCleanupProgress.error = bgErr.message;
-      }
-      phoneCleanupProgress.running = false;
-    })();
-
-  } catch (err) {
-    console.error('[phone-cleanup] Startup error:', err.message);
-    phoneCleanupProgress.running = false;
-    res.status(500).json({ error: 'Phone cleanup failed: ' + err.message });
-  }
-});
-
-// Get cleanup progress (polled by frontend)
-router.get('/voters/phone-cleanup-progress', requireAuth, (req, res) => {
-  res.json(phoneCleanupProgress);
-});
-
-// Remove bad numbers (clear phone field for invalid/deactivated)
-router.post('/voters/phone-remove-bad', requireAuth, (req, res) => {
-  const result = db.prepare("UPDATE voters SET phone = '', phone_type = '', phone_carrier = '', phone_validated_at = '' WHERE phone_type = 'invalid'").run();
-  triggerSync(req);
-  res.json({ removed: result.changes });
 });
 
 // ===================== Universe/List CSV Download =====================
