@@ -147,6 +147,101 @@
       border-bottom: 1px solid #222;
     }
     .past-item:last-child { border-bottom: none; }
+
+    /* Stacked "Add to Calendar" popups */
+    .cal-popup-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.3s ease;
+    }
+    .cal-popup {
+      background: #16213e;
+      border: 2px solid #4a9eff;
+      border-radius: 16px;
+      padding: 2rem 1.5rem;
+      max-width: 360px;
+      width: 90%;
+      text-align: center;
+      animation: pop 0.35s ease;
+    }
+    .cal-popup .cal-icon {
+      font-size: 3rem;
+      margin-bottom: 0.5rem;
+    }
+    .cal-popup .cal-title {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.3rem;
+    }
+    .cal-popup .cal-meta {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 0.3rem;
+      line-height: 1.5;
+    }
+    .cal-popup .cal-counter {
+      font-size: 0.75rem;
+      color: #4a9eff;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+    .cal-popup .cal-add-btn {
+      width: 100%;
+      padding: 1rem;
+      background: #4a9eff;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 0.5rem;
+      text-decoration: none;
+      display: block;
+    }
+    .cal-popup .cal-add-btn:hover { background: #3b8de8; }
+    .cal-popup .cal-google-btn {
+      width: 100%;
+      padding: 0.75rem;
+      background: transparent;
+      color: #4a9eff;
+      border: 1px solid #4a9eff;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 0.75rem;
+      text-decoration: none;
+      display: block;
+    }
+    .cal-popup .cal-google-btn:hover { background: rgba(74,158,255,0.1); }
+    .cal-popup .cal-skip-btn {
+      padding: 0.5rem 1.5rem;
+      background: transparent;
+      border: none;
+      color: #666;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .cal-popup .cal-skip-btn:hover { color: #aaa; }
+    .cal-popup .cal-added {
+      display: none;
+      padding: 1rem 0;
+    }
+    .cal-popup .cal-added .cal-check {
+      font-size: 3rem;
+      animation: pop 0.4s ease;
+    }
+    .cal-popup .cal-added p {
+      color: #00d4aa;
+      font-weight: 600;
+      margin-top: 0.3rem;
+    }
   </style>
 </head>
 <body>
@@ -208,6 +303,9 @@
         } else {
           var checkedEventIds = {};
           (data.checkins || []).forEach(function(c) { checkedEventIds[c.event_id] = true; });
+
+          // Collect upcoming events for calendar popups
+          var calendarEvents = [];
 
           data.events.forEach(function(e) {
             var card = document.createElement('div');
@@ -283,7 +381,22 @@
             }
 
             eventsEl.appendChild(card);
+
+            // Add to calendar popup list (all upcoming/active events that aren't ended)
+            var isEnded = false;
+            if (e.event_end_time) {
+              var endCheck = new Date(e.event_date + 'T' + e.event_end_time);
+              if (!isNaN(endCheck.getTime()) && new Date() > endCheck) isEnded = true;
+            }
+            if (!isEnded) {
+              calendarEvents.push(e);
+            }
           });
+
+          // Show stacked "Add to Calendar" popups
+          if (calendarEvents.length > 0) {
+            showCalendarPopups(calendarEvents);
+          }
         }
 
         if (data.checkins && data.checkins.length > 0) {
@@ -301,6 +414,186 @@
         document.getElementById('loading').style.display = 'none';
         document.getElementById('not-found').style.display = 'block';
       });
+
+    // ---- Add to Calendar Popup System ----
+
+    function buildGoogleCalUrl(evt) {
+      var title = encodeURIComponent(evt.title || 'Event');
+      var location = encodeURIComponent(evt.location || '');
+      var dateStr = (evt.event_date || '').replace(/-/g, '');
+      var startTime = (evt.event_time || '00:00').replace(/:/g, '');
+      var endTime = (evt.event_end_time || evt.event_time || '23:59').replace(/:/g, '');
+      // If start and end are same, add 1 hour
+      if (startTime === endTime) {
+        var h = parseInt(startTime.substring(0, 2), 10) + 1;
+        endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
+      }
+      var start = dateStr + 'T' + startTime + '00';
+      var end = dateStr + 'T' + endTime + '00';
+      return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+        '&text=' + title +
+        '&dates=' + start + '/' + end +
+        '&location=' + location +
+        '&details=' + encodeURIComponent('Added via CampaignText');
+    }
+
+    function buildIcsData(evt) {
+      var dateStr = (evt.event_date || '').replace(/-/g, '');
+      var startTime = (evt.event_time || '00:00').replace(/:/g, '');
+      var endTime = (evt.event_end_time || evt.event_time || '23:59').replace(/:/g, '');
+      if (startTime === endTime) {
+        var h = parseInt(startTime.substring(0, 2), 10) + 1;
+        endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
+      }
+      var start = dateStr + 'T' + startTime + '00';
+      var end = dateStr + 'T' + endTime + '00';
+      var ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//CampaignText//EN',
+        'BEGIN:VEVENT',
+        'DTSTART:' + start,
+        'DTEND:' + end,
+        'SUMMARY:' + (evt.title || 'Event'),
+        'LOCATION:' + (evt.location || ''),
+        'DESCRIPTION:Added via CampaignText',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n');
+      return ics;
+    }
+
+    function downloadIcs(evt) {
+      var icsData = buildIcsData(evt);
+      var blob = new Blob([icsData], { type: 'text/calendar;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = (evt.title || 'event').replace(/[^a-zA-Z0-9]/g, '_') + '.ics';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function showCalendarPopups(events) {
+      // Create overlays for each event, stacked with increasing z-index
+      // The LAST event in the array is on top (highest z-index)
+      // When dismissed, reveals the one underneath
+      var baseZ = 5000;
+      var overlays = [];
+
+      for (var i = 0; i < events.length; i++) {
+        (function(evt, index) {
+          var overlay = document.createElement('div');
+          overlay.className = 'cal-popup-overlay';
+          overlay.style.zIndex = baseZ + index;
+
+          var popup = document.createElement('div');
+          popup.className = 'cal-popup';
+
+          // Icon
+          var icon = document.createElement('div');
+          icon.className = 'cal-icon';
+          icon.textContent = '\uD83D\uDCC5';
+          popup.appendChild(icon);
+
+          // Title
+          var titleEl = document.createElement('div');
+          titleEl.className = 'cal-title';
+          titleEl.textContent = evt.title;
+          popup.appendChild(titleEl);
+
+          // Meta (date, time, location)
+          var metaLines = [];
+          if (evt.event_date) metaLines.push(evt.event_date);
+          if (evt.event_time) {
+            var timeText = evt.event_time;
+            if (evt.event_end_time) timeText += ' - ' + evt.event_end_time;
+            metaLines.push(timeText);
+          }
+          if (evt.location) metaLines.push(evt.location);
+          var metaEl = document.createElement('div');
+          metaEl.className = 'cal-meta';
+          metaEl.textContent = metaLines.join(' \u00B7 ');
+          popup.appendChild(metaEl);
+
+          // Counter (e.g., "Event 1 of 2")
+          if (events.length > 1) {
+            var counter = document.createElement('div');
+            counter.className = 'cal-counter';
+            counter.textContent = 'Event ' + (index + 1) + ' of ' + events.length;
+            popup.appendChild(counter);
+          }
+
+          // Buttons container
+          var btnsDiv = document.createElement('div');
+          btnsDiv.className = 'cal-buttons';
+
+          // Apple/ICS download button
+          var icsBtn = document.createElement('button');
+          icsBtn.className = 'cal-add-btn';
+          icsBtn.textContent = 'Add to Calendar';
+          icsBtn.addEventListener('click', function() {
+            downloadIcs(evt);
+            showAdded(popup, overlay);
+          });
+          btnsDiv.appendChild(icsBtn);
+
+          // Google Calendar button
+          var gBtn = document.createElement('a');
+          gBtn.className = 'cal-google-btn';
+          gBtn.textContent = 'Add to Google Calendar';
+          gBtn.href = buildGoogleCalUrl(evt);
+          gBtn.target = '_blank';
+          gBtn.rel = 'noopener';
+          gBtn.addEventListener('click', function() {
+            setTimeout(function() { showAdded(popup, overlay); }, 300);
+          });
+          btnsDiv.appendChild(gBtn);
+
+          // Skip button
+          var skipBtn = document.createElement('button');
+          skipBtn.className = 'cal-skip-btn';
+          skipBtn.textContent = events.length > 1 ? 'Skip' : 'No thanks';
+          skipBtn.addEventListener('click', function() {
+            overlay.remove();
+          });
+          btnsDiv.appendChild(skipBtn);
+
+          popup.appendChild(btnsDiv);
+
+          // "Added" confirmation (hidden initially)
+          var addedDiv = document.createElement('div');
+          addedDiv.className = 'cal-added';
+          var checkEl = document.createElement('div');
+          checkEl.className = 'cal-check';
+          checkEl.textContent = '\u2705';
+          addedDiv.appendChild(checkEl);
+          var addedMsg = document.createElement('p');
+          addedMsg.textContent = 'Added to calendar!';
+          addedDiv.appendChild(addedMsg);
+          popup.appendChild(addedDiv);
+
+          overlay.appendChild(popup);
+          document.body.appendChild(overlay);
+          overlays.push(overlay);
+        })(events[i], i);
+      }
+    }
+
+    function showAdded(popup, overlay) {
+      // Hide buttons, show confirmation, then auto-dismiss
+      var btns = popup.querySelector('.cal-buttons');
+      var added = popup.querySelector('.cal-added');
+      if (btns) btns.style.display = 'none';
+      if (added) added.style.display = 'block';
+      setTimeout(function() {
+        overlay.remove();
+      }, 1200);
+    }
+
+    // ---- Check-In System (unchanged) ----
 
     function sendCheckin(eventId, btn, lat, lng) {
       var body = { event_id: eventId };
