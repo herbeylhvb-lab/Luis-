@@ -153,6 +153,8 @@ app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 
 app.get('/group', (req, res) => res.sendFile(path.join(__dirname, 'public', 'group.html')));
 app.get('/walker', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walker.html')));
 app.get('/texter', (req, res) => res.sendFile(path.join(__dirname, 'public', 'texter.html')));
+app.get('/pushcard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pushcard.html')));
+app.get('/voting-pushcard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voting-pushcard.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -250,6 +252,9 @@ app.use((req, res, next) => {
   if (req.path.match(/^\/api\/events\/\d+\/flyer/)) return next();
   // Allow voting reminder .ics downloads (QR code destinations — no auth needed)
   if (req.path.startsWith('/api/voting-reminders/ics')) return next();
+  // Allow push card event lookup (public QR code destination — no auth needed)
+  if (req.path.startsWith('/api/events/pushcard')) return next();
+  if (req.path.startsWith('/api/events/voting-pushcard')) return next();
   // Allow voter check-in links (QR code destinations)
   if (req.path.startsWith('/v/')) return next();
   // Debug sync-status requires admin auth (contains phone numbers)

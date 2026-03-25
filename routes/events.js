@@ -497,4 +497,90 @@ router.get('/voting-reminders/qr-data', asyncHandler(async (req, res) => {
   res.json({ qr: qrDataUrl, icsUrl });
 }));
 
+// Public endpoint: get event details by IDs for push card calendar popups (no auth)
+router.get('/pushcard', (req, res) => {
+  const ids = (req.query.e || '').split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+  if (ids.length === 0) return res.json({ events: [] });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const events = db.prepare(
+    `SELECT id, title, event_date, event_time, event_end_time, location
+     FROM events WHERE id IN (${placeholders})
+     ORDER BY event_date, event_time`
+  ).all(...ids);
+
+  res.json({ events });
+});
+
+// Generate QR code for push card (encodes /pushcard?e=1,2 URL)
+router.get('/pushcard/qr', asyncHandler(async (req, res) => {
+  const ids = req.query.e;
+  if (!ids) return res.status(400).json({ error: 'Event IDs required (e=1,2)' });
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  const pushcardUrl = origin + '/pushcard?e=' + ids;
+
+  const qrBuffer = await QRCode.toBuffer(pushcardUrl, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.set('Content-Type', 'image/png');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(qrBuffer);
+}));
+
+// Get push card QR as base64 (for embedding in admin UI)
+router.get('/pushcard/qr-data', asyncHandler(async (req, res) => {
+  const ids = req.query.e;
+  if (!ids) return res.status(400).json({ error: 'Event IDs required (e=1,2)' });
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  const pushcardUrl = origin + '/pushcard?e=' + ids;
+
+  const qrDataUrl = await QRCode.toDataURL(pushcardUrl, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.json({ qr: qrDataUrl, url: pushcardUrl });
+}));
+
+// Combined voting push card: Early Voting + Election Day in one QR code
+// The QR points to /voting-pushcard?params... which shows stacked calendar popups
+router.get('/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
+  const { ev_title, ev_date, ed_title, ed_date } = req.query;
+  if (!ev_title || !ev_date || !ed_title || !ed_date) {
+    return res.status(400).json({ error: 'Early Voting and Election Day title/date are required' });
+  }
+
+  const origin = req.headers['x-forwarded-proto']
+    ? req.headers['x-forwarded-proto'] + '://' + req.headers.host
+    : req.protocol + '://' + req.get('host');
+
+  // Pass all params through to the public page
+  const params = new URLSearchParams();
+  for (const [key, val] of Object.entries(req.query)) {
+    if (val) params.set(key, val);
+  }
+
+  const url = origin + '/voting-pushcard?' + params.toString();
+
+  const qrDataUrl = await QRCode.toDataURL(url, {
+    width: 400,
+    margin: 2,
+    color: { dark: '#000000', light: '#FFFFFF' }
+  });
+
+  res.json({ qr: qrDataUrl, url });
+}));
+
 module.exports = router;

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Save Voting Dates</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+    .bg-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .bg-page .done-icon { font-size: 3rem; margin-bottom: 0.5rem; }
+    .bg-page h2 { color: #00d4aa; font-size: 1.4rem; margin-bottom: 0.5rem; }
+    .bg-page p { color: #888; font-size: 0.95rem; }
+    .loading { text-align: center; color: #888; padding: 3rem; }
+
+    .cal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .cal-popup {
+      background: #16213e;
+      border: 2px solid #4a9eff;
+      border-radius: 16px;
+      padding: 2rem 1.5rem;
+      max-width: 360px;
+      width: 100%;
+      text-align: center;
+      animation: pop 0.35s ease;
+    }
+    @keyframes pop {
+      0% { transform: scale(0); }
+      70% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    .cal-popup .cal-icon { font-size: 3rem; margin-bottom: 0.5rem; }
+    .cal-popup .cal-title { font-size: 1.3rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
+    .cal-popup .cal-meta { font-size: 0.85rem; color: #888; margin-bottom: 0.3rem; line-height: 1.6; }
+    .cal-popup .cal-counter { font-size: 0.75rem; color: #4a9eff; margin-bottom: 1.2rem; font-weight: 600; }
+
+    .cal-popup .btn-add {
+      display: block; width: 100%; padding: 1rem;
+      background: #4a9eff; color: #fff; border: none; border-radius: 10px;
+      font-size: 1.1rem; font-weight: 700; cursor: pointer; margin-bottom: 0.5rem;
+      text-decoration: none; text-align: center;
+    }
+    .cal-popup .btn-add:hover { background: #3b8de8; }
+    .cal-popup .btn-google {
+      display: block; width: 100%; padding: 0.75rem;
+      background: transparent; color: #4a9eff; border: 1px solid #4a9eff; border-radius: 10px;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer; margin-bottom: 0.75rem;
+      text-decoration: none; text-align: center;
+    }
+    .cal-popup .btn-google:hover { background: rgba(74,158,255,0.1); }
+    .cal-popup .btn-skip {
+      padding: 0.5rem 1.5rem; background: transparent; border: none;
+      color: #666; font-size: 0.9rem; cursor: pointer;
+    }
+    .cal-popup .btn-skip:hover { color: #aaa; }
+    .cal-added { display: none; padding: 1rem 0; }
+    .cal-added .check { font-size: 3.5rem; animation: pop 0.4s ease; }
+    .cal-added p { color: #00d4aa; font-weight: 600; margin-top: 0.3rem; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <div class="bg-page" id="bgPage">
+    <div class="loading" id="loadingMsg">Loading...</div>
+  </div>
+
+  <script>
+    var params = new URLSearchParams(window.location.search);
+
+    // Build event objects from URL params
+    var events = [];
+
+    // Early Voting
+    var evTitle = params.get('ev_title');
+    var evDate = params.get('ev_date');
+    if (evTitle && evDate) {
+      events.push({
+        title: evTitle,
+        date: evDate,
+        end_date: params.get('ev_end_date') || '',
+        start_time: params.get('ev_start_time') || '',
+        end_time: params.get('ev_end_time') || '',
+        location: params.get('ev_location') || '',
+        description: params.get('ev_description') || ''
+      });
+    }
+
+    // Election Day
+    var edTitle = params.get('ed_title');
+    var edDate = params.get('ed_date');
+    if (edTitle && edDate) {
+      events.push({
+        title: edTitle,
+        date: edDate,
+        end_date: '',
+        start_time: params.get('ed_start_time') || '',
+        end_time: params.get('ed_end_time') || '',
+        location: params.get('ed_location') || '',
+        description: params.get('ed_description') || ''
+      });
+    }
+
+    if (events.length === 0) {
+      document.getElementById('loadingMsg').textContent = 'No voting dates found.';
+    } else {
+      document.getElementById('loadingMsg').style.display = 'none';
+      showPopups(events);
+    }
+
+    // --- Popup queue ---
+    var popupQueue = [];
+    var totalCount = 0;
+
+    function showPopups(evts) {
+      popupQueue = evts.slice();
+      totalCount = evts.length;
+      showNextPopup();
+    }
+
+    function showNextPopup() {
+      if (popupQueue.length === 0) {
+        showDonePage();
+        return;
+      }
+
+      var evt = popupQueue.shift();
+      var index = totalCount - popupQueue.length;
+
+      var overlay = document.createElement('div');
+      overlay.className = 'cal-overlay';
+
+      var popup = document.createElement('div');
+      popup.className = 'cal-popup';
+
+      var icon = document.createElement('div');
+      icon.className = 'cal-icon';
+      icon.textContent = index === 1 ? '\uD83D\uDDF3\uFE0F' : '\uD83C\uDFAF';
+      popup.appendChild(icon);
+
+      var title = document.createElement('div');
+      title.className = 'cal-title';
+      title.textContent = evt.title;
+      popup.appendChild(title);
+
+      var metaLines = [];
+      if (evt.date) metaLines.push(formatDate(evt.date));
+      if (evt.end_date && evt.end_date !== evt.date) metaLines.push('through ' + formatDate(evt.end_date));
+      if (evt.start_time) {
+        var t = formatTime(evt.start_time);
+        if (evt.end_time) t += ' - ' + formatTime(evt.end_time);
+        metaLines.push(t);
+      }
+      if (evt.location) metaLines.push(evt.location);
+      var meta = document.createElement('div');
+      meta.className = 'cal-meta';
+      meta.innerHTML = metaLines.join('<br>');
+      popup.appendChild(meta);
+
+      if (totalCount > 1) {
+        var counter = document.createElement('div');
+        counter.className = 'cal-counter';
+        counter.textContent = index + ' of ' + totalCount;
+        popup.appendChild(counter);
+      }
+
+      var btns = document.createElement('div');
+
+      var icsBtn = document.createElement('button');
+      icsBtn.className = 'btn-add';
+      icsBtn.textContent = 'Add to Calendar';
+      icsBtn.addEventListener('click', function() {
+        downloadIcs(evt);
+        showAddedThenNext(popup, overlay);
+      });
+      btns.appendChild(icsBtn);
+
+      var gLink = document.createElement('a');
+      gLink.className = 'btn-google';
+      gLink.textContent = 'Add to Google Calendar';
+      gLink.href = buildGoogleCalUrl(evt);
+      gLink.target = '_blank';
+      gLink.rel = 'noopener';
+      gLink.addEventListener('click', function() {
+        setTimeout(function() { showAddedThenNext(popup, overlay); }, 400);
+      });
+      btns.appendChild(gLink);
+
+      var skip = document.createElement('button');
+      skip.className = 'btn-skip';
+      skip.textContent = popupQueue.length > 0 ? 'Skip' : 'No thanks';
+      skip.addEventListener('click', function() {
+        overlay.remove();
+        showNextPopup();
+      });
+      btns.appendChild(skip);
+
+      popup.appendChild(btns);
+
+      var added = document.createElement('div');
+      added.className = 'cal-added';
+      var check = document.createElement('div');
+      check.className = 'check';
+      check.textContent = '\u2705';
+      added.appendChild(check);
+      var addedMsg = document.createElement('p');
+      addedMsg.textContent = 'Added to calendar!';
+      added.appendChild(addedMsg);
+      popup.appendChild(added);
+
+      overlay.appendChild(popup);
+      document.body.appendChild(overlay);
+    }
+
+    function showAddedThenNext(popup, overlay) {
+      var btnsParent = popup.querySelector('.btn-add').parentNode;
+      btnsParent.style.display = 'none';
+      popup.querySelector('.cal-added').style.display = 'block';
+      setTimeout(function() {
+        overlay.remove();
+        showNextPopup();
+      }, 1200);
+    }
+
+    function showDonePage() {
+      var bg = document.getElementById('bgPage');
+      bg.innerHTML = '';
+      var wrap = document.createElement('div');
+      wrap.style.textAlign = 'center';
+      var icon = document.createElement('div');
+      icon.className = 'done-icon';
+      icon.textContent = '\uD83C\uDDF3\uFE0F';
+      wrap.appendChild(icon);
+      var h = document.createElement('h2');
+      h.textContent = "You're all set!";
+      wrap.appendChild(h);
+      var p = document.createElement('p');
+      p.textContent = "Your voting reminders are saved. Don't forget to vote!";
+      wrap.appendChild(p);
+      bg.appendChild(wrap);
+    }
+
+    // --- Calendar helpers ---
+
+    function formatDate(dateStr) {
+      var d = new Date(dateStr + 'T12:00:00');
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    }
+
+    function formatTime(timeStr) {
+      var parts = timeStr.split(':');
+      var h = parseInt(parts[0], 10);
+      var m = parts[1] || '00';
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      if (h > 12) h -= 12;
+      if (h === 0) h = 12;
+      return h + ':' + m + ' ' + ampm;
+    }
+
+    function buildGoogleCalUrl(evt) {
+      var title = encodeURIComponent(evt.title);
+      var location = encodeURIComponent(evt.location);
+      var dateStr = evt.date.replace(/-/g, '');
+      var startTime = (evt.start_time || '00:00').replace(/:/g, '');
+      var endTime = (evt.end_time || '').replace(/:/g, '');
+      if (!endTime) {
+        var h = parseInt(startTime.substring(0, 2), 10) + 1;
+        endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
+      }
+      var start = dateStr + 'T' + startTime + '00';
+      var end = dateStr + 'T' + endTime + '00';
+      return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+        '&text=' + title +
+        '&dates=' + start + '/' + end +
+        '&location=' + location +
+        '&details=' + encodeURIComponent(evt.description || '');
+    }
+
+    function downloadIcs(evt) {
+      var dateStr = evt.date.replace(/-/g, '');
+      var startTime = (evt.start_time || '00:00').replace(/:/g, '');
+      var endTime = (evt.end_time || '').replace(/:/g, '');
+      if (!endTime) {
+        var h = parseInt(startTime.substring(0, 2), 10) + 1;
+        endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
+      }
+      var start = dateStr + 'T' + startTime + '00';
+      var end = dateStr + 'T' + endTime + '00';
+      var now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+      var ics = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//CampaignText//EN',
+        'CALSCALE:GREGORIAN',
+        'METHOD:PUBLISH',
+        'BEGIN:VEVENT',
+        'UID:voting-' + dateStr + '-' + Math.random().toString(36).substr(2, 6) + '@campaigntext',
+        'DTSTAMP:' + now,
+        'DTSTART:' + start,
+        'DTEND:' + end,
+        'SUMMARY:' + (evt.title || 'Vote').replace(/[,;\\]/g, ''),
+        'LOCATION:' + (evt.location || '').replace(/[,;\\]/g, ''),
+        'DESCRIPTION:' + (evt.description || '').replace(/\n/g, '\\n').replace(/[,;\\]/g, ''),
+        'BEGIN:VALARM',
+        'TRIGGER:-PT1H',
+        'ACTION:DISPLAY',
+        'DESCRIPTION:Reminder: ' + evt.title,
+        'END:VALARM',
+        'BEGIN:VALARM',
+        'TRIGGER:-PT8H',
+        'ACTION:DISPLAY',
+        'DESCRIPTION:Today: ' + evt.title,
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n');
+
+      var blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = (evt.title || 'vote').replace(/[^a-zA-Z0-9]/g, '_') + '.ics';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>

@@ -2046,12 +2046,12 @@ tr:hover td{background:#1e293b80}
       <!-- SUB-TAB: VOTING REMINDERS -->
       <div class="sub-page" id="voting-reminders-tab">
       <div class="card">
-        <h3>Voting Reminder QR Codes</h3>
-        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Generate QR codes that prompt voters to add Early Voting and Election Day reminders to their phone calendar. Print them on flyers, door hangers, and mailers.</p>
+        <h3>Voting Reminder QR Code</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">One QR code for your push card. When scanned, voters get two popup reminders — Early Voting and Election Day — to add to their phone calendar one after the other.</p>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-          <div>
-            <h4 style="margin-bottom:12px;color:#f1f5f9">Early Voting Reminder</h4>
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px">
+            <h4 style="margin-bottom:12px;color:#4a9eff">Early Voting</h4>
             <div class="form-group"><label>Title</label><input type="text" id="evTitle" value="Early Voting Starts!" placeholder="Early Voting Starts!"></div>
             <div class="form-group"><label>Start Date</label><input type="date" id="evStartDate"></div>
             <div class="form-group"><label>End Date (optional)</label><input type="date" id="evEndDate"></div>
@@ -2061,18 +2061,9 @@ tr:hover td{background:#1e293b80}
             </div>
             <div class="form-group"><label>Location</label><input type="text" id="evLocation" placeholder="Your local polling place"></div>
             <div class="form-group"><label>Description</label><input type="text" id="evDescription" value="Don't forget to vote early! Check your county website for polling locations."></div>
-            <button class="btn" onclick="generateVotingReminderQR('ev')">Generate QR Code</button>
-            <div id="evQRResult" style="margin-top:16px;text-align:center;display:none">
-              <img id="evQRImage" style="max-width:280px;border-radius:8px;border:2px solid #334155">
-              <div style="margin-top:8px">
-                <button class="btn btn-sm" onclick="downloadVotingQR('ev')">Download PNG</button>
-                <button class="btn btn-sm btn-secondary" onclick="copyVotingLink('ev')" style="margin-left:8px">Copy Link</button>
-              </div>
-              <input type="hidden" id="evIcsUrl">
-            </div>
           </div>
-          <div>
-            <h4 style="margin-bottom:12px;color:#f1f5f9">Election Day Reminder</h4>
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:10px;padding:16px">
+            <h4 style="margin-bottom:12px;color:#4a9eff">Election Day</h4>
             <div class="form-group"><label>Title</label><input type="text" id="edTitle" value="Election Day — Go Vote!" placeholder="Election Day - Go Vote!"></div>
             <div class="form-group"><label>Election Date</label><input type="date" id="edDate"></div>
             <div class="form-row">
@@ -2081,42 +2072,41 @@ tr:hover td{background:#1e293b80}
             </div>
             <div class="form-group"><label>Location</label><input type="text" id="edLocation" placeholder="Your local polling place"></div>
             <div class="form-group"><label>Description</label><input type="text" id="edDescription" value="Today is Election Day! Polls are open. Make your voice heard!"></div>
-            <button class="btn" onclick="generateVotingReminderQR('ed')">Generate QR Code</button>
-            <div id="edQRResult" style="margin-top:16px;text-align:center;display:none">
-              <img id="edQRImage" style="max-width:280px;border-radius:8px;border:2px solid #334155">
-              <div style="margin-top:8px">
-                <button class="btn btn-sm" onclick="downloadVotingQR('ed')">Download PNG</button>
-                <button class="btn btn-sm btn-secondary" onclick="copyVotingLink('ed')" style="margin-left:8px">Copy Link</button>
-              </div>
-              <input type="hidden" id="edIcsUrl">
-            </div>
           </div>
+        </div>
+
+        <button class="btn" style="width:100%;padding:12px;font-size:15px" onclick="generateCombinedVotingQR()">Generate Push Card QR Code</button>
+
+        <div id="combinedQRResult" style="margin-top:20px;text-align:center;display:none">
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;display:inline-block">
+            <img id="combinedQRImage" style="max-width:300px;border-radius:8px">
+            <p style="color:#94a3b8;font-size:13px;margin-top:12px">Scan to add both Early Voting &amp; Election Day to your calendar</p>
+          </div>
+          <div style="margin-top:12px">
+            <button class="btn btn-sm" onclick="downloadCombinedQR()">Download PNG</button>
+            <button class="btn btn-sm btn-secondary" onclick="copyCombinedLink()" style="margin-left:8px">Copy Link</button>
+          </div>
+          <input type="hidden" id="combinedQRUrl">
         </div>
       </div>
 
       <div class="card">
-        <h3>Custom Voting Reminder</h3>
-        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Create a QR code for any custom voting-related reminder (runoff, registration deadline, etc.).</p>
-        <div class="form-row">
-          <div class="form-group"><label>Title</label><input type="text" id="customReminderTitle" placeholder="Voter Registration Deadline"></div>
-          <div class="form-group"><label>Date</label><input type="date" id="customReminderDate"></div>
+        <h3>Push Card QR from Events</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Generate a QR code from your existing events. Pick the events you want on the push card — one QR, stacked calendar popups.</p>
+        <div id="pushcardEventList" style="margin-bottom:16px">
+          <div style="color:#64748b;font-size:14px">Loading events...</div>
         </div>
-        <div class="form-row">
-          <div class="form-group"><label>Start Time</label><input type="time" id="customReminderStartTime"></div>
-          <div class="form-group"><label>End Time</label><input type="time" id="customReminderEndTime"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label>Location</label><input type="text" id="customReminderLocation" placeholder="Optional"></div>
-          <div class="form-group"><label>Description</label><input type="text" id="customReminderDesc" placeholder="Optional"></div>
-        </div>
-        <button class="btn" onclick="generateVotingReminderQR('custom')">Generate QR Code</button>
-        <div id="customQRResult" style="margin-top:16px;text-align:center;display:none">
-          <img id="customQRImage" style="max-width:280px;border-radius:8px;border:2px solid #334155">
-          <div style="margin-top:8px">
-            <button class="btn btn-sm" onclick="downloadVotingQR('custom')">Download PNG</button>
-            <button class="btn btn-sm btn-secondary" onclick="copyVotingLink('custom')" style="margin-left:8px">Copy Link</button>
+        <button class="btn" onclick="generatePushcardQR()">Generate Push Card QR</button>
+        <div id="pushcardQRResult" style="margin-top:20px;text-align:center;display:none">
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;display:inline-block">
+            <img id="pushcardQRImage" style="max-width:300px;border-radius:8px">
+            <p style="color:#94a3b8;font-size:13px;margin-top:12px" id="pushcardQRLabel"></p>
           </div>
-          <input type="hidden" id="customIcsUrl">
+          <div style="margin-top:12px">
+            <button class="btn btn-sm" onclick="downloadPushcardQR()">Download PNG</button>
+            <button class="btn btn-sm btn-secondary" onclick="copyPushcardLink()" style="margin-left:8px">Copy Link</button>
+          </div>
+          <input type="hidden" id="pushcardQRUrl">
         </div>
       </div>
       </div><!-- end voting-reminders-tab sub-page -->
@@ -9689,67 +9679,121 @@ function showVoterQrModal(url, voterName) {
 }
 
 // ===================== VOTING REMINDER QR CODES =====================
-async function generateVotingReminderQR(prefix) {
-  var title, date, startTime, endTime, location, description;
-  if (prefix === 'ev') {
-    title = document.getElementById('evTitle').value.trim();
-    date = document.getElementById('evStartDate').value;
-    startTime = document.getElementById('evStartTime').value;
-    endTime = document.getElementById('evEndTime').value;
-    location = document.getElementById('evLocation').value.trim();
-    description = document.getElementById('evDescription').value.trim();
-  } else if (prefix === 'ed') {
-    title = document.getElementById('edTitle').value.trim();
-    date = document.getElementById('edDate').value;
-    startTime = document.getElementById('edStartTime').value;
-    endTime = document.getElementById('edEndTime').value;
-    location = document.getElementById('edLocation').value.trim();
-    description = document.getElementById('edDescription').value.trim();
-  } else {
-    title = document.getElementById('customReminderTitle').value.trim();
-    date = document.getElementById('customReminderDate').value;
-    startTime = document.getElementById('customReminderStartTime').value;
-    endTime = document.getElementById('customReminderEndTime').value;
-    location = document.getElementById('customReminderLocation').value.trim();
-    description = document.getElementById('customReminderDesc').value.trim();
-  }
-  if (!title || !date) { alert('Title and date are required.'); return; }
+// === Combined Voting Reminder QR (Early Voting + Election Day in one QR) ===
+
+async function generateCombinedVotingQR() {
+  var evTitle = document.getElementById('evTitle').value.trim();
+  var evDate = document.getElementById('evStartDate').value;
+  var edTitle = document.getElementById('edTitle').value.trim();
+  var edDate = document.getElementById('edDate').value;
+
+  if (!evTitle || !evDate) { alert('Early Voting title and start date are required.'); return; }
+  if (!edTitle || !edDate) { alert('Election Day title and date are required.'); return; }
 
   var params = new URLSearchParams();
-  params.set('title', title);
-  params.set('date', date);
-  if (startTime) params.set('start_time', startTime);
-  if (endTime) params.set('end_time', endTime);
-  if (location) params.set('location', location);
-  if (description) params.set('description', description);
+  // Early Voting params
+  params.set('ev_title', evTitle);
+  params.set('ev_date', evDate);
+  params.set('ev_end_date', document.getElementById('evEndDate').value || '');
+  params.set('ev_start_time', document.getElementById('evStartTime').value || '');
+  params.set('ev_end_time', document.getElementById('evEndTime').value || '');
+  params.set('ev_location', document.getElementById('evLocation').value.trim());
+  params.set('ev_description', document.getElementById('evDescription').value.trim());
+  // Election Day params
+  params.set('ed_title', edTitle);
+  params.set('ed_date', edDate);
+  params.set('ed_start_time', document.getElementById('edStartTime').value || '');
+  params.set('ed_end_time', document.getElementById('edEndTime').value || '');
+  params.set('ed_location', document.getElementById('edLocation').value.trim());
+  params.set('ed_description', document.getElementById('edDescription').value.trim());
 
   try {
-    var data = await api('/api/voting-reminders/qr-data?' + params.toString());
-    var resultEl = document.getElementById(prefix + 'QRResult');
-    var imgEl = document.getElementById(prefix + 'QRImage');
-    var urlEl = document.getElementById(prefix + 'IcsUrl');
-    imgEl.src = data.qr;
-    urlEl.value = data.icsUrl;
-    resultEl.style.display = 'block';
+    var data = await api('/api/events/voting-pushcard/qr-data?' + params.toString());
+    document.getElementById('combinedQRImage').src = data.qr;
+    document.getElementById('combinedQRUrl').value = data.url;
+    document.getElementById('combinedQRResult').style.display = 'block';
   } catch (err) {
     alert('Error generating QR code: ' + (err.message || err));
   }
 }
 
-function downloadVotingQR(prefix) {
-  var imgEl = document.getElementById(prefix + 'QRImage');
-  if (!imgEl.src) return;
+function downloadCombinedQR() {
+  var img = document.getElementById('combinedQRImage');
+  if (!img.src) return;
   var a = document.createElement('a');
-  a.href = imgEl.src;
-  a.download = prefix + '-voting-reminder-qr.png';
+  a.href = img.src;
+  a.download = 'voting-pushcard-qr.png';
   a.click();
 }
 
-function copyVotingLink(prefix) {
-  var urlEl = document.getElementById(prefix + 'IcsUrl');
-  if (!urlEl.value) return;
-  navigator.clipboard.writeText(urlEl.value).then(function() {
-    alert('Calendar link copied to clipboard!');
+function copyCombinedLink() {
+  var url = document.getElementById('combinedQRUrl').value;
+  if (!url) return;
+  navigator.clipboard.writeText(url).then(function() {
+    alert('Push card link copied!');
+  });
+}
+
+// === Push Card QR from existing Events ===
+
+(function loadPushcardEvents() {
+  api('/api/events').then(function(data) {
+    var el = document.getElementById('pushcardEventList');
+    if (!data.events || data.events.length === 0) {
+      el.innerHTML = '<div style="color:#64748b;font-size:14px">No events found. Create events first.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    data.events.forEach(function(e) {
+      var label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:14px;color:#e2e8f0';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = e.id;
+      cb.className = 'pushcard-event-cb';
+      label.appendChild(cb);
+      var text = document.createElement('span');
+      var meta = e.title;
+      if (e.event_date) meta += ' \u2014 ' + e.event_date;
+      if (e.location) meta += ' \u2014 ' + e.location;
+      text.textContent = meta;
+      label.appendChild(text);
+      el.appendChild(label);
+    });
+  }).catch(function() {});
+})();
+
+async function generatePushcardQR() {
+  var checked = document.querySelectorAll('.pushcard-event-cb:checked');
+  if (checked.length === 0) { alert('Select at least one event.'); return; }
+  var ids = [];
+  checked.forEach(function(cb) { ids.push(cb.value); });
+
+  try {
+    var data = await api('/api/events/pushcard/qr-data?e=' + ids.join(','));
+    document.getElementById('pushcardQRImage').src = data.qr;
+    document.getElementById('pushcardQRUrl').value = data.url;
+    document.getElementById('pushcardQRLabel').textContent = 'Scan to add ' + ids.length + ' event' + (ids.length > 1 ? 's' : '') + ' to your calendar';
+    document.getElementById('pushcardQRResult').style.display = 'block';
+  } catch (err) {
+    alert('Error generating QR code: ' + (err.message || err));
+  }
+}
+
+function downloadPushcardQR() {
+  var img = document.getElementById('pushcardQRImage');
+  if (!img.src) return;
+  var a = document.createElement('a');
+  a.href = img.src;
+  a.download = 'pushcard-events-qr.png';
+  a.click();
+}
+
+function copyPushcardLink() {
+  var url = document.getElementById('pushcardQRUrl').value;
+  if (!url) return;
+  navigator.clipboard.writeText(url).then(function() {
+    alert('Push card link copied!');
   });
 }
 
