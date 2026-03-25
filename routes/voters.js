@@ -2380,7 +2380,7 @@ router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
   res.json({ message: 'Cleanup started', progress: phoneCleanupProgress });
 
   // Process in background
-  const update = db.prepare('UPDATE voters SET phone_type = ?, phone_carrier = ?, phone_validated_at = datetime("now") WHERE id = ?');
+  const update = db.prepare("UPDATE voters SET phone_type = ?, phone_carrier = ?, phone_validated_at = datetime('now') WHERE id = ?");
 
   const batchSize = 30;
   for (let i = 0; i < voters.length; i += batchSize) {
