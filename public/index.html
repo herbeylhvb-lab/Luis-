@@ -12741,12 +12741,20 @@ async function loadMyUniverses() {
     right.appendChild(delBtn);
     var dlBtn = document.createElement('button');
     dlBtn.className = 'btn btn-sm btn-secondary';
-    dlBtn.textContent = '⬇ Download';
+    dlBtn.textContent = '⬇ CSV';
     dlBtn.style.background = '#1e40af';
     dlBtn.addEventListener('click', function() {
       window.open('/api/voters/admin-lists/' + l.id + '/download', '_blank');
     });
     right.appendChild(dlBtn);
+    var ruBtn = document.createElement('button');
+    ruBtn.className = 'btn btn-sm btn-secondary';
+    ruBtn.textContent = '📱 RumbleUp';
+    ruBtn.style.background = '#7c3aed';
+    ruBtn.addEventListener('click', function() {
+      window.open('/api/admin-lists/' + l.id + '/export-rumbleup?mobile=1', '_blank');
+    });
+    right.appendChild(ruBtn);
     row.appendChild(right);
     el.appendChild(row);
   });

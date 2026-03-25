@@ -139,11 +139,15 @@ router.get('/admin-lists/:id/contacts', (req, res) => {
 router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  const mobileOnly = req.query.mobile === '1';
+  const phoneFilter = mobileOnly
+    ? "AND v.phone_type = 'mobile'"
+    : "AND v.phone != '' AND v.phone IS NOT NULL";
   const voters = db.prepare(`
-    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
+    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email, v.phone_type
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+    WHERE alv.list_id = ? ${phoneFilter}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
 
