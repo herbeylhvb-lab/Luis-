@@ -987,6 +987,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_qr_scans_hash ON qr_scans(url_hash);
 `);
 
+// Migrate: add scan_count column to saved_qr_codes if missing
+try {
+  db.prepare("SELECT scan_count FROM saved_qr_codes LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE saved_qr_codes ADD COLUMN scan_count INTEGER DEFAULT 0");
+}
+
 // Migrate existing texting_volunteers and walkers into unified table (one-time)
 try {
   const volCount = (db.prepare('SELECT COUNT(*) as c FROM volunteers').get() || {}).c || 0;

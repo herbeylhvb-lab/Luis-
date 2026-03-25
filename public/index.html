@@ -2822,6 +2822,7 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       if (subtab === 'checkins-tab') loadCheckinPage();
       if (subtab === 'voters-tab') { showVoterList(); searchVoters(); }
       if (subtab === 'events-tab') { showEventList(); loadEvents(); }
+      if (subtab === 'voting-reminders-tab') loadSavedQRCodes();
     });
   });
 });
@@ -9879,7 +9880,11 @@ async function loadSavedQRCodes() {
 
       el.appendChild(row);
     });
-  } catch (e) {}
+  } catch (e) {
+    console.error('loadSavedQRCodes error:', e);
+    var el = document.getElementById('savedQRList');
+    if (el) { el.textContent = ''; var msg = document.createElement('div'); msg.style.cssText = 'color:#f87171;font-size:14px'; msg.textContent = 'Error loading saved QR codes'; el.appendChild(msg); }
+  }
 }
 
 async function saveCombinedQR() {
