@@ -235,6 +235,58 @@ router.post('/admin-lists/vbm-save', (req, res) => {
   res.json({ success: true, listId: result.listId, added: result.added, households: householdCount });
 });
 
+// Get stats for a specific admin list (dashboard view)
+router.get('/admin-lists/:id/stats', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const totalVoters = (db.prepare(`
+    SELECT COUNT(*) as n FROM admin_list_voters WHERE list_id = ?
+  `).get(req.params.id) || { n: 0 }).n;
+
+  const withPhone = (db.prepare(`
+    SELECT COUNT(*) as n FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+  `).get(req.params.id) || { n: 0 }).n;
+
+  const households = (db.prepare(`
+    SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as n
+    FROM voters v INNER JOIN admin_list_voters alv ON v.id = alv.voter_id WHERE alv.list_id = ?
+  `).get(req.params.id) || { n: 0 }).n;
+
+  const earlyVoted = (db.prepare(`
+    SELECT COUNT(*) as n FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1
+  `).get(req.params.id) || { n: 0 }).n;
+
+  const partyBreakdown = db.prepare(`
+    SELECT COALESCE(v.party, 'Unknown') as party, COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY v.party ORDER BY count DESC
+  `).all(req.params.id);
+
+  const supportBreakdown = db.prepare(`
+    SELECT COALESCE(v.support_level, 'unknown') as level, COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY v.support_level ORDER BY count DESC
+  `).all(req.params.id);
+
+  res.json({
+    total_voters: totalVoters,
+    with_phone: withPhone,
+    households,
+    early_voted: earlyVoted,
+    party_breakdown: partyBreakdown,
+    support_breakdown: supportBreakdown
+  });
+});
+
 // Get distinct precincts within a list (for precinct sub-filtering)
 router.get('/admin-lists/:id/precincts', (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(req.params.id);

@@ -9920,15 +9920,25 @@ function exportVbmUnmatched() {
 }
 
 async function saveVbmAsMailUniverse() {
+  var allMatched = _vbmMatchResults ? _vbmMatchResults.matched : [];
   var rows = getVbmFilteredMatched();
   if (rows.length === 0) { alert('No voters in the filtered mailing list.'); return; }
+  var raceVal = document.getElementById('vbmRaceFilter').value;
+  var filterDesc = raceVal
+    ? rows.length + ' filtered voters (from ' + allMatched.length + ' total matched)'
+    : rows.length + ' voters (no race filter applied)';
   var today = new Date().toLocaleDateString('en-CA');
-  var listName = prompt('Mail universe name:', 'VBM Mailing List ' + today);
+  var listName = prompt('Save ' + filterDesc + ' as mail universe.\n\nList name:', 'VBM Mailing List ' + today);
   if (!listName) return;
-  var voterIds = rows.map(function(r) { return r.voter_id; });
+  var voterIds = rows.map(function(r) { return r.voter_id; }).filter(function(id) { return id != null; });
+  var uniqueIds = [];
+  var seen = {};
+  for (var i = 0; i < voterIds.length; i++) {
+    if (!seen[voterIds[i]]) { seen[voterIds[i]] = true; uniqueIds.push(voterIds[i]); }
+  }
   try {
-    var data = await apiPost('/api/admin-lists/vbm-save', { name: listName, voter_ids: voterIds });
-    alert('Saved "' + listName + '" with ' + data.added + ' voters across ' + data.households + ' households.\n\nYou can find it in your lists and download the mailing list from there.');
+    var data = await apiPost('/api/admin-lists/vbm-save', { name: listName, voter_ids: uniqueIds });
+    alert('Saved "' + listName + '" with ' + data.added + ' voters across ' + data.households + ' households.\n\nYou can find it in My Universes tab.');
   } catch (e) {
     alert('Failed to save: ' + (e.message || 'Unknown error'));
   }
@@ -12292,9 +12302,7 @@ async function loadMyUniverses() {
     openBtn.className = 'btn btn-sm btn-primary';
     openBtn.textContent = 'View';
     openBtn.addEventListener('click', function() {
-      // Switch to My Lists tab and open this list
-      document.querySelector('[data-subtab="lists-tab"]').click();
-      setTimeout(function() { openAdminList(l.id, l.name); }, 200);
+      showUniverseDashboard(l.id, l.name, row);
     });
     right.appendChild(openBtn);
     var renameBtn = document.createElement('button');
@@ -12319,6 +12327,95 @@ async function loadMyUniverses() {
     row.appendChild(right);
     el.appendChild(row);
   });
+}
+
+async function showUniverseDashboard(listId, listName, rowEl) {
+  // Remove any existing dashboard below this row
+  var existing = rowEl.nextElementSibling;
+  if (existing && existing.classList.contains('universe-dashboard')) {
+    existing.remove();
+    return; // Toggle off
+  }
+  // Remove any other open dashboards
+  var allDash = document.querySelectorAll('.universe-dashboard');
+  for (var d = 0; d < allDash.length; d++) allDash[d].remove();
+
+  var dashDiv = document.createElement('div');
+  dashDiv.className = 'universe-dashboard';
+  dashDiv.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:8px';
+  dashDiv.innerHTML = '<div style="color:#64748b;text-align:center;padding:12px">Loading stats...</div>';
+  rowEl.parentNode.insertBefore(dashDiv, rowEl.nextSibling);
+
+  try {
+    var data = await api('/api/admin-lists/' + listId + '/stats');
+    var totalVoters = data.total_voters || 0;
+    var withPhone = data.with_phone || 0;
+    var households = data.households || 0;
+    var earlyVoted = data.early_voted || 0;
+    var notVoted = totalVoters - earlyVoted;
+    var votedPct = totalVoters > 0 ? Math.round(earlyVoted / totalVoters * 100) : 0;
+
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+      '<h4 style="margin:0;color:#e2e8f0">' + escHtml(listName) + '</h4>' +
+      '<div style="display:flex;gap:6px">' +
+      '<a class="btn btn-sm btn-primary" style="text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv">Download Mailing List</a>' +
+      '<button class="btn btn-sm btn-secondary" onclick="document.querySelector(\'[data-subtab=lists-tab]\').click();setTimeout(function(){openAdminList(' + listId + ',\'' + escHtml(listName).replace(/'/g, "\\'") + '\')},200)">View Voters</button>' +
+      '</div></div>';
+
+    html += '<div class="stats-grid" style="margin-bottom:12px">' +
+      '<div class="stat-card"><div class="label">Total Voters</div><div class="value">' + totalVoters.toLocaleString() + '</div></div>' +
+      '<div class="stat-card"><div class="label">Households</div><div class="value" style="color:#f59e0b">' + households.toLocaleString() + '</div></div>' +
+      '<div class="stat-card"><div class="label">With Phone</div><div class="value" style="color:#22c55e">' + withPhone.toLocaleString() + '</div></div>' +
+      '<div class="stat-card"><div class="label">Voted</div><div class="value" style="color:#86efac">' + earlyVoted.toLocaleString() + '</div></div>' +
+      '<div class="stat-card"><div class="label">Not Voted</div><div class="value" style="color:#fbbf24">' + notVoted.toLocaleString() + '</div></div>' +
+      '<div class="stat-card"><div class="label">Completion</div><div class="value" style="color:' + (votedPct >= 60 ? '#22c55e' : votedPct >= 30 ? '#f59e0b' : '#ef4444') + '">' + votedPct + '%</div></div>' +
+      '</div>';
+
+    // Party breakdown
+    if (data.party_breakdown && data.party_breakdown.length > 0) {
+      html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">';
+      html += '<div style="flex:1;min-width:200px"><h5 style="color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px">Party Breakdown</h5>';
+      var partyColors = { D: '#3b82f6', R: '#ef4444', I: '#a855f7', NP: '#6b7280', L: '#f59e0b', G: '#22c55e' };
+      for (var p = 0; p < data.party_breakdown.length; p++) {
+        var pb = data.party_breakdown[p];
+        var pColor = partyColors[pb.party] || '#94a3b8';
+        var pPct = totalVoters > 0 ? Math.round(pb.count / totalVoters * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+          '<div style="width:60px;color:' + pColor + ';font-weight:600;font-size:13px">' + escHtml(pb.party || 'N/A') + '</div>' +
+          '<div style="flex:1;background:#1e293b;border-radius:4px;height:8px;overflow:hidden"><div style="background:' + pColor + ';height:100%;width:' + pPct + '%;border-radius:4px"></div></div>' +
+          '<div style="color:#94a3b8;font-size:12px;width:70px;text-align:right">' + pb.count.toLocaleString() + ' (' + pPct + '%)</div></div>';
+      }
+      html += '</div>';
+
+      // Support breakdown
+      html += '<div style="flex:1;min-width:200px"><h5 style="color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px">Support Level</h5>';
+      var supportColors = { strong_support: '#22c55e', lean_support: '#86efac', undecided: '#facc15', lean_oppose: '#f97316', strong_oppose: '#ef4444', unknown: '#64748b' };
+      var supportLabels = { strong_support: 'Strong Support', lean_support: 'Lean Support', undecided: 'Undecided', lean_oppose: 'Lean Oppose', strong_oppose: 'Strong Oppose', unknown: 'Unknown' };
+      for (var s = 0; s < data.support_breakdown.length; s++) {
+        var sb = data.support_breakdown[s];
+        var sColor = supportColors[sb.level] || '#64748b';
+        var sLabel = supportLabels[sb.level] || sb.level;
+        var sPct = totalVoters > 0 ? Math.round(sb.count / totalVoters * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+          '<div style="width:100px;color:' + sColor + ';font-weight:600;font-size:12px">' + escHtml(sLabel) + '</div>' +
+          '<div style="flex:1;background:#1e293b;border-radius:4px;height:8px;overflow:hidden"><div style="background:' + sColor + ';height:100%;width:' + sPct + '%;border-radius:4px"></div></div>' +
+          '<div style="color:#94a3b8;font-size:12px;width:70px;text-align:right">' + sb.count.toLocaleString() + ' (' + sPct + '%)</div></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Action buttons
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-success btn-sm" onclick="createWalkFromUniverse(' + listId + ', false)">Create Single Walk</button>' +
+      '<button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9;color:#fff" onclick="createWalkFromUniverse(' + listId + ', true)">Create Walk per Precinct</button>' +
+      '<button class="btn btn-sm" style="background:#ef4444;border-color:#dc2626;color:#fff" onclick="inviteUniverseToEvent(' + listId + ')">Invite to Event</button>' +
+      '<button class="btn btn-sm" style="background:#0ea5e9;border-color:#0284c7;color:#fff" onclick="broadcastToUniverse(' + listId + ')">Text This List</button>' +
+      '</div>';
+
+    dashDiv.innerHTML = html;
+  } catch (e) {
+    dashDiv.innerHTML = '<div style="color:#ef4444;text-align:center;padding:12px">Failed to load stats: ' + escHtml(e.message || 'Unknown error') + '</div>';
+  }
 }
 
 async function openAdminList(listId, name) {
