@@ -12755,6 +12755,14 @@ async function loadMyUniverses() {
       window.open('/api/admin-lists/' + l.id + '/export-rumbleup?mobile=1', '_blank');
     });
     right.appendChild(ruBtn);
+    var l2Btn = document.createElement('button');
+    l2Btn.className = 'btn btn-sm btn-secondary';
+    l2Btn.textContent = '📊 L2 Export';
+    l2Btn.style.background = '#0d9488';
+    l2Btn.addEventListener('click', function() {
+      window.open('/api/admin-lists/' + l.id + '/export-l2', '_blank');
+    });
+    right.appendChild(l2Btn);
     row.appendChild(right);
     el.appendChild(row);
   });

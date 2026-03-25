@@ -209,6 +209,46 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
   res.send(csv);
 });
 
+// Export L2-formatted CSV for phone append service
+router.get('/admin-lists/:id/export-l2', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const voters = db.prepare(`
+    SELECT v.registration_number, v.county_file_id, v.state_file_id, v.vanid,
+           v.first_name, v.middle_name, v.last_name, v.suffix,
+           v.address, v.city, COALESCE(v.state, 'TX') as state, v.zip, v.zip4,
+           v.phone, v.secondary_phone, v.email,
+           v.party, v.precinct, v.phone_type
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+
+  if (voters.length === 0) return res.status(404).json({ error: 'No voters in this list' });
+
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+
+  const header = 'LALVOTERID,COUNTY_FILE_ID,STATE_FILE_ID,VANID,FIRST_NAME,MIDDLE_NAME,LAST_NAME,SUFFIX,ADDRESS,CITY,STATE,ZIP,ZIP4,PHONE,SECONDARY_PHONE,EMAIL,PARTY,PRECINCT,PHONE_STATUS';
+  const rows = voters.map(v =>
+    [v.registration_number, v.county_file_id, v.state_file_id, v.vanid,
+     v.first_name, v.middle_name, v.last_name, v.suffix,
+     v.address, v.city, v.state, v.zip, v.zip4,
+     v.phone, v.secondary_phone, v.email,
+     v.party, v.precinct, v.phone_type].map(csvEscape).join(',')
+  );
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_l2_phone_append.csv"');
+  res.send(csv);
+});
+
 // Save VBM matched voters as a mail universe list
 router.post('/admin-lists/vbm-save', (req, res) => {
   const { name, voter_ids } = req.body;
