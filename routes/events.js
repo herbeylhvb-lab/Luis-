@@ -16,7 +16,7 @@ function requireAuth(req, res, next) {
 // List all events (includes has_flyer flag, excludes full base64) — single query with RSVP stats
 router.get('/events', (req, res) => {
   const events = db.prepare(`
-    SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_time, e.event_end_time, e.status, e.created_at,
+    SELECT e.id, e.title, e.description, e.location, e.event_date, e.event_end_date, e.event_time, e.event_end_time, e.status, e.created_at,
       e.latitude, e.longitude, e.checkin_radius, e.mms_project_id,
       (e.flyer_image IS NOT NULL) as has_flyer,
       COUNT(er.id) as rsvp_total,
@@ -37,11 +37,11 @@ router.get('/events', (req, res) => {
 
 // Create event (now accepts flyer_image)
 router.post('/events', requireAuth, (req, res) => {
-  const { title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
+  const { title, description, location, event_date, event_end_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   if (!title || !event_date) return res.status(400).json({ error: 'Title and date are required.' });
   const result = db.prepare(
-    'INSERT INTO events (title, description, location, event_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(title, description || '', location || '', event_date, event_time || '', event_end_time || '',
+    'INSERT INTO events (title, description, location, event_date, event_end_date, event_time, event_end_time, flyer_image, mms_project_id, latitude, longitude, checkin_radius) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(title, description || '', location || '', event_date, event_end_date || '', event_time || '', event_end_time || '',
     flyer_image || null, mms_project_id || null,
     latitude != null ? latitude : null, longitude != null ? longitude : null,
     checkin_radius != null ? checkin_radius : 500);
@@ -50,7 +50,7 @@ router.post('/events', requireAuth, (req, res) => {
 
 // Get event detail with RSVPs
 router.get('/events/:id', (req, res) => {
-  const event = db.prepare('SELECT id, title, description, location, event_date, event_time, event_end_time, status, created_at, latitude, longitude, checkin_radius, mms_project_id, (flyer_image IS NOT NULL) as has_flyer FROM events WHERE id = ?').get(req.params.id);
+  const event = db.prepare('SELECT id, title, description, location, event_date, event_end_date, event_time, event_end_time, status, created_at, latitude, longitude, checkin_radius, mms_project_id, (flyer_image IS NOT NULL) as has_flyer FROM events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Event not found.' });
   event.rsvps = db.prepare('SELECT * FROM event_rsvps WHERE event_id = ? ORDER BY id').all(req.params.id);
   res.json({ event });
@@ -58,17 +58,18 @@ router.get('/events/:id', (req, res) => {
 
 // Update event (now accepts flyer_image)
 router.put('/events/:id', requireAuth, (req, res) => {
-  const { title, description, location, event_date, event_time, event_end_time, status, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
+  const { title, description, location, event_date, event_end_date, event_time, event_end_time, status, flyer_image, mms_project_id, latitude, longitude, checkin_radius } = req.body;
   // If flyer_image is explicitly provided, update it. Otherwise leave existing.
   let result;
   if (flyer_image !== undefined) {
     result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
+      event_end_date = COALESCE(?, event_end_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
       flyer_image = ?, mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
-    ).run(title, description, location, event_date, event_time, event_end_time, status, flyer_image,
+    ).run(title, description, location, event_date, event_end_date, event_time, event_end_time, status, flyer_image,
       mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
       checkin_radius !== undefined ? checkin_radius : null, req.params.id);
@@ -76,10 +77,11 @@ router.put('/events/:id', requireAuth, (req, res) => {
     result = db.prepare(`UPDATE events SET
       title = COALESCE(?, title), description = COALESCE(?, description),
       location = COALESCE(?, location), event_date = COALESCE(?, event_date),
+      event_end_date = COALESCE(?, event_end_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
       mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
-    ).run(title, description, location, event_date, event_time, event_end_time, status,
+    ).run(title, description, location, event_date, event_end_date, event_time, event_end_time, status,
       mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
       checkin_radius !== undefined ? checkin_radius : null, req.params.id);
@@ -324,16 +326,29 @@ router.post('/events/:id/checkin', (req, res) => {
 
   // Time window enforcement
   const now = new Date();
-  if (event.event_time) {
-    const startDT = new Date(event.event_date + 'T' + event.event_time);
-    if (!isNaN(startDT.getTime()) && now < startDT) {
-      return res.status(400).json({ error: 'Check-in has not opened yet. Event starts at ' + event.event_time });
+  const isMultiDay = event.event_end_date && event.event_end_date !== event.event_date;
+  if (isMultiDay) {
+    // Multi-day event: check-in open from start date through end of end date
+    const startDay = new Date(event.event_date + 'T00:00:00');
+    const endDay = new Date(event.event_end_date + 'T23:59:59');
+    if (!isNaN(startDay.getTime()) && now < startDay) {
+      return res.status(400).json({ error: 'Check-in has not opened yet. Event starts on ' + event.event_date });
     }
-  }
-  if (event.event_end_time) {
-    const endDT = new Date(event.event_date + 'T' + event.event_end_time);
-    if (!isNaN(endDT.getTime()) && now > endDT) {
-      return res.status(400).json({ error: 'Check-in has closed. Event ended at ' + event.event_end_time });
+    if (!isNaN(endDay.getTime()) && now > endDay) {
+      return res.status(400).json({ error: 'Check-in has closed. Event ended on ' + event.event_end_date });
+    }
+  } else {
+    if (event.event_time) {
+      const startDT = new Date(event.event_date + 'T' + event.event_time);
+      if (!isNaN(startDT.getTime()) && now < startDT) {
+        return res.status(400).json({ error: 'Check-in has not opened yet. Event starts at ' + event.event_time });
+      }
+    }
+    if (event.event_end_time) {
+      const endDT = new Date(event.event_date + 'T' + event.event_end_time);
+      if (!isNaN(endDT.getTime()) && now > endDT) {
+        return res.status(400).json({ error: 'Check-in has closed. Event ended at ' + event.event_end_time });
+      }
     }
   }
 
@@ -365,13 +380,20 @@ router.get('/events/:id/session', (req, res) => {
 // --- Voting Reminder QR Codes ---
 // Generate .ics calendar file for a voting reminder
 router.get('/voting-reminders/ics', (req, res) => {
-  const { title, date, start_time, end_time, location, description } = req.query;
+  const { title, date, end_date, start_time, end_time, location, description } = req.query;
   if (!title || !date) return res.status(400).send('title and date are required');
 
   // Format date for iCal (YYYYMMDD or YYYYMMDDTHHMMSS)
   const dateClean = date.replace(/-/g, '');
   let dtStart, dtEnd;
-  if (start_time) {
+  // Multi-day event with end_date: always all-day spanning all days
+  if (end_date && end_date !== date) {
+    dtStart = dateClean;
+    // iCal DTEND for all-day is exclusive, so add 1 day past end_date
+    const endDayExclusive = new Date(end_date);
+    endDayExclusive.setDate(endDayExclusive.getDate() + 1);
+    dtEnd = endDayExclusive.toISOString().slice(0, 10).replace(/-/g, '');
+  } else if (start_time) {
     const st = start_time.replace(/:/g, '');
     dtStart = dateClean + 'T' + st + '00';
     if (end_time) {
@@ -384,7 +406,7 @@ router.get('/voting-reminders/ics', (req, res) => {
       dtEnd = dateClean + 'T' + String(startH + 1).padStart(2, '0') + startM + '00';
     }
   } else {
-    // All-day event
+    // All-day event (single day)
     dtStart = dateClean;
     const nextDay = new Date(date);
     nextDay.setDate(nextDay.getDate() + 1);
@@ -405,12 +427,13 @@ router.get('/voting-reminders/ics', (req, res) => {
     'DTSTAMP:' + now,
   ];
 
-  if (start_time) {
-    ics.push('DTSTART:' + dtStart);
-    ics.push('DTEND:' + dtEnd);
-  } else {
+  if ((end_date && end_date !== date) || !start_time) {
+    // All-day event (single or multi-day)
     ics.push('DTSTART;VALUE=DATE:' + dtStart);
     ics.push('DTEND;VALUE=DATE:' + dtEnd);
+  } else {
+    ics.push('DTSTART:' + dtStart);
+    ics.push('DTEND:' + dtEnd);
   }
 
   ics.push('SUMMARY:' + (title || 'Vote Today!').replace(/[,;\\]/g, ''));
@@ -504,7 +527,7 @@ router.get('/pushcard', (req, res) => {
 
   const placeholders = ids.map(() => '?').join(',');
   const events = db.prepare(
-    `SELECT id, title, event_date, event_time, event_end_time, location
+    `SELECT id, title, event_date, event_end_date, event_time, event_end_time, location
      FROM events WHERE id IN (${placeholders})
      ORDER BY event_date, event_time`
   ).all(...ids);

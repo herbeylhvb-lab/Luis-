@@ -264,6 +264,7 @@ addColumn("ALTER TABLE events ADD COLUMN longitude REAL DEFAULT NULL");
 addColumn("ALTER TABLE events ADD COLUMN checkin_radius INTEGER DEFAULT 500");
 addColumn("ALTER TABLE events ADD COLUMN event_end_time TEXT DEFAULT ''");
 addColumn("ALTER TABLE events ADD COLUMN mms_project_id TEXT DEFAULT NULL");
+addColumn("ALTER TABLE events ADD COLUMN event_end_date TEXT DEFAULT ''");
 
 // Session type for P2P sessions (campaign, event, survey)
 addColumn("ALTER TABLE p2p_sessions ADD COLUMN session_type TEXT DEFAULT 'campaign'");

@@ -214,11 +214,20 @@
 
       // Meta
       var metaLines = [];
-      if (evt.event_date) metaLines.push(formatDate(evt.event_date));
-      if (evt.event_time) {
-        var t = formatTime(evt.event_time);
-        if (evt.event_end_time) t += ' - ' + formatTime(evt.event_end_time);
-        metaLines.push(t);
+      if (evt.event_date) {
+        var dateStr = formatDate(evt.event_date);
+        if (evt.event_end_date && evt.event_end_date !== evt.event_date) {
+          dateStr += ' through ' + formatDate(evt.event_end_date);
+          metaLines.push(dateStr);
+          metaLines.push('All day');
+        } else {
+          metaLines.push(dateStr);
+          if (evt.event_time) {
+            var t = formatTime(evt.event_time);
+            if (evt.event_end_time) t += ' - ' + formatTime(evt.event_end_time);
+            metaLines.push(t);
+          }
+        }
       }
       if (evt.location) metaLines.push(evt.location);
       var meta = document.createElement('div');
@@ -345,6 +354,18 @@
       var title = encodeURIComponent(evt.title || 'Event');
       var location = encodeURIComponent(evt.location || '');
       var dateStr = (evt.event_date || '').replace(/-/g, '');
+
+      // Multi-day event: all-day spanning all days
+      if (evt.event_end_date && evt.event_end_date !== evt.event_date) {
+        var endDateExcl = new Date(evt.event_end_date);
+        endDateExcl.setDate(endDateExcl.getDate() + 1);
+        var endStr = endDateExcl.toISOString().slice(0, 10).replace(/-/g, '');
+        return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+          '&text=' + title +
+          '&dates=' + dateStr + '/' + endStr +
+          '&location=' + location;
+      }
+
       var startTime = (evt.event_time || '00:00').replace(/:/g, '');
       var endTime = (evt.event_end_time || '').replace(/:/g, '');
       if (!endTime) {
@@ -361,15 +382,27 @@
 
     function downloadIcs(evt) {
       var dateStr = (evt.event_date || '').replace(/-/g, '');
-      var startTime = (evt.event_time || '00:00').replace(/:/g, '');
-      var endTime = (evt.event_end_time || '').replace(/:/g, '');
-      if (!endTime) {
-        var h = parseInt(startTime.substring(0, 2), 10) + 1;
-        endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
-      }
-      var start = dateStr + 'T' + startTime + '00';
-      var end = dateStr + 'T' + endTime + '00';
       var now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+      var isMultiDay = evt.event_end_date && evt.event_end_date !== evt.event_date;
+      var dtStartLine, dtEndLine;
+
+      if (isMultiDay) {
+        // All-day event spanning multiple days
+        var endDateExcl = new Date(evt.event_end_date);
+        endDateExcl.setDate(endDateExcl.getDate() + 1);
+        var endStr = endDateExcl.toISOString().slice(0, 10).replace(/-/g, '');
+        dtStartLine = 'DTSTART;VALUE=DATE:' + dateStr;
+        dtEndLine = 'DTEND;VALUE=DATE:' + endStr;
+      } else {
+        var startTime = (evt.event_time || '00:00').replace(/:/g, '');
+        var endTime = (evt.event_end_time || '').replace(/:/g, '');
+        if (!endTime) {
+          var h = parseInt(startTime.substring(0, 2), 10) + 1;
+          endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
+        }
+        dtStartLine = 'DTSTART:' + dateStr + 'T' + startTime + '00';
+        dtEndLine = 'DTEND:' + dateStr + 'T' + endTime + '00';
+      }
 
       var ics = [
         'BEGIN:VCALENDAR',
@@ -380,8 +413,8 @@
         'BEGIN:VEVENT',
         'UID:event-' + evt.id + '-' + dateStr + '@campaigntext',
         'DTSTAMP:' + now,
-        'DTSTART:' + start,
-        'DTEND:' + end,
+        dtStartLine,
+        dtEndLine,
         'SUMMARY:' + (evt.title || 'Event').replace(/[,;\\]/g, ''),
         'LOCATION:' + (evt.location || '').replace(/[,;\\]/g, ''),
         'BEGIN:VALARM',

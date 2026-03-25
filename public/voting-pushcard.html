@@ -279,6 +279,19 @@
       var title = encodeURIComponent(evt.title);
       var location = encodeURIComponent(evt.location);
       var dateStr = evt.date.replace(/-/g, '');
+
+      // Multi-day event: all-day spanning all days
+      if (evt.end_date && evt.end_date !== evt.date) {
+        var endDateExcl = new Date(evt.end_date);
+        endDateExcl.setDate(endDateExcl.getDate() + 1);
+        var endStr = endDateExcl.toISOString().slice(0, 10).replace(/-/g, '');
+        return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+          '&text=' + title +
+          '&dates=' + dateStr + '/' + endStr +
+          '&location=' + location +
+          '&details=' + encodeURIComponent(evt.description || '');
+      }
+
       var startTime = (evt.start_time || '00:00').replace(/:/g, '');
       var endTime = (evt.end_time || '').replace(/:/g, '');
       if (!endTime) {
@@ -296,15 +309,27 @@
 
     function downloadIcs(evt) {
       var dateStr = evt.date.replace(/-/g, '');
-      var startTime = (evt.start_time || '00:00').replace(/:/g, '');
-      var endTime = (evt.end_time || '').replace(/:/g, '');
-      if (!endTime) {
-        var h = parseInt(startTime.substring(0, 2), 10) + 1;
-        endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
-      }
-      var start = dateStr + 'T' + startTime + '00';
-      var end = dateStr + 'T' + endTime + '00';
       var now = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+      var isMultiDay = evt.end_date && evt.end_date !== evt.date;
+      var dtStartLine, dtEndLine;
+
+      if (isMultiDay) {
+        // All-day event spanning multiple days
+        var endDateExcl = new Date(evt.end_date);
+        endDateExcl.setDate(endDateExcl.getDate() + 1);
+        var endStr = endDateExcl.toISOString().slice(0, 10).replace(/-/g, '');
+        dtStartLine = 'DTSTART;VALUE=DATE:' + dateStr;
+        dtEndLine = 'DTEND;VALUE=DATE:' + endStr;
+      } else {
+        var startTime = (evt.start_time || '00:00').replace(/:/g, '');
+        var endTime = (evt.end_time || '').replace(/:/g, '');
+        if (!endTime) {
+          var h = parseInt(startTime.substring(0, 2), 10) + 1;
+          endTime = (h < 10 ? '0' : '') + h + startTime.substring(2);
+        }
+        dtStartLine = 'DTSTART:' + dateStr + 'T' + startTime + '00';
+        dtEndLine = 'DTEND:' + dateStr + 'T' + endTime + '00';
+      }
 
       var ics = [
         'BEGIN:VCALENDAR',
@@ -315,8 +340,8 @@
         'BEGIN:VEVENT',
         'UID:voting-' + dateStr + '-' + Math.random().toString(36).substr(2, 6) + '@campaigntext',
         'DTSTAMP:' + now,
-        'DTSTART:' + start,
-        'DTEND:' + end,
+        dtStartLine,
+        dtEndLine,
         'SUMMARY:' + (evt.title || 'Vote').replace(/[,;\\]/g, ''),
         'LOCATION:' + (evt.location || '').replace(/[,;\\]/g, ''),
         'DESCRIPTION:' + (evt.description || '').replace(/\n/g, '\\n').replace(/[,;\\]/g, ''),
