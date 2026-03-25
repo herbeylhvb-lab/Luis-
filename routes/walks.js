@@ -1266,7 +1266,8 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
 
       const supportMap = {
         'support': 'strong_support', 'lean_support': 'lean_support',
-        'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose'
+        'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose',
+        'refused': 'refused'
       };
       if (supportMap[result]) {
         db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[result], addr.voter_id);
@@ -1406,7 +1407,8 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
 
       const supportMap = {
         'support': 'strong_support', 'lean_support': 'lean_support',
-        'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose'
+        'undecided': 'undecided', 'lean_oppose': 'lean_oppose', 'oppose': 'strong_oppose',
+        'refused': 'refused'
       };
       if (supportMap[m.result]) {
         db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[m.result], m.voter_id);

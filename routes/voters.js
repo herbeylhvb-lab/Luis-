@@ -55,15 +55,7 @@ router.get('/voters', (req, res) => {
     }
   }
   if (party) { sql += ' AND voters.party = ?'; params.push(party); }
-  if (support) {
-    if (support === 'refused') {
-      sql += ' AND voters.id IN (SELECT DISTINCT wa.voter_id FROM walk_addresses wa JOIN walk_attempts wt ON wt.address_id = wa.id WHERE wt.result = ? AND wa.voter_id IS NOT NULL)';
-      params.push('refused');
-    } else {
-      sql += ' AND voters.support_level = ?';
-      params.push(support);
-    }
-  }
+  if (support) { sql += ' AND voters.support_level = ?'; params.push(support); }
   if (precinct) { sql += ' AND voters.precinct = ?'; params.push(precinct); }
   if (city) {
     const cityEsc = city.replace(/[\\%_]/g, '\\$&');
