@@ -1002,18 +1002,33 @@ try {
   db.exec("ALTER TABLE saved_qr_codes ADD COLUMN scan_count INTEGER DEFAULT 0");
 }
 
-// Backfill: set support_level='refused' for voters who were refused during block walks
+// Backfill: sync support_level from latest walk_attempts result for all voters
 try {
-  const updated = db.prepare(`
-    UPDATE voters SET support_level = 'refused', updated_at = datetime('now')
-    WHERE id IN (
-      SELECT DISTINCT wa.voter_id FROM walk_addresses wa
-      JOIN walk_attempts wt ON wt.address_id = wa.id
-      WHERE wt.result = 'refused' AND wa.voter_id IS NOT NULL
-    ) AND (support_level IS NULL OR support_level = '' OR support_level = 'unknown')
-  `).run();
-  if (updated.changes > 0) console.log('[migrate] Backfilled ' + updated.changes + ' voters with refused support_level');
-} catch(e) {}
+  const resultToSupport = {
+    'support': 'strong_support', 'lean_support': 'lean_support',
+    'undecided': 'undecided', 'lean_oppose': 'lean_oppose',
+    'oppose': 'strong_oppose', 'refused': 'refused'
+  };
+  // Get latest walk result per voter (most recent attempt wins)
+  const rows = db.prepare(`
+    SELECT wa.voter_id, wt.result FROM walk_attempts wt
+    JOIN walk_addresses wa ON wt.address_id = wa.id
+    WHERE wa.voter_id IS NOT NULL
+      AND wt.result IN ('support','lean_support','undecided','lean_oppose','oppose','refused')
+    ORDER BY wt.attempted_at DESC
+  `).all();
+  const latest = {};
+  for (const r of rows) {
+    if (!latest[r.voter_id]) latest[r.voter_id] = r.result;
+  }
+  let count = 0;
+  const upd = db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ? AND (support_level IS NULL OR support_level = '' OR support_level = 'unknown')");
+  for (const [vid, result] of Object.entries(latest)) {
+    const lvl = resultToSupport[result];
+    if (lvl) { const r = upd.run(lvl, vid); count += r.changes; }
+  }
+  if (count > 0) console.log('[migrate] Backfilled ' + count + ' voters with support_level from walk results');
+} catch(e) { console.error('[migrate] backfill error:', e.message); }
 
 // Migrate existing texting_volunteers and walkers into unified table (one-time)
 try {
