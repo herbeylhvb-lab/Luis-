@@ -1091,7 +1091,7 @@ tr:hover td{background:#1e293b80}
         <!-- Per-Walker Breakdown -->
         <div class="card">
           <h3>Worker Performance — <span id="dailyDateLabel" style="color:#818cf8"></span></h3>
-          <div class="table-wrap"><table><thead><tr><th>Walker</th><th>Doors</th><th>Contacts</th><th>Supporters</th><th>Undecided</th><th>Lean Oppose</th><th>Oppose</th><th>Not Home</th><th>Contact Rate</th><th>Doors/Hr</th><th>Hours</th></tr></thead><tbody id="dailyWalkersBody"><tr><td colspan="11" style="color:#64748b;text-align:center">Select a date above</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Walker</th><th>Doors</th><th>Contacts</th><th>Supporters</th><th>Undecided</th><th>Lean Oppose</th><th>Oppose</th><th>Refused</th><th>Not Home</th><th>Contact Rate</th><th>Doors/Hr</th><th>Hours</th></tr></thead><tbody id="dailyWalkersBody"><tr><td colspan="12" style="color:#64748b;text-align:center">Select a date above</td></tr></tbody></table></div>
         </div>
         <!-- Per-Walk Breakdown -->
         <div class="card">
@@ -6274,7 +6274,7 @@ async function loadDailyReport() {
     // Per-walker table
     var wb = document.getElementById('dailyWalkersBody');
     if (!data.walkers || data.walkers.length === 0) {
-      wb.innerHTML = '<tr><td colspan="11" style="color:#64748b;text-align:center">No activity on this day.</td></tr>';
+      wb.innerHTML = '<tr><td colspan="12" style="color:#64748b;text-align:center">No activity on this day.</td></tr>';
     } else {
       wb.innerHTML = data.walkers.map(function(w, i) {
         var hours = '';
@@ -6291,6 +6291,7 @@ async function loadDailyReport() {
           '<td style="color:#eab308">' + w.undecided + '</td>' +
           '<td style="color:#f97316">' + w.lean_oppose + '</td>' +
           '<td style="color:#ef4444">' + w.oppose + '</td>' +
+          '<td style="color:#dc2626">' + (w.refused || 0) + '</td>' +
           '<td style="color:#64748b">' + w.not_home + '</td>' +
           '<td>' + w.contact_rate + '%</td>' +
           '<td>' + w.doors_per_hour + '</td>' +

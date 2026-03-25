@@ -501,6 +501,7 @@ router.get('/walks/daily-report', (req, res) => {
       SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as undecided,
       SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as oppose,
       SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as lean_oppose,
+      SUM(CASE WHEN result = 'refused' THEN 1 ELSE 0 END) as refused,
       SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home,
       MIN(attempted_at) as first_knock,
       MAX(attempted_at) as last_knock,
