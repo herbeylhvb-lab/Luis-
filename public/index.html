@@ -2089,6 +2089,7 @@ tr:hover td{background:#1e293b80}
           <div style="margin-top:12px">
             <button class="btn btn-sm" onclick="downloadCombinedQR()">Download PNG</button>
             <button class="btn btn-sm btn-secondary" onclick="copyCombinedLink()" style="margin-left:8px">Copy Link</button>
+            <button class="btn btn-sm" style="margin-left:8px;background:#059669" onclick="saveCombinedQR()">Save QR</button>
           </div>
           <input type="hidden" id="combinedQRUrl">
         </div>
@@ -2109,9 +2110,16 @@ tr:hover td{background:#1e293b80}
           <div style="margin-top:12px">
             <button class="btn btn-sm" onclick="downloadPushcardQR()">Download PNG</button>
             <button class="btn btn-sm btn-secondary" onclick="copyPushcardLink()" style="margin-left:8px">Copy Link</button>
+            <button class="btn btn-sm" style="margin-left:8px;background:#059669" onclick="savePushcardQR()">Save QR</button>
           </div>
           <input type="hidden" id="pushcardQRUrl">
         </div>
+      </div>
+
+      <div class="card">
+        <h3>Saved QR Codes</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">QR codes you've saved. Click to download or delete.</p>
+        <div id="savedQRList"><div style="color:#64748b;font-size:14px">Loading...</div></div>
       </div>
       </div><!-- end voting-reminders-tab sub-page -->
 
@@ -9808,6 +9816,107 @@ function copyPushcardLink() {
     alert('Push card link copied!');
   });
 }
+
+// === Saved QR Codes ===
+async function loadSavedQRCodes() {
+  try {
+    var list = await api('/api/events/saved-qr-codes');
+    var el = document.getElementById('savedQRList');
+    if (!list || list.length === 0) {
+      el.textContent = '';
+      var msg = document.createElement('div');
+      msg.style.cssText = 'color:#64748b;font-size:14px';
+      msg.textContent = 'No saved QR codes yet. Generate one above and click "Save QR".';
+      el.appendChild(msg);
+      return;
+    }
+    el.textContent = '';
+    list.forEach(function(qr) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:10px;margin-bottom:8px';
+
+      var img = document.createElement('img');
+      img.src = qr.qr_data_url;
+      img.style.cssText = 'width:60px;height:60px;border-radius:6px;flex-shrink:0';
+      row.appendChild(img);
+
+      var info = document.createElement('div');
+      info.style.cssText = 'flex:1;min-width:0';
+      var nameEl = document.createElement('div');
+      nameEl.style.cssText = 'font-weight:600;color:#e2e8f0;font-size:14px';
+      nameEl.textContent = qr.name;
+      info.appendChild(nameEl);
+      var metaEl = document.createElement('div');
+      metaEl.style.cssText = 'color:#64748b;font-size:12px';
+      metaEl.textContent = qr.type + ' \u00b7 ' + (qr.created_at || '').slice(0, 10);
+      info.appendChild(metaEl);
+      row.appendChild(info);
+
+      var dlBtn = document.createElement('button');
+      dlBtn.className = 'btn btn-xs btn-secondary';
+      dlBtn.textContent = 'Download';
+      dlBtn.addEventListener('click', (function(qrId) { return function() { downloadSavedQR(qrId); }; })(qr.id));
+      row.appendChild(dlBtn);
+
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-xs';
+      delBtn.style.background = '#dc2626';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', (function(qrId) { return function() { deleteSavedQR(qrId); }; })(qr.id));
+      row.appendChild(delBtn);
+
+      el.appendChild(row);
+    });
+  } catch (e) {}
+}
+
+async function saveCombinedQR() {
+  var img = document.getElementById('combinedQRImage');
+  var url = document.getElementById('combinedQRUrl').value;
+  if (!img.src) { alert('Generate a QR code first.'); return; }
+  var name = prompt('Name for this QR code:', 'Voting Reminder - ' + new Date().toLocaleDateString());
+  if (!name) return;
+  await api('/api/events/saved-qr-codes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, type: 'voting-reminder', qr_data_url: img.src, ics_url: url }) });
+  loadSavedQRCodes();
+}
+
+async function savePushcardQR() {
+  var img = document.getElementById('pushcardQRImage');
+  var url = document.getElementById('pushcardQRUrl').value;
+  if (!img.src) { alert('Generate a QR code first.'); return; }
+  var name = prompt('Name for this QR code:', 'Push Card - ' + new Date().toLocaleDateString());
+  if (!name) return;
+  await api('/api/events/saved-qr-codes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, type: 'pushcard', qr_data_url: img.src, ics_url: url }) });
+  loadSavedQRCodes();
+}
+
+function downloadSavedQR(id) {
+  api('/api/events/saved-qr-codes').then(function(list) {
+    var qr = list.find(function(q) { return q.id === id; });
+    if (!qr) return;
+    var a = document.createElement('a');
+    a.href = qr.qr_data_url;
+    a.download = (qr.name || 'qr-code') + '.png';
+    a.click();
+  });
+}
+
+async function deleteSavedQR(id) {
+  if (!confirm('Delete this saved QR code?')) return;
+  await api('/api/events/saved-qr-codes/' + id, { method: 'DELETE' });
+  loadSavedQRCodes();
+}
+
+// Load saved QR codes when voting reminders tab is shown
+(function() {
+  var observer = new MutationObserver(function() {
+    var tab = document.getElementById('voting-reminders-tab');
+    if (tab && tab.style.display !== 'none') loadSavedQRCodes();
+  });
+  var target = document.getElementById('voting-reminders-tab');
+  if (target) observer.observe(target, { attributes: true, attributeFilter: ['style'] });
+  setTimeout(loadSavedQRCodes, 2000);
+})()
 
 // ===================== VOTE BY MAIL =====================
 var _vbmParsedRows = [];

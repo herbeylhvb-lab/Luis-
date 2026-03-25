@@ -965,6 +965,16 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_volunteers_code ON volunteers(code);
+
+  CREATE TABLE IF NOT EXISTS saved_qr_codes (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'voting-reminder',
+    qr_data_url TEXT NOT NULL,
+    ics_url TEXT,
+    config_json TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // Migrate existing texting_volunteers and walkers into unified table (one-time)

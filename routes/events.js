@@ -682,4 +682,22 @@ router.get('/events/voting-pushcard/qr-data', asyncHandler(async (req, res) => {
   res.json({ qr: qrDataUrl, url });
 }));
 
+// ─── Saved QR Codes CRUD ───
+router.get('/saved-qr-codes', (req, res) => {
+  const rows = db.prepare('SELECT * FROM saved_qr_codes ORDER BY created_at DESC').all();
+  res.json(rows);
+});
+
+router.post('/saved-qr-codes', (req, res) => {
+  const { name, type, qr_data_url, ics_url, config_json } = req.body;
+  if (!name || !qr_data_url) return res.status(400).json({ error: 'Name and QR data required' });
+  const result = db.prepare('INSERT INTO saved_qr_codes (name, type, qr_data_url, ics_url, config_json) VALUES (?, ?, ?, ?, ?)').run(name, type || 'voting-reminder', qr_data_url, ics_url || null, config_json || null);
+  res.json({ id: result.lastInsertRowid });
+});
+
+router.delete('/saved-qr-codes/:id', (req, res) => {
+  db.prepare('DELETE FROM saved_qr_codes WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;
