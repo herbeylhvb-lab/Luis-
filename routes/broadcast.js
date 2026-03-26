@@ -186,8 +186,10 @@ router.get('/gotv/chase', (req, res) => {
   }
 
   sql += ' ORDER BY support_level, last_name, first_name';
-  sql += ' LIMIT ?';
-  params.push(parseInt(lim, 10) || 500);
+  if (lim && parseInt(lim, 10) > 0) {
+    sql += ' LIMIT ?';
+    params.push(parseInt(lim, 10));
+  }
 
   const voters = db.prepare(sql).all(...params);
   res.json({ voters, count: voters.length });
