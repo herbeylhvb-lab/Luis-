@@ -1358,11 +1358,11 @@ router.get('/analytics/precincts', (req, res) => {
   const captainMap = {};
   for (const r of captainByPct) captainMap[r.precinct] = r.c;
 
-  // Walk universe progress by precinct
+  // Walk universe progress by precinct — count unique houses (address+unit), not voter rows
   const doorsByPct = db.prepare(`
     SELECT v.precinct,
-      COUNT(DISTINCT wa.id) as total_doors,
-      COUNT(DISTINCT CASE WHEN wa.result != 'not_visited' THEN wa.id END) as knocked_doors
+      COUNT(DISTINCT LOWER(TRIM(wa.address)) || '||' || LOWER(TRIM(COALESCE(wa.unit, ''))) || '||' || wa.walk_id) as total_doors,
+      COUNT(DISTINCT CASE WHEN wa.result != 'not_visited' THEN LOWER(TRIM(wa.address)) || '||' || LOWER(TRIM(COALESCE(wa.unit, ''))) || '||' || wa.walk_id END) as knocked_doors
     FROM walk_addresses wa
     JOIN voters v ON wa.voter_id = v.id
     WHERE v.precinct != ''${raceFilter}${joinListFilter}

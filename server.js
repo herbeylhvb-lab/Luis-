@@ -345,7 +345,7 @@ const _statsQueryDefault = db.prepare(`
     (SELECT COUNT(*) FROM messages WHERE direction = 'inbound') as responses,
     (SELECT COUNT(*) FROM opt_outs) as optedOut,
     (SELECT COUNT(*) FROM block_walks) as walks,
-    (SELECT COUNT(*) FROM walk_addresses WHERE result != 'not_visited') as doorsKnocked,
+    (SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) FROM walk_addresses WHERE result != 'not_visited') as doorsKnocked,
     (SELECT COUNT(*) FROM voters) as voters,
     (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents,
     (SELECT COUNT(*) FROM voters WHERE support_level IN ('strong_support', 'lean_support')) as supporters,
@@ -378,7 +378,7 @@ app.get('/api/stats', (req, res) => {
   stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${voterFilter}`).get(...vParams).c;
   // Doors knocked for voters in this list
   if (list_id) {
-    stats.doorsKnocked = db.prepare(`SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`).get(list_id).c;
+    stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses WHERE result != 'not_visited' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`).get(list_id).c;
   }
   res.json(stats);
 });

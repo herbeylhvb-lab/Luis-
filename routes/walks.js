@@ -907,17 +907,34 @@ router.get('/walks/all-results-map', (req, res) => {
     where += " AND wa.result != 'not_visited'";
   }
 
-  const addresses = db.prepare(`
+  // Deduplicate by address — show 1 dot per house, not per household member
+  const rawAddresses = db.prepare(`
     SELECT wa.id, wa.address, wa.unit, wa.city, wa.result, wa.lat, wa.lng, wa.knocked_at,
-           wa.voter_name, wa.walk_id, bw.name as walk_name
+           wa.voter_name, wa.voter_id, wa.walk_id, bw.name as walk_name
     FROM walk_addresses wa
     JOIN block_walks bw ON wa.walk_id = bw.id
     WHERE ${where}
     ORDER BY wa.knocked_at DESC
   `).all(...params);
+  // Deduplicate: one entry per unique address+unit (keep first = most recent knock)
+  const seen = new Set();
+  const addresses = [];
+  for (const a of rawAddresses) {
+    const key = (a.address || '').toLowerCase().trim() + '||' + (a.unit || '').toLowerCase().trim() + '||' + a.walk_id;
+    if (!seen.has(key)) {
+      seen.add(key);
+      // Count unique voters at this address
+      a.household_count = rawAddresses.filter(r =>
+        (r.address || '').toLowerCase().trim() === (a.address || '').toLowerCase().trim() &&
+        (r.unit || '').toLowerCase().trim() === (a.unit || '').toLowerCase().trim() &&
+        r.walk_id === a.walk_id
+      ).length;
+      addresses.push(a);
+    }
+  }
 
   const stats = {};
-  // Build stats query without table alias
+  // Build stats query — count unique houses (address+unit), not individual voter rows
   let statsWhere = 'lat IS NOT NULL AND lng IS NOT NULL';
   if (list_id) {
     statsWhere += ' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
@@ -925,7 +942,7 @@ router.get('/walks/all-results-map', (req, res) => {
     statsWhere += " AND result != 'not_visited'";
   }
   db.prepare(`
-    SELECT result, COUNT(*) as count
+    SELECT result, COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as count
     FROM walk_addresses
     WHERE ${statsWhere}
     GROUP BY result
