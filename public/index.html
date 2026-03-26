@@ -602,6 +602,44 @@ tr:hover td{background:#1e293b80}
         <button class="btn btn-sm" onclick="rumbleupRefresh()" style="background:#6366f1;border-color:#4f46e5">Refresh</button>
       </div>
 
+      <!-- Campaign Launcher -->
+      <div class="card" style="border:1px solid #7c3aed">
+        <h3>🚀 Campaign Launcher</h3>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Select a universe, write your message, and launch a RumbleUp campaign in one click. Contacts are uploaded, project is created, and a test is sent — all from here.</p>
+        <div style="display:grid;gap:12px">
+          <div>
+            <label style="font-size:12px;color:#94a3b8">Campaign Name</label>
+            <input id="launch-name" class="form-control" placeholder="e.g. GOTV Final Push" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+          </div>
+          <div>
+            <label style="font-size:12px;color:#94a3b8">Universe / List</label>
+            <select id="launch-list" class="form-control" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+              <option value="">Select a universe...</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:#94a3b8">Message</label>
+            <textarea id="launch-message" class="form-control" rows="4" placeholder="Hi {first_name}, this is Luis running for Port Commissioner Place 4..." style="background:#0f172a;border-color:#334155;color:#e2e8f0"></textarea>
+            <p style="font-size:11px;color:#64748b;margin-top:4px">STOP opt-out will be added automatically if not included.</p>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div>
+              <label style="font-size:12px;color:#94a3b8">Test Phone (optional)</label>
+              <input id="launch-test-phone" class="form-control" placeholder="Your phone to test first" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+            </div>
+            <div>
+              <label style="font-size:12px;color:#94a3b8">Schedule Start (optional)</label>
+              <input id="launch-schedule" type="datetime-local" class="form-control" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn" id="btnLaunchCampaign" onclick="launchRumbleUpCampaign()" style="background:#7c3aed;border-color:#6d28d9;font-weight:700;padding:12px 24px">🚀 Launch Campaign</button>
+            <span id="launch-status" style="font-size:13px"></span>
+          </div>
+          <div id="launch-result" style="display:none;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;font-size:13px"></div>
+        </div>
+      </div>
+
       <!-- Account Info -->
       <div class="card" id="ru-account-card">
         <h3>Account</h3>
@@ -13191,6 +13229,77 @@ async function rumbleupRefresh() {
   rumbleupLoadAccount();
   rumbleupLoadProjects();
   rumbleupLoadAdminLists();
+  loadLaunchLists();
+}
+
+async function loadLaunchLists() {
+  try {
+    var data = await api('/api/admin-lists');
+    var sel = document.getElementById('launch-list');
+    // Clear existing options except first
+    while (sel.options.length > 1) sel.remove(1);
+    (data.lists || []).forEach(function(l) {
+      var opt = document.createElement('option');
+      opt.value = l.id;
+      opt.textContent = l.name + ' (' + l.voterCount + ' voters, ' + (l.withPhone || 0) + ' with phone)';
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+async function launchRumbleUpCampaign() {
+  var name = document.getElementById('launch-name').value.trim();
+  var listId = document.getElementById('launch-list').value;
+  var message = document.getElementById('launch-message').value.trim();
+  var testPhone = document.getElementById('launch-test-phone').value.trim();
+  var schedule = document.getElementById('launch-schedule').value;
+
+  if (!name) return alert('Enter a campaign name.');
+  if (!listId) return alert('Select a universe/list.');
+  if (!message) return alert('Write a message.');
+
+  var btn = document.getElementById('btnLaunchCampaign');
+  var statusEl = document.getElementById('launch-status');
+  var resultEl = document.getElementById('launch-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Launching...';
+  statusEl.innerHTML = '<span style="color:#f59e0b">Uploading contacts & creating campaign...</span>';
+  resultEl.style.display = 'none';
+
+  try {
+    var body = { name: name, message: message, list_id: listId };
+    if (testPhone) body.test_phone = testPhone;
+    if (schedule) body.schedule_start = schedule;
+
+    var data = await apiPost('/api/rumbleup/launch-campaign', body);
+
+    if (data.error) {
+      statusEl.innerHTML = '<span style="color:#ef4444">❌ ' + escHtml(data.error) + '</span>';
+      btn.disabled = false;
+      btn.textContent = '🚀 Launch Campaign';
+      return;
+    }
+
+    statusEl.innerHTML = '<span style="color:#22c55e">✅ Campaign created!</span>';
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<div style="color:#22c55e;font-weight:700;margin-bottom:8px">✅ Campaign Launched Successfully</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      '<div><span style="color:#64748b">Campaign:</span> <span style="color:#e2e8f0">' + escHtml(name) + '</span></div>' +
+      '<div><span style="color:#64748b">Contacts:</span> <span style="color:#e2e8f0">' + (data.contactsUploaded || 0).toLocaleString() + '</span></div>' +
+      '<div><span style="color:#64748b">Action ID:</span> <span style="color:#e2e8f0">' + (data.actionId || '-') + '</span></div>' +
+      '<div><span style="color:#64748b">Group ID:</span> <span style="color:#e2e8f0">' + (data.groupId || '-') + '</span></div>' +
+      '</div>' +
+      (data.testResult ? '<div style="margin-top:8px;color:#94a3b8">📱 Test sent to ' + escHtml(testPhone) + '</div>' : '') +
+      '<div style="margin-top:12px;padding:10px;background:#1e293b;border-radius:6px;color:#f59e0b;font-size:12px">⚠️ Go to <a href="https://app.rumbleup.com" target="_blank" style="color:#818cf8">RumbleUp Dashboard</a> to review and click Go Live when ready.</div>';
+
+    btn.disabled = false;
+    btn.textContent = '🚀 Launch Campaign';
+    rumbleupLoadProjects();
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">❌ ' + escHtml(e.message || 'Unknown error') + '</span>';
+    btn.disabled = false;
+    btn.textContent = '🚀 Launch Campaign';
+  }
 }
 
 async function rumbleupLoadAccount() {
