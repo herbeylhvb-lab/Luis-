@@ -316,6 +316,7 @@ app.use('/api', require('./routes/groups'));
 app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
 app.use('/api', require('./routes/rumbleup'));
+app.use('/api', require('./routes/trends'));
 
 // --- Core endpoints ---
 

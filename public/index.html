@@ -197,6 +197,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="gotv"><span class="icon">&#127383;</span><span>GOTV Chase</span></div>
     <div class="nav-item" data-page="surveys"><span class="icon">&#128202;</span><span>Polls &amp; Surveys</span></div>
     <div class="nav-item" data-page="analytics"><span class="icon">&#128200;</span><span>Analytics</span></div>
+    <div class="nav-item" data-page="trends"><span class="icon">📈</span><span>Trends</span></div>
     <div class="sidebar-section">System</div>
     <div class="nav-item" data-page="messaging"><span class="icon">&#128273;</span><span>Messaging Setup</span></div>
     <div class="nav-item" data-page="autoreply"><span class="icon">&#129302;</span><span>Auto-Reply AI</span></div>
@@ -2457,6 +2458,82 @@ tr:hover td{background:#1e293b80}
     </div>
 
     <!-- ==================== ANALYTICS DASHBOARD ==================== -->
+    <!-- ==================== TRENDS ==================== -->
+    <div class="page" id="page-trends">
+      <h2>📈 Google Trends Explorer</h2>
+      <p style="color:#94a3b8;margin-bottom:16px">Search any topic and see what voters in your area are looking for. Compare issues, track trending topics, and discover what's on voters' minds.</p>
+
+      <!-- Search Bar -->
+      <div class="card">
+        <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:end">
+          <div>
+            <label style="font-size:12px;color:#94a3b8">Search Topic(s)</label>
+            <input id="trends-keyword" class="form-control" placeholder="e.g. port of brownsville, property taxes, immigration" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+            <p style="font-size:11px;color:#64748b;margin-top:2px">Separate with commas to compare up to 5 topics</p>
+          </div>
+          <div>
+            <label style="font-size:12px;color:#94a3b8">Region</label>
+            <select id="trends-geo" class="form-control" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+              <option value="US-TX">Texas</option>
+              <option value="US-TX-636" selected>McAllen-Brownsville DMA</option>
+              <option value="US">United States</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:#94a3b8">Time Range</label>
+            <select id="trends-time" class="form-control" style="background:#0f172a;border-color:#334155;color:#e2e8f0">
+              <option value="30">Last 30 days</option>
+              <option value="90" selected>Last 90 days</option>
+              <option value="180">Last 6 months</option>
+              <option value="365">Last 12 months</option>
+            </select>
+          </div>
+          <button class="btn" onclick="searchTrends()" style="background:#7c3aed;border-color:#6d28d9;height:38px">🔍 Search</button>
+        </div>
+      </div>
+
+      <!-- Interest Over Time Chart -->
+      <div class="card" id="trends-chart-card" style="display:none">
+        <h3>Interest Over Time</h3>
+        <canvas id="trendsChart" height="250"></canvas>
+      </div>
+
+      <!-- City Breakdown -->
+      <div class="card" id="trends-cities-card" style="display:none">
+        <h3>Interest by City</h3>
+        <div id="trends-cities"></div>
+      </div>
+
+      <!-- Related Queries -->
+      <div class="card" id="trends-related-card" style="display:none">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <h3>Top Related Searches</h3>
+            <div id="trends-related-top"></div>
+          </div>
+          <div>
+            <h3>🔥 Rising Searches</h3>
+            <div id="trends-related-rising"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Searches -->
+      <div class="card">
+        <h3>Quick Searches — Campaign Topics</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="quickTrend('port of brownsville')" style="background:#334155;border-color:#475569">Port of Brownsville</button>
+          <button class="btn btn-sm" onclick="quickTrend('early voting')" style="background:#334155;border-color:#475569">Early Voting</button>
+          <button class="btn btn-sm" onclick="quickTrend('property taxes')" style="background:#334155;border-color:#475569">Property Taxes</button>
+          <button class="btn btn-sm" onclick="quickTrend('jobs brownsville')" style="background:#334155;border-color:#475569">Jobs Brownsville</button>
+          <button class="btn btn-sm" onclick="quickTrend('immigration')" style="background:#334155;border-color:#475569">Immigration</button>
+          <button class="btn btn-sm" onclick="quickTrend('spacex brownsville')" style="background:#334155;border-color:#475569">SpaceX</button>
+          <button class="btn btn-sm" onclick="quickTrend('cameron county election')" style="background:#334155;border-color:#475569">Cameron County Election</button>
+          <button class="btn btn-sm" onclick="quickTrend('water brownsville')" style="background:#334155;border-color:#475569">Water</button>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="page-analytics">
       <div class="stats-grid" id="analyticsStats">
         <div class="stat-card"><div class="label">Messages Sent</div><div class="value" id="anTotalSent">0</div></div>
@@ -13244,6 +13321,133 @@ window.exportOTTCSV = function() {
   link.download = 'ott_targeting.csv';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
+
+// ===================== GOOGLE TRENDS =====================
+
+var trendsChartInstance = null;
+
+function quickTrend(keyword) {
+  document.getElementById('trends-keyword').value = keyword;
+  searchTrends();
+}
+
+async function searchTrends() {
+  var input = document.getElementById('trends-keyword').value.trim();
+  if (!input) return alert('Enter a search topic');
+  var geo = document.getElementById('trends-geo').value;
+  var time = document.getElementById('trends-time').value;
+  var keywords = input.split(',').map(function(k) { return k.trim(); }).filter(Boolean);
+  var isCompare = keywords.length > 1;
+
+  // Show chart card
+  document.getElementById('trends-chart-card').style.display = '';
+  document.getElementById('trends-cities-card').style.display = 'none';
+  document.getElementById('trends-related-card').style.display = 'none';
+
+  try {
+    // Fetch interest over time
+    var url = isCompare
+      ? '/api/trends/compare?keywords=' + encodeURIComponent(keywords.join(',')) + '&geo=' + geo + '&time=' + time
+      : '/api/trends/interest?keyword=' + encodeURIComponent(keywords[0]) + '&geo=' + geo + '&time=' + time;
+
+    var data = await api(url);
+
+    // Build chart
+    var canvas = document.getElementById('trendsChart');
+    if (trendsChartInstance) trendsChartInstance.destroy();
+
+    var labels, datasets;
+    if (isCompare) {
+      labels = data.timeline.map(function(t) { return t.date; });
+      var colors = ['#7c3aed', '#ef4444', '#10b981', '#f59e0b', '#3b82f6'];
+      datasets = keywords.map(function(kw, i) {
+        return {
+          label: kw,
+          data: data.timeline.map(function(t) { return t[kw] || 0; }),
+          borderColor: colors[i % colors.length],
+          backgroundColor: colors[i % colors.length] + '20',
+          fill: true,
+          tension: 0.3
+        };
+      });
+    } else {
+      labels = data.timeline.map(function(t) { return t.date; });
+      datasets = [{
+        label: keywords[0],
+        data: data.timeline.map(function(t) { return t.value; }),
+        borderColor: '#7c3aed',
+        backgroundColor: '#7c3aed20',
+        fill: true,
+        tension: 0.3
+      }];
+    }
+
+    trendsChartInstance = new Chart(canvas, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#94a3b8' } } },
+        scales: {
+          x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: '#1e293b' } },
+          y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' }, beginAtZero: true }
+        }
+      }
+    });
+
+    // Fetch city breakdown (only for single keyword)
+    if (!isCompare) {
+      try {
+        var cityData = await api('/api/trends/regions?keyword=' + encodeURIComponent(keywords[0]) + '&geo=' + geo + '&resolution=CITY');
+        if (cityData.regions && cityData.regions.length > 0) {
+          document.getElementById('trends-cities-card').style.display = '';
+          var cityHtml = '<div style="display:grid;gap:4px">';
+          cityData.regions.slice(0, 20).forEach(function(r) {
+            var barWidth = Math.max(r.value, 2);
+            cityHtml += '<div style="display:grid;grid-template-columns:150px 1fr 40px;align-items:center;gap:8px">' +
+              '<span style="color:#e2e8f0;font-size:13px">' + escHtml(r.name) + '</span>' +
+              '<div style="background:#1e293b;border-radius:4px;overflow:hidden;height:20px">' +
+                '<div style="background:#7c3aed;height:100%;width:' + barWidth + '%;border-radius:4px;transition:width 0.5s"></div>' +
+              '</div>' +
+              '<span style="color:#94a3b8;font-size:12px;text-align:right">' + r.value + '</span>' +
+            '</div>';
+          });
+          cityHtml += '</div>';
+          document.getElementById('trends-cities').innerHTML = cityHtml;
+        }
+      } catch(e) {}
+
+      // Fetch related queries
+      try {
+        var relData = await api('/api/trends/related?keyword=' + encodeURIComponent(keywords[0]) + '&geo=' + geo);
+        if ((relData.top && relData.top.length) || (relData.rising && relData.rising.length)) {
+          document.getElementById('trends-related-card').style.display = '';
+
+          var topHtml = '<div style="display:grid;gap:4px">';
+          (relData.top || []).slice(0, 10).forEach(function(r) {
+            topHtml += '<div style="display:flex;justify-content:space-between;padding:4px 8px;background:#0f172a;border-radius:4px">' +
+              '<span style="color:#e2e8f0;font-size:13px">' + escHtml(r.query) + '</span>' +
+              '<span style="color:#94a3b8;font-size:12px">' + r.value + '</span></div>';
+          });
+          topHtml += '</div>';
+          document.getElementById('trends-related-top').innerHTML = topHtml;
+
+          var risingHtml = '<div style="display:grid;gap:4px">';
+          (relData.rising || []).slice(0, 10).forEach(function(r) {
+            risingHtml += '<div style="display:flex;justify-content:space-between;padding:4px 8px;background:#0f172a;border-radius:4px">' +
+              '<span style="color:#e2e8f0;font-size:13px">' + escHtml(r.query) + '</span>' +
+              '<span style="color:#f59e0b;font-size:12px;font-weight:700">' + r.value + '</span></div>';
+          });
+          risingHtml += '</div>';
+          document.getElementById('trends-related-rising').innerHTML = risingHtml;
+        }
+      } catch(e) {}
+    }
+
+  } catch(e) {
+    alert('Trends search failed: ' + (e.message || 'Unknown error'));
+  }
+}
 
 // ===================== RUMBLEUP HUB =====================
 
