@@ -46,6 +46,32 @@ router.get('/rumbleup/projects/:id', asyncHandler(async (req, res) => {
   res.json(project);
 }));
 
+// Alias: singular /project/:id (used by MMS test UI)
+router.get('/rumbleup/project/:id', asyncHandler(async (req, res) => {
+  const ru = getRumbleUp();
+  const result = await ru.getProject(req.params.id);
+  // Normalize response — RumbleUp returns flat object
+  res.json({ project: result });
+}));
+
+// MMS test send endpoint (used by MMS test UI)
+router.post('/rumbleup/test-send', asyncHandler(async (req, res) => {
+  const ru = getRumbleUp();
+  const { projectId, testPhone } = req.body;
+  if (!projectId || !testPhone) return res.status(400).json({ error: 'projectId and testPhone are required.' });
+  try {
+    // RumbleUp requires the project to be in test/draft mode — try test endpoint first
+    const result = await ru.sendTestMessage(projectId, testPhone);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    // If proxy error, provide helpful message
+    if (err.message && err.message.includes('Proxy numbers')) {
+      return res.status(400).json({ error: 'This project needs to be in Testing/Draft mode on RumbleUp to send test messages. Live or Archived projects cannot send tests. Create a new Draft project or switch this one to Testing mode on the RumbleUp dashboard.' });
+    }
+    res.status(400).json({ error: err.message || 'Test send failed.' });
+  }
+}));
+
 router.post('/rumbleup/projects', asyncHandler(async (req, res) => {
   const ru = getRumbleUp();
   const { name, message, group, campaignId, proxy } = req.body;
