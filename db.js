@@ -1010,10 +1010,11 @@ try {
   db.exec("ALTER TABLE saved_qr_codes ADD COLUMN scan_count INTEGER DEFAULT 0");
 }
 
-// Step 1: Link orphaned walk_addresses (voter_id IS NULL) to voters by matching address
+// Step 1: Link orphaned walk_addresses (voter_id IS NULL) to voters by multiple strategies
 try {
   const orphans = db.prepare(`
-    SELECT wa.id, UPPER(TRIM(wa.address)) as addr, UPPER(TRIM(wa.city)) as city
+    SELECT wa.id, wa.address, wa.city, wa.voter_name,
+      UPPER(TRIM(wa.address)) as addr_upper, UPPER(TRIM(wa.city)) as city_upper
     FROM walk_addresses wa
     WHERE wa.voter_id IS NULL AND wa.address != ''
   `).all();
@@ -1021,16 +1022,35 @@ try {
     const updAddr = db.prepare('UPDATE walk_addresses SET voter_id = ? WHERE id = ?');
     let linked = 0;
     for (const o of orphans) {
-      // Try exact match on address + city
-      const voter = db.prepare(`
+      let voter = null;
+      // Strategy 1: Exact address + city match
+      voter = db.prepare(`
         SELECT id FROM voters WHERE UPPER(TRIM(address)) = ? AND UPPER(TRIM(city)) = ? LIMIT 1
-      `).get(o.addr, o.city);
+      `).get(o.addr_upper, o.city_upper);
+      // Strategy 2: Address contains match (handles "123 Main St" vs "123 Main Street")
+      if (!voter && o.addr_upper) {
+        voter = db.prepare(`
+          SELECT id FROM voters WHERE UPPER(TRIM(address)) LIKE ? AND UPPER(TRIM(city)) = ? LIMIT 1
+        `).get(o.addr_upper.split(' ').slice(0, 3).join(' ') + '%', o.city_upper);
+      }
+      // Strategy 3: Match by voter name (first + last)
+      if (!voter && o.voter_name) {
+        const parts = o.voter_name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const first = parts[0].toUpperCase();
+          const last = parts[parts.length - 1].toUpperCase();
+          voter = db.prepare(`
+            SELECT id FROM voters WHERE UPPER(TRIM(first_name)) = ? AND UPPER(TRIM(last_name)) = ? LIMIT 1
+          `).get(first, last);
+        }
+      }
       if (voter) {
         updAddr.run(voter.id, o.id);
         linked++;
       }
     }
     if (linked > 0) console.log('[migrate] Linked ' + linked + ' orphaned walk_addresses to voters (of ' + orphans.length + ' total orphans)');
+    else if (orphans.length > 0) console.log('[migrate] Found ' + orphans.length + ' orphaned walk_addresses but could not match any to voters');
   }
 } catch(e) { console.error('[migrate] link orphans error:', e.message); }
 
@@ -1055,13 +1075,29 @@ try {
     if (!latest[r.voter_id]) latest[r.voter_id] = r.result;
   }
   let count = 0;
+  const countByLevel = {};
   // Update ALL voters with walk results — most recent walk result wins
   const upd = db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?");
   for (const [vid, result] of Object.entries(latest)) {
     const lvl = resultToSupport[result];
-    if (lvl) { const r = upd.run(lvl, vid); count += r.changes; }
+    if (lvl) {
+      const r = upd.run(lvl, vid);
+      count += r.changes;
+      countByLevel[lvl] = (countByLevel[lvl] || 0) + 1;
+    }
   }
-  if (count > 0) console.log('[migrate] Synced ' + count + ' voters with support_level from walk results');
+  // Also count walk_attempts that have no voter_id link (orphans that didn't get matched)
+  const orphanAttempts = db.prepare(`
+    SELECT wt.result, COUNT(*) as cnt FROM walk_attempts wt
+    JOIN walk_addresses wa ON wt.address_id = wa.id
+    WHERE wa.voter_id IS NULL
+      AND wt.result IN ('support','lean_support','undecided','lean_oppose','oppose','refused')
+    GROUP BY wt.result
+  `).all();
+  console.log('[migrate] Support sync: ' + count + ' voters updated. Breakdown:', JSON.stringify(countByLevel));
+  if (orphanAttempts.length > 0) {
+    console.log('[migrate] WARNING: ' + orphanAttempts.reduce((s,r) => s + r.cnt, 0) + ' walk attempts still have no voter_id link:', JSON.stringify(orphanAttempts));
+  }
 } catch(e) { console.error('[migrate] backfill error:', e.message); }
 
 // Migrate existing texting_volunteers and walkers into unified table (one-time)
