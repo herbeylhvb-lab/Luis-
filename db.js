@@ -1081,24 +1081,33 @@ try {
   }
 } catch(e) { console.error('[migrate] link orphans error:', e.message); }
 
-// Step 2: Sync support_level from latest walk_attempts result for ALL voters
-// This overwrites previous support_level with the most recent walk result
+// Step 2: Sync support_level from walk_addresses result for ALL voters
+// Uses walk_addresses.result directly (not walk_attempts) because household logging
+// updates all walk_address rows at an address, but only creates 1 walk_attempt
 try {
   const resultToSupport = {
     'support': 'strong_support', 'lean_support': 'lean_support',
     'undecided': 'undecided', 'lean_oppose': 'lean_oppose',
     'oppose': 'strong_oppose', 'refused': 'refused'
   };
-  // Get latest walk result per voter (most recent attempt wins)
-  const rows = db.prepare(`
-    SELECT wa.voter_id, wt.result FROM walk_attempts wt
+  // Source 1: walk_addresses.result (covers household members)
+  const addrRows = db.prepare(`
+    SELECT wa.voter_id, wa.result, wa.knocked_at FROM walk_addresses wa
+    WHERE wa.voter_id IS NOT NULL
+      AND wa.result IN ('support','lean_support','undecided','lean_oppose','oppose','refused')
+    ORDER BY wa.knocked_at DESC
+  `).all();
+  // Source 2: walk_attempts (covers individual door knocks)
+  const attemptRows = db.prepare(`
+    SELECT wa.voter_id, wt.result, wt.attempted_at as knocked_at FROM walk_attempts wt
     JOIN walk_addresses wa ON wt.address_id = wa.id
     WHERE wa.voter_id IS NOT NULL
       AND wt.result IN ('support','lean_support','undecided','lean_oppose','oppose','refused')
     ORDER BY wt.attempted_at DESC
   `).all();
+  // Merge: most recent result per voter wins
   const latest = {};
-  for (const r of rows) {
+  for (const r of [...addrRows, ...attemptRows]) {
     if (!latest[r.voter_id]) latest[r.voter_id] = r.result;
   }
   let count = 0;
