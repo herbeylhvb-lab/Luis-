@@ -14087,7 +14087,7 @@ async function searchGotvChase() {
   var precinct = document.getElementById('gotvPrecinctFilter').value;
   var hasPhone = document.getElementById('gotvPhoneFilter').value;
   try {
-    var data = await api('/api/gotv/chase?support=' + encodeURIComponent(support) + '&precinct=' + encodeURIComponent(precinct) + '&has_phone=' + hasPhone + '&limit=500');
+    var data = await api('/api/gotv/chase?support=' + encodeURIComponent(support) + '&precinct=' + encodeURIComponent(precinct) + '&has_phone=' + hasPhone);
     var el = document.getElementById('gotvChaseResults');
     el.style.display = 'block';
     document.getElementById('gotvChaseCount').textContent = data.count || 0;

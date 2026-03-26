@@ -71,7 +71,8 @@ router.get('/voters', (req, res) => {
   }
   if (early_voting === 'voted') { sql += ' AND voters.early_voted = 1'; }
   else if (early_voting === 'not_voted') { sql += ' AND voters.early_voted = 0'; }
-  sql += ' ORDER BY voters.last_name, voters.first_name LIMIT 500';
+  const limit = parseInt(req.query.limit, 10) || 500;
+  sql += ' ORDER BY voters.last_name, voters.first_name LIMIT ' + limit;
   const voters = db.prepare(sql).all(...params);
 
   // Compute touchpoint counts and engagement scores in bulk
