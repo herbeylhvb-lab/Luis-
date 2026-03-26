@@ -1633,6 +1633,8 @@ tr:hover td{background:#1e293b80}
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
             <button class="btn btn-sm" style="background:#f59e0b;border-color:#d97706;color:#000" onclick="exportRumbleUpCSV()">📱 Export for RumbleUp</button>
+            <button class="btn btn-sm" style="background:#1877f2;border-color:#1564bf" onclick="exportFacebookCSV()">📘 Facebook Audience</button>
+            <button class="btn btn-sm" style="background:#ff6b35;border-color:#e55a2b" onclick="exportOTTCSV()">📺 OTT / CTV Export</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
             <button class="btn btn-sm" style="background:#ef4444;border-color:#dc2626" onclick="inviteListToEvent()">📅 Invite to Event</button>
             <button class="btn btn-sm" style="background:#3b82f6;border-color:#2563eb" onclick="emailThisList()">📧 Email This List</button>
@@ -10743,6 +10745,8 @@ window.buildUniverse = async function() {
         '<button class="btn" style="background:#ef4444;border-color:#dc2626;color:#fff" onclick="inviteUniverseToEvent(' + listId + ')">Invite to Event</button>' +
         '<button class="btn" style="background:#0ea5e9;border-color:#0284c7;color:#fff" onclick="broadcastToUniverse(' + listId + ')">Text This List</button>' +
         '<a class="btn" style="background:#7c3aed;border-color:#6d28d9;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv">Download Mailing List</a>' +
+        '<a class="btn" style="background:#1877f2;border-color:#1564bf;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-facebook">📘 Facebook Audience</a>' +
+        '<a class="btn" style="background:#ff6b35;border-color:#e55a2b;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-ott">📺 OTT / CTV Export</a>' +
         '<button class="btn btn-primary" onclick="viewUniverseList(' + listId + ')">View List</button>' +
         '</div>';
     }
@@ -12835,6 +12839,8 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       '<h4 style="margin:0;color:#e2e8f0">' + escHtml(listName) + '</h4>' +
       '<div style="display:flex;gap:6px">' +
       '<a class="btn btn-sm btn-primary" style="text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv">Download Mailing List</a>' +
+      '<a class="btn btn-sm" style="background:#1877f2;border-color:#1564bf;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-facebook">📘 Facebook</a>' +
+      '<a class="btn btn-sm" style="background:#ff6b35;border-color:#e55a2b;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-ott">📺 OTT</a>' +
       '<button class="btn btn-sm btn-secondary" onclick="document.querySelector(\'[data-subtab=lists-tab]\').click();setTimeout(function(){openAdminList(' + listId + ',\'' + escHtml(listName).replace(/'/g, "\\'") + '\')},200)">View Voters</button>' +
       '</div></div>';
 
@@ -13215,10 +13221,27 @@ function csvEsc(val) {
 window.exportRumbleUpCSV = function() {
   var listId = state.currentAdminListId;
   if (!listId) return;
-  // Direct download via the server endpoint
   var link = document.createElement('a');
   link.href = '/api/admin-lists/' + listId + '/export-rumbleup';
   link.download = 'rumbleup_contacts.csv';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
+
+window.exportFacebookCSV = function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  var link = document.createElement('a');
+  link.href = '/api/admin-lists/' + listId + '/export-facebook';
+  link.download = 'facebook_audience.csv';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
+
+window.exportOTTCSV = function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  var link = document.createElement('a');
+  link.href = '/api/admin-lists/' + listId + '/export-ott';
+  link.download = 'ott_targeting.csv';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 

@@ -491,4 +491,88 @@ router.post('/admin-lists/:id/create-walk', (req, res) => {
   }
 });
 
+// ========== FACEBOOK CUSTOM AUDIENCE EXPORT ==========
+router.get('/admin-lists/:id/export-facebook', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // Facebook Custom Audience CSV format: email, phone, fn, ln, zip, ct, st, country
+  // All values must be lowercase, trimmed. Phone must be digits with country code.
+  const voters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.phone, v.email,
+           v.address, v.city, COALESCE(v.state, 'TX') as state, v.zip
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+
+  if (voters.length === 0) return res.status(404).json({ error: 'No voters in this list.' });
+
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+
+  const header = 'email,phone,fn,ln,zip,ct,st,country';
+  const rows = voters.map(v => {
+    const phone = (v.phone || '').replace(/\D/g, '');
+    const phoneFormatted = phone.length === 10 ? '1' + phone : phone;
+    return [
+      (v.email || '').toLowerCase().trim(),
+      phoneFormatted,
+      (v.first_name || '').toLowerCase().trim(),
+      (v.last_name || '').toLowerCase().trim(),
+      (v.zip || '').trim().substring(0, 5),
+      (v.city || '').toLowerCase().trim(),
+      (v.state || 'tx').toLowerCase().trim(),
+      'us'
+    ].map(csvEscape).join(',');
+  });
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_facebook_audience.csv"');
+  res.send(csv);
+});
+
+// ========== OTT / EL TORO / CTV EXPORT ==========
+router.get('/admin-lists/:id/export-ott', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // OTT/El Toro format: full address for IP matching
+  // They need: First Name, Last Name, Full Address, City, State, Zip
+  const voters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.address, v.city,
+           COALESCE(v.state, 'TX') as state, v.zip, v.phone, v.email,
+           v.precinct, v.party, v.gender, v.age
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
+    ORDER BY v.zip, v.city, v.address
+  `).all(req.params.id);
+
+  if (voters.length === 0) return res.status(404).json({ error: 'No voters with addresses in this list.' });
+
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+
+  const header = 'first_name,last_name,address,city,state,zip,phone,email,precinct,party,gender,age';
+  const rows = voters.map(v => [
+    v.first_name, v.last_name, v.address, v.city, v.state,
+    (v.zip || '').substring(0, 5), (v.phone || '').replace(/\D/g, ''),
+    v.email, v.precinct, v.party, v.gender, v.age
+  ].map(csvEscape).join(','));
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_ott_targeting.csv"');
+  res.send(csv);
+});
+
 module.exports = router;
