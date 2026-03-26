@@ -2254,7 +2254,8 @@ router.post('/universe/build', (req, res) => {
 router.post('/universe/preview', (req, res) => {
   const { precincts, years_back, selected_elections,
           genders, age_min, age_max, cities, school_districts, college_districts,
-          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
