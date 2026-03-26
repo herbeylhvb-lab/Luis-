@@ -1047,13 +1047,13 @@ router.post('/walks/:id/addresses', (req, res) => {
   const { addresses } = req.body;
   if (!addresses || !addresses.length) return res.status(400).json({ error: 'No addresses provided.' });
   const insert = db.prepare(
-    'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const addMany = db.transaction((list) => {
     let i = 0;
     for (const a of list) {
       if (a.address) {
-        insert.run(req.params.id, a.address, a.unit || '', a.city || '', a.zip || '', a.voter_name || '', i++);
+        insert.run(req.params.id, a.address, a.unit || '', a.city || '', a.zip || '', a.voter_name || '', a.voter_id || null, i++);
       }
     }
     return i;

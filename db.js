@@ -1010,7 +1010,32 @@ try {
   db.exec("ALTER TABLE saved_qr_codes ADD COLUMN scan_count INTEGER DEFAULT 0");
 }
 
-// Backfill: sync support_level from latest walk_attempts result for all voters
+// Step 1: Link orphaned walk_addresses (voter_id IS NULL) to voters by matching address
+try {
+  const orphans = db.prepare(`
+    SELECT wa.id, UPPER(TRIM(wa.address)) as addr, UPPER(TRIM(wa.city)) as city
+    FROM walk_addresses wa
+    WHERE wa.voter_id IS NULL AND wa.address != ''
+  `).all();
+  if (orphans.length > 0) {
+    const updAddr = db.prepare('UPDATE walk_addresses SET voter_id = ? WHERE id = ?');
+    let linked = 0;
+    for (const o of orphans) {
+      // Try exact match on address + city
+      const voter = db.prepare(`
+        SELECT id FROM voters WHERE UPPER(TRIM(address)) = ? AND UPPER(TRIM(city)) = ? LIMIT 1
+      `).get(o.addr, o.city);
+      if (voter) {
+        updAddr.run(voter.id, o.id);
+        linked++;
+      }
+    }
+    if (linked > 0) console.log('[migrate] Linked ' + linked + ' orphaned walk_addresses to voters (of ' + orphans.length + ' total orphans)');
+  }
+} catch(e) { console.error('[migrate] link orphans error:', e.message); }
+
+// Step 2: Sync support_level from latest walk_attempts result for ALL voters
+// This overwrites previous support_level with the most recent walk result
 try {
   const resultToSupport = {
     'support': 'strong_support', 'lean_support': 'lean_support',
@@ -1030,12 +1055,13 @@ try {
     if (!latest[r.voter_id]) latest[r.voter_id] = r.result;
   }
   let count = 0;
-  const upd = db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ? AND (support_level IS NULL OR support_level = '' OR support_level = 'unknown')");
+  // Update ALL voters with walk results — most recent walk result wins
+  const upd = db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?");
   for (const [vid, result] of Object.entries(latest)) {
     const lvl = resultToSupport[result];
     if (lvl) { const r = upd.run(lvl, vid); count += r.changes; }
   }
-  if (count > 0) console.log('[migrate] Backfilled ' + count + ' voters with support_level from walk results');
+  if (count > 0) console.log('[migrate] Synced ' + count + ' voters with support_level from walk results');
 } catch(e) { console.error('[migrate] backfill error:', e.message); }
 
 // Migrate existing texting_volunteers and walkers into unified table (one-time)
