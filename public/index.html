@@ -2463,6 +2463,26 @@ tr:hover td{background:#1e293b80}
       <h2>📈 Google Trends Explorer</h2>
       <p style="color:#94a3b8;margin-bottom:16px">Search any topic and see what voters in your area are looking for. Compare issues, track trending topics, and discover what's on voters' minds.</p>
 
+      <!-- Trending Now -->
+      <div class="card" style="border:1px solid #7c3aed">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0">🔥 Trending Now</h3>
+          <button class="btn btn-sm" onclick="loadTrendingNow()" style="background:#334155;border-color:#475569">Refresh</button>
+        </div>
+        <div id="trending-now" style="color:#94a3b8">Loading trending topics...</div>
+      </div>
+
+      <!-- Daily Trending Searches -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0">📊 Daily Trending Searches</h3>
+          <select id="trending-geo" class="form-control" onchange="loadDailyTrending()" style="background:#0f172a;border-color:#334155;color:#e2e8f0;width:auto">
+            <option value="US" selected>United States</option>
+          </select>
+        </div>
+        <div id="daily-trending" style="color:#94a3b8">Loading...</div>
+      </div>
+
       <!-- Search Bar -->
       <div class="card">
         <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:end">
@@ -2944,6 +2964,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'gotv') { loadGotvPage(); }
     if (page === 'analytics') { loadAnalyticsPage(); }
     if (page === 'rumbleup') { rumbleupRefresh(); }
+    if (page === 'trends') { initTrends(); }
     // Combined pages — load data for the active sub-tab
     if (page === 'texting') {
       var tt = (document.querySelector('#textingSubTabs .sub-tab.active') || {}).dataset;
@@ -13325,6 +13346,76 @@ window.exportOTTCSV = function() {
 // ===================== GOOGLE TRENDS =====================
 
 var trendsChartInstance = null;
+var trendsLoaded = false;
+
+function initTrends() {
+  if (trendsLoaded) return;
+  trendsLoaded = true;
+  loadTrendingNow();
+  loadDailyTrending();
+}
+
+async function loadTrendingNow() {
+  var el = document.getElementById('trending-now');
+  el.innerHTML = '<span style="color:#f59e0b">Loading real-time trends...</span>';
+  try {
+    var data = await api('/api/trends/realtime');
+    if (!data.stories || data.stories.length === 0) {
+      el.innerHTML = '<span style="color:#64748b">No trending stories right now</span>';
+      return;
+    }
+    var html = '<div style="display:grid;gap:8px">';
+    data.stories.slice(0, 15).forEach(function(s, i) {
+      html += '<div style="background:#0f172a;padding:10px 14px;border-radius:8px;border-left:3px solid ' + (i < 3 ? '#ef4444' : i < 7 ? '#f59e0b' : '#334155') + '">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<span style="color:#e2e8f0;font-weight:600;font-size:14px">' + escHtml(s.title) + '</span>' +
+          '<span style="color:#64748b;font-size:11px">#' + (i + 1) + '</span>' +
+        '</div>';
+      if (s.articles && s.articles.length > 0) {
+        html += '<div style="margin-top:4px">';
+        s.articles.slice(0, 2).forEach(function(a) {
+          html += '<a href="' + escHtml(a.url) + '" target="_blank" style="color:#818cf8;font-size:12px;display:block">' + escHtml(a.title || a.source) + '</a>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<span style="color:#ef4444">Failed to load: ' + escHtml(e.message) + '</span>';
+  }
+}
+
+async function loadDailyTrending() {
+  var el = document.getElementById('daily-trending');
+  var geo = document.getElementById('trending-geo').value;
+  el.innerHTML = '<span style="color:#f59e0b">Loading daily trends...</span>';
+  try {
+    var data = await api('/api/trends/daily?geo=' + geo);
+    if (!data.searches || data.searches.length === 0) {
+      el.innerHTML = '<span style="color:#64748b">No daily trending searches found</span>';
+      return;
+    }
+    var html = '<div style="display:grid;gap:6px">';
+    data.searches.forEach(function(s, i) {
+      html += '<div style="background:#0f172a;padding:10px 14px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById(\'trends-keyword\').value=\'' + escHtml(s.title).replace(/'/g, "\\'") + '\';searchTrends()">' +
+        '<div>' +
+          '<span style="color:#64748b;font-size:12px;margin-right:8px">' + (i + 1) + '.</span>' +
+          '<span style="color:#e2e8f0;font-size:14px">' + escHtml(s.title) + '</span>';
+      if (s.relatedQueries && s.relatedQueries.length > 0) {
+        html += '<div style="margin-top:2px"><span style="color:#64748b;font-size:11px">Related: ' + s.relatedQueries.slice(0, 3).map(escHtml).join(', ') + '</span></div>';
+      }
+      html += '</div>' +
+        '<span style="color:#10b981;font-size:12px;font-weight:700;white-space:nowrap">' + escHtml(s.traffic) + '</span>' +
+      '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<span style="color:#ef4444">Failed to load: ' + escHtml(e.message) + '</span>';
+  }
+}
 
 function quickTrend(keyword) {
   document.getElementById('trends-keyword').value = keyword;

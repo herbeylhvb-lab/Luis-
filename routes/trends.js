@@ -143,4 +143,36 @@ router.get('/trends/realtime', async (req, res) => {
   }
 });
 
+// Daily trending searches
+router.get('/trends/daily', async (req, res) => {
+  try {
+    const { geo } = req.query;
+    const results = await googleTrends.dailyTrends({
+      trendDate: new Date(),
+      geo: geo || 'US'
+    });
+    const parsed = JSON.parse(results);
+    const days = parsed.default?.trendingSearchesDays || [];
+    const searches = [];
+    days.forEach(day => {
+      (day.trendingSearches || []).forEach(s => {
+        searches.push({
+          title: s.title?.query || '',
+          traffic: s.formattedTraffic || '',
+          articles: (s.articles || []).slice(0, 2).map(a => ({
+            title: a.title,
+            url: a.url,
+            source: a.source
+          })),
+          relatedQueries: (s.relatedQueries || []).map(r => r.query).slice(0, 5)
+        });
+      });
+    });
+
+    res.json({ searches: searches.slice(0, 25) });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Failed to fetch daily trends' });
+  }
+});
+
 module.exports = router;
