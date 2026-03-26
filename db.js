@@ -1010,10 +1010,10 @@ try {
   db.exec("ALTER TABLE saved_qr_codes ADD COLUMN scan_count INTEGER DEFAULT 0");
 }
 
-// Step 1: Link orphaned walk_addresses (voter_id IS NULL) to voters by multiple strategies
+// Step 1: Link ALL orphaned walk_addresses (voter_id IS NULL) to voters
 try {
   const orphans = db.prepare(`
-    SELECT wa.id, wa.address, wa.city, wa.voter_name,
+    SELECT wa.id, wa.address, wa.city, wa.voter_name, wa.unit,
       UPPER(TRIM(wa.address)) as addr_upper, UPPER(TRIM(wa.city)) as city_upper
     FROM walk_addresses wa
     WHERE wa.voter_id IS NULL AND wa.address != ''
@@ -1021,27 +1021,55 @@ try {
   if (orphans.length > 0) {
     const updAddr = db.prepare('UPDATE walk_addresses SET voter_id = ? WHERE id = ?');
     let linked = 0;
+    let strategies = { name_addr: 0, exact_addr: 0, partial_addr: 0, name_only: 0 };
     for (const o of orphans) {
       let voter = null;
-      // Strategy 1: Exact address + city match
-      voter = db.prepare(`
-        SELECT id FROM voters WHERE UPPER(TRIM(address)) = ? AND UPPER(TRIM(city)) = ? LIMIT 1
-      `).get(o.addr_upper, o.city_upper);
-      // Strategy 2: Address contains match (handles "123 Main St" vs "123 Main Street")
-      if (!voter && o.addr_upper) {
-        voter = db.prepare(`
-          SELECT id FROM voters WHERE UPPER(TRIM(address)) LIKE ? AND UPPER(TRIM(city)) = ? LIMIT 1
-        `).get(o.addr_upper.split(' ').slice(0, 3).join(' ') + '%', o.city_upper);
-      }
-      // Strategy 3: Match by voter name (first + last)
+      // Strategy 1: voter_name contains "FirstName LastName" — match both name AND address
       if (!voter && o.voter_name) {
         const parts = o.voter_name.trim().split(/\s+/);
         if (parts.length >= 2) {
           const first = parts[0].toUpperCase();
           const last = parts[parts.length - 1].toUpperCase();
           voter = db.prepare(`
-            SELECT id FROM voters WHERE UPPER(TRIM(first_name)) = ? AND UPPER(TRIM(last_name)) = ? LIMIT 1
-          `).get(first, last);
+            SELECT id FROM voters
+            WHERE UPPER(TRIM(first_name)) = ? AND UPPER(TRIM(last_name)) = ?
+              AND UPPER(TRIM(address)) = ?
+            LIMIT 1
+          `).get(first, last, o.addr_upper);
+          if (voter) strategies.name_addr++;
+        }
+      }
+      // Strategy 2: Exact address + city
+      if (!voter) {
+        voter = db.prepare(`
+          SELECT id FROM voters WHERE UPPER(TRIM(address)) = ? AND UPPER(TRIM(city)) = ? LIMIT 1
+        `).get(o.addr_upper, o.city_upper);
+        if (voter) strategies.exact_addr++;
+      }
+      // Strategy 3: First 3 words of address (handles St vs Street, Ave vs Avenue)
+      if (!voter && o.addr_upper) {
+        const words = o.addr_upper.split(/\s+/).slice(0, 3).join(' ');
+        if (words.length > 5) {
+          voter = db.prepare(`
+            SELECT id FROM voters WHERE UPPER(TRIM(address)) LIKE ? AND UPPER(TRIM(city)) = ? LIMIT 1
+          `).get(words + '%', o.city_upper);
+          if (voter) strategies.partial_addr++;
+        }
+      }
+      // Strategy 4: Match by voter name only (last resort — may have duplicates)
+      if (!voter && o.voter_name) {
+        const parts = o.voter_name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const first = parts[0].toUpperCase();
+          const last = parts[parts.length - 1].toUpperCase();
+          // Only use name-only if there's exactly 1 match (avoid ambiguity)
+          const matches = db.prepare(`
+            SELECT id FROM voters WHERE UPPER(TRIM(first_name)) = ? AND UPPER(TRIM(last_name)) = ?
+          `).all(first, last);
+          if (matches.length === 1) {
+            voter = matches[0];
+            strategies.name_only++;
+          }
         }
       }
       if (voter) {
@@ -1049,8 +1077,7 @@ try {
         linked++;
       }
     }
-    if (linked > 0) console.log('[migrate] Linked ' + linked + ' orphaned walk_addresses to voters (of ' + orphans.length + ' total orphans)');
-    else if (orphans.length > 0) console.log('[migrate] Found ' + orphans.length + ' orphaned walk_addresses but could not match any to voters');
+    console.log('[migrate] Linked ' + linked + ' orphaned walk_addresses to voters (of ' + orphans.length + ' total). Strategies:', JSON.stringify(strategies));
   }
 } catch(e) { console.error('[migrate] link orphans error:', e.message); }
 
