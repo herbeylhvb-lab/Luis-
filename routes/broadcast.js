@@ -140,7 +140,7 @@ router.get('/gotv/stats', (req, res) => {
 
   const supportersNotVoted = (db.prepare(`
     SELECT COUNT(*) as c FROM voters
-    WHERE early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter')${raceFilter}
+    WHERE early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter', 'support')${raceFilter}
   `).get(...raceParams) || { c: 0 }).c;
 
   const bySupport = db.prepare(`
@@ -153,7 +153,7 @@ router.get('/gotv/stats', (req, res) => {
     SELECT precinct, COUNT(*) as total,
       SUM(CASE WHEN early_voted = 1 THEN 1 ELSE 0 END) as voted,
       SUM(CASE WHEN early_voted != 1 THEN 1 ELSE 0 END) as not_voted,
-      SUM(CASE WHEN early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter') THEN 1 ELSE 0 END) as supporters_remaining
+      SUM(CASE WHEN early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter', 'support') THEN 1 ELSE 0 END) as supporters_remaining
     FROM voters WHERE precinct != ''${raceFilter}
     GROUP BY precinct ORDER BY supporters_remaining DESC
   `).all(...raceParams);

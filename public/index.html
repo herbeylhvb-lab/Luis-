@@ -2411,13 +2411,12 @@ tr:hover td{background:#1e293b80}
         <div class="form-row-3" style="margin-bottom:16px">
           <div class="form-group"><label>Support Level</label>
             <div id="gotvSupportFilter" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:6px 8px;max-height:120px;overflow-y:auto">
-              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="strong_support" checked style="accent-color:#22c55e"> Strong Support</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="strong_support" checked style="accent-color:#22c55e"> Support</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="lean_support" checked style="accent-color:#22c55e"> Lean Support</label>
-              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="supporter" checked style="accent-color:#22c55e"> Supporter</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="undecided" style="accent-color:#f59e0b"> Undecided</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="unknown" style="accent-color:#64748b"> Unknown</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="lean_oppose" style="accent-color:#ef4444"> Lean Oppose</label>
-              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="strong_oppose" style="accent-color:#ef4444"> Strong Oppose</label>
+              <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="strong_oppose" style="accent-color:#ef4444"> Oppose</label>
               <label style="display:block;font-size:12px;color:#e2e8f0;cursor:pointer;padding:2px 0"><input type="checkbox" class="gotv-support-cb" value="refused" style="accent-color:#ef4444"> Refused</label>
             </div>
           </div>
@@ -14445,7 +14444,7 @@ async function searchGotvChase() {
     }
     tbody.innerHTML = data.voters.map(function(v) {
       var sl = v.support_level || 'unknown';
-      var slCls = sl === 'strong_support' || sl === 'lean_support' || sl === 'supporter' ? 'badge-green' : (sl === 'undecided' || sl === 'unknown' ? 'badge-yellow' : 'badge-gray');
+      var slCls = sl === 'strong_support' || sl === 'lean_support' || sl === 'support' ? 'badge-green' : (sl === 'undecided' || sl === 'unknown' ? 'badge-yellow' : (sl === 'refused' ? 'badge-red' : 'badge-gray'));
       var slLabel = sl.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
       return '<tr style="cursor:pointer" onclick="showVoterModal(' + v.id + ')" onmouseover="this.style.background=\'#1e293b\'" onmouseout="this.style.background=\'\'"><td style="color:#818cf8;font-weight:600">' + escHtml(v.first_name + ' ' + v.last_name) + '</td><td>' + escHtml(v.phone || '--') + '</td><td class="chase-addr" style="font-size:12px">' + escHtml(v.address || '') + (v.city ? ', ' + escHtml(v.city) : '') + '</td><td>' + escHtml(v.precinct || '--') + '</td><td><span class="badge ' + slCls + '" style="white-space:nowrap">' + escHtml(slLabel) + '</span></td><td>' + escHtml(v.party_score || v.party || '--') + '</td></tr>';
     }).join('');
