@@ -812,6 +812,10 @@ router.get('/voters/filter-options', (req, res) => {
     state_reps: opt('state_rep'),
     state_senates: opt('state_senate'),
     us_congress: opt('us_congress'),
+    county_commissioners: opt('county_commissioner'),
+    justice_of_peace: opt('justice_of_peace'),
+    state_board_eds: opt('state_board_ed'),
+    hospital_districts: opt('hospital_district'),
     parties: db.prepare("SELECT DISTINCT party_voted as v FROM election_votes WHERE party_voted != '' AND party_voted IS NOT NULL ORDER BY party_voted").all().map(r => r.v),
     voter_statuses: opt('voter_status'),
   });
@@ -843,6 +847,43 @@ router.get('/voters/race-precincts', (req, res) => {
     ...mapCol('justice_of_peace', 'Justice of the Peace'),
   ];
   res.json({ races });
+});
+
+// Get all distinct values for a district column
+router.get('/voters/district-values', (req, res) => {
+  const validCols = ['navigation_port','port_authority','county_commissioner','justice_of_peace',
+    'state_board_ed','state_rep','state_senate','us_congress','city_district',
+    'school_district','college_district','hospital_district'];
+  const col = req.query.column;
+  if (!col || !validCols.includes(col)) return res.status(400).json({ error: 'Invalid column. Valid: ' + validCols.join(', ') });
+
+  const rows = db.prepare(`SELECT ${col} as value, COUNT(*) as count FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL GROUP BY ${col} ORDER BY ${col}`).all();
+  res.json({ column: col, values: rows });
+});
+
+// Get all district columns with their values for filters
+router.get('/voters/all-districts', (req, res) => {
+  const cols = [
+    { col: 'navigation_port', label: 'Navigation Port' },
+    { col: 'port_authority', label: 'Port Authority' },
+    { col: 'county_commissioner', label: 'County Commissioner' },
+    { col: 'justice_of_peace', label: 'Justice of the Peace' },
+    { col: 'state_board_ed', label: 'State Board of Education' },
+    { col: 'state_rep', label: 'State Representative' },
+    { col: 'state_senate', label: 'State Senate' },
+    { col: 'us_congress', label: 'US Congress' },
+    { col: 'city_district', label: 'City' },
+    { col: 'school_district', label: 'School District' },
+    { col: 'college_district', label: 'College District' },
+    { col: 'hospital_district', label: 'Hospital District' }
+  ];
+
+  const districts = cols.map(c => {
+    const rows = db.prepare(`SELECT ${c.col} as value, COUNT(*) as count FROM voters WHERE ${c.col} != '' AND ${c.col} IS NOT NULL GROUP BY ${c.col} ORDER BY count DESC`).all();
+    return { column: c.col, label: c.label, values: rows };
+  }).filter(d => d.values.length > 0);
+
+  res.json({ districts });
 });
 
 // Precinct voter counts with full filter support
@@ -1988,7 +2029,8 @@ function buildStep1Filter(filters) {
   const clauses = [];
   const params = [];
   const { precincts, genders, age_min, age_max, cities, school_districts, college_districts,
-          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = filters;
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts } = filters;
 
   // Handle precincts: "*" means all, string with GLOB means LIKE, array means IN
   if (precincts && precincts !== '*') {
@@ -2036,6 +2078,26 @@ function buildStep1Filter(filters) {
     clauses.push('us_congress IN (' + us_congress.map(() => '?').join(',') + ')');
     params.push(...us_congress);
   }
+  if (county_commissioners && county_commissioners.length > 0) {
+    clauses.push('county_commissioner IN (' + county_commissioners.map(() => '?').join(',') + ')');
+    params.push(...county_commissioners);
+  }
+  if (justice_of_peace && justice_of_peace.length > 0) {
+    clauses.push('justice_of_peace IN (' + justice_of_peace.map(() => '?').join(',') + ')');
+    params.push(...justice_of_peace);
+  }
+  if (state_senate && state_senate.length > 0) {
+    clauses.push('state_senate IN (' + state_senate.map(() => '?').join(',') + ')');
+    params.push(...state_senate);
+  }
+  if (state_board_ed && state_board_ed.length > 0) {
+    clauses.push('state_board_ed IN (' + state_board_ed.map(() => '?').join(',') + ')');
+    params.push(...state_board_ed);
+  }
+  if (hospital_districts && hospital_districts.length > 0) {
+    clauses.push('hospital_district IN (' + hospital_districts.map(() => '?').join(',') + ')');
+    params.push(...hospital_districts);
+  }
   if (voter_statuses && voter_statuses.length > 0) {
     clauses.push('voter_status IN (' + voter_statuses.map(() => '?').join(',') + ')');
     params.push(...voter_statuses);
@@ -2061,13 +2123,15 @@ router.post('/universe/build', (req, res) => {
   const { precincts, years_back, election_cycles, priority_elections, selected_elections,
           list_name, list_name_universe, list_name_sub, list_name_priority,
           genders, age_min, age_max, cities, school_districts, college_districts,
-          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses } = req.body;
+          navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
-    state_reps, us_congress, parties, min_elections, voter_statuses });
+    state_reps, us_congress, parties, min_elections, voter_statuses,
+    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
 
@@ -2196,7 +2260,8 @@ router.post('/universe/preview', (req, res) => {
 
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
-    state_reps, us_congress, parties, min_elections, voter_statuses });
+    state_reps, us_congress, parties, min_elections, voter_statuses,
+    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
   const elecNames = (selected_elections || []).filter(n => n && n.trim());

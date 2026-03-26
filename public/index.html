@@ -1733,6 +1733,30 @@ tr:hover td{background:#1e293b80}
             <div><label style="font-size:12px;color:#94a3b8;font-weight:600">College District</label>
             <div id="filterCollege" style="margin-top:4px"></div></div>
           </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+            <!-- County Commissioner -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">County Commissioner</label>
+            <div id="filterCountyComm" style="margin-top:4px"></div></div>
+            <!-- Justice of the Peace -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Justice of the Peace</label>
+            <div id="filterJP" style="margin-top:4px"></div></div>
+            <!-- State Senate -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">State Senate</label>
+            <div id="filterStateSenate" style="margin-top:4px"></div></div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+            <!-- State Board of Ed -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">State Board of Education</label>
+            <div id="filterStateBoardEd" style="margin-top:4px"></div></div>
+            <!-- US Congress -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">US Congress</label>
+            <div id="filterUSCongress" style="margin-top:4px"></div></div>
+            <!-- Hospital District -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Hospital District</label>
+            <div id="filterHospital" style="margin-top:4px"></div></div>
+          </div>
         </div>
 
         <!-- Elections Summary -->
@@ -10581,6 +10605,12 @@ function renderFilterOptions() {
   checkboxes('filterNavPort', fo.navigation_ports || [], 'filter-navport-cb');
   checkboxes('filterPortAuth', fo.port_authorities || [], 'filter-portauth-cb');
   checkboxes('filterCollege', fo.college_districts || [], 'filter-college-cb');
+  checkboxes('filterCountyComm', fo.county_commissioners || [], 'filter-countycomm-cb');
+  checkboxes('filterJP', fo.justice_of_peace || [], 'filter-jp-cb');
+  checkboxes('filterStateSenate', fo.state_senates || [], 'filter-statesenate-cb');
+  checkboxes('filterStateBoardEd', fo.state_board_eds || [], 'filter-stateboarded-cb');
+  checkboxes('filterUSCongress', fo.us_congress || [], 'filter-uscongress-cb');
+  checkboxes('filterHospital', fo.hospital_districts || [], 'filter-hospital-cb');
 }
 
 window.applyRacePrecincts = function() {
@@ -10615,6 +10645,12 @@ function getSelectedFilters() {
     navigation_ports: checked('filter-navport-cb'),
     port_authorities: checked('filter-portauth-cb'),
     college_districts: checked('filter-college-cb'),
+    county_commissioners: checked('filter-countycomm-cb'),
+    justice_of_peace: checked('filter-jp-cb'),
+    state_senate: checked('filter-statesenate-cb'),
+    state_board_ed: checked('filter-stateboarded-cb'),
+    us_congress: checked('filter-uscongress-cb'),
+    hospital_districts: checked('filter-hospital-cb'),
     age_min: ageMin ? parseInt(ageMin) : null,
     age_max: ageMax ? parseInt(ageMax) : null,
     min_elections: minElections ? parseInt(minElections) : null
@@ -10766,6 +10802,11 @@ function buildUniversePayload() {
   if (filters.min_elections) payload.min_elections = filters.min_elections;
   if (filters.voter_statuses.length) payload.voter_statuses = filters.voter_statuses;
   if (filters.us_congress && filters.us_congress.length) payload.us_congress = filters.us_congress;
+  if (filters.county_commissioners && filters.county_commissioners.length) payload.county_commissioners = filters.county_commissioners;
+  if (filters.justice_of_peace && filters.justice_of_peace.length) payload.justice_of_peace = filters.justice_of_peace;
+  if (filters.state_senate && filters.state_senate.length) payload.state_senate = filters.state_senate;
+  if (filters.state_board_ed && filters.state_board_ed.length) payload.state_board_ed = filters.state_board_ed;
+  if (filters.hospital_districts && filters.hospital_districts.length) payload.hospital_districts = filters.hospital_districts;
   var selectedElecNames = selectedElections;
   return { payload, precincts, yearsBack, selectedElecNames };
 }
