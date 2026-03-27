@@ -883,6 +883,7 @@ function getListApiBase() {
 var _currentListVoters = [];
 var _currentListTab = 'all';
 var _currentRaceTab = 'all';
+var _currentP26Tab = 'all';
 var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
 
 // Multi-select state
@@ -1336,6 +1337,34 @@ function renderListVoters() {
     el.appendChild(raceBar);
   }
 
+  // P26 Primary / Runoff eligibility filter
+  var demCount = voters.filter(function(v) { return v.p26_party === 'DEM'; }).length;
+  var repCount = voters.filter(function(v) { return v.p26_party === 'REP'; }).length;
+  var noP26Count = voters.filter(function(v) { return !v.p26_party; }).length;
+  if (demCount > 0 || repCount > 0) {
+    var p26Bar = document.createElement('div');
+    p26Bar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
+    var p26lbl = document.createElement('span');
+    p26lbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
+    p26lbl.textContent = 'P26 Runoff:';
+    p26Bar.appendChild(p26lbl);
+    var p26Tabs = [
+      ['all', 'All', '#e2e8f0'],
+      ['dem', 'DEM (' + demCount + ')', '#3b82f6'],
+      ['rep', 'REP (' + repCount + ')', '#ef4444'],
+      ['none', 'Didn\'t Vote (' + noP26Count + ')', '#f59e0b']
+    ];
+    p26Tabs.forEach(function(o) {
+      var btn = document.createElement('button');
+      var isActive = (_currentP26Tab || 'all') === o[0];
+      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:' + o[2] + ';color:#000;border-color:' + o[2] + ';font-weight:700' : 'background:#1e293b;color:#94a3b8');
+      btn.textContent = o[1];
+      btn.addEventListener('click', function() { _currentP26Tab = o[0]; renderListVoters(); });
+      p26Bar.appendChild(btn);
+    });
+    el.appendChild(p26Bar);
+  }
+
   // Filter voters by tab
   var filtered = voters;
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
@@ -1343,6 +1372,10 @@ function renderListVoters() {
   // Apply race filter
   if (rt && rv && _currentRaceTab === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
   else if (rt && rv && _currentRaceTab === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
+  // Apply P26 runoff filter
+  if (_currentP26Tab === 'dem') filtered = filtered.filter(function(v) { return v.p26_party === 'DEM'; });
+  else if (_currentP26Tab === 'rep') filtered = filtered.filter(function(v) { return v.p26_party === 'REP'; });
+  else if (_currentP26Tab === 'none') filtered = filtered.filter(function(v) { return !v.p26_party; });
 
   // Prune selection to only include voters in the current filtered set
   filtered.forEach(function(v) { filteredIds.add(v.id); });
@@ -1395,6 +1428,11 @@ function renderListVoters() {
     var row = document.createElement('div');
     row.className = 'right-voter' + (_selectedVoterIds.has(v.id) ? ' selected' : '');
     if (isChild) row.style.cssText = (row.style.cssText || '') + ';border-left:3px solid #3b82f6;margin-left:16px;background:#0f172a';
+    // P26 party highlight
+    if (_currentP26Tab !== 'all' && v.p26_party) {
+      if (v.p26_party === 'DEM') row.style.borderLeft = '4px solid #3b82f6';
+      else if (v.p26_party === 'REP') row.style.borderLeft = '4px solid #ef4444';
+    }
     row.id = 'vrow_' + v.id;
     row.draggable = true;
     row.addEventListener('dragstart', (function(vid) { return function(e) { onVoterDragStart(e, vid); }; })(v.id));
