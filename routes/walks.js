@@ -83,19 +83,19 @@ function countDoors(addresses) {
   return { total: total, knocked: knocked, remaining: total - knocked };
 }
 
-// Build household members from walk_addresses — groups by street address (NOT unit)
-// so ALL residents at the same building address are shown together, each with their unit number
+// Build household members from walk_addresses — groups by street address + unit
+// so residents in the SAME unit are shown together (roommates/family), not the whole building
 function buildHouseholdFromWalkAddresses(addresses) {
   if (!addresses || !addresses.length) return;
   const grouped = {};
   for (const addr of addresses) {
-    // Group by street address + city only — NOT unit. This keeps all apt residents together.
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    // Group by street address + unit + city — keeps apartment units separate
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(addr);
   }
   for (const addr of addresses) {
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
     const others = grouped[key].filter(a => a.id !== addr.id && (a.voter_name || '').trim());
     addr.household = others.map(a => {
       const parts = (a.voter_name || '').trim().split(' ');
@@ -1030,15 +1030,17 @@ router.get('/walks', (req, res) => {
 
 // Create a walk
 router.post('/walks', (req, res) => {
-  const { name, description, assigned_to } = req.body;
+  const { name, description, assigned_to, candidate_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Walk name is required.' });
   const joinCode = generateAlphaCode(4);
   const result = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code) VALUES (?, ?, ?, ?)'
-  ).run(name, description || '', assigned_to || '', joinCode);
-  // Auto-assign all active walkers to the new walk
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, candidate_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(name, description || '', assigned_to || '', joinCode, candidate_id || null);
+  // Auto-assign walkers from same candidate to the new walk
   const walkId = result.lastInsertRowid;
-  const activeWalkers = db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1').all();
+  const activeWalkers = candidate_id
+    ? db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1 AND candidate_id = ?').all(candidate_id)
+    : db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1').all();
   const insertMember = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
   for (const w of activeWalkers) {
     insertMember.run(walkId, w.name, w.id, w.phone || '');
@@ -1703,7 +1705,7 @@ router.post('/walks/:id/route/save', (req, res) => {
 
 // Auto-create a walk populated with voters from selected precincts
 router.post('/walks/from-precinct', (req, res) => {
-  const { precincts, name, description, filters } = req.body;
+  const { precincts, name, description, filters, candidate_id } = req.body;
   if (!precincts || !precincts.length) return res.status(400).json({ error: 'At least one precinct is required.' });
 
   // Build voter query with optional filters
@@ -1741,8 +1743,8 @@ router.post('/walks/from-precinct', (req, res) => {
   const walkName = name || ('Precinct Walk: ' + precincts.join(', '));
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}));
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json, candidate_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}), candidate_id || null);
   const walkId = walkResult.lastInsertRowid;
 
   // Add voter addresses to the walk, linked to voter_id for auto-contact-logging
@@ -1772,7 +1774,7 @@ router.post('/walks/from-precinct', (req, res) => {
 
 // Auto-create a walk from selected voter IDs (from the main voter list)
 router.post('/walks/from-voters', (req, res) => {
-  const { voter_ids, name, description } = req.body;
+  const { voter_ids, name, description, candidate_id } = req.body;
   if (!voter_ids || !voter_ids.length) return res.status(400).json({ error: 'No voters selected.' });
 
   const placeholders = voter_ids.map(() => '?').join(',');
@@ -1788,8 +1790,8 @@ router.post('/walks/from-voters', (req, res) => {
     : 'Walk from voter list (' + voters.length + ' addresses)');
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code) VALUES (?, ?, ?, ?)'
-  ).run(walkName, description || '', '', joinCode);
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, candidate_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(walkName, description || '', '', joinCode, candidate_id || null);
   const walkId = walkResult.lastInsertRowid;
 
   const insert = db.prepare(

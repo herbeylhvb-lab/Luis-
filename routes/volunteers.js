@@ -177,9 +177,13 @@ router.post('/volunteers/login', (req, res) => {
         db.prepare(`UPDATE walk_group_members SET walker_id = ?, phone = COALESCE(NULLIF(phone, ''), ?)
           WHERE walker_name = ? AND (walker_id IS NULL OR walker_id != ?)`).run(walkerId, vol.phone || '', vol.name, walkerId);
 
+        // Only auto-assign to walks for the same candidate (or unclaimed walks)
+        const walkerRec = db.prepare('SELECT candidate_id FROM walkers WHERE id = ?').get(walkerId);
+        const candId = walkerRec ? walkerRec.candidate_id : null;
         const unassigned = db.prepare(`SELECT bw.id FROM block_walks bw
           WHERE bw.status != 'completed'
-          AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ? OR walker_name = ?)`).all(walkerId, vol.name);
+          AND (bw.candidate_id IS NULL OR bw.candidate_id = ?)
+          AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ? OR walker_name = ?)`).all(candId, walkerId, vol.name);
         if (unassigned.length > 0) {
           const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
           for (const w of unassigned) { ins.run(w.id, vol.name, walkerId, vol.phone || ''); }
@@ -213,14 +217,14 @@ router.post('/volunteers/create-walk', (req, res) => {
   }
 
   // Verify the walker exists
-  const walker = db.prepare('SELECT id, name, phone FROM walkers WHERE id = ?').get(walkerId);
+  const walker = db.prepare('SELECT id, name, phone, candidate_id FROM walkers WHERE id = ?').get(walkerId);
   if (!walker) return res.status(404).json({ error: 'Walker not found.' });
 
-  // Create the walk
+  // Create the walk — stamp it with the walker's candidate
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, join_code) VALUES (?, ?, ?)'
-  ).run(walkName.trim(), '', joinCode);
+    'INSERT INTO block_walks (name, description, join_code, candidate_id, created_by_walker_id) VALUES (?, ?, ?, ?, ?)'
+  ).run(walkName.trim(), '', joinCode, walker.candidate_id || null, walker.id);
   const walkId = walkResult.lastInsertRowid;
 
   // Add addresses — parse unit from address string for proper apartment grouping
@@ -232,10 +236,10 @@ router.post('/volunteers/create-walk', (req, res) => {
     insAddr.run(walkId, parsed.street || addr.address.trim(), parsed.unit || '', addr.city || '', addr.zip || '', addr.voter_name || '', order++);
   }
 
-  // Assign all active walkers (including this one)
-  const activeWalkers = db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1').all();
+  // Assign walkers from same candidate only (including this one)
+  const sameTeamWalkers = db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1 AND candidate_id = ?').all(walker.candidate_id || -1);
   const insMember = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
-  for (const w of activeWalkers) {
+  for (const w of sameTeamWalkers) {
     insMember.run(walkId, w.name, w.id, w.phone || '');
   }
 
