@@ -408,6 +408,7 @@ router.get('/admin-lists/:id/households', (req, res) => {
   const households = db.prepare(`
     SELECT
       TRIM(v.address) as address,
+      TRIM(COALESCE(v.unit,'')) as unit,
       TRIM(v.city) as city,
       TRIM(v.zip) as zip,
       v.precinct,
@@ -417,8 +418,8 @@ router.get('/admin-lists/:id/households', (req, res) => {
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ?
-    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
-    ORDER BY v.city, v.address
+    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.unit,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
+    ORDER BY v.city, v.address, v.unit
   `).all(req.params.id);
 
   res.json({ households, total_households: households.length });
@@ -431,11 +432,11 @@ router.post('/admin-lists/:id/create-walk', (req, res) => {
   const { name, split_by_precinct } = req.body || {};
 
   const voters = db.prepare(`
-    SELECT v.id, v.first_name, v.last_name, v.address, v.city, v.zip, v.phone, v.precinct
+    SELECT v.id, v.first_name, v.last_name, v.address, v.unit, v.city, v.zip, v.phone, v.precinct
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
-    ORDER BY v.precinct, v.address, v.last_name
+    ORDER BY v.precinct, v.address, v.unit, v.last_name
   `).all(req.params.id);
 
   if (voters.length === 0) return res.status(400).json({ error: 'List has no voters with addresses.' });
@@ -444,7 +445,7 @@ router.post('/admin-lists/:id/create-walk', (req, res) => {
   function genCode(len) { let c = ''; for (let i = 0; i < (len||6); i++) c += chars[Math.floor(Math.random() * chars.length)]; return c; }
 
   const insertAddr = db.prepare(
-    'INSERT INTO walk_addresses (walk_id, address, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   );
 
   if (split_by_precinct) {
@@ -469,7 +470,7 @@ router.post('/admin-lists/:id/create-walk', (req, res) => {
         let i = 0;
         for (const v of pVoters) {
           const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-          insertAddr.run(walkId, v.address, v.city || '', v.zip || '', voterName, v.id, i++);
+          insertAddr.run(walkId, v.address, v.unit || '', v.city || '', v.zip || '', voterName, v.id, i++);
         }
         walks.push({ walk_id: walkId, join_code: joinCode, walk_name: walkName, precinct, addresses: i });
       }
@@ -495,7 +496,7 @@ router.post('/admin-lists/:id/create-walk', (req, res) => {
       let i = 0;
       for (const v of voters) {
         const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
-        insertAddr.run(walkId, v.address, v.city || '', v.zip || '', voterName, v.id, i++);
+        insertAddr.run(walkId, v.address, v.unit || '', v.city || '', v.zip || '', voterName, v.id, i++);
         addedAddresses++;
       }
     });
