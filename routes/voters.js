@@ -400,11 +400,17 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
               prefix = prefix.toUpperCase();
 
               if (!prefix || /^\d/.test(elCode)) {
-                // Pure number like 525 = May 2025, 524 = May 2024, 516 = May 2016
-                const monthNum = elCode.charAt(0);
+                // Pure number: first digit = month, last 2 digits = year
+                // 525 = May 2025, 619 = Jun 2019, 516 = May 2016
+                const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const monthDigit = parseInt(elCode.charAt(0));
+                const yearPart = elCode.slice(-2);
+                const actualYear = parseInt(yearPart) > 50 ? '19' + yearPart : '20' + yearPart;
+                const monthName = monthNames[monthDigit] || 'May';
+                const monthPad = monthDigit < 10 ? '0' + monthDigit : String(monthDigit);
                 elType = 'local';
-                elName = 'Local May ' + fullYear;
-                elDate = fullYear + '-05-01';
+                elName = 'Local ' + monthName + ' ' + actualYear;
+                elDate = actualYear + '-' + monthPad + '-01';
               } else if (CC_CODE_MAP[prefix]) {
                 const info = CC_CODE_MAP[prefix];
                 elType = info.type;
@@ -446,12 +452,42 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           }
         }
 
-        // Update voter extra fields (unit, status, navigation district)
-        const unitVal = (v['Unit'] || v['unit'] || '').trim();
-        const statusVal = (v['Status'] || v['status'] || '').trim();
+        // Update voter extra fields
+        const rawUnit = (v['Unit'] || v['unit'] || '').trim();
+        const unitType = (v['Unit Type'] || v['unit_type'] || '').trim();
+        const unitVal = unitType && rawUnit ? unitType + ' ' + rawUnit : rawUnit;
+        const statusVal = (v['Status'] || v['status'] || v['voter_status'] || '').trim();
         const navVal = (v['NAVIGATION DISTRICT'] || v['NAVIGATION AND PORT DISTRICT'] || v['navigation_district'] || '').trim();
         if (unitVal || statusVal || navVal) {
           updateVoterExtra.run(unitVal, unitVal, statusVal, statusVal, navVal, navVal, voterId);
+        }
+
+        // Update additional district columns
+        const extraDistricts = {
+          court_of_appeals: (v['COURT OF APPEALS DISTRICT'] || '').trim(),
+          municipal_utility: (v['MUNICIPAL UTILITY'] || '').trim(),
+          water_district: (v['WATER'] || '').trim(),
+          college_single_member: (v['COLLEGE SINGLE MEMBER'] || v['COLLEGE.1'] || '').trim(),
+          not_incorporated: (v['NOT INCORPORATED'] || '').trim(),
+          single_member_city: (v['SINGLE MEMBER CITY'] || '').trim(),
+          drainage_district: (v['DRAINAGE DISTRICT'] || '').trim(),
+          school_board: (v['SCHOOLBOARD'] || '').trim(),
+          city_council: (v['CITYCOUNCIL'] || '').trim(),
+          constable: (v['CONSTABLE'] || v['CONSTA'] || '').trim(),
+          ballot_box: (v['BOX'] || '').trim(),
+          mailing_address: (v['Mailing Address'] || v['mailing_address'] || '').trim(),
+          mailing_city: (v['Mail City'] || v['mailing_city'] || '').trim(),
+          mailing_state: (v['Mail State'] || v['mailing_state'] || '').trim(),
+          mailing_zip: (v['Mail Zip Code5'] || v['mailing_zip'] || '').trim(),
+        };
+        const setClauses = [];
+        const setParams = [];
+        for (const [col, val] of Object.entries(extraDistricts)) {
+          if (val) { setClauses.push(col + " = ?"); setParams.push(val); }
+        }
+        if (setClauses.length > 0) {
+          setParams.push(voterId);
+          db.prepare('UPDATE voters SET ' + setClauses.join(', ') + ' WHERE id = ?').run(...setParams);
         }
 
         // Apply party data to matching election records
@@ -940,6 +976,13 @@ router.get('/voters/filter-options', (req, res) => {
     hospital_districts: opt('hospital_district'),
     parties: db.prepare("SELECT DISTINCT party_voted as v FROM election_votes WHERE party_voted != '' AND party_voted IS NOT NULL ORDER BY party_voted").all().map(r => r.v),
     voter_statuses: opt('voter_status'),
+    single_member_cities: opt('single_member_city'),
+    drainage_districts: opt('drainage_district'),
+    school_boards: opt('school_board'),
+    city_councils: opt('city_council'),
+    constables: opt('constable'),
+    court_of_appeals_dists: opt('court_of_appeals'),
+    not_incorporated_areas: opt('not_incorporated'),
   });
 });
 
@@ -2176,7 +2219,9 @@ function buildStep1Filter(filters) {
   const params = [];
   const { precincts, genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
-          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts } = filters;
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts,
+          single_member_cities, drainage_districts, school_boards, city_councils, constables,
+          court_of_appeals_dists, not_incorporated_areas } = filters;
 
   // Handle precincts: "*" means all, string with GLOB means LIKE, array means IN
   if (precincts && precincts !== '*') {

@@ -620,6 +620,74 @@ try {
   }
 } catch (e) { /* ignore */ }
 
+// --- Fix election name duplicates from Cameron County import ---
+try {
+  const renames = {
+    // Fix 3-digit codes that were parsed as "Local May XXX"
+    'Local May 619': 'Local Jun 2019', 'Local May 618': 'Local Jun 2018', 'Local May 616': 'Local Jun 2016',
+    'Local May 621': 'Local Jun 2021', 'Local May 623': 'Local Jun 2023',
+    'Local May 525': 'Local May 2025', 'Local May 524': 'Local May 2024', 'Local May 523': 'Local May 2023',
+    'Local May 522': 'Local May 2022', 'Local May 521': 'Local May 2021',
+    'Local May 519': 'Local May 2019', 'Local May 518': 'Local May 2018',
+    'Local May 517': 'Local May 2017', 'Local May 516': 'Local May 2016',
+    // Fix R6XX codes — Runoff Jun
+    'R625': 'Runoff Jun 2025', 'R624': 'Runoff Jun 2024', 'R622': 'Runoff Jun 2022',
+    // Fix other bad codes
+    'Special 2034': 'Special 2034', // keep as-is, might be a real code
+    'SPI24': 'Special Election SPI 2024',
+    'CDD5': 'Drainage District Election',
+  };
+  // Merge duplicates: keep shorter canonical name
+  const merges = {
+    'Primary Mar 2024': 'Primary 2024', 'Primary Mar 2022': 'Primary 2022',
+    'Primary Mar 2020': 'Primary 2020', 'Primary Mar 2018': 'Primary 2018',
+    'Primary Mar 2016': 'Primary 2016',
+    'Primary Runoff May 2024': 'Primary Runoff 2024', 'Primary Runoff May 2022': 'Primary Runoff 2022',
+    'Primary Runoff May 2018': 'Primary Runoff 2018',
+    'Primary Runoff Jul 2020': 'Primary Runoff 2020',
+    'General Nov 2024': 'General 2024', 'General Nov 2022': 'General 2022',
+    'General Nov 2020': 'General 2020', 'General Nov 2018': 'General 2018',
+    'General Nov 2016': 'General 2016',
+    'General Runoff 2024': 'General Runoff 2024',
+    'General Runoff 2020': 'General Runoff 2020',
+    'Local Jun 2023': 'Local Jun 2023', 'Local Jun 2021': 'Local Jun 2021',
+    'Local Jun 2019': 'Local Jun 2019', 'Local Jun 2018': 'Local Jun 2018',
+    'Local Jun 2016': 'Local Jun 2016',
+  };
+  const allRenames = { ...renames, ...merges };
+  const update = db.prepare('UPDATE OR IGNORE election_votes SET election_name = ? WHERE election_name = ?');
+  const deleteDup = db.prepare('DELETE FROM election_votes WHERE election_name = ? AND voter_id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)');
+  let renamed = 0;
+  for (const [old, newName] of Object.entries(allRenames)) {
+    if (old === newName) continue;
+    // First delete duplicates (where voter already has the target name)
+    deleteDup.run(old, newName);
+    const r = update.run(newName, old);
+    if (r.changes > 0) renamed += r.changes;
+  }
+  if (renamed > 0) console.log('[migrate] Renamed', renamed, 'election records to fix duplicate names');
+} catch (e) { console.error('[migrate] Election rename error:', e.message); }
+
+// --- Add remaining district columns ---
+addColumn("ALTER TABLE voters ADD COLUMN court_of_appeals TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN municipal_utility TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN water_district TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN college_single_member TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN not_incorporated TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN single_member_city TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN drainage_district TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN school_board TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN city_council TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN constable TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN ballot_box TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN mailing_address TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN mailing_city TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN mailing_state TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN mailing_zip TEXT DEFAULT ''");
+
+// Index for vote_method filtering
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_vote_method ON election_votes(vote_method)"); } catch (e) { /* exists */ }
+
 // Composite indexes for universe builder performance
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }
