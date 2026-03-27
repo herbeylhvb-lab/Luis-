@@ -414,7 +414,7 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           'CA19': { name: 'Constitutional Amendment 2019', date: '2019-11-05', type: 'special' },
           'SP26': { name: 'Special 2026', date: '2026-01-01', type: 'special' },
           'SP25': { name: 'Special 2025', date: '2025-01-01', type: 'special' },
-          'SP34': { name: 'Special 2034', date: '2034-01-01', type: 'special' },
+          'SP34': { name: 'Special Election CD34 2022', date: '2022-06-14', type: 'special' },
           'SPI24': { name: 'Special Election SPI 2024', date: '2024-01-20', type: 'special' },
           'R625': { name: 'Runoff Jun 2025', date: '2025-06-17', type: 'runoff' },
           'R624': { name: 'Runoff Jun 2024', date: '2024-06-18', type: 'runoff' },

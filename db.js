@@ -975,6 +975,9 @@ try {
     'Primary Runoff May 2024': 'Primary Runoff 2024', 'Primary Runoff May 2022': 'Primary Runoff 2022',
     'Primary Runoff May 2018': 'Primary Runoff 2018',
     'Primary Runoff Jul 2020': 'Primary Runoff 2020',
+    'Special 2034': 'Special Election CD34 2022',
+    'City/District Dec 5': 'General Runoff 2020',
+    'Drainage District Election': 'Drainage District 5 Election',
   };
   const renameStmt = db.prepare('UPDATE election_votes SET election_name = ? WHERE election_name = ?');
   const delDupStmt = db.prepare('DELETE FROM election_votes WHERE election_name = ? AND voter_id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)');
