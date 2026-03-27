@@ -153,6 +153,37 @@ router.post('/voters', requireAuth, voterCreateLimiter, (req, res) => {
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
+// Quick patch: update specific fields by registration_number
+router.post('/voters/patch-fields', requireAuth, (req, res) => {
+  const { voters } = req.body;
+  if (!voters || !Array.isArray(voters)) return res.status(400).json({ error: 'voters array required' });
+
+  const validCols = ['unit_type', 'single_member_city', 'city_council', 'drainage_district',
+    'school_board', 'constable', 'ballot_box', 'mailing_address', 'mailing_city',
+    'mailing_state', 'mailing_zip', 'college_single_member', 'not_incorporated'];
+
+  let updated = 0;
+  const tx = db.transaction(() => {
+    for (const v of voters) {
+      const regNum = v.registration_number || v.vuid;
+      if (!regNum) continue;
+      const setClauses = [];
+      const params = [];
+      for (const [col, val] of Object.entries(v)) {
+        if (col === 'registration_number' || col === 'vuid') continue;
+        if (!validCols.includes(col)) continue;
+        if (val && val.trim()) { setClauses.push(col + ' = ?'); params.push(val.trim()); }
+      }
+      if (setClauses.length === 0) continue;
+      params.push(regNum);
+      const r = db.prepare('UPDATE voters SET ' + setClauses.join(', ') + ' WHERE registration_number = ?').run(...params);
+      if (r.changes > 0) updated++;
+    }
+  });
+  tx();
+  res.json({ success: true, updated, total: voters.length });
+});
+
 // Bulk import voters
 router.post('/voters/import', requireAuth, importLimiter, (req, res) => {
   try {

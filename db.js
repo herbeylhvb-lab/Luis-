@@ -694,6 +694,8 @@ try {
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
 }, 5000); // run after server starts
 
+addColumn("ALTER TABLE voters ADD COLUMN unit_type TEXT DEFAULT ''");
+
 // --- Normalize district abbreviations to full names ---
 const districtRenames = [
   // Navigation districts
