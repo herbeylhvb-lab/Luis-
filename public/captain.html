@@ -2126,7 +2126,7 @@ async function showVoterDetail(voter) {
       bulkBtn.textContent = 'Adding...';
       bulkStatus.textContent = '';
       var isOnList = captainState.voters && captainState.voters.some(function(v) { return v.id == voter.id; });
-      var chain = isOnList ? Promise.resolve() : apiPost(getListApiBase() + '/voters', { voterIds: [voter.id] });
+      var chain = isOnList ? Promise.resolve() : apiPost(getListApiBase() + '/voters', { voter_id: voter.id });
       chain.then(function() {
         return apiPost(getListApiBase() + '/bulk-add-under', { identifiers: ids, parent_voter_id: voter.id });
       }).then(function(data) {
