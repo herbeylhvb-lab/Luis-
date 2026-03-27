@@ -1776,11 +1776,19 @@ tr:hover td{background:#1e293b80}
         <!-- Step 3: Election Targeting -->
         <div style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px">
           <h4 style="margin-bottom:4px;font-size:14px;color:#818cf8">Step 3: Election Targeting</h4>
-          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Click the elections you want to target. Voters who voted in <strong style="color:#e2e8f0">ANY</strong> of the selected elections will be included.</p>
-          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <p id="electionModeDesc" style="color:#64748b;font-size:12px;margin-bottom:8px">Click the elections you want to target. Voters who voted in <strong style="color:#e2e8f0">ANY</strong> of the selected elections will be included.</p>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
             <button onclick="selectAllElections()" style="background:#334155;border:none;border-radius:6px;padding:4px 10px;color:#94a3b8;font-size:11px;cursor:pointer">Select All</button>
             <button onclick="deselectAllElections()" style="background:#334155;border:none;border-radius:6px;padding:4px 10px;color:#94a3b8;font-size:11px;cursor:pointer">Clear All</button>
             <span id="electionSelCount" style="color:#818cf8;font-size:11px;line-height:26px"></span>
+            <span style="color:#334155;font-size:14px">|</span>
+            <div style="display:flex;align-items:center;gap:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:4px 10px">
+              <label style="font-size:11px;color:#94a3b8;cursor:pointer;white-space:nowrap" for="electionMatchMode">Match mode:</label>
+              <select id="electionMatchMode" onchange="updateElectionModeDesc()" style="background:#0f172a;border:1px solid #475569;border-radius:4px;padding:2px 6px;color:#e2e8f0;font-size:11px;cursor:pointer">
+                <option value="any">ANY election (OR)</option>
+                <option value="all">ALL elections (AND)</option>
+              </select>
+            </div>
           </div>
           <div id="electionGroupCards"></div>
         </div>
@@ -10854,12 +10862,24 @@ function hideProgress() {
   document.getElementById('universeProgressBar').style.display = 'none';
 }
 
+function updateElectionModeDesc() {
+  var mode = document.getElementById('electionMatchMode').value;
+  var desc = document.getElementById('electionModeDesc');
+  if (mode === 'all') {
+    desc.innerHTML = 'Click the elections you want to target. Only voters who voted in <strong style="color:#ef4444">ALL</strong> of the selected elections will be included.';
+  } else {
+    desc.innerHTML = 'Click the elections you want to target. Voters who voted in <strong style="color:#e2e8f0">ANY</strong> of the selected elections will be included.';
+  }
+}
+
 function buildUniversePayload() {
   var precincts = Array.from(document.querySelectorAll('.univ-precinct-cb:checked')).map(function(cb) { return cb.value; });
   var yearsBack = parseInt(document.getElementById('universeYearsBack').value) || 8;
   var selectedElections = getSelectedElections();
   var filters = getSelectedFilters();
+  var matchMode = document.getElementById('electionMatchMode').value;
   var payload = { precincts: precincts, years_back: yearsBack, selected_elections: selectedElections };
+  if (matchMode === 'all') payload.require_all_elections = true;
   if (filters.genders.length) payload.genders = filters.genders;
   if (filters.age_min) payload.age_min = filters.age_min;
   if (filters.age_max) payload.age_max = filters.age_max;
@@ -10902,8 +10922,9 @@ window.previewUniverse = async function() {
         '<div class="stat-card"><div class="label">Households</div><div class="value" style="color:#f59e0b">' + (data.households || 0).toLocaleString() + '</div><div class="sub">Unique addresses</div></div>' +
         '</div>';
     } else {
+      var isAllMode = b.payload.require_all_elections;
       var groupDesc = b.selectedElecNames.length > 0
-        ? 'Voted in ' + b.selectedElecNames.length + ' selected election' + (b.selectedElecNames.length > 1 ? 's' : '')
+        ? 'Voted in ' + (isAllMode ? 'ALL ' : 'ANY of ') + b.selectedElecNames.length + ' election' + (b.selectedElecNames.length > 1 ? 's' : '')
         : 'No election filters';
       el.innerHTML = '<div class="stats-grid">' +
         '<div class="stat-card"><div class="label">' + (b.precincts.length > 0 ? 'In Precincts' : 'Filtered Voters') + '</div><div class="value">' + data.total_in_precincts.toLocaleString() + '</div><div class="sub">Total registered</div></div>' +

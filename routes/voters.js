@@ -2437,7 +2437,7 @@ function buildStep1Filter(filters) {
 }
 
 router.post('/universe/build', (req, res) => {
-  const { precincts, years_back, election_cycles, priority_elections, selected_elections,
+  const { precincts, years_back, election_cycles, priority_elections, selected_elections, require_all_elections,
           list_name, list_name_universe, list_name_sub, list_name_priority,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
@@ -2491,8 +2491,7 @@ router.post('/universe/build', (req, res) => {
       WHERE ev.election_date >= ?`).run(cutoffDate);
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_universe').get() || { c: 0 }).c;
 
-    // Step 3: Election Targeting — voter voted in ANY of the selected elections (OR logic)
-    // If vote_methods is set, also filter by how they voted IN those elections
+    // Step 3: Election Targeting — OR or AND logic depending on require_all_elections
     let targetedCount = universeCount;
     db.exec('DROP TABLE IF EXISTS _univ_targeted');
     if (elecNames.length > 0) {
@@ -2508,9 +2507,19 @@ router.post('/universe/build', (req, res) => {
         targetParams.push(...parties);
       }
       db.exec('CREATE TEMP TABLE _univ_targeted (voter_id INTEGER PRIMARY KEY)');
-      db.prepare(`INSERT INTO _univ_targeted
-        SELECT DISTINCT voter_id FROM election_votes
-        WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...targetParams);
+      if (require_all_elections && elecNames.length > 1) {
+        // AND logic: voter must have voted in ALL selected elections
+        db.prepare(`INSERT INTO _univ_targeted
+          SELECT voter_id FROM election_votes
+          WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _univ_universe)
+          GROUP BY voter_id
+          HAVING COUNT(DISTINCT election_name) = ?`).run(...targetParams, elecNames.length);
+      } else {
+        // OR logic: voter voted in ANY selected election
+        db.prepare(`INSERT INTO _univ_targeted
+          SELECT DISTINCT voter_id FROM election_votes
+          WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...targetParams);
+      }
       targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
     } else if (vote_methods && vote_methods.length > 0 || parties && parties.length > 0) {
       let extraClauses = '';
@@ -2597,7 +2606,7 @@ router.post('/universe/build', (req, res) => {
 
 // Preview universe counts without creating lists
 router.post('/universe/preview', (req, res) => {
-  const { precincts, years_back, selected_elections,
+  const { precincts, years_back, selected_elections, require_all_elections,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
           county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods } = req.body;
@@ -2636,8 +2645,7 @@ router.post('/universe/preview', (req, res) => {
       WHERE ev.election_date >= ?`).run(cutoffDate);
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_universe').get() || { c: 0 }).c;
 
-    // Election targeting: voter voted in ANY of the selected elections (OR logic)
-    // If vote_methods or parties set, combine with election filter
+    // Election targeting: OR or AND logic depending on require_all_elections flag
     let targetedCount = universeCount;
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
@@ -2651,10 +2659,23 @@ router.post('/universe/preview', (req, res) => {
         extraClauses += ' AND party_voted IN (' + parties.map(() => '?').join(',') + ')';
         targetParams.push(...parties);
       }
-      targetedCount = (db.prepare(`
-        SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
-        WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _prev_universe)
-      `).get(...targetParams) || { c: 0 }).c;
+      if (require_all_elections && elecNames.length > 1) {
+        // AND logic: voter must have voted in ALL selected elections
+        targetedCount = (db.prepare(`
+          SELECT COUNT(*) as c FROM (
+            SELECT voter_id FROM election_votes
+            WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _prev_universe)
+            GROUP BY voter_id
+            HAVING COUNT(DISTINCT election_name) = ?
+          )
+        `).get(...targetParams, elecNames.length) || { c: 0 }).c;
+      } else {
+        // OR logic: voter voted in ANY selected election
+        targetedCount = (db.prepare(`
+          SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
+          WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _prev_universe)
+        `).get(...targetParams) || { c: 0 }).c;
+      }
     } else if (vote_methods && vote_methods.length > 0 || parties && parties.length > 0) {
       // No elections selected but vote method or party filter set
       let extraClauses = '';
@@ -2675,7 +2696,18 @@ router.post('/universe/preview', (req, res) => {
 
     // Count unique households based on address dedup
     let householdCount = totalInPrecincts;
-    if (elecNames.length > 0) {
+    if (elecNames.length > 0 && require_all_elections && elecNames.length > 1) {
+      // AND mode households
+      householdCount = (db.prepare(`
+        SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
+        FROM voters v
+        WHERE v.id IN (
+          SELECT voter_id FROM election_votes
+          WHERE election_name IN (${elecNames.map(() => '?').join(',')}) AND voter_id IN (SELECT voter_id FROM _prev_universe)
+          GROUP BY voter_id HAVING COUNT(DISTINCT election_name) = ?
+        )
+      `).get(...elecNames, elecNames.length) || { c: 0 }).c;
+    } else if (elecNames.length > 0) {
       householdCount = (db.prepare(`
         SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) as c
         FROM voters v
