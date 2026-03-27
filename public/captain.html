@@ -369,6 +369,10 @@ async function api(path, opts) {
   return res.json();
 }
 
+async function apiPut(path, body) {
+  return api(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
 // ===================== LOGIN =====================
 
 async function loginCaptain() {
@@ -1287,13 +1291,53 @@ function renderListVoters() {
   selectBar.appendChild(countSpan);
   el.appendChild(selectBar);
 
+  // Group by parent_voter_id for nesting
+  var topFiltered = filtered.filter(function(v) { return !v.parent_voter_id; });
+  var childrenOf = {};
   filtered.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
+      childrenOf[v.parent_voter_id].push(v);
+    }
+  });
+
+  function makeVoterRow(v, isChild) {
     var row = document.createElement('div');
     row.className = 'right-voter' + (_selectedVoterIds.has(v.id) ? ' selected' : '');
+    if (isChild) row.style.cssText = (row.style.cssText || '') + ';border-left:3px solid #3b82f6;margin-left:16px;background:#0f172a';
     row.id = 'vrow_' + v.id;
     row.draggable = true;
     row.addEventListener('dragstart', (function(vid) { return function(e) { onVoterDragStart(e, vid); }; })(v.id));
     row.addEventListener('dragend', (function(vid) { return function(e) { onVoterDragEnd(e, vid); }; })(v.id));
+
+    // Drop-on-voter to group
+    if (!isChild) {
+      row.addEventListener('dragover', function(e) { e.preventDefault(); row.style.outline = '2px solid #3b82f6'; });
+      row.addEventListener('dragleave', function() { row.style.outline = ''; });
+      row.addEventListener('drop', (function(targetId) { return function(e) {
+        e.preventDefault(); e.stopPropagation(); row.style.outline = '';
+        var draggedId = e.dataTransfer.getData('text/plain');
+        if (!draggedId || draggedId == targetId) return;
+        // Check if this was a list-to-list drag (has comma) — skip grouping for those
+        if (draggedId.indexOf(',') !== -1) return;
+        var url = getListApiBase() + '/voters/' + draggedId + '/parent';
+        apiPut(url, { parent_voter_id: targetId }).then(function() { loadListVoters(); }).catch(function(err) {
+          showToast('Could not group: ' + (err.message || err), 'error');
+        });
+      }; })(v.id));
+    }
+    if (isChild) {
+      // Click to ungroup
+      var unBtn = document.createElement('button');
+      unBtn.textContent = '↑';
+      unBtn.title = 'Ungroup';
+      unBtn.style.cssText = 'background:#475569;border:none;color:#e2e8f0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;margin-right:6px';
+      unBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        api(getListApiBase() + '/voters/' + v.id + '/parent', { method: 'DELETE' }).then(function() { loadListVoters(); });
+      });
+      row.appendChild(unBtn);
+    }
 
     // Checkbox
     var cb = document.createElement('input');
@@ -1362,7 +1406,17 @@ function renderListVoters() {
       row.appendChild(btn);
     }
 
-    el.appendChild(row);
+    return row;
+  }
+
+  // Render top-level voters with children nested underneath
+  topFiltered.forEach(function(v) {
+    el.appendChild(makeVoterRow(v, false));
+    if (childrenOf[v.id]) {
+      childrenOf[v.id].forEach(function(child) {
+        el.appendChild(makeVoterRow(child, true));
+      });
+    }
   });
 
   // Update floating bar state after render

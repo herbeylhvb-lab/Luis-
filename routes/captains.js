@@ -794,11 +794,11 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const voters = db.prepare(`
-    SELECT v.*, clv.added_at
+    SELECT v.*, clv.added_at, clv.parent_voter_id
     FROM captain_list_voters clv
     JOIN voters v ON clv.voter_id = v.id
     WHERE clv.list_id = ?
-    ORDER BY v.last_name, v.first_name
+    ORDER BY clv.parent_voter_id NULLS FIRST, v.last_name, v.first_name
   `).all(req.params.listId);
   // Attach election vote data (turnout tags)
   attachElectionVotes(voters);
@@ -845,6 +845,28 @@ router.delete('/captains/:id/lists/:listId/voters/:voterId', requireCaptainAuth,
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
+  res.json({ success: true });
+});
+
+// Set parent voter (group under another voter)
+router.put('/captains/:id/lists/:listId/voters/:voterId/parent', requireCaptainAuth, (req, res) => {
+  const { parent_voter_id } = req.body;
+  if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const child = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, req.params.voterId);
+  const parent = db.prepare('SELECT id, parent_voter_id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, parent_voter_id);
+  if (!child || !parent) return res.status(404).json({ error: 'Both voters must be on this list.' });
+  if (parent.parent_voter_id) return res.status(400).json({ error: 'Cannot nest under a sub-member.' });
+  db.prepare('UPDATE captain_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?').run(parent_voter_id, req.params.listId, req.params.voterId);
+  res.json({ success: true });
+});
+
+// Remove parent (ungroup)
+router.delete('/captains/:id/lists/:listId/voters/:voterId/parent', requireCaptainAuth, (req, res) => {
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  db.prepare('UPDATE captain_list_voters SET parent_voter_id = NULL WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
   res.json({ success: true });
 });
 
