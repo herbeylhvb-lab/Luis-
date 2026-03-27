@@ -784,7 +784,9 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const voters = db.prepare(`
-    SELECT v.*, clv.added_at, clv.parent_voter_id
+    SELECT v.*, clv.added_at, clv.parent_voter_id,
+      (SELECT ev.party_voted FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_party,
+      (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method
     FROM captain_list_voters clv
     JOIN voters v ON clv.voter_id = v.id
     WHERE clv.list_id = ?
@@ -1035,11 +1037,13 @@ router.get('/captains/:id/assigned-lists/:listId/voters', requireCaptainAuth, (r
   const list = verifyAssignedList(req.params.id, req.params.listId);
   if (!list) return res.status(404).json({ error: 'Assigned list not found.' });
   const voters = db.prepare(`
-    SELECT v.*, alv.added_at
+    SELECT v.*, alv.added_at, alv.parent_voter_id,
+      (SELECT ev.party_voted FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_party,
+      (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ?
-    ORDER BY v.last_name, v.first_name
+    ORDER BY alv.parent_voter_id NULLS FIRST, v.last_name, v.first_name
   `).all(req.params.listId);
   attachElectionVotes(voters);
   res.json({ voters });
