@@ -203,7 +203,7 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
   const households = db.prepare(`
     SELECT
       CASE WHEN TRIM(COALESCE(v.mailing_address,'')) != '' THEN TRIM(v.mailing_address) ELSE TRIM(v.address) END as address,
-      TRIM(COALESCE(v.mailing_unit, v.unit, '')) as unit,
+      TRIM(COALESCE(v.unit, '')) as unit,
       CASE WHEN TRIM(COALESCE(v.mailing_city,'')) != '' THEN TRIM(v.mailing_city) ELSE TRIM(v.city) END as city,
       CASE WHEN TRIM(COALESCE(v.mailing_state,'')) != '' THEN TRIM(v.mailing_state) ELSE COALESCE(TRIM(v.state), 'TX') END as state,
       CASE WHEN TRIM(COALESCE(v.mailing_zip,'')) != '' THEN TRIM(v.mailing_zip) ELSE TRIM(v.zip) END as zip,
@@ -215,7 +215,7 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
     GROUP BY LOWER(TRIM(CASE WHEN TRIM(COALESCE(v.mailing_address,'')) != '' THEN v.mailing_address ELSE v.address END)
-      || '|' || TRIM(COALESCE(v.mailing_unit, v.unit, ''))
+      || '|' || TRIM(COALESCE(v.unit, ''))
       || '|' || TRIM(CASE WHEN TRIM(COALESCE(v.mailing_city,'')) != '' THEN v.mailing_city ELSE v.city END)
       || '|' || TRIM(CASE WHEN TRIM(COALESCE(v.mailing_zip,'')) != '' THEN v.mailing_zip ELSE v.zip END))
     ORDER BY zip, city, address, unit
