@@ -198,12 +198,15 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
 
+  // Use mailing address when available, fall back to residential
+  // Group by mailing address + unit for apartment dedup
   const households = db.prepare(`
     SELECT
-      TRIM(v.address) as address,
-      TRIM(v.city) as city,
-      COALESCE(TRIM(v.state), 'TX') as state,
-      TRIM(v.zip) as zip,
+      CASE WHEN TRIM(COALESCE(v.mailing_address,'')) != '' THEN TRIM(v.mailing_address) ELSE TRIM(v.address) END as address,
+      TRIM(COALESCE(v.mailing_unit, v.unit, '')) as unit,
+      CASE WHEN TRIM(COALESCE(v.mailing_city,'')) != '' THEN TRIM(v.mailing_city) ELSE TRIM(v.city) END as city,
+      CASE WHEN TRIM(COALESCE(v.mailing_state,'')) != '' THEN TRIM(v.mailing_state) ELSE COALESCE(TRIM(v.state), 'TX') END as state,
+      CASE WHEN TRIM(COALESCE(v.mailing_zip,'')) != '' THEN TRIM(v.mailing_zip) ELSE TRIM(v.zip) END as zip,
       v.precinct,
       GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
       MIN(v.last_name) as last_name,
@@ -211,8 +214,11 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
-    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
-    ORDER BY v.zip, v.city, v.address
+    GROUP BY LOWER(TRIM(CASE WHEN TRIM(COALESCE(v.mailing_address,'')) != '' THEN v.mailing_address ELSE v.address END)
+      || '|' || TRIM(COALESCE(v.mailing_unit, v.unit, ''))
+      || '|' || TRIM(CASE WHEN TRIM(COALESCE(v.mailing_city,'')) != '' THEN v.mailing_city ELSE v.city END)
+      || '|' || TRIM(CASE WHEN TRIM(COALESCE(v.mailing_zip,'')) != '' THEN v.mailing_zip ELSE v.zip END))
+    ORDER BY zip, city, address, unit
   `).all(req.params.id);
 
   const csvEscape = (val) => {
@@ -220,11 +226,10 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
     return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
   };
 
-  const header = 'Name,Address,City,State,Zip,Precinct,Household Size';
+  const header = 'Name,Address,Unit,City,State,Zip,Precinct,Household Size';
   const rows = households.map(h => {
-    // Use "The [LastName] Family" for multi-person households, full name for single
     const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
-    return [name, h.address, h.city, h.state, h.zip, h.precinct, h.household_size].map(csvEscape).join(',');
+    return [name, h.address, h.unit, h.city, h.state, h.zip, h.precinct, h.household_size].map(csvEscape).join(',');
   });
   const csv = header + '\n' + rows.join('\n');
 

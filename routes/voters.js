@@ -1720,6 +1720,25 @@ router.post('/bulk-insert-election-votes', (req, res) => {
 });
 
 // Bulk update party_voted on existing election_votes records
+// Bulk update mailing addresses
+router.post('/bulk-update-mailing', (req, res) => {
+  const { updates } = req.body;
+  if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'updates array required' });
+  const findVoter = db.prepare('SELECT id FROM voters WHERE registration_number = ?');
+  const updateMail = db.prepare('UPDATE voters SET mailing_address = ?, mailing_unit = ?, mailing_city = ?, mailing_state = ?, mailing_zip = ? WHERE id = ?');
+  let updated = 0, notFound = 0;
+  const tx = db.transaction(() => {
+    for (const u of updates) {
+      const voter = findVoter.get(u.vuid);
+      if (!voter) { notFound++; continue; }
+      const r = updateMail.run(u.address || '', u.unit || '', u.city || '', u.state || '', u.zip || '', voter.id);
+      if (r.changes > 0) updated++;
+    }
+  });
+  tx();
+  res.json({ updated, notFound, processed: updates.length });
+});
+
 router.post('/bulk-update-party', (req, res) => {
   const { updates } = req.body;
   if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'updates array required' });
