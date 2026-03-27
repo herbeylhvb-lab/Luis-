@@ -694,6 +694,35 @@ try {
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
 }, 5000); // run after server starts
 
+// --- Normalize district abbreviations to full names ---
+const districtRenames = [
+  // Navigation districts
+  ['navigation_port', 'BND', 'Port of Brownsville'],
+  ['navigation_port', 'PIS', 'Port Isabel Navigation District'],
+  // Port authorities
+  ['port_authority', 'SAN', 'Port of San Benito'],
+  // School districts — abbreviations to full names
+  ['school_district', 'IBR', 'Brownsville ISD'],
+  ['school_district', 'IHG', 'Harlingen ISD'],
+  ['school_district', 'ILA', 'La Feria ISD'],
+  ['school_district', 'ILO', 'Los Fresnos ISD'],
+  ['school_district', 'ILY', 'Lyford ISD'],
+  ['school_district', 'IPI', 'Point Isabel ISD'],
+  ['school_district', 'IRH', 'Rio Hondo ISD'],
+  ['school_district', 'ISB', 'San Benito ISD'],
+  ['school_district', 'ISM', 'Santa Maria ISD'],
+  ['school_district', 'ISR', 'Santa Rosa ISD'],
+  // City abbreviations — only rename ones we're certain about
+  // CCB, CIL, CLO, CPI, CPV, CRH, CSR are Cameron County codes
+  // Keep as-is for now since they may represent unincorporated areas
+];
+for (const [col, abbrev, fullName] of districtRenames) {
+  try {
+    const r = db.prepare(`UPDATE voters SET ${col} = ? WHERE ${col} = ?`).run(fullName, abbrev);
+    if (r.changes > 0) console.log(`[migrate] Renamed ${col}: ${abbrev} → ${fullName} (${r.changes} voters)`);
+  } catch(e) {}
+}
+
 // --- Add remaining district columns ---
 addColumn("ALTER TABLE voters ADD COLUMN court_of_appeals TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN municipal_utility TEXT DEFAULT ''");
