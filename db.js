@@ -678,10 +678,19 @@ try {
   ];
   for (const name of emptyNames) {
     db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
-    // Also remove from elections definitions table
     db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
   }
-  console.log('[migrate] Cleaned up', emptyNames.length, 'empty duplicate election records');
+  // Also remove ALL election_votes records with 0 voters and ALL elections defs with no matching votes
+  const emptyElecs = db.prepare(`
+    SELECT election_name FROM elections
+    WHERE election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)
+  `).all();
+  if (emptyElecs.length > 0) {
+    const del = db.prepare('DELETE FROM elections WHERE election_name = ?');
+    for (const e of emptyElecs) del.run(e.election_name);
+    console.log('[migrate] Removed', emptyElecs.length, 'empty election definitions');
+  }
+  console.log('[migrate] Cleaned up duplicate and empty election records');
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
 }, 5000); // run after server starts
 
