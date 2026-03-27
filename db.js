@@ -657,30 +657,20 @@ try {
     'Local Jun 2016': 'Local Jun 2016',
   };
   const allRenames = { ...renames, ...merges };
-  const update = db.prepare('UPDATE OR IGNORE election_votes SET election_name = ? WHERE election_name = ?');
-  const deleteDup = db.prepare('DELETE FROM election_votes WHERE election_name = ? AND voter_id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)');
   let renamed = 0;
   for (const [old, newName] of Object.entries(allRenames)) {
     if (old === newName) continue;
-    // First delete duplicates (where voter already has the target name)
-    deleteDup.run(old, newName);
-    const r = update.run(newName, old);
+    // Step 1: Delete old-name records where voter already exists under new name
+    db.prepare('DELETE FROM election_votes WHERE election_name = ? AND voter_id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)').run(old, newName);
+    // Step 2: Rename remaining old-name records to new name
+    const r = db.prepare('UPDATE election_votes SET election_name = ? WHERE election_name = ?').run(newName, old);
     if (r.changes > 0) renamed += r.changes;
+    // Step 3: Force delete any remaining old-name records (stragglers)
+    db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(old);
+    db.prepare('DELETE FROM elections WHERE election_name = ?').run(old);
   }
-  if (renamed > 0) console.log('[migrate] Renamed', renamed, 'election records to fix duplicate names');
-  // Delete empty ghost records (0 voters) left after merge
-  const emptyNames = [
-    'General Nov 2024', 'Primary Runoff May 2024', 'Primary Mar 2024',
-    'General Nov 2022', 'Primary Runoff May 2022', 'Primary Mar 2022',
-    'General Nov 2020', 'Primary Runoff Jul 2020', 'Primary Mar 2020',
-    'General Nov 2018', 'Primary Runoff May 2018', 'Primary Mar 2018',
-    'General Nov 2016', 'Primary Mar 2016'
-  ];
-  for (const name of emptyNames) {
-    db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
-    db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
-  }
-  // Also remove ALL election_votes records with 0 voters and ALL elections defs with no matching votes
+  if (renamed > 0) console.log('[migrate] Renamed', renamed, 'election records');
+  // Remove all election definitions with no matching vote records
   const emptyElecs = db.prepare(`
     SELECT election_name FROM elections
     WHERE election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)
@@ -690,7 +680,13 @@ try {
     for (const e of emptyElecs) del.run(e.election_name);
     console.log('[migrate] Removed', emptyElecs.length, 'empty election definitions');
   }
-  console.log('[migrate] Cleaned up duplicate and empty election records');
+  // Remove election_votes with 0 voters (orphans)
+  const orphanElecs = db.prepare(`
+    SELECT DISTINCT election_name FROM election_votes
+    GROUP BY election_name HAVING COUNT(*) = 0
+  `).all();
+  for (const e of orphanElecs) db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(e.election_name);
+  console.log('[migrate] Election cleanup complete');
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
 }, 5000); // run after server starts
 
