@@ -687,6 +687,30 @@ try {
   `).all();
   for (const e of orphanElecs) db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(e.election_name);
   console.log('[migrate] Election cleanup complete');
+
+  // Check for empty columns
+  const colsToCheck = [
+    'email','state','secondary_phone','phone_type','phone_carrier','phone_validated_at',
+    'secondary_phone_type','secondary_phone_carrier','secondary_phone_validated_at',
+    'county_file_id','vanid','suffix','zip4','address_id','state_file_id',
+    'voting_history','early_voted_ballot','middle_name','qr_token',
+    'unit','unit_type','voter_status','navigation_district',
+    'court_of_appeals','municipal_utility','water_district','college_single_member',
+    'not_incorporated','single_member_city','drainage_district','school_board',
+    'city_council','constable','ballot_box','mailing_address','mailing_city',
+    'mailing_state','mailing_zip','hospital_district','party_score'
+  ];
+  const empty = [];
+  const hasData = [];
+  for (const col of colsToCheck) {
+    try {
+      const row = db.prepare("SELECT COUNT(*) as c FROM voters WHERE " + col + " IS NOT NULL AND " + col + " != ''").get();
+      if (row.c === 0) empty.push(col);
+      else hasData.push(col + '(' + row.c + ')');
+    } catch(e) { /* column might not exist */ }
+  }
+  console.log('[audit] Empty columns:', empty.join(', ') || 'none');
+  console.log('[audit] Columns with data:', hasData.join(', '));
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
 }, 5000); // run after server starts
 
