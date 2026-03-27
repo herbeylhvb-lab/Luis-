@@ -356,6 +356,18 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
         }
 
         // Format 2: Cameron County format — "Election01 Code", "Election01 Party Code", "Election01 Vote Type"
+        // Election codes are short: P26=Primary 2026, GN24=General Nov 2024, 525=May 2025, PR24=Primary Runoff 2024
+        // CA25=Constitutional Amendment 2025, SP25=Special 2025, R624=Runoff Jun 2024, CDD5=Drainage District
+        const CC_CODE_MAP = {
+          'P': { prefix: 'Primary', type: 'primary', month: '03' },
+          'GN': { prefix: 'General', type: 'general', month: '11' },
+          'PR': { prefix: 'Primary Runoff', type: 'runoff', month: '05' },
+          'GR': { prefix: 'General Runoff', type: 'runoff', month: '12' },
+          'CA': { prefix: 'Constitutional Amendment', type: 'special', month: '11' },
+          'SP': { prefix: 'Special', type: 'special', month: '01' },
+          'R6': { prefix: 'Runoff Jun', type: 'runoff', month: '06' },
+        };
+
         for (let eIdx = 1; eIdx <= 44; eIdx++) {
           const padded = eIdx < 10 ? '0' + eIdx : String(eIdx);
           const codeKey = 'Election' + padded + ' Code';
@@ -364,27 +376,50 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           const elCode = (v[codeKey] || '').trim();
           if (!elCode) continue;
 
-          // Election code looks like "11/03/2020 GENERAL" or "03/03/2020 PRIMARY"
-          const elParts = elCode.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(.+)$/);
+          // Skip if this is actually a vote type in the code field (EV, ED, Mail etc.)
+          const upperCode = elCode.toUpperCase();
+          if (['EV', 'ED', 'MAIL', 'VOTED EARLY', 'ELECTION DAY', 'PROVISIONAL', '1'].includes(upperCode)) continue;
+
           let elName, elDate, elType;
+
+          // Try date format first: "11/03/2020 GENERAL"
+          const elParts = elCode.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(.+)$/);
           if (elParts) {
             const [, month, day, year, type] = elParts;
             elDate = year + '-' + month + '-' + day;
             const typeUpper = type.toUpperCase();
             if (typeUpper.includes('PRIMARY')) { elType = 'primary'; elName = 'Primary ' + year; }
             else if (typeUpper.includes('GENERAL')) { elType = 'general'; elName = 'General ' + year; }
-            else if (typeUpper.includes('RUNOFF')) { elType = 'runoff'; elName = type + ' ' + year; }
-            else if (typeUpper.includes('SPECIAL')) { elType = 'special'; elName = type + ' ' + year; }
             else { elType = 'other'; elName = type + ' ' + year; }
-            // Include month for non-standard elections to differentiate May vs November
-            if (typeUpper.includes('LOCAL') || typeUpper.includes('MUNICIPAL') || typeUpper.includes('MAY') || typeUpper.includes('BOND') || typeUpper.includes('CONSTITUTIONAL') || typeUpper.includes('JOINT')) {
-              const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-              elName = type + ' ' + monthNames[parseInt(month)] + ' ' + year;
-            }
           } else {
-            elName = elCode;
-            elDate = '2000-01-01';
-            elType = 'other';
+            // Short code format: P26, GN24, 525, PR22, CA25, etc.
+            const shortMatch = elCode.match(/^([A-Z]*)(\d{2,4})$/i);
+            if (shortMatch) {
+              let [, prefix, yr] = shortMatch;
+              const fullYear = yr.length === 2 ? (parseInt(yr) > 50 ? '19' + yr : '20' + yr) : yr;
+              prefix = prefix.toUpperCase();
+
+              if (!prefix || /^\d/.test(elCode)) {
+                // Pure number like 525 = May 2025, 524 = May 2024, 516 = May 2016
+                const monthNum = elCode.charAt(0);
+                elType = 'local';
+                elName = 'Local May ' + fullYear;
+                elDate = fullYear + '-05-01';
+              } else if (CC_CODE_MAP[prefix]) {
+                const info = CC_CODE_MAP[prefix];
+                elType = info.type;
+                elName = info.prefix + ' ' + fullYear;
+                elDate = fullYear + '-' + info.month + '-01';
+              } else {
+                elType = 'other';
+                elName = elCode;
+                elDate = fullYear + '-01-01';
+              }
+            } else {
+              elName = elCode;
+              elDate = '2000-01-01';
+              elType = 'other';
+            }
           }
 
           const r = insertVote.run(voterId, elName, elDate, elType, '');
@@ -405,6 +440,7 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
             else if (vt === 'EV' || vt === 'VOTED EARLY' || vt === 'EARLY') method = 'early';
             else if (vt === 'ED' || vt === 'ELECTION DAY' || vt === 'IN PERSON') method = 'election_day';
             else if (vt === 'PROVISIONAL') method = 'provisional';
+            else if (vt === '1') method = 'voted';
             else method = voteType.toLowerCase();
             voteMethodData[elName] = method;
           }
