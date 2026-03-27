@@ -115,6 +115,44 @@ router.post('/admin-lists/:id/bulk-upload', (req, res) => {
   res.json(result);
 });
 
+// Bulk add voters by registration number and nest under a parent voter
+router.post('/admin-lists/:id/bulk-add-under', (req, res) => {
+  const { identifiers, parent_voter_id } = req.body;
+  if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
+  if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
+  const listId = req.params.id;
+
+  // Verify parent is on the list
+  const parentOnList = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(listId, parent_voter_id);
+  if (!parentOnList) return res.status(400).json({ error: 'Parent voter is not on this list.' });
+
+  const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ? LIMIT 1');
+  const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id, parent_voter_id) VALUES (?, ?, ?)');
+  const setParent = db.prepare('UPDATE admin_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?');
+
+  const bulkAdd = db.transaction((ids) => {
+    let added = 0, duplicates = 0, nested = 0;
+    const notFound = [];
+    for (const ident of ids) {
+      const trimmed = String(ident).trim();
+      if (!trimmed) continue;
+      const voter = lookup.get(trimmed, trimmed, trimmed);
+      if (!voter) { notFound.push(trimmed); continue; }
+      const r = insert.run(listId, voter.id, parent_voter_id);
+      if (r.changes > 0) { added++; nested++; }
+      else {
+        // Already on list — just update the parent
+        setParent.run(parent_voter_id, listId, voter.id);
+        duplicates++;
+        nested++;
+      }
+    }
+    return { added, duplicates, nested, notFound, total: ids.length };
+  });
+  const result = bulkAdd(identifiers);
+  res.json(result);
+});
+
 // Remove voter from list
 router.delete('/admin-lists/:id/voters/:voterId', (req, res) => {
   // Also unparent any children of this voter

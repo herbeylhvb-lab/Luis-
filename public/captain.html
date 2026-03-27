@@ -2051,9 +2051,68 @@ async function showVoterDetail(voter) {
     }
   });
 
+  // Bulk add household members by Voter ID
+  if (captainState.selectedListId) {
+    var bulkSection = document.createElement('div');
+    bulkSection.style.cssText = 'margin-top:12px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px';
+    var bulkTitle = document.createElement('div');
+    bulkTitle.style.cssText = 'font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px';
+    bulkTitle.textContent = 'Add Members Under ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
+    bulkSection.appendChild(bulkTitle);
+    var bulkDesc = document.createElement('div');
+    bulkDesc.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:8px';
+    bulkDesc.textContent = 'Paste Voter IDs (one per line or comma separated) to add them to the list grouped under this person.';
+    bulkSection.appendChild(bulkDesc);
+    var bulkInput = document.createElement('textarea');
+    bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:8px;font-size:13px;resize:vertical;min-height:60px';
+    bulkInput.placeholder = '1072190019\n2208627937\n1151026401';
+    bulkSection.appendChild(bulkInput);
+    var bulkBtnRow = document.createElement('div');
+    bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px';
+    var bulkBtn = document.createElement('button');
+    bulkBtn.className = 'btn btn-captain';
+    bulkBtn.style.cssText = 'font-size:13px;padding:6px 16px';
+    bulkBtn.textContent = '+ Add All Under ' + (voter.first_name || 'Voter');
+    var bulkStatus = document.createElement('span');
+    bulkStatus.style.cssText = 'font-size:12px;color:#94a3b8';
+    bulkBtn.addEventListener('click', function() {
+      var raw = bulkInput.value.trim();
+      if (!raw) return;
+      var ids = raw.split(/[\n,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+      if (ids.length === 0) return;
+      bulkBtn.disabled = true;
+      bulkBtn.textContent = 'Adding...';
+      bulkStatus.textContent = '';
+      var isOnList = captainState.voters && captainState.voters.some(function(v) { return v.id == voter.id; });
+      var chain = isOnList ? Promise.resolve() : apiPost(getListApiBase() + '/voters', { voterIds: [voter.id] });
+      chain.then(function() {
+        return apiPost(getListApiBase() + '/bulk-add-under', { identifiers: ids, parent_voter_id: voter.id });
+      }).then(function(data) {
+        bulkBtn.disabled = false;
+        bulkBtn.textContent = '+ Add All Under ' + (voter.first_name || 'Voter');
+        var msg = data.added + ' added, ' + data.nested + ' grouped';
+        if (data.notFound && data.notFound.length) msg += ', ' + data.notFound.length + ' not found';
+        if (data.duplicates) msg += ', ' + data.duplicates + ' already on list';
+        bulkStatus.textContent = msg;
+        bulkStatus.style.color = '#22c55e';
+        bulkInput.value = '';
+        loadListVoters();
+      }).catch(function(err) {
+        bulkBtn.disabled = false;
+        bulkBtn.textContent = '+ Add All Under ' + (voter.first_name || 'Voter');
+        bulkStatus.textContent = 'Error: ' + (err.message || err);
+        bulkStatus.style.color = '#ef4444';
+      });
+    });
+    bulkBtnRow.appendChild(bulkBtn);
+    bulkBtnRow.appendChild(bulkStatus);
+    bulkSection.appendChild(bulkBtnRow);
+    box.appendChild(bulkSection);
+  }
+
   // Buttons
   var btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:8px';
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px';
   var addBtn = document.createElement('button');
   addBtn.className = 'btn btn-captain';
   addBtn.textContent = captainState.selectedListId ? 'Add to ' + (captainState.selectedListName || 'List') : '+ Add to List';

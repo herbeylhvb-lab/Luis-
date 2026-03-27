@@ -744,6 +744,35 @@ router.post('/candidates/:id/lists/:listId/bulk-upload', requireCandidateAuth, (
   res.json({ added, duplicates, notFound, total: identifiers.length });
 });
 
+// Bulk add voters by ID and nest under a parent voter
+router.post('/candidates/:id/lists/:listId/bulk-add-under', requireCandidateAuth, (req, res) => {
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const { identifiers, parent_voter_id } = req.body;
+  if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
+  if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
+  const listId = req.params.listId;
+  const parentOnList = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(listId, parent_voter_id);
+  if (!parentOnList) return res.status(400).json({ error: 'Parent voter not on this list.' });
+  const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ?');
+  const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id, parent_voter_id) VALUES (?, ?, ?)');
+  const setParent = db.prepare('UPDATE admin_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?');
+  let added = 0, duplicates = 0, nested = 0, notFound = [];
+  const tx = db.transaction(() => {
+    for (const ident of identifiers) {
+      const trimmed = String(ident).trim();
+      if (!trimmed) continue;
+      const voter = lookup.get(trimmed, trimmed, trimmed);
+      if (!voter) { notFound.push(trimmed); continue; }
+      const r = insert.run(listId, voter.id, parent_voter_id);
+      if (r.changes) { added++; nested++; }
+      else { setParent.run(parent_voter_id, listId, voter.id); duplicates++; nested++; }
+    }
+  });
+  tx();
+  res.json({ added, duplicates, nested, notFound, total: identifiers.length });
+});
+
 // Remove voter from a candidate's list
 router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateAuth, (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
