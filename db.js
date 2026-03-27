@@ -955,6 +955,45 @@ try {
   }
 } catch (e) { console.error('[migration] election_cycle backfill error:', e.message); }
 
+// --- Clean up bad election names in database ---
+try {
+  const BAD_NAME_MAP = {
+    'Local May 522': 'Local May 2022', 'Local May 524': 'Local May 2024',
+    'Local May 523': 'Local May 2023', 'Local May 525': 'Local May 2025',
+    'Local May 521': 'Local May 2021', 'Local May 519': 'Local May 2019',
+    'Local May 518': 'Local May 2018', 'Local May 517': 'Local May 2017',
+    'Local May 516': 'Local May 2016',
+    'Local Jun 619': 'Local Jun 2019', 'Local Jun 623': 'Local Jun 2023',
+    'Local Jun 621': 'Local Jun 2021', 'Local Jun 618': 'Local Jun 2018',
+    'Local Jun 616': 'Local Jun 2016',
+    'General Nov 2024': 'General 2024', 'General Nov 2022': 'General 2022',
+    'General Nov 2020': 'General 2020', 'General Nov 2018': 'General 2018',
+    'General Nov 2016': 'General 2016',
+    'Primary Mar 2024': 'Primary 2024', 'Primary Mar 2022': 'Primary 2022',
+    'Primary Mar 2020': 'Primary 2020', 'Primary Mar 2018': 'Primary 2018',
+    'Primary Mar 2016': 'Primary 2016',
+    'Primary Runoff May 2024': 'Primary Runoff 2024', 'Primary Runoff May 2022': 'Primary Runoff 2022',
+    'Primary Runoff May 2018': 'Primary Runoff 2018',
+    'Primary Runoff Jul 2020': 'Primary Runoff 2020',
+  };
+  const renameStmt = db.prepare('UPDATE election_votes SET election_name = ? WHERE election_name = ?');
+  const delDupStmt = db.prepare('DELETE FROM election_votes WHERE election_name = ? AND voter_id IN (SELECT voter_id FROM election_votes WHERE election_name = ?)');
+  let cleaned = 0;
+  const tx = db.transaction(() => {
+    for (const [bad, good] of Object.entries(BAD_NAME_MAP)) {
+      // First delete rows that would create duplicates (voter already has the good name)
+      delDupStmt.run(bad, good);
+      // Then rename remaining
+      const r = renameStmt.run(good, bad);
+      if (r.changes > 0) cleaned += r.changes;
+    }
+  });
+  tx();
+  if (cleaned > 0) console.log('[migrate] Cleaned', cleaned, 'bad election names');
+  // Delete elections with 0 voters
+  db.prepare("DELETE FROM elections WHERE election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)").run();
+} catch (e) { console.error('[migrate] Election cleanup error:', e.message); }
+
 // --- Shared captains across candidates (many-to-many) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS captain_candidates (

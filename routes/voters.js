@@ -389,129 +389,102 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
         // Format 2: Cameron County format — "Election01 Code", "Election01 Party Code", "Election01 Vote Type"
         // Election codes are short: P26=Primary 2026, GN24=General Nov 2024, 525=May 2025, PR24=Primary Runoff 2024
         // CA25=Constitutional Amendment 2025, SP25=Special 2025, R624=Runoff Jun 2024, CDD5=Drainage District
-        const CC_CODE_MAP = {
-          'P': { prefix: 'Primary', type: 'primary', month: '03' },
-          'GN': { prefix: 'General', type: 'general', month: '11' },
-          'PR': { prefix: 'Primary Runoff', type: 'runoff', month: '05' },
-          'GR': { prefix: 'General Runoff', type: 'runoff', month: '12' },
-          'CA': { prefix: 'Constitutional Amendment', type: 'special', month: '11' },
-          'SP': { prefix: 'Special', type: 'special', month: '01' },
-          'R6': { prefix: 'Runoff Jun', type: 'runoff', month: '06' },
+        // Complete election code to name+date mapping
+        const ELECTION_LOOKUP = {
+          'P26': { name: 'Primary 2026', date: '2026-03-03', type: 'primary' },
+          'P24': { name: 'Primary 2024', date: '2024-03-05', type: 'primary' },
+          'P22': { name: 'Primary 2022', date: '2022-03-01', type: 'primary' },
+          'P20': { name: 'Primary 2020', date: '2020-03-03', type: 'primary' },
+          'P18': { name: 'Primary 2018', date: '2018-03-06', type: 'primary' },
+          'P16': { name: 'Primary 2016', date: '2016-03-01', type: 'primary' },
+          'GN24': { name: 'General 2024', date: '2024-11-05', type: 'general' },
+          'GN22': { name: 'General 2022', date: '2022-11-08', type: 'general' },
+          'GN20': { name: 'General 2020', date: '2020-11-03', type: 'general' },
+          'GN18': { name: 'General 2018', date: '2018-11-06', type: 'general' },
+          'GN16': { name: 'General 2016', date: '2016-11-08', type: 'general' },
+          'PR24': { name: 'Primary Runoff 2024', date: '2024-05-28', type: 'runoff' },
+          'PR22': { name: 'Primary Runoff 2022', date: '2022-05-24', type: 'runoff' },
+          'PR20': { name: 'Primary Runoff 2020', date: '2020-07-14', type: 'runoff' },
+          'PR18': { name: 'Primary Runoff 2018', date: '2018-05-22', type: 'runoff' },
+          'GR24': { name: 'General Runoff 2024', date: '2024-12-14', type: 'runoff' },
+          'GR20': { name: 'General Runoff 2020', date: '2020-12-15', type: 'runoff' },
+          'CA25': { name: 'Constitutional Amendment 2025', date: '2025-05-03', type: 'special' },
+          'CA2023': { name: 'Constitutional Amendment 2023', date: '2023-11-07', type: 'special' },
+          'CA21': { name: 'Constitutional Amendment 2021', date: '2021-11-02', type: 'special' },
+          'CA19': { name: 'Constitutional Amendment 2019', date: '2019-11-05', type: 'special' },
+          'SP26': { name: 'Special 2026', date: '2026-01-01', type: 'special' },
+          'SP25': { name: 'Special 2025', date: '2025-01-01', type: 'special' },
+          'SP34': { name: 'Special 2034', date: '2034-01-01', type: 'special' },
+          'SPI24': { name: 'Special Election SPI 2024', date: '2024-01-20', type: 'special' },
+          'R625': { name: 'Runoff Jun 2025', date: '2025-06-17', type: 'runoff' },
+          'R624': { name: 'Runoff Jun 2024', date: '2024-06-18', type: 'runoff' },
+          'R622': { name: 'Runoff Jun 2022', date: '2022-06-14', type: 'runoff' },
+          'CDD5': { name: 'Drainage District 5', date: '2024-01-01', type: 'special' },
+          '525': { name: 'Local May 2025', date: '2025-05-03', type: 'local' },
+          '524': { name: 'Local May 2024', date: '2024-05-04', type: 'local' },
+          '523': { name: 'Local May 2023', date: '2023-05-06', type: 'local' },
+          '522': { name: 'Local May 2022', date: '2022-05-07', type: 'local' },
+          '521': { name: 'Local May 2021', date: '2021-05-01', type: 'local' },
+          '519': { name: 'Local May 2019', date: '2019-05-04', type: 'local' },
+          '518': { name: 'Local May 2018', date: '2018-05-05', type: 'local' },
+          '517': { name: 'Local May 2017', date: '2017-05-06', type: 'local' },
+          '516': { name: 'Local May 2016', date: '2016-05-07', type: 'local' },
+          '623': { name: 'Local Jun 2023', date: '2023-06-10', type: 'local' },
+          '621': { name: 'Local Jun 2021', date: '2021-06-05', type: 'local' },
+          '619': { name: 'Local Jun 2019', date: '2019-06-08', type: 'local' },
+          '618': { name: 'Local Jun 2018', date: '2018-06-09', type: 'local' },
+          '616': { name: 'Local Jun 2016', date: '2016-06-18', type: 'local' },
         };
+        const VOTE_METHODS_SET = new Set(['EV', 'ED', 'MAIL', 'VOTED EARLY', 'ELECTION DAY', 'PROVISIONAL', 'ABSENTEE']);
+        const PARTIES_SET = new Set(['DEM', 'REP', 'LIB', 'GRN']);
 
         for (let eIdx = 1; eIdx <= 44; eIdx++) {
           const padded = eIdx < 10 ? '0' + eIdx : String(eIdx);
           const codeKey = 'Election' + padded + ' Code';
           const partyKey = 'Election' + padded + ' Party Code';
           const voteTypeKey = 'Election' + padded + ' Vote Type';
-          let elCode = (v[codeKey] || '').trim();
-          const partyCodeRaw = (v[partyKey] || '').trim();
-          const voteTypeRaw = (v[voteTypeKey] || '').trim();
+          const codeVal = (v[codeKey] || '').trim();
+          const partyVal = (v[partyKey] || '').trim();
+          const typeVal = (v[voteTypeKey] || '').trim();
+          const codeUpper = codeVal.toUpperCase();
+          const partyUpper = partyVal.toUpperCase();
+          const typeUpper = typeVal.toUpperCase();
 
-          // Detect if Code column has vote method instead of election code
-          let codeIsVoteMethod = false;
-          const upperCodeCheck = elCode.toUpperCase();
-          if (['EV', 'ED', 'MAIL', 'VOTED EARLY', 'ELECTION DAY', 'PROVISIONAL', '1', 'ABSENTEE'].includes(upperCodeCheck)) {
-            codeIsVoteMethod = true;
+          // Determine election name, vote method, and party
+          let elInfo = null, voteMethod = '', partyVoted = '';
+
+          if (VOTE_METHODS_SET.has(codeUpper)) {
+            // Code = vote method, Party Code = election ID, Vote Type = party
+            elInfo = ELECTION_LOOKUP[partyVal] || ELECTION_LOOKUP[partyUpper];
+            voteMethod = codeVal;
+            if (PARTIES_SET.has(typeUpper)) partyVoted = typeUpper;
+          } else if (ELECTION_LOOKUP[codeVal] || ELECTION_LOOKUP[codeUpper]) {
+            // Code = election ID (rare)
+            elInfo = ELECTION_LOOKUP[codeVal] || ELECTION_LOOKUP[codeUpper];
+            if (PARTIES_SET.has(typeUpper)) partyVoted = typeUpper;
+            else if (PARTIES_SET.has(partyUpper)) partyVoted = partyUpper;
+          } else if (!codeVal && (ELECTION_LOOKUP[partyVal] || ELECTION_LOOKUP[partyUpper])) {
+            // Code empty, Party Code = election ID (e.g. Primary 2026)
+            elInfo = ELECTION_LOOKUP[partyVal] || ELECTION_LOOKUP[partyUpper];
+            if (PARTIES_SET.has(typeUpper)) partyVoted = typeUpper;
           }
 
-          // If Code is a vote method, use Party Code as the election identifier
-          if (codeIsVoteMethod) {
-            if (!partyCodeRaw) continue; // No election code at all, skip
-            // Store the vote method from Code column, then use Party Code as the election code
-            voteMethodData['__pending_' + eIdx] = elCode; // save for later
-            elCode = partyCodeRaw; // use party code as election identifier
-          } else if (!elCode && partyCodeRaw) {
-            // Code is empty but Party Code has the election identifier (e.g. Primary 2026)
-            elCode = partyCodeRaw;
-          } else if (!elCode) {
-            continue; // nothing to work with
-          }
+          if (!elInfo) continue;
 
-          let elName, elDate, elType;
+          // Normalize vote method
+          const vm = voteMethod.toUpperCase();
+          let method = '';
+          if (vm === 'EV' || vm === 'VOTED EARLY' || vm === 'EARLY') method = 'early';
+          else if (vm === 'ED' || vm === 'ELECTION DAY' || vm === 'IN PERSON') method = 'election_day';
+          else if (vm === 'MAIL' || vm === 'ABSENTEE') method = 'mail';
+          else if (vm === 'PROVISIONAL') method = 'provisional';
 
-          // Try date format first: "11/03/2020 GENERAL"
-          const elParts = elCode.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(.+)$/);
-          if (elParts) {
-            const [, month, day, year, type] = elParts;
-            elDate = year + '-' + month + '-' + day;
-            const typeUpper = type.toUpperCase();
-            if (typeUpper.includes('PRIMARY')) { elType = 'primary'; elName = 'Primary ' + year; }
-            else if (typeUpper.includes('GENERAL')) { elType = 'general'; elName = 'General ' + year; }
-            else { elType = 'other'; elName = type + ' ' + year; }
-          } else {
-            // Short code format: P26, GN24, 525, PR22, CA25, etc.
-            const shortMatch = elCode.match(/^([A-Z]*)(\d{2,4})$/i);
-            if (shortMatch) {
-              let [, prefix, yr] = shortMatch;
-              const fullYear = yr.length === 2 ? (parseInt(yr) > 50 ? '19' + yr : '20' + yr) : yr;
-              prefix = prefix.toUpperCase();
-
-              if (!prefix || /^\d/.test(elCode)) {
-                // Pure number: first digit = month, last 2 digits = year
-                // 525 = May 2025, 619 = Jun 2019, 516 = May 2016
-                const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                const monthDigit = parseInt(elCode.charAt(0));
-                const yearPart = elCode.slice(-2);
-                const actualYear = parseInt(yearPart) > 50 ? '19' + yearPart : '20' + yearPart;
-                const monthName = monthNames[monthDigit] || 'May';
-                const monthPad = monthDigit < 10 ? '0' + monthDigit : String(monthDigit);
-                elType = 'local';
-                elName = 'Local ' + monthName + ' ' + actualYear;
-                elDate = actualYear + '-' + monthPad + '-01';
-              } else if (CC_CODE_MAP[prefix]) {
-                const info = CC_CODE_MAP[prefix];
-                elType = info.type;
-                elName = info.prefix + ' ' + fullYear;
-                elDate = fullYear + '-' + info.month + '-01';
-              } else {
-                elType = 'other';
-                elName = elCode;
-                elDate = fullYear + '-01-01';
-              }
-            } else {
-              elName = elCode;
-              elDate = '2000-01-01';
-              elType = 'other';
-            }
-          }
-
-          const r = insertVote.run(voterId, elName, elDate, elType, '');
+          const r = insertVote.run(voterId, elInfo.name, elInfo.date, elInfo.type, '');
           if (r.changes > 0) results.elections_recorded++;
 
-          // Party code — if Code was vote method, party is in Vote Type column
-          if (codeIsVoteMethod) {
-            // Party is in the Vote Type column (DEM/REP)
-            if (voteTypeRaw && ['DEM', 'REP', 'LIB', 'GRN'].includes(voteTypeRaw.toUpperCase())) {
-              partyData[elName] = voteTypeRaw.toUpperCase();
-            }
-          } else {
-            // Normal case: party is in Party Code
-            const party = partyCodeRaw;
-            if (party) {
-              partyData[elName] = party;
-            }
-          }
-
-          // Vote type/method: check pending (from Code column) first, then Vote Type column
-          const pendingMethod = voteMethodData['__pending_' + eIdx];
-          const voteType = pendingMethod || (v[voteTypeKey] || '').trim();
-          delete voteMethodData['__pending_' + eIdx]; // clean up pending
-          if (voteType) {
-            const vt = voteType.toUpperCase();
-            let method = '';
-            if (vt === 'MAIL' || vt === 'ABSENTEE') method = 'mail';
-            else if (vt === 'EV' || vt === 'VOTED EARLY' || vt === 'EARLY') method = 'early';
-            else if (vt === 'ED' || vt === 'ELECTION DAY' || vt === 'IN PERSON') method = 'election_day';
-            else if (vt === 'PROVISIONAL') method = 'provisional';
-            else if (vt === '1') method = 'voted';
-            else if (vt === 'DEM' || vt === 'REP' || vt === 'LIB' || vt === 'GRN') {
-              // This is actually a party, not a vote method — skip
-              method = '';
-            }
-            else method = voteType.toLowerCase();
-            if (method) voteMethodData[elName] = method;
-          }
+          // Save party and vote method
+          if (partyVoted) partyData[elInfo.name] = partyVoted;
+          if (method) voteMethodData[elInfo.name] = method;
         }
 
         // Update voter extra fields
