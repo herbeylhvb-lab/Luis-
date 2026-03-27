@@ -599,6 +599,13 @@ db.exec(`
 // Party voted column on election_votes (R = Republican, D = Democrat, blank = no party / nonpartisan)
 addColumn("ALTER TABLE election_votes ADD COLUMN party_voted TEXT DEFAULT ''");
 
+// Vote method — how they voted: early, mail, election_day, provisional
+addColumn("ALTER TABLE election_votes ADD COLUMN vote_method TEXT DEFAULT ''");
+
+// Voter status (ACTIVE, SUSPENSE, etc.) and navigation district
+addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN navigation_district TEXT DEFAULT ''");
+
 // Composite indexes for universe builder performance
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }

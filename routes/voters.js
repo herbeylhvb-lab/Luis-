@@ -119,11 +119,11 @@ router.get('/voters', (req, res) => {
     // Election participation with party_voted (for turnout tags)
     const electionVotes = {};
     const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ')'
+      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ')'
     ).all(...voterIds);
     for (const r of evRows) {
       if (!electionVotes[r.voter_id]) electionVotes[r.voter_id] = [];
-      electionVotes[r.voter_id].push({ election_name: r.election_name, election_type: r.election_type, party_voted: r.party_voted || '' });
+      electionVotes[r.voter_id].push({ election_name: r.election_name, election_type: r.election_type, party_voted: r.party_voted || '', vote_method: r.vote_method || '' });
     }
 
     // Attach to each voter
@@ -256,6 +256,16 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
       'UPDATE election_votes SET party_voted = ? WHERE voter_id = ? AND election_name = ?'
     );
 
+    // Update vote_method on existing election records
+    const updateVoteMethod = db.prepare(
+      'UPDATE election_votes SET vote_method = ? WHERE voter_id = ? AND election_name = ?'
+    );
+
+    // Update voter fields from Cameron County format
+    const updateVoterExtra = db.prepare(
+      "UPDATE voters SET unit=CASE WHEN ?!='' THEN ? ELSE unit END, voter_status=CASE WHEN ?!='' THEN ? ELSE voter_status END, navigation_district=CASE WHEN ?!='' THEN ? ELSE navigation_district END WHERE id=?"
+    );
+
     const customCols = getCustomVoterColumns();
     const results = { total: voters.length, added: 0, updated: 0, elections_recorded: 0 };
 
@@ -316,7 +326,9 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
 
         // Process election history columns
         const partyData = {}; // e.g. { 'Primary 2024': 'D' }
+        const voteMethodData = {}; // e.g. { 'Primary 2024': 'early' }
 
+        // Format 1: Old format — General24, Primary22Party, etc.
         for (const [key, val] of Object.entries(v)) {
           if (!val || typeof val !== 'string') continue;
           const m = key.match(ELECTION_RE);
@@ -327,10 +339,8 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           const fullYear = yr.length === 2 ? (parseInt(yr) > 50 ? '19' + yr : '20' + yr) : yr;
 
           if (isParty) {
-            // This is a party column (e.g., Primary24Party = "D")
             partyData[name] = val.trim();
           } else {
-            // This is a participation column — check if voted
             const upper = val.trim().toUpperCase();
             if (upper && upper !== 'N' && upper !== 'NO' && upper !== '0' && upper !== '') {
               const r = insertVote.run(voterId, name, fullYear + '-01-01', electionType(prefix), '');
@@ -339,10 +349,80 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           }
         }
 
+        // Format 2: Cameron County format — "Election01 Code", "Election01 Party Code", "Election01 Vote Type"
+        for (let eIdx = 1; eIdx <= 44; eIdx++) {
+          const padded = eIdx < 10 ? '0' + eIdx : String(eIdx);
+          const codeKey = 'Election' + padded + ' Code';
+          const partyKey = 'Election' + padded + ' Party Code';
+          const voteTypeKey = 'Election' + padded + ' Vote Type';
+          const elCode = (v[codeKey] || '').trim();
+          if (!elCode) continue;
+
+          // Election code looks like "11/03/2020 GENERAL" or "03/03/2020 PRIMARY"
+          const elParts = elCode.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(.+)$/);
+          let elName, elDate, elType;
+          if (elParts) {
+            const [, month, day, year, type] = elParts;
+            elDate = year + '-' + month + '-' + day;
+            const typeUpper = type.toUpperCase();
+            if (typeUpper.includes('PRIMARY')) { elType = 'primary'; elName = 'Primary ' + year; }
+            else if (typeUpper.includes('GENERAL')) { elType = 'general'; elName = 'General ' + year; }
+            else if (typeUpper.includes('RUNOFF')) { elType = 'runoff'; elName = type + ' ' + year; }
+            else if (typeUpper.includes('SPECIAL')) { elType = 'special'; elName = type + ' ' + year; }
+            else { elType = 'other'; elName = type + ' ' + year; }
+            // Include month for non-standard elections to differentiate May vs November
+            if (typeUpper.includes('LOCAL') || typeUpper.includes('MUNICIPAL') || typeUpper.includes('MAY') || typeUpper.includes('BOND') || typeUpper.includes('CONSTITUTIONAL') || typeUpper.includes('JOINT')) {
+              const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              elName = type + ' ' + monthNames[parseInt(month)] + ' ' + year;
+            }
+          } else {
+            elName = elCode;
+            elDate = '2000-01-01';
+            elType = 'other';
+          }
+
+          const r = insertVote.run(voterId, elName, elDate, elType, '');
+          if (r.changes > 0) results.elections_recorded++;
+
+          // Party code
+          const party = (v[partyKey] || '').trim();
+          if (party) {
+            partyData[elName] = party;
+          }
+
+          // Vote type/method: "Mail", "EV"/"Voted Early", "ED"/"Election Day", "Provisional"
+          const voteType = (v[voteTypeKey] || '').trim();
+          if (voteType) {
+            const vt = voteType.toUpperCase();
+            let method = '';
+            if (vt === 'MAIL' || vt === 'ABSENTEE') method = 'mail';
+            else if (vt === 'EV' || vt === 'VOTED EARLY' || vt === 'EARLY') method = 'early';
+            else if (vt === 'ED' || vt === 'ELECTION DAY' || vt === 'IN PERSON') method = 'election_day';
+            else if (vt === 'PROVISIONAL') method = 'provisional';
+            else method = voteType.toLowerCase();
+            voteMethodData[elName] = method;
+          }
+        }
+
+        // Update voter extra fields (unit, status, navigation district)
+        const unitVal = (v['Unit'] || v['unit'] || '').trim();
+        const statusVal = (v['Status'] || v['status'] || '').trim();
+        const navVal = (v['NAVIGATION DISTRICT'] || v['NAVIGATION AND PORT DISTRICT'] || v['navigation_district'] || '').trim();
+        if (unitVal || statusVal || navVal) {
+          updateVoterExtra.run(unitVal, unitVal, statusVal, statusVal, navVal, navVal, voterId);
+        }
+
         // Apply party data to matching election records
         for (const [name, party] of Object.entries(partyData)) {
           if (party) {
             updateVoteParty.run(party, voterId, name);
+          }
+        }
+
+        // Apply vote method data
+        for (const [name, method] of Object.entries(voteMethodData)) {
+          if (method) {
+            updateVoteMethod.run(method, voterId, name);
           }
         }
       }
