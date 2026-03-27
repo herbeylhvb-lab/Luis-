@@ -195,63 +195,65 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
 
 // Export mailing list CSV — one row per household (dedup by address)
 router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
-  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
-  if (!list) return res.status(404).json({ error: 'List not found.' });
+  try {
+    const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+    if (!list) return res.status(404).json({ error: 'List not found.' });
 
-  // Use mailing address when available, fall back to residential
-  // Group by mailing address + unit for apartment dedup
-  const households = db.prepare(`
-    SELECT
-      CASE WHEN TRIM(COALESCE(v.mailing_address,'')) != '' THEN TRIM(v.mailing_address) ELSE TRIM(v.address) END as address,
-      TRIM(COALESCE(v.unit, '')) as unit,
-      CASE WHEN TRIM(COALESCE(v.mailing_city,'')) != '' THEN TRIM(v.mailing_city) ELSE TRIM(v.city) END as city,
-      CASE WHEN TRIM(COALESCE(v.mailing_state,'')) != '' THEN TRIM(v.mailing_state) ELSE COALESCE(TRIM(v.state), 'TX') END as state,
-      CASE WHEN TRIM(COALESCE(v.mailing_zip,'')) != '' THEN TRIM(v.mailing_zip) ELSE TRIM(v.zip) END as zip,
-      v.precinct,
-      GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
-      MIN(v.last_name) as last_name,
-      COUNT(*) as household_size
-    FROM admin_list_voters alv
-    JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
-    GROUP BY LOWER(TRIM(CASE WHEN TRIM(COALESCE(v.mailing_address,'')) != '' THEN v.mailing_address ELSE v.address END)
-      || '|' || TRIM(COALESCE(v.unit, ''))
-      || '|' || TRIM(CASE WHEN TRIM(COALESCE(v.mailing_city,'')) != '' THEN v.mailing_city ELSE v.city END)
-      || '|' || TRIM(CASE WHEN TRIM(COALESCE(v.mailing_zip,'')) != '' THEN v.mailing_zip ELSE v.zip END))
-    ORDER BY zip, city, address, unit
-  `).all(req.params.id);
+    const households = db.prepare(`
+      SELECT
+        TRIM(COALESCE(v.mailing_address, v.address, '')) as mail_addr,
+        TRIM(v.address) as res_addr,
+        TRIM(COALESCE(v.unit, '')) as unit,
+        TRIM(COALESCE(v.mailing_city, v.city, '')) as mail_city,
+        TRIM(v.city) as res_city,
+        COALESCE(TRIM(COALESCE(v.mailing_state, v.state)), 'TX') as state,
+        TRIM(COALESCE(v.mailing_zip, v.zip, '')) as mail_zip,
+        TRIM(v.zip) as res_zip,
+        v.precinct,
+        GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
+        MIN(v.last_name) as last_name,
+        COUNT(*) as household_size
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
+      GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.unit,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
+      ORDER BY res_zip, res_city, res_addr, unit
+    `).all(req.params.id);
 
-  const csvEscape = (val) => {
-    const s = (val || '').toString().replace(/"/g, '""');
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
-  };
+    function esc(val) {
+      const s = (val || '').toString().replace(/"/g, '""');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+    }
 
-  // Clean address: strip city/state/zip that's embedded in the address string
-  function cleanAddress(addr, city, state, zip) {
-    if (!addr) return '';
-    let clean = addr.trim();
-    // Remove trailing " -" or "-"
-    clean = clean.replace(/\s*-\s*$/, '').trim();
-    // Remove state + zip at end (e.g. "TX 78526")
-    if (zip) clean = clean.replace(new RegExp('\\s+' + zip.replace(/[-]/g, '\\-?') + '\\s*$', 'i'), '').trim();
-    if (state) clean = clean.replace(new RegExp('\\s+' + state + '\\s*$', 'i'), '').trim();
-    // Remove city at end
-    if (city) clean = clean.replace(new RegExp('\\s+' + city + '\\s*$', 'i'), '').trim();
-    return clean;
+    // Clean embedded city/state/zip from address string
+    function clean(addr, city, zip) {
+      if (!addr) return '';
+      let c = addr.trim().replace(/\s*-\s*$/, '').trim();
+      if (zip) { try { c = c.replace(new RegExp('\\s+' + zip.replace(/\D/g,'') + '\\s*$'), '').trim(); } catch(e){} }
+      c = c.replace(/\s+TX\s*$/i, '').trim();
+      if (city) { try { c = c.replace(new RegExp('\\s+' + city.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\s*$', 'i'), '').trim(); } catch(e){} }
+      return c;
+    }
+
+    const header = 'Name,Address,Unit,City,State,Zip,Precinct,Household Size';
+    const rows = households.map(h => {
+      const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
+      // Use mailing address if different from residential, otherwise residential
+      const useMailAddr = h.mail_addr && h.mail_addr !== h.res_addr;
+      const addr = clean(useMailAddr ? h.mail_addr : h.res_addr, useMailAddr ? h.mail_city : h.res_city, useMailAddr ? h.mail_zip : h.res_zip);
+      const city = (useMailAddr && h.mail_city) ? h.mail_city : h.res_city;
+      const zip = (useMailAddr && h.mail_zip) ? h.mail_zip : h.res_zip;
+      return [name, addr, h.unit, city, h.state, zip, h.precinct, h.household_size].map(esc).join(',');
+    });
+
+    const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_mailing_list.csv"');
+    res.send(header + '\n' + rows.join('\n'));
+  } catch (e) {
+    console.error('[mailing-csv] Error:', e.message);
+    res.status(500).json({ error: 'Failed to generate mailing list: ' + e.message });
   }
-
-  const header = 'Name,Address,Unit,City,State,Zip,Precinct,Household Size';
-  const rows = households.map(h => {
-    const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
-    const cleanAddr = cleanAddress(h.address, h.city, h.state, h.zip);
-    return [name, cleanAddr, h.unit, h.city, h.state, h.zip, h.precinct, h.household_size].map(csvEscape).join(',');
-  });
-  const csv = header + '\n' + rows.join('\n');
-
-  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_mailing_list.csv"');
-  res.send(csv);
 });
 
 // Export L2-formatted CSV for phone append service
