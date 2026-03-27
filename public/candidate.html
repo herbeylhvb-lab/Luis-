@@ -1028,11 +1028,11 @@ function createVoterExpandPanel(v) {
     bulkSection.style.cssText = 'grid-column:1/-1;margin-top:8px;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:6px';
     var bulkTitle = document.createElement('div');
     bulkTitle.style.cssText = 'font-size:11px;font-weight:700;color:#818cf8;margin-bottom:6px';
-    bulkTitle.textContent = 'Add Members Under ' + voterFullName(v);
+    bulkTitle.textContent = '📋 Add Members Under ' + voterFullName(v);
     bulkSection.appendChild(bulkTitle);
     var bulkInput = document.createElement('textarea');
     bulkInput.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:6px;font-size:12px;resize:vertical;min-height:40px';
-    bulkInput.placeholder = 'Paste Voter IDs (one per line or comma separated)';
+    bulkInput.placeholder = 'Paste Reg # (one per line or comma separated)';
     bulkSection.appendChild(bulkInput);
     var bulkBtnRow = document.createElement('div');
     bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';

@@ -2099,15 +2099,15 @@ async function showVoterDetail(voter) {
     bulkSection.style.cssText = 'margin-top:12px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px';
     var bulkTitle = document.createElement('div');
     bulkTitle.style.cssText = 'font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px';
-    bulkTitle.textContent = 'Add Members Under ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
+    bulkTitle.textContent = '📋 Add Members Under ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
     bulkSection.appendChild(bulkTitle);
     var bulkDesc = document.createElement('div');
     bulkDesc.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:8px';
-    bulkDesc.textContent = 'Paste Voter IDs (one per line or comma separated) to add them to the list grouped under this person.';
+    bulkDesc.textContent = 'Paste Registration Numbers (one per line or comma separated) to add them to the list grouped under this person.';
     bulkSection.appendChild(bulkDesc);
     var bulkInput = document.createElement('textarea');
     bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:8px;font-size:13px;resize:vertical;min-height:60px';
-    bulkInput.placeholder = '1072190019\n2208627937\n1151026401';
+    bulkInput.placeholder = 'Paste Reg # here\n1072190019\n2208627937\n1151026401';
     bulkSection.appendChild(bulkInput);
     var bulkBtnRow = document.createElement('div');
     bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px';
