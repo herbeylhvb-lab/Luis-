@@ -226,10 +226,25 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
     return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
   };
 
+  // Clean address: strip city/state/zip that's embedded in the address string
+  function cleanAddress(addr, city, state, zip) {
+    if (!addr) return '';
+    let clean = addr.trim();
+    // Remove trailing " -" or "-"
+    clean = clean.replace(/\s*-\s*$/, '').trim();
+    // Remove state + zip at end (e.g. "TX 78526")
+    if (zip) clean = clean.replace(new RegExp('\\s+' + zip.replace(/[-]/g, '\\-?') + '\\s*$', 'i'), '').trim();
+    if (state) clean = clean.replace(new RegExp('\\s+' + state + '\\s*$', 'i'), '').trim();
+    // Remove city at end
+    if (city) clean = clean.replace(new RegExp('\\s+' + city + '\\s*$', 'i'), '').trim();
+    return clean;
+  }
+
   const header = 'Name,Address,Unit,City,State,Zip,Precinct,Household Size';
   const rows = households.map(h => {
     const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
-    return [name, h.address, h.unit, h.city, h.state, h.zip, h.precinct, h.household_size].map(csvEscape).join(',');
+    const cleanAddr = cleanAddress(h.address, h.city, h.state, h.zip);
+    return [name, cleanAddr, h.unit, h.city, h.state, h.zip, h.precinct, h.household_size].map(csvEscape).join(',');
   });
   const csv = header + '\n' + rows.join('\n');
 
