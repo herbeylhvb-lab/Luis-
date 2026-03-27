@@ -1671,6 +1671,29 @@ router.get('/early-voting/stats', (req, res) => {
   res.json({ total, earlyVoted, remaining, byDate, byMethod, byPrecinct, byBallot });
 });
 
+// Bulk update vote methods on existing election_votes records
+router.post('/bulk-update-vote-methods', (req, res) => {
+  const { updates } = req.body;
+  if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'updates array required' });
+
+  const findVoter = db.prepare('SELECT id FROM voters WHERE registration_number = ?');
+  const updateMethod = db.prepare('UPDATE election_votes SET vote_method = ? WHERE voter_id = ? AND election_name = ?');
+
+  let updated = 0, notFound = 0;
+  const tx = db.transaction(() => {
+    for (const u of updates) {
+      const voter = findVoter.get(u.vuid);
+      if (!voter) { notFound++; continue; }
+      for (const [elName, method] of Object.entries(u.methods || {})) {
+        const r = updateMethod.run(method, voter.id, elName);
+        if (r.changes > 0) updated++;
+      }
+    }
+  });
+  tx();
+  res.json({ updated, notFound, processed: updates.length });
+});
+
 // Import/update early voting data (bulk — match by registration number, name+address, or phone)
 router.post('/early-voting/import', (req, res) => {
   const { rows, vote_date, vote_method, list_type } = req.body;
