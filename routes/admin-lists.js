@@ -35,9 +35,9 @@ router.get('/admin-lists/:id', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   list.voters = db.prepare(`
-    SELECT v.*, alv.added_at FROM admin_list_voters alv
+    SELECT v.*, alv.added_at, alv.parent_voter_id FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? ORDER BY alv.added_at DESC
+    WHERE alv.list_id = ? ORDER BY alv.parent_voter_id NULLS FIRST, alv.added_at DESC
   `).all(req.params.id);
   res.json({ list });
 });
@@ -117,7 +117,32 @@ router.post('/admin-lists/:id/bulk-upload', (req, res) => {
 
 // Remove voter from list
 router.delete('/admin-lists/:id/voters/:voterId', (req, res) => {
+  // Also unparent any children of this voter
+  db.prepare('UPDATE admin_list_voters SET parent_voter_id = NULL WHERE list_id = ? AND parent_voter_id = ?').run(req.params.id, req.params.voterId);
   db.prepare('DELETE FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.id, req.params.voterId);
+  res.json({ success: true });
+});
+
+// Set parent (nest voter under another voter on the same list)
+router.put('/admin-lists/:id/voters/:voterId/parent', (req, res) => {
+  const { parent_voter_id } = req.body;
+  if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
+  // Verify both voters are on this list
+  const child = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.id, req.params.voterId);
+  const parent = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.id, parent_voter_id);
+  if (!child || !parent) return res.status(404).json({ error: 'Both voters must be on this list.' });
+  // Don't allow nesting under a voter who is already a child
+  const parentIsChild = db.prepare('SELECT parent_voter_id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.id, parent_voter_id);
+  if (parentIsChild && parentIsChild.parent_voter_id) {
+    return res.status(400).json({ error: 'Cannot nest under a sub-member. Move to a top-level voter.' });
+  }
+  db.prepare('UPDATE admin_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?').run(parent_voter_id, req.params.id, req.params.voterId);
+  res.json({ success: true });
+});
+
+// Remove parent (un-nest voter back to top level)
+router.delete('/admin-lists/:id/voters/:voterId/parent', (req, res) => {
+  db.prepare('UPDATE admin_list_voters SET parent_voter_id = NULL WHERE list_id = ? AND voter_id = ?').run(req.params.id, req.params.voterId);
   res.json({ success: true });
 });
 

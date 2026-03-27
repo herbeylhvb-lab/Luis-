@@ -13128,23 +13128,96 @@ async function loadAdminListVoters(listId) {
     emptyRow.appendChild(emptyTd); tbody.appendChild(emptyRow);
     return;
   }
+
+  // Group: top-level voters + their children
+  var topLevel = voters.filter(function(v) { return !v.parent_voter_id; });
+  var childrenOf = {};
   voters.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
+      childrenOf[v.parent_voter_id].push(v);
+    }
+  });
+
+  function renderVoterRow(v, isChild) {
     var tr = document.createElement('tr');
+    tr.draggable = true;
+    tr.dataset.voterId = v.id;
+    tr.style.cssText = isChild ? 'background:#0f172a;border-left:3px solid #3b82f6' : '';
+
+    // Drag events
+    tr.addEventListener('dragstart', function(e) {
+      e.dataTransfer.setData('text/plain', v.id);
+      tr.style.opacity = '0.4';
+    });
+    tr.addEventListener('dragend', function() { tr.style.opacity = '1'; });
+    tr.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      if (!isChild) tr.style.background = '#1e3a5f';
+    });
+    tr.addEventListener('dragleave', function() {
+      tr.style.background = isChild ? '#0f172a' : '';
+    });
+    tr.addEventListener('drop', function(e) {
+      e.preventDefault();
+      tr.style.background = isChild ? '#0f172a' : '';
+      var draggedId = e.dataTransfer.getData('text/plain');
+      if (draggedId == v.id) return; // Can't drop on self
+      if (isChild) return; // Can't nest under a child
+      apiPut('/api/admin-lists/' + listId + '/voters/' + draggedId + '/parent', { parent_voter_id: v.id })
+        .then(function() { loadAdminListVoters(listId); });
+    });
+
     var voterId = v.registration_number || v.county_file_id || v.vanid || '';
-    [voterId, v.first_name + ' ' + v.last_name, v.phone || '', v.address || '', v.city || '', v.party_score || v.party || ''].forEach(function(val, idx) {
+    var namePrefix = isChild ? '  ↳ ' : '';
+    var childCount = childrenOf[v.id] ? childrenOf[v.id].length : 0;
+    var nameSuffix = !isChild && childCount > 0 ? ' (' + childCount + ' sub)' : '';
+
+    [voterId, namePrefix + v.first_name + ' ' + v.last_name + nameSuffix, v.phone || '', v.address || '', v.city || '', v.party_score || v.party || ''].forEach(function(val, idx) {
       var td = document.createElement('td');
       td.textContent = val;
       if (idx === 0) td.style.cssText = 'color:#64748b;font-size:11px';
-      if (idx === 1) { td.style.cursor = 'pointer'; td.style.color = '#818cf8'; td.onclick = function() { showVoterDetail(v.id); }; }
+      if (idx === 1) {
+        td.style.cursor = 'pointer';
+        td.style.color = isChild ? '#60a5fa' : '#818cf8';
+        if (isChild) td.style.paddingLeft = '20px';
+        td.onclick = function() { showVoterDetail(v.id); };
+      }
       tr.appendChild(td);
     });
+
     var actTd = document.createElement('td');
+    actTd.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap';
+
+    if (isChild) {
+      // Un-nest button
+      var unBtn = document.createElement('button');
+      unBtn.className = 'btn btn-xs'; unBtn.textContent = '↑ Ungroup';
+      unBtn.style.cssText = 'background:#475569;border-color:#334155;font-size:10px;padding:2px 6px';
+      unBtn.addEventListener('click', function() {
+        apiDelete('/api/admin-lists/' + listId + '/voters/' + v.id + '/parent').then(function() { loadAdminListVoters(listId); });
+      });
+      actTd.appendChild(unBtn);
+    }
+
     var btn = document.createElement('button');
     btn.className = 'btn btn-danger btn-xs'; btn.textContent = 'Remove';
     btn.addEventListener('click', function() {
       apiDelete('/api/admin-lists/' + listId + '/voters/' + v.id).then(function() { loadAdminListVoters(listId); });
     });
-    actTd.appendChild(btn); tr.appendChild(actTd); tbody.appendChild(tr);
+    actTd.appendChild(btn);
+    tr.appendChild(actTd);
+    tbody.appendChild(tr);
+  }
+
+  // Render: top-level voters with their children nested underneath
+  topLevel.forEach(function(v) {
+    renderVoterRow(v, false);
+    if (childrenOf[v.id]) {
+      childrenOf[v.id].forEach(function(child) {
+        renderVoterRow(child, true);
+      });
+    }
   });
 }
 

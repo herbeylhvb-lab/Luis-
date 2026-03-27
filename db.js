@@ -739,6 +739,9 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_candidate ON captains(can
 addColumn("ALTER TABLE admin_lists ADD COLUMN candidate_id INTEGER DEFAULT NULL");
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lists(candidate_id)"); } catch (e) { /* exists */ }
 
+// Sub-member grouping: nest voters under a "parent" voter on a list
+addColumn("ALTER TABLE admin_list_voters ADD COLUMN parent_voter_id INTEGER DEFAULT NULL");
+
 // Rename existing "My Voters" lists to the captain's actual name
 try {
   const renamed = db.prepare(`
