@@ -1388,36 +1388,66 @@ function renderAddressList() {
     }
 
     // Household members — show unit number next to each name
+    // VAN-style: group all people (primary voter + household) by unit number
     if (a.household && a.household.length > 0) {
-      var onList = a.household.filter(function(m) { return !m.not_on_list; });
-      var notOnList = a.household.filter(function(m) { return m.not_on_list; });
-      if (onList.length > 0) {
+      // Build full list: primary voter + all household members
+      var allPeople = [];
+      if (a.voter_name) {
+        var parts = (a.voter_name || '').split(' ');
+        allPeople.push({ first_name: parts[0] || '', last_name: parts.slice(1).join(' ') || '', unit: a.unit || '', age: a.voter_age || null, party_score: a.voter_party_score || '', not_on_list: false, isPrimary: true });
+      }
+      for (var hi = 0; hi < a.household.length; hi++) allPeople.push(a.household[hi]);
+
+      // Group by unit
+      var byUnit = {};
+      for (var pi = 0; pi < allPeople.length; pi++) {
+        var p = allPeople[pi];
+        var unitKey = (p.unit || '').trim() || '_no_unit';
+        if (!byUnit[unitKey]) byUnit[unitKey] = [];
+        byUnit[unitKey].push(p);
+      }
+      var unitKeys = Object.keys(byUnit).sort(function(a, b) {
+        if (a === '_no_unit') return 1; if (b === '_no_unit') return -1;
+        var na = parseInt(a) || 0, nb = parseInt(b) || 0;
+        return na !== nb ? na - nb : a.localeCompare(b);
+      });
+
+      // Only show grouped view if there are multiple units
+      if (unitKeys.length > 1 || (unitKeys.length === 1 && unitKeys[0] !== '_no_unit')) {
+        var groupDiv = document.createElement('div');
+        groupDiv.style.cssText = 'margin-top:6px;border-top:1px solid #334155;padding-top:6px';
+        for (var ui = 0; ui < unitKeys.length; ui++) {
+          var uk = unitKeys[ui];
+          var unitLabel = document.createElement('div');
+          unitLabel.style.cssText = 'font-size:11px;font-weight:700;color:#f59e0b;margin-top:' + (ui > 0 ? '8px' : '0') + ';margin-bottom:2px';
+          unitLabel.textContent = uk === '_no_unit' ? 'No Unit' : 'Unit ' + uk;
+          groupDiv.appendChild(unitLabel);
+          for (var mi = 0; mi < byUnit[uk].length; mi++) {
+            var m = byUnit[uk][mi];
+            var mDiv = document.createElement('div');
+            mDiv.style.cssText = 'font-size:12px;padding:2px 0 2px 12px;color:' + (m.not_on_list ? '#60a5fa' : '#e2e8f0');
+            var mText = (m.first_name || '') + ' ' + (m.last_name || '');
+            if (m.age) mText += ' (' + m.age + ')';
+            if (m.party_score) mText += ' ' + (m.party_score > 0.6 ? 'D' : m.party_score < 0.4 ? 'R' : '');
+            if (m.not_on_list) mText += ' *';
+            mDiv.textContent = mText;
+            groupDiv.appendChild(mDiv);
+          }
+        }
+        card.appendChild(groupDiv);
+      } else {
+        // Single unit or no units — show flat list
         var hh = document.createElement('div');
         hh.className = 'addr-household';
         var hhSmall = document.createElement('small');
         hhSmall.style.color = '#64748b';
-        hhSmall.textContent = onList.map(function(m) {
+        hhSmall.textContent = a.household.map(function(m) {
           var t = (m.first_name || '') + ' ' + (m.last_name || '');
-          if (m.unit) t += ' [' + m.unit + ']';
           if (m.age) t += ' (' + m.age + ')';
           return t;
         }).join(', ');
         hh.appendChild(hhSmall);
         card.appendChild(hh);
-      }
-      if (notOnList.length > 0) {
-        var extra = document.createElement('div');
-        extra.style.cssText = 'margin-top:4px;padding:4px 8px;background:rgba(59,130,246,0.1);border-radius:4px;border-left:2px solid #3b82f6';
-        var extraSmall = document.createElement('small');
-        extraSmall.style.color = '#60a5fa';
-        extraSmall.textContent = 'Also registered: ' + notOnList.map(function(m) {
-          var t = (m.first_name || '') + ' ' + (m.last_name || '');
-          if (m.unit) t += ' [' + m.unit + ']';
-          if (m.age) t += ' (' + m.age + ')';
-          return t;
-        }).join(', ');
-        extra.appendChild(extraSmall);
-        card.appendChild(extra);
       }
     }
 
