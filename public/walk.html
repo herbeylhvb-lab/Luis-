@@ -2560,34 +2560,75 @@ function renderMap(addresses, walkerLocations, progress) {
       }
       var groupIcon = createApartmentIcon(groupColor, group.length, allDone);
 
-      // Build popup with all units listed
-      var groupPopup = '<div style="font-size:13px;min-width:180px;max-height:300px;overflow-y:auto">' +
-        '<strong style="font-size:14px">' + escHtml(firstAddr.address) + '</strong>' +
-        '<br><span style="color:#60a5fa;font-size:12px;font-weight:600">' + group.length + ' units &bull; ' + doneCount + ' done</span>' +
-        '<div style="margin-top:8px;border-top:1px solid #334155;padding-top:8px">';
-
-      // Sort units naturally (Apt 1, Apt 2, ... Apt 10, not Apt 1, Apt 10, Apt 2)
-      group.sort(function(a, b) {
-        var aUnit = (a.unit || '').replace(/[^0-9]/g, '');
-        var bUnit = (b.unit || '').replace(/[^0-9]/g, '');
-        if (aUnit && bUnit) return parseInt(aUnit) - parseInt(bUnit);
-        return (a.unit || '').localeCompare(b.unit || '');
+      // Build popup as a building directory — all names grouped by unit
+      // First, sub-group all people by unit number
+      var unitMap = {};
+      var unitOrder = [];
+      for (var u3 = 0; u3 < group.length; u3++) {
+        var unitKey = (group[u3].unit || '').trim();
+        if (!unitMap[unitKey]) {
+          unitMap[unitKey] = [];
+          unitOrder.push(unitKey);
+        }
+        // Collect all people for this unit: primary voter + household members
+        var people = [];
+        if (group[u3].voter_name) {
+          people.push({ name: group[u3].voter_name, age: group[u3].voter_age, addr_id: group[u3].id, result: group[u3].result, assigned_walker: group[u3].assigned_walker });
+        }
+        if (group[u3].household && group[u3].household.length > 0) {
+          for (var hh = 0; hh < group[u3].household.length; hh++) {
+            var hhm = group[u3].household[hh];
+            people.push({ name: (hhm.first_name || '') + ' ' + (hhm.last_name || ''), age: hhm.age });
+          }
+        }
+        unitMap[unitKey].push({ addr: group[u3], people: people });
+      }
+      // Sort units naturally (Apt 1, Apt 2, ... Apt 10)
+      unitOrder.sort(function(a, b) {
+        var aNum = a.replace(/[^0-9]/g, '');
+        var bNum = b.replace(/[^0-9]/g, '');
+        if (aNum && bNum) return parseInt(aNum) - parseInt(bNum);
+        return a.localeCompare(b);
       });
 
-      for (var u3 = 0; u3 < group.length; u3++) {
-        var unitAddr = group[u3];
-        var unitDone = unitAddr.result && unitAddr.result !== 'not_visited';
-        var unitColor = unitDone ? getMarkerColor(unitAddr, myName) : (myName && unitAddr.assigned_walker === myName ? '#f59e0b' : '#94a3b8');
-        var unitLabel = unitAddr.unit ? escHtml(unitAddr.unit) : 'Unit ' + (u3 + 1);
-        var unitStatus = unitDone ? formatResult(unitAddr.result) : 'Not visited';
-        groupPopup += '<div class="apt-unit-row" data-addr-id="' + unitAddr.id + '" style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #1e293b;cursor:pointer">' +
+      var totalPeople = 0;
+      for (var tp = 0; tp < unitOrder.length; tp++) {
+        var entries = unitMap[unitOrder[tp]];
+        for (var te = 0; te < entries.length; te++) totalPeople += entries[te].people.length;
+      }
+
+      var groupPopup = '<div style="font-size:13px;min-width:200px;max-height:350px;overflow-y:auto">' +
+        '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:18px">&#x1F3E2;</span><strong style="font-size:14px">' + escHtml(firstAddr.address) + '</strong></div>' +
+        '<span style="color:#60a5fa;font-size:12px;font-weight:600">' + unitOrder.length + ' units &bull; ' + totalPeople + ' people &bull; ' + doneCount + '/' + group.length + ' done</span>' +
+        '<div style="margin-top:8px;border-top:1px solid #334155;padding-top:6px">';
+
+      for (var uo = 0; uo < unitOrder.length; uo++) {
+        var uKey = unitOrder[uo];
+        var unitEntries = unitMap[uKey];
+        var unitLabel = uKey ? escHtml(uKey) : 'Unit ' + (uo + 1);
+        // Use first entry for click target and status
+        var primaryAddr = unitEntries[0].addr;
+        var unitDone = primaryAddr.result && primaryAddr.result !== 'not_visited';
+        var unitColor = unitDone ? getMarkerColor(primaryAddr, myName) : (myName && primaryAddr.assigned_walker === myName ? '#f59e0b' : '#94a3b8');
+        var unitStatus = unitDone ? formatResult(primaryAddr.result) : 'Not visited';
+
+        groupPopup += '<div class="apt-unit-row" data-addr-id="' + primaryAddr.id + '" style="padding:6px 4px;border-bottom:1px solid #1e293b;cursor:pointer">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between">' +
           '<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + unitColor + ';margin-right:6px"></span>' +
-          '<span style="background:#3b82f6;color:#fff;padding:1px 5px;border-radius:3px;font-size:11px;font-weight:700">' + unitLabel + '</span>';
-        if (unitAddr.voter_name) {
-          groupPopup += ' <span style="color:#e2e8f0;font-size:12px;font-weight:600">' + escHtml(unitAddr.voter_name) + '</span>';
-          if (unitAddr.voter_age) groupPopup += ' <span style="color:#999;font-size:11px">(age ' + escHtml(String(unitAddr.voter_age)) + ')</span>';
+          '<span style="background:#3b82f6;color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700">' + unitLabel + '</span></div>' +
+          '<span style="font-size:11px;color:' + (unitDone ? unitColor : '#f59e0b') + ';font-weight:600">' + unitStatus + '</span></div>';
+
+        // List all people in this unit
+        for (var ue = 0; ue < unitEntries.length; ue++) {
+          for (var up = 0; up < unitEntries[ue].people.length; up++) {
+            var person = unitEntries[ue].people[up];
+            groupPopup += '<div style="padding:2px 0 2px 22px;font-size:12px">' +
+              '<span style="color:#e2e8f0;font-weight:600">' + escHtml(person.name) + '</span>';
+            if (person.age) groupPopup += ' <span style="color:#999;font-size:11px">(age ' + escHtml(String(person.age)) + ')</span>';
+            groupPopup += '</div>';
+          }
         }
-        groupPopup += '</div><span style="font-size:11px;color:' + (unitDone ? unitColor : '#f59e0b') + ';font-weight:600">' + unitStatus + '</span></div>';
+        groupPopup += '</div>';
       }
       groupPopup += '</div></div>';
 
