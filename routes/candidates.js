@@ -761,9 +761,9 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
   let voters;
   if (list) {
     voters = db.prepare(`
-      SELECT v.*, clv.added_at FROM captain_list_voters clv
+      SELECT v.*, clv.added_at, clv.parent_voter_id FROM captain_list_voters clv
       JOIN voters v ON clv.voter_id = v.id
-      WHERE clv.list_id = ? ORDER BY clv.added_at DESC
+      WHERE clv.list_id = ? ORDER BY clv.parent_voter_id NULLS FIRST, clv.added_at DESC
     `).all(listId);
   } else {
     // Try admin_lists (assigned to a captain under this candidate)
@@ -774,13 +774,33 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
     `).get(listId, candidateId, candidateId);
     if (!list) return res.status(404).json({ error: 'List not found.' });
     voters = db.prepare(`
-      SELECT v.*, alv.added_at FROM admin_list_voters alv
+      SELECT v.*, alv.added_at, alv.parent_voter_id FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? ORDER BY alv.added_at DESC
+      WHERE alv.list_id = ? ORDER BY alv.parent_voter_id NULLS FIRST, alv.added_at DESC
     `).all(listId);
   }
   attachElectionVotes(voters);
   res.json({ list, voters });
+});
+
+// Set/remove parent voter grouping on any list type
+router.put('/candidates/:id/lists/:listId/voters/:voterId/parent', requireCandidateAuth, (req, res) => {
+  const { parent_voter_id, list_type } = req.body;
+  if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
+  const table = list_type === 'captain' ? 'captain_list_voters' : 'admin_list_voters';
+  const child = db.prepare('SELECT id FROM ' + table + ' WHERE list_id = ? AND voter_id = ?').get(req.params.listId, req.params.voterId);
+  const parent = db.prepare('SELECT id, parent_voter_id FROM ' + table + ' WHERE list_id = ? AND voter_id = ?').get(req.params.listId, parent_voter_id);
+  if (!child || !parent) return res.status(404).json({ error: 'Both voters must be on this list.' });
+  if (parent.parent_voter_id) return res.status(400).json({ error: 'Cannot nest under a sub-member.' });
+  db.prepare('UPDATE ' + table + ' SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?').run(parent_voter_id, req.params.listId, req.params.voterId);
+  res.json({ success: true });
+});
+
+router.delete('/candidates/:id/lists/:listId/voters/:voterId/parent', requireCandidateAuth, (req, res) => {
+  const list_type = req.query.list_type || 'admin';
+  const table = list_type === 'captain' ? 'captain_list_voters' : 'admin_list_voters';
+  db.prepare('UPDATE ' + table + ' SET parent_voter_id = NULL WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
+  res.json({ success: true });
 });
 
 // Master list: all unique voters across ALL lists with source info

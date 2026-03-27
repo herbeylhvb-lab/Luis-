@@ -741,6 +741,7 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lis
 
 // Sub-member grouping: nest voters under a "parent" voter on a list
 addColumn("ALTER TABLE admin_list_voters ADD COLUMN parent_voter_id INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE captain_list_voters ADD COLUMN parent_voter_id INTEGER DEFAULT NULL");
 
 // Rename existing "My Voters" lists to the captain's actual name
 try {

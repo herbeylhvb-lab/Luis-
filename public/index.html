@@ -12468,7 +12468,7 @@ function showCandidateShareModal(candidateName, candidateCode, isNew) {
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
-function renderAdminListVoterTable(voters, container, raceType) {
+function renderAdminListVoterTable(voters, container, raceType, listContext) {
   container.textContent = '';
   if (voters.length === 0) {
     var emptyDiv = document.createElement('div');
@@ -12477,6 +12477,17 @@ function renderAdminListVoterTable(voters, container, raceType) {
     container.appendChild(emptyDiv);
     return;
   }
+
+  // Group by parent_voter_id
+  var topLevel = voters.filter(function(v) { return !v.parent_voter_id; });
+  var childrenOf = {};
+  voters.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
+      childrenOf[v.parent_voter_id].push(v);
+    }
+  });
+
   var table = document.createElement('table');
   table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px';
   var thead = document.createElement('thead');
@@ -12492,15 +12503,40 @@ function renderAdminListVoterTable(voters, container, raceType) {
   thead.appendChild(headTr);
   table.appendChild(thead);
   var tbody = document.createElement('tbody');
-  voters.forEach(function(v) {
+
+  function makeRow(v, isChild) {
     var tr = document.createElement('tr');
+    if (isChild) tr.style.cssText = 'background:#0f172a;border-left:3px solid #3b82f6';
+
+    // Drag-and-drop for grouping
+    if (listContext) {
+      tr.draggable = true;
+      tr.dataset.voterId = v.id;
+      tr.addEventListener('dragstart', function(e) { e.dataTransfer.setData('text/plain', v.id); tr.style.opacity = '0.4'; });
+      tr.addEventListener('dragend', function() { tr.style.opacity = '1'; });
+      tr.addEventListener('dragover', function(e) { e.preventDefault(); if (!isChild) tr.style.background = '#1e3a5f'; });
+      tr.addEventListener('dragleave', function() { tr.style.background = isChild ? '#0f172a' : ''; });
+      tr.addEventListener('drop', function(e) {
+        e.preventDefault();
+        tr.style.background = isChild ? '#0f172a' : '';
+        var draggedId = e.dataTransfer.getData('text/plain');
+        if (draggedId == v.id || isChild) return;
+        var url = '/api/candidates/' + listContext.candidateId + '/lists/' + listContext.listId + '/voters/' + draggedId + '/parent';
+        apiPut(url, { parent_voter_id: v.id, list_type: listContext.listType || 'admin' })
+          .then(function() { if (listContext.refresh) listContext.refresh(); });
+      });
+    }
+
     var tdId = document.createElement('td');
     tdId.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#64748b;font-size:11px';
     tdId.textContent = v.registration_number || v.county_file_id || v.vanid || '';
     tr.appendChild(tdId);
     var tdName = document.createElement('td');
-    tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600';
-    tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    tdName.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;font-weight:600;' + (isChild ? 'padding-left:24px;color:#60a5fa' : '');
+    var nameText = (isChild ? '↳ ' : '') + (v.first_name || '') + ' ' + (v.last_name || '');
+    var childCount = childrenOf[v.id] ? childrenOf[v.id].length : 0;
+    if (!isChild && childCount > 0) nameText += ' (' + childCount + ' sub)';
+    tdName.textContent = nameText;
     tr.appendChild(tdName);
     var tdAddr = document.createElement('td');
     tdAddr.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
@@ -12520,6 +12556,21 @@ function renderAdminListVoterTable(voters, container, raceType) {
     var tdPhone = document.createElement('td');
     tdPhone.style.cssText = 'padding:6px 8px;border-bottom:1px solid #1e293b;color:#94a3b8';
     tdPhone.textContent = v.phone || '';
+
+    // Add ungroup button for children
+    if (isChild && listContext) {
+      var unBtn = document.createElement('button');
+      unBtn.textContent = '↑';
+      unBtn.title = 'Ungroup';
+      unBtn.style.cssText = 'background:#475569;border:none;color:#e2e8f0;border-radius:4px;padding:1px 6px;margin-left:6px;cursor:pointer;font-size:11px';
+      unBtn.onclick = function(e) {
+        e.stopPropagation();
+        var url = '/api/candidates/' + listContext.candidateId + '/lists/' + listContext.listId + '/voters/' + v.id + '/parent?list_type=' + (listContext.listType || 'admin');
+        apiDelete(url).then(function() { if (listContext.refresh) listContext.refresh(); });
+      };
+      tdPhone.appendChild(unBtn);
+    }
+
     tr.appendChild(tdPhone);
     if (raceType) {
       var tdRace = document.createElement('td');
@@ -12531,8 +12582,18 @@ function renderAdminListVoterTable(voters, container, raceType) {
       tr.appendChild(tdRace);
       if (!v._in_race) tr.style.opacity = '0.6';
     }
-    tbody.appendChild(tr);
+    return tr;
+  }
+
+  topLevel.forEach(function(v) {
+    tbody.appendChild(makeRow(v, false));
+    if (childrenOf[v.id]) {
+      childrenOf[v.id].forEach(function(child) {
+        tbody.appendChild(makeRow(child, true));
+      });
+    }
   });
+
   table.appendChild(tbody);
   container.appendChild(table);
 }
@@ -12629,7 +12690,11 @@ async function viewCandidateListVoters(candidateId, list) {
       if (_currentVotedStatus !== 'all') filtered = filterVotersByStatus(filtered, _currentVotedStatus);
       if (_currentRaceFilter === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
       else if (_currentRaceFilter === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
-      renderAdminListVoterTable(filtered, listContainer, rt && rv ? rt : null);
+      renderAdminListVoterTable(filtered, listContainer, rt && rv ? rt : null, {
+        candidateId: candidateId, listId: list.id,
+        listType: list.source === 'captain' ? 'captain' : 'admin',
+        refresh: function() { var ov = document.getElementById('candidateListViewerOverlay'); if (ov) ov.remove(); viewCandidateListVoters(candidateId, list); }
+      });
       var inCount = allVoters.filter(function(v) { return v._in_race; }).length;
       var outCount = allVoters.length - inCount;
       sub.textContent = prefix + filtered.length + ' of ' + allVoters.length + ' voter' + (allVoters.length !== 1 ? 's' : '') + (rt && rv ? ' \u00B7 ' + inCount + ' in race, ' + outCount + ' not' : '');
