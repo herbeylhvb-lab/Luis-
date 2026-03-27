@@ -106,6 +106,62 @@ function buildHouseholdFromWalkAddresses(addresses) {
   }
 }
 
+// Enrich household with other registered voters at the same address from the voter file
+// These are people NOT on the walk list but who live at the same address
+// Enrich household with other registered voters in the SAME unit/apartment
+// Shows roommates/family not on the walk list but registered at the same address+unit
+function enrichHouseholdFromVoterFile(addresses) {
+  if (!addresses || !addresses.length) return;
+  const findByAddressUnit = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.age, v.unit, v.party_score, v.voter_status
+    FROM voters v
+    WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(?))
+      AND LOWER(TRIM(COALESCE(v.unit,''))) = LOWER(TRIM(?))
+      AND LOWER(TRIM(COALESCE(v.city,''))) = LOWER(TRIM(?))
+      AND v.voter_status = 'ACTIVE'
+    ORDER BY v.last_name
+  `);
+
+  // Collect all voter_ids already on the walk to skip them
+  const walkVoterIds = new Set();
+  for (const addr of addresses) {
+    if (addr.voter_id) walkVoterIds.add(addr.voter_id);
+    if (addr.household) {
+      for (const m of addr.household) {
+        if (m.voter_id) walkVoterIds.add(m.voter_id);
+      }
+    }
+  }
+
+  // For each walk address, find other voters in the SAME unit
+  const checked = new Set();
+  for (const addr of addresses) {
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    if (checked.has(key)) continue;
+    checked.add(key);
+
+    const others = findByAddressUnit.all(addr.address || '', addr.unit || '', addr.city || '');
+    const newMembers = others
+      .filter(v => !walkVoterIds.has(v.id))
+      .map(v => ({
+        voter_id: v.id,
+        first_name: v.first_name || '',
+        last_name: v.last_name || '',
+        age: v.age || null,
+        unit: v.unit || '',
+        party_score: v.party_score || '',
+        not_on_list: true
+      }));
+
+    if (newMembers.length === 0) continue;
+
+    // Add to the walk address
+    if (!addr.household) addr.household = [];
+    addr.household.push(...newMembers);
+    for (const m of newMembers) walkVoterIds.add(m.voter_id);
+  }
+}
+
 // Parse apartment/unit number from an address string
 // e.g. "600 Jose Marti Blvd Apt 4" -> { street: "600 Jose Marti Blvd", unit: "Apt 4" }
 // e.g. "123 Main St #2B" -> { street: "123 Main St", unit: "#2B" }
@@ -1116,8 +1172,10 @@ router.get('/walks/:id/volunteer', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
-  // Build household members — group by address+unit so apartments only show people in the same unit
+  // Build household members — group by address so all building residents are shown together
   buildHouseholdFromWalkAddresses(walk.addresses);
+  // Add other registered voters at the same address from the full voter file
+  enrichHouseholdFromVoterFile(walk.addresses);
 
   // Attach election votes (party primary history) for voter info display
   const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);

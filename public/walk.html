@@ -1389,15 +1389,36 @@ function renderAddressList() {
 
     // Household members — show unit number next to each name
     if (a.household && a.household.length > 0) {
-      var hh = document.createElement('div');
-      hh.className = 'addr-household';
-      hh.innerHTML = '<small style="color:#64748b">' + a.household.map(function(m) {
-        var text = escHtml((m.first_name || '') + ' ' + (m.last_name || ''));
-        if (m.unit) text += ' <span style="color:#f59e0b;font-weight:600">' + escHtml(m.unit) + '</span>';
-        if (m.age) text += ' <span style="color:#94a3b8">('+escHtml(String(m.age))+')</span>';
-        return text;
-      }).join(', ') + '</small>';
-      card.appendChild(hh);
+      var onList = a.household.filter(function(m) { return !m.not_on_list; });
+      var notOnList = a.household.filter(function(m) { return m.not_on_list; });
+      if (onList.length > 0) {
+        var hh = document.createElement('div');
+        hh.className = 'addr-household';
+        var hhSmall = document.createElement('small');
+        hhSmall.style.color = '#64748b';
+        hhSmall.textContent = onList.map(function(m) {
+          var t = (m.first_name || '') + ' ' + (m.last_name || '');
+          if (m.unit) t += ' [' + m.unit + ']';
+          if (m.age) t += ' (' + m.age + ')';
+          return t;
+        }).join(', ');
+        hh.appendChild(hhSmall);
+        card.appendChild(hh);
+      }
+      if (notOnList.length > 0) {
+        var extra = document.createElement('div');
+        extra.style.cssText = 'margin-top:4px;padding:4px 8px;background:rgba(59,130,246,0.1);border-radius:4px;border-left:2px solid #3b82f6';
+        var extraSmall = document.createElement('small');
+        extraSmall.style.color = '#60a5fa';
+        extraSmall.textContent = 'Also registered: ' + notOnList.map(function(m) {
+          var t = (m.first_name || '') + ' ' + (m.last_name || '');
+          if (m.unit) t += ' [' + m.unit + ']';
+          if (m.age) t += ' (' + m.age + ')';
+          return t;
+        }).join(', ');
+        extra.appendChild(extraSmall);
+        card.appendChild(extra);
+      }
     }
 
     // Assigned walker (group mode) — show whose door it is
