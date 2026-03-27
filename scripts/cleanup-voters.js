@@ -29,10 +29,9 @@ async function login() {
   const resp = await fetch(SERVER + '/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: USERNAME, password: PASSWORD }),
-    redirect: 'manual'
+    body: JSON.stringify({ username: USERNAME, password: PASSWORD })
   });
-  if (!resp.ok) throw new Error('Login failed');
+  if (resp.status >= 400) throw new Error('Login failed: ' + resp.status);
   const setCookies = resp.headers.getSetCookie ? resp.headers.getSetCookie() : [];
   sessionCookie = setCookies.map(c => c.split(';')[0]).join('; ');
   if (!sessionCookie) sessionCookie = (resp.headers.get('set-cookie') || '').split(';')[0];

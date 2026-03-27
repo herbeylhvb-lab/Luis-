@@ -607,6 +607,19 @@ addColumn("ALTER TABLE voters ADD COLUMN voter_status TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN navigation_district TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN unit TEXT DEFAULT ''");
 
+// One-time cleanup: remove voters not in the county file (never updated by Cameron County import)
+// Voters updated by the import have voter_status = 'ACTIVE' or 'SUSPENSE'
+// Voters NOT updated still have voter_status = '' — they're no longer registered
+try {
+  const notUpdated = db.prepare("SELECT COUNT(*) as c FROM voters WHERE voter_status = '' AND registration_number != '' AND registration_number IS NOT NULL").get();
+  if (notUpdated.c > 0 && notUpdated.c < 100000) {
+    const result = db.prepare("DELETE FROM voters WHERE voter_status = '' AND registration_number != '' AND registration_number IS NOT NULL").run();
+    console.log('[cleanup] Removed', result.changes, 'voters not in county file (no voter_status after import)');
+  } else if (notUpdated.c >= 100000) {
+    console.log('[cleanup] Skipped — too many voters without status (' + notUpdated.c + '), import may not have completed');
+  }
+} catch (e) { /* ignore */ }
+
 // Composite indexes for universe builder performance
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }
