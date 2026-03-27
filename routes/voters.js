@@ -224,6 +224,7 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
     const findByVanid = db.prepare("SELECT id FROM voters WHERE vanid = ? AND vanid != '' LIMIT 1");
     const findByCounty = db.prepare("SELECT id FROM voters WHERE county_file_id = ? AND county_file_id != '' LIMIT 1");
     const findByStateFileId = db.prepare("SELECT id FROM voters WHERE state_file_id = ? AND state_file_id != '' LIMIT 1");
+    const findByRegistration = db.prepare("SELECT id FROM voters WHERE registration_number = ? AND registration_number != '' LIMIT 1");
 
     const insertVoter = db.prepare(
       `INSERT INTO voters (first_name, last_name, middle_name, suffix, phone, secondary_phone, email,
@@ -273,7 +274,7 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
       for (const v of list) {
         let voterId = null;
 
-        // Try to find existing voter by StateFileID, VANID, or CountyFileID
+        // Try to find existing voter by StateFileID, VANID, CountyFileID, or Registration Number (VUID)
         if (v.state_file_id) {
           const existing = findByStateFileId.get(v.state_file_id);
           if (existing) voterId = existing.id;
@@ -284,6 +285,10 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
         }
         if (!voterId && v.county_file_id) {
           const existing = findByCounty.get(v.county_file_id);
+          if (existing) voterId = existing.id;
+        }
+        if (!voterId && v.registration_number) {
+          const existing = findByRegistration.get(v.registration_number);
           if (existing) voterId = existing.id;
         }
 

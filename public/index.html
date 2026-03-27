@@ -7036,14 +7036,36 @@ const VOTER_COL_MAP = {
   'streetname':'_streetname','street name':'_streetname','street_name':'_streetname',
   'streettype':'_streettype','street type':'_streettype','street_type':'_streettype','streetsuffix':'_streettype','street suffix':'_streettype',
   'apt':'_apt','unit':'_apt','apartment':'_apt','suite':'_apt','apt number':'_apt','unit number':'_apt',
+  'unit type':'_unittype',
   // Demographics
   'age':'age','voter age':'age','voter_age':'age',
   'dob':'_dob','date of birth':'_dob','dateofbirth':'_dob','date_of_birth':'_dob','birthdate':'_dob','birth date':'_dob','birth_date':'_dob','birthday':'_dob',
-  'gender':'gender','sex':'gender','voter gender':'gender','voter_gender':'gender'
+  'gender':'gender','sex':'gender','voter gender':'gender','voter_gender':'gender',
+  // Cameron County specific
+  'status':'voter_status','voter status':'voter_status',
+  'navigation district':'navigation_district','navigation and port district':'navigation_district',
+  'residential address':'address',
+  'street number 1':'_streetno','street name 1':'_streetname','street name 2':'_streetname2',
+  'pre-direction':'_streetprefix','post-direction':'_streetpostdir','street type':'_streettype',
+  'zip code 5':'zip','zip code 4':'zip4',
+  'name':'_fullname',
+  'county commissioner':'county_commissioner','justice of the peace':'justice_of_peace',
+  'state board of education':'state_board_ed','state representative':'state_rep',
+  'state senate':'state_senate','us congress':'us_congress',
+  'navigation and port district':'navigation_district','navigation district':'navigation_district',
+  'port authority':'port_authority',
+  'school':'school_district','college':'college_district','hospital':'hospital_district',
+  'mailing address':'mailing_address','mail city':'mailing_city','mail state':'mailing_state',
+  'mail zip code5':'mailing_zip','mail unit':'mailing_unit',
+  'box':'ballot_box','schoolboard':'school_board','citycouncil':'city_council',
+  'constable':'constable','drainage district':'drainage_district'
 };
 
 // Election history column pattern — columns like General24, Primary22Party, MayElection21, etc.
 const ELECTION_COL_RE = /^(general|primary|municipal|special|mayelection|mayrunoff|novelection|novrunoff|primaryrunoff|specrunoff)\d{2}(party)?$/i;
+
+// Cameron County election column pattern — "Election01 Code", "Election01 Party Code", "Election01 Vote Type"
+const CC_ELECTION_RE = /^Election\d{2}\s+(Code|Party Code|Vote Type)$/i;
 
 // Parse a row using mapped headers and assemble composite fields
 function parseVoterRow(header, cols, rawHeaders) {
@@ -7052,14 +7074,29 @@ function parseVoterRow(header, cols, rawHeaders) {
   // Pass through election history columns using their original header names
   if (rawHeaders) {
     rawHeaders.forEach(function(rh, idx) {
-      if (ELECTION_COL_RE.test(rh.trim())) {
-        v[rh.trim()] = cols[idx] || '';
+      var trimmed = rh.trim();
+      if (ELECTION_COL_RE.test(trimmed) || CC_ELECTION_RE.test(trimmed)) {
+        v[trimmed] = cols[idx] || '';
       }
     });
   }
+  // Parse "LAST, FIRST MIDDLE" name format (Cameron County)
+  if (v._fullname && (!v.first_name || !v.last_name)) {
+    var nameParts = v._fullname.split(',');
+    if (nameParts.length >= 2) {
+      v.last_name = (nameParts[0] || '').trim();
+      var firstMiddle = (nameParts[1] || '').trim().split(/\s+/);
+      v.first_name = firstMiddle[0] || '';
+      if (firstMiddle.length > 1) v.middle_name = firstMiddle.slice(1).join(' ');
+    }
+  }
   if (!v.address || !v.address.trim()) {
-    var parts = [v._streetno, v._streetprefix, v._streetname, v._streettype, v._apt].filter(Boolean);
+    var parts = [v._streetno, v._streetprefix, v._streetname, v._streettype].filter(Boolean);
     if (parts.length) v.address = parts.join(' ').trim();
+    // Add unit separately so it stays in the unit field
+    if (v._apt && v.address) {
+      v.unit = (v._unittype ? v._unittype + ' ' : '') + v._apt;
+    }
   }
   if (!v.phone && v.secondary_phone) { v.phone = v.secondary_phone; v.secondary_phone = ''; }
   // Calculate age from DOB if age not directly provided
@@ -7243,7 +7280,7 @@ async function importVotersStreamed(file, statusEl) {
           return VOTER_COL_MAP[h.toLowerCase().trim()] || h.toLowerCase().trim();
         });
         // Detect election columns for streamed import
-        _hasElectionColumns = rawHeaderNames.some(function(h) { return ELECTION_COL_RE.test(h.trim()); });
+        _hasElectionColumns = rawHeaderNames.some(function(h) { return ELECTION_COL_RE.test(h.trim()) || CC_ELECTION_RE.test(h.trim()); });
         continue;
       }
 
