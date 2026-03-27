@@ -11,11 +11,10 @@ function triggerSync(req) {
   if (req.session?.userId) setImmediate(() => queueSync(req.session.userId));
 }
 
-const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
+const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, message: { error: 'Too many delete requests, try again later.' } });
 const checkinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many check-in attempts. Please wait.' } });
 const voterCreateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many voter creation requests. Please wait.' } });
-// TEMP: Rate limit disabled for bulk import — re-enable after import complete
-const importLimiter = (req, res, next) => next();
+const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many import requests. Please wait.' } });
 
 // Auth middleware for admin-only endpoints
 function requireAuth(req, res, next) {
@@ -1285,6 +1284,30 @@ router.put('/voters/:id', (req, res) => {
 });
 
 // Delete voter
+// Cleanup: delete voters whose registration_number is NOT in the provided list
+router.post('/voters/cleanup-by-vuids', requireAuth, (req, res) => {
+  const { vuids } = req.body;
+  if (!vuids || !vuids.length) return res.status(400).json({ error: 'No VUIDs provided.' });
+
+  const cleanup = db.transaction(() => {
+    db.prepare('DROP TABLE IF EXISTS _valid_vuids').run();
+    db.prepare('CREATE TEMP TABLE _valid_vuids (vuid TEXT PRIMARY KEY)').run();
+    const ins = db.prepare('INSERT OR IGNORE INTO _valid_vuids (vuid) VALUES (?)');
+    for (const v of vuids) ins.run(v);
+
+    const toDelete = db.prepare("SELECT COUNT(*) as c FROM voters WHERE registration_number NOT IN (SELECT vuid FROM _valid_vuids) AND registration_number != '' AND registration_number IS NOT NULL").get();
+    const noReg = db.prepare("SELECT COUNT(*) as c FROM voters WHERE registration_number = '' OR registration_number IS NULL").get();
+    const result = db.prepare("DELETE FROM voters WHERE registration_number NOT IN (SELECT vuid FROM _valid_vuids) AND registration_number != '' AND registration_number IS NOT NULL").run();
+
+    db.prepare('DROP TABLE IF EXISTS _valid_vuids').run();
+    return { deleted: result.changes, noRegistration: noReg.c, expected: toDelete.c };
+  });
+
+  const result = cleanup();
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Voter cleanup: removed ' + result.deleted + ' voters not in county file');
+  res.json({ success: true, ...result });
+});
+
 router.delete('/voters/:id', (req, res) => {
   const result = db.prepare('DELETE FROM voters WHERE id = ?').run(req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Voter not found.' });

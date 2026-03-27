@@ -220,8 +220,7 @@ async function main() {
         }
       }
     }
-    // Delay between batches to avoid rate limit
-    await new Promise(r => setTimeout(r, 500));
+    // No delay — rate limit disabled on server
   }
 
   console.log('\n\nDone!');
