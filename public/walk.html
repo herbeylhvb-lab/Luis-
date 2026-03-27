@@ -363,6 +363,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 <!-- DOOR PANEL (slide-up overlay) -->
 <div class="door-overlay" id="doorOverlay">
   <div class="door-panel">
+    <div id="aptUnitNav" style="display:none;margin:-12px -16px 10px -16px;padding:8px 12px;background:#1e293b;border-bottom:1px solid #334155;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch"></div>
     <h3 id="doorTitle">Door #1</h3>
     <div class="door-addr" id="doorAddr"></div>
     <a class="door-gmaps" id="doorGmapsLink" href="#" target="_blank" rel="noopener">&#x1F4CD; Open in Google Maps</a>
@@ -1597,11 +1598,65 @@ function openDoor(idx) {
 
   var titleEl = document.getElementById('doorTitle');
   if (displayUnit) {
-    titleEl.innerHTML = 'Door #' + (idx + 1) + ' <span style="background:#3b82f6;color:#fff;padding:2px 8px;border-radius:6px;font-size:16px;margin-left:6px;vertical-align:middle">' + escHtml(displayUnit) + '</span>';
+    titleEl.innerHTML = '<span style="background:#3b82f6;color:#fff;padding:2px 8px;border-radius:6px;font-size:16px;vertical-align:middle">' + escHtml(displayUnit) + '</span>';
   } else {
     titleEl.textContent = 'Door #' + (idx + 1);
   }
   document.getElementById('doorAddr').textContent = displayAddr + (displayUnit ? ' ' + displayUnit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
+
+  // Build apartment unit navigation — find all sibling units at the same street address
+  var aptNav = document.getElementById('aptUnitNav');
+  var siblingUnits = [];
+  var addrNorm = (a.address || '').trim().toLowerCase();
+  for (var si = 0; si < walkState.walk.addresses.length; si++) {
+    var sa = walkState.walk.addresses[si];
+    if ((sa.address || '').trim().toLowerCase() === addrNorm && sa.unit) {
+      // Check if we already have this unit (avoid duplicates from same-unit household)
+      var unitNorm = sa.unit.trim().toLowerCase();
+      var already = siblingUnits.some(function(s) { return s.unitNorm === unitNorm; });
+      if (!already) {
+        siblingUnits.push({ idx: si, unit: sa.unit, unitNorm: unitNorm, id: sa.id, result: sa.result, voter_name: sa.voter_name });
+      }
+    }
+  }
+  // Sort naturally
+  siblingUnits.sort(function(x, y) {
+    var xn = x.unit.replace(/[^0-9]/g, ''), yn = y.unit.replace(/[^0-9]/g, '');
+    if (xn && yn) return parseInt(xn) - parseInt(yn);
+    return x.unit.localeCompare(y.unit);
+  });
+
+  if (siblingUnits.length > 1) {
+    aptNav.style.display = '';
+    aptNav.innerHTML = '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">' + escHtml(a.address) + ' &mdash; ' + siblingUnits.length + ' units</div>';
+    for (var su = 0; su < siblingUnits.length; su++) {
+      var sib = siblingUnits[su];
+      var isCurrent = sib.id === a.id;
+      var isDone = sib.result && sib.result !== 'not_visited';
+      var bgColor = isCurrent ? '#3b82f6' : isDone ? '#22c55e' : '#334155';
+      var txtColor = isCurrent || isDone ? '#fff' : '#94a3b8';
+      var border = isCurrent ? '2px solid #60a5fa' : '2px solid transparent';
+      var btn = '<button class="apt-nav-btn" data-apt-idx="' + sib.idx + '" style="display:inline-block;padding:4px 10px;margin:2px 4px 2px 0;border-radius:6px;background:' + bgColor + ';color:' + txtColor + ';border:' + border + ';font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">' +
+        escHtml(sib.unit);
+      if (isDone && !isCurrent) btn += ' &#x2713;';
+      btn += '</button>';
+      aptNav.innerHTML += btn;
+    }
+    // Attach click handlers
+    aptNav.querySelectorAll('.apt-nav-btn').forEach(function(b) {
+      b.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var targetIdx = parseInt(b.getAttribute('data-apt-idx'));
+        openDoor(targetIdx);
+      });
+    });
+    // Auto-scroll current unit into view
+    var currentBtn = aptNav.querySelector('.apt-nav-btn[data-apt-idx="' + idx + '"]');
+    if (currentBtn) currentBtn.scrollIntoView({ inline: 'center', block: 'nearest' });
+  } else {
+    aptNav.style.display = 'none';
+    aptNav.innerHTML = '';
+  }
   document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
 
   // Fetch polling location (async — doesn't block door opening)
@@ -1980,9 +2035,6 @@ async function logDoor() {
     // Update progress — count unique doors, not individual voters
     walkState.walk.progress = countUniqueDoors(walkState.walk.addresses);
 
-    closeDoor();
-    renderWalk();
-
     // Build toast message
     var toastMsg = '';
     if (doorState.allMembers.length > 0) {
@@ -1998,6 +2050,36 @@ async function logDoor() {
       toastMsg = '\u2705 ' + formatResult(walkState.selectedResult) + ' — Logged!';
     }
     showToast(toastMsg);
+
+    // If this is an apartment with sibling units, find the next unvisited unit in the building
+    // and open it directly instead of closing the door panel
+    var aptNav = document.getElementById('aptUnitNav');
+    if (aptNav && aptNav.style.display !== 'none' && aptNav.querySelectorAll('.apt-nav-btn').length > 1) {
+      // Find next unvisited sibling unit at same address
+      var curAddrNorm = (addr.address || '').trim().toLowerCase();
+      var nextAptIdx = -1;
+      for (var ni = 0; ni < walkState.walk.addresses.length; ni++) {
+        var na = walkState.walk.addresses[ni];
+        if (na.id === addr.id) continue;
+        if ((na.address || '').trim().toLowerCase() === curAddrNorm && na.unit && na.result === 'not_visited') {
+          nextAptIdx = ni;
+          break;
+        }
+      }
+      if (nextAptIdx >= 0) {
+        // Jump to the next unvisited unit in this building
+        renderWalk();
+        if (mapState.currentView === 'map') refreshMapData();
+        _logDoorInProgress = false;
+        btn.textContent = 'Log & Next \u27A1';
+        openDoor(nextAptIdx);
+        return;
+      }
+      // All units done — fall through to close
+    }
+
+    closeDoor();
+    renderWalk();
 
     // Auto-refresh route in group mode
     if (walkState.isGroupMode && walkState.routeActive) {
