@@ -620,6 +620,23 @@ try {
   }
 } catch (e) { /* ignore */ }
 
+// Backfill unit data on walk_addresses from voter file
+try {
+  const missingUnits = db.prepare(`
+    SELECT wa.id, v.unit FROM walk_addresses wa
+    JOIN voters v ON wa.voter_id = v.id
+    WHERE (wa.unit IS NULL OR wa.unit = '') AND v.unit != '' AND v.unit IS NOT NULL
+  `).all();
+  if (missingUnits.length > 0) {
+    const updateUnit = db.prepare('UPDATE walk_addresses SET unit = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+      for (const r of missingUnits) updateUnit.run(r.unit, r.id);
+    });
+    tx();
+    console.log('[migrate] Backfilled unit data on', missingUnits.length, 'walk addresses');
+  }
+} catch (e) { /* ignore */ }
+
 // Clean up orphaned election_votes records where voter was deleted
 try {
   const orphaned = db.prepare("SELECT COUNT(*) as c FROM election_votes WHERE voter_id NOT IN (SELECT id FROM voters)").get();
