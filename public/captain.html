@@ -1316,10 +1316,16 @@ function renderListVoters() {
       row.addEventListener('dragleave', function() { row.style.outline = ''; });
       row.addEventListener('drop', (function(targetId) { return function(e) {
         e.preventDefault(); e.stopPropagation(); row.style.outline = '';
-        var draggedId = e.dataTransfer.getData('text/plain');
-        if (!draggedId || draggedId == targetId) return;
-        // Check if this was a list-to-list drag (has comma) — skip grouping for those
-        if (draggedId.indexOf(',') !== -1) return;
+        var raw = e.dataTransfer.getData('text/plain');
+        if (!raw) return;
+        // Parse — onVoterDragStart stores as JSON array
+        var draggedIds;
+        try { draggedIds = JSON.parse(raw); } catch(ex) { draggedIds = [raw]; }
+        if (!Array.isArray(draggedIds)) draggedIds = [draggedIds];
+        // Only group single voter drags, not multi-select
+        if (draggedIds.length !== 1) { showToast('Drag one voter at a time to group', 'warn'); return; }
+        var draggedId = String(draggedIds[0]);
+        if (draggedId == targetId) return;
         var url = getListApiBase() + '/voters/' + draggedId + '/parent';
         apiPut(url, { parent_voter_id: targetId }).then(function() { loadListVoters(); }).catch(function(err) {
           showToast('Could not group: ' + (err.message || err), 'error');
