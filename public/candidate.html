@@ -619,6 +619,61 @@ function onVoterDragStart(e, voterId) {
   }
 }
 
+// ========== TOUCH DRAG-DROP FOR IPAD/MOBILE ==========
+var _touchDragState = null;
+var _touchGhost = null;
+
+function initCandidateTouchDrag(row, voterId, listId) {
+  var longPressTimer = null;
+  row.addEventListener('touchstart', function(e) {
+    longPressTimer = setTimeout(function() {
+      _touchDragState = { voterId: voterId, row: row, listId: listId };
+      row.style.opacity = '0.5';
+      _touchGhost = document.createElement('div');
+      _touchGhost.style.cssText = 'position:fixed;z-index:9999;background:#818cf8;color:#fff;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:700;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+      _touchGhost.textContent = row.querySelector('.name') ? row.querySelector('.name').textContent.replace(/[▸▾]/g,'').trim() : 'Voter';
+      document.body.appendChild(_touchGhost);
+      _touchGhost.style.left = (e.touches[0].clientX - 40) + 'px';
+      _touchGhost.style.top = (e.touches[0].clientY - 20) + 'px';
+    }, 500);
+  }, { passive: false });
+  row.addEventListener('touchmove', function(e) {
+    if (!_touchDragState) { clearTimeout(longPressTimer); return; }
+    e.preventDefault();
+    if (_touchGhost) { _touchGhost.style.left = (e.touches[0].clientX - 40) + 'px'; _touchGhost.style.top = (e.touches[0].clientY - 20) + 'px'; }
+    var target = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    document.querySelectorAll('.right-voter').forEach(function(r) { r.style.outline = ''; });
+    if (target) { var vr = target.closest('.right-voter'); if (vr && vr.getAttribute('data-voter-id') != _touchDragState.voterId) vr.style.outline = '2px solid #818cf8'; }
+  }, { passive: false });
+  row.addEventListener('touchend', function(e) {
+    clearTimeout(longPressTimer);
+    if (!_touchDragState) return;
+    var touch = e.changedTouches[0];
+    var target = document.elementFromPoint(touch.clientX, touch.clientY);
+    _touchDragState.row.style.opacity = '';
+    document.querySelectorAll('.right-voter').forEach(function(r) { r.style.outline = ''; });
+    if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
+    if (target) {
+      var vr = target.closest('.right-voter');
+      if (vr && vr.getAttribute('data-voter-id') != _touchDragState.voterId) {
+        var targetVid = vr.getAttribute('data-voter-id');
+        var url = '/api/candidates/' + candidateId + '/lists/' + _touchDragState.listId + '/voters/' + _touchDragState.voterId + '/parent';
+        apiPut(url, { parent_voter_id: targetVid }).then(function() { loadListVoters(_touchDragState.listId); });
+      }
+    }
+    _touchDragState = null;
+  });
+  row.addEventListener('touchcancel', function() {
+    clearTimeout(longPressTimer);
+    if (_touchDragState) _touchDragState.row.style.opacity = '';
+    if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
+    _touchDragState = null;
+  });
+}
+
+// P26 filter state
+var _currentP26Filter = 'all';
+
 function setupDropTargets() {
   // Make sidebar list items and captain items drop targets
   document.querySelectorAll('#sidebarLists .list-item, #sidebarCaptains .list-item').forEach(function(item) {
@@ -966,6 +1021,54 @@ function createVoterExpandPanel(v) {
     item.appendChild(val);
     panel.appendChild(item);
   });
+
+  // Bulk add household members by Voter ID
+  if (currentRightPanelListId) {
+    var bulkSection = document.createElement('div');
+    bulkSection.style.cssText = 'grid-column:1/-1;margin-top:8px;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:6px';
+    var bulkTitle = document.createElement('div');
+    bulkTitle.style.cssText = 'font-size:11px;font-weight:700;color:#818cf8;margin-bottom:6px';
+    bulkTitle.textContent = 'Add Members Under ' + voterFullName(v);
+    bulkSection.appendChild(bulkTitle);
+    var bulkInput = document.createElement('textarea');
+    bulkInput.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:6px;font-size:12px;resize:vertical;min-height:40px';
+    bulkInput.placeholder = 'Paste Voter IDs (one per line or comma separated)';
+    bulkSection.appendChild(bulkInput);
+    var bulkBtnRow = document.createElement('div');
+    bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';
+    var bulkBtn = document.createElement('button');
+    bulkBtn.className = 'btn btn-sm btn-primary';
+    bulkBtn.textContent = '+ Add Under ' + (v.first_name || 'Voter');
+    var bulkStatus = document.createElement('span');
+    bulkStatus.style.cssText = 'font-size:11px;color:#94a3b8';
+    bulkBtn.onclick = function() {
+      var raw = bulkInput.value.trim();
+      if (!raw) return;
+      var ids = raw.split(/[\n,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+      if (!ids.length) return;
+      bulkBtn.disabled = true;
+      bulkBtn.textContent = 'Adding...';
+      apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', { identifiers: ids, parent_voter_id: v.id })
+        .then(function(data) {
+          bulkBtn.disabled = false;
+          bulkBtn.textContent = '+ Add Under ' + (v.first_name || 'Voter');
+          bulkStatus.textContent = data.added + ' added, ' + data.nested + ' grouped' + (data.notFound && data.notFound.length ? ', ' + data.notFound.length + ' not found' : '');
+          bulkStatus.style.color = '#22c55e';
+          bulkInput.value = '';
+          loadListVoters(currentRightPanelListId);
+        }).catch(function(err) {
+          bulkBtn.disabled = false;
+          bulkBtn.textContent = '+ Add Under ' + (v.first_name || 'Voter');
+          bulkStatus.textContent = 'Error: ' + (err.message || err);
+          bulkStatus.style.color = '#ef4444';
+        });
+    };
+    bulkBtnRow.appendChild(bulkBtn);
+    bulkBtnRow.appendChild(bulkStatus);
+    bulkSection.appendChild(bulkBtnRow);
+    panel.appendChild(bulkSection);
+  }
+
   return panel;
 }
 
@@ -1756,14 +1859,61 @@ function renderListVoterRows(voters, content, listId) {
     return;
   }
 
+  // P26 Runoff filter bar
+  var demCount = voters.filter(function(v) { return v.p26_party === 'DEM'; }).length;
+  var repCount = voters.filter(function(v) { return v.p26_party === 'REP'; }).length;
+  var noP26Count = voters.filter(function(v) { return !v.p26_party; }).length;
+  if (demCount > 0 || repCount > 0) {
+    var p26Bar = document.createElement('div');
+    p26Bar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
+    var p26lbl = document.createElement('span');
+    p26lbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
+    p26lbl.textContent = 'P26 Runoff:';
+    p26Bar.appendChild(p26lbl);
+    [['all','All','#e2e8f0'],['dem','DEM ('+demCount+')','#3b82f6'],['rep','REP ('+repCount+')','#ef4444'],['none','No Vote ('+noP26Count+')','#f59e0b']].forEach(function(o) {
+      var btn = document.createElement('button');
+      var isActive = (_currentP26Filter || 'all') === o[0];
+      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:'+o[2]+';color:#000;border-color:'+o[2]+';font-weight:700' : 'background:#1e293b;color:#94a3b8');
+      btn.textContent = o[1];
+      btn.onclick = function() { _currentP26Filter = o[0]; renderListVoterRows(voters, content, listId); };
+      p26Bar.appendChild(btn);
+    });
+    content.appendChild(p26Bar);
+  }
+
+  // Apply P26 filter
+  var filtered = voters;
+  if (_currentP26Filter === 'dem') filtered = voters.filter(function(v) { return v.p26_party === 'DEM'; });
+  else if (_currentP26Filter === 'rep') filtered = voters.filter(function(v) { return v.p26_party === 'REP'; });
+  else if (_currentP26Filter === 'none') filtered = voters.filter(function(v) { return !v.p26_party; });
+
+  // Group by parent/child
+  var childrenOf = {};
+  var parentIds = new Set();
+  filtered.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
+      childrenOf[v.parent_voter_id].push(v);
+      parentIds.add(v.parent_voter_id);
+    }
+  });
+  var topLevel = filtered.filter(function(v) { return !v.parent_voter_id; });
+
   // Select all row
   addSelectAllRow(content);
 
-  voters.forEach(function(v) {
+  function makeVoterRow(v, isChild) {
     var row = document.createElement('div');
     row.className = 'right-voter';
     row.setAttribute('data-voter-id', v.id);
     row.setAttribute('draggable', 'true');
+    if (isChild) row.style.cssText = (row.style.cssText || '') + ';border-left:3px solid #818cf8;margin-left:16px;background:#0f172a';
+
+    // P26 party border highlight
+    if (_currentP26Filter !== 'all' && v.p26_party) {
+      if (v.p26_party === 'DEM') row.style.borderLeft = '4px solid #3b82f6';
+      else if (v.p26_party === 'REP') row.style.borderLeft = '4px solid #ef4444';
+    }
 
     // Drag handlers
     (function(voterId) {
@@ -1771,14 +1921,45 @@ function renderListVoterRows(voters, content, listId) {
       row.addEventListener('dragend', function() { document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); }); });
     })(v.id);
 
+    // Drop target for grouping (only non-child rows)
+    if (!isChild) {
+      row.addEventListener('dragover', function(e) { e.preventDefault(); row.style.outline = '2px solid #818cf8'; });
+      row.addEventListener('dragleave', function() { row.style.outline = ''; });
+      row.addEventListener('drop', function(e) {
+        e.preventDefault(); row.style.outline = '';
+        var raw = e.dataTransfer.getData('text/plain');
+        var draggedIds; try { draggedIds = JSON.parse(raw); } catch(ex) { draggedIds = [raw]; }
+        if (!Array.isArray(draggedIds)) draggedIds = [draggedIds];
+        if (draggedIds.length !== 1) return;
+        var draggedId = String(draggedIds[0]);
+        if (draggedId == v.id) return;
+        apiPut('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + draggedId + '/parent', { parent_voter_id: v.id })
+          .then(function() { loadListVoters(listId); });
+      });
+    }
+
+    // Touch drag for iPad
+    initCandidateTouchDrag(row, v.id, listId);
+
+    // Ungroup button for children
+    if (isChild) {
+      var unBtn = document.createElement('button');
+      unBtn.textContent = '\u2191';
+      unBtn.title = 'Ungroup';
+      unBtn.style.cssText = 'background:#475569;border:none;color:#e2e8f0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;margin-right:6px';
+      unBtn.onclick = function(e) {
+        e.stopPropagation();
+        api('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + v.id + '/parent', { method: 'DELETE' }).then(function() { loadListVoters(listId); });
+      };
+      row.appendChild(unBtn);
+    }
+
     // Checkbox
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.className = 'right-voter-checkbox';
     cb.checked = selectedVoterIds.has(v.id);
-    (function(voterId) {
-      cb.onchange = function(e) { e.stopPropagation(); toggleVoterSelection(voterId); };
-    })(v.id);
+    (function(voterId) { cb.onchange = function(e) { e.stopPropagation(); toggleVoterSelection(voterId); }; })(v.id);
     row.appendChild(cb);
 
     var infoDiv = document.createElement('div');
@@ -1786,13 +1967,15 @@ function renderListVoterRows(voters, content, listId) {
     var nameEl = document.createElement('div');
     nameEl.className = 'name';
     nameEl.style.cssText = 'cursor:pointer;color:#818cf8';
-    nameEl.textContent = voterFullName(v) + ' \u25B8';
+    var childCount = childrenOf[v.id] ? childrenOf[v.id].length : 0;
+    var nameText = (isChild ? '\u21B3 ' : '') + voterFullName(v);
+    if (!isChild && childCount > 0) nameText += ' (' + childCount + ' sub)';
+    nameEl.textContent = nameText + ' \u25B8';
     nameEl.title = 'Click to expand details';
     (function(voter, rowEl) {
       nameEl.onclick = function() {
         var existing = rowEl.querySelector('.voter-expand-panel');
-        if (existing) { existing.remove(); nameEl.textContent = voterFullName(voter) + ' \u25B8'; return; }
-        nameEl.textContent = voterFullName(voter) + ' \u25BE';
+        if (existing) { existing.remove(); return; }
         rowEl.appendChild(createVoterExpandPanel(voter));
       };
     })(v, row);
@@ -1802,6 +1985,13 @@ function renderListVoterRows(voters, content, listId) {
     metaDiv.appendChild(createVotedBadge(v));
     var rb = createRaceBadge(v);
     if (rb) metaDiv.appendChild(rb);
+    if (v.p26_party) {
+      var partyBadge = document.createElement('span');
+      var pc = v.p26_party === 'DEM' ? 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6' : 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444';
+      partyBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;' + pc;
+      partyBadge.textContent = 'P26: ' + v.p26_party;
+      metaDiv.appendChild(partyBadge);
+    }
     if (v.age) {
       var ageBadge2 = document.createElement('span');
       ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
@@ -1819,7 +2009,20 @@ function renderListVoterRows(voters, content, listId) {
     removeBtn.onclick = function() { removeVoterFromList(listId, v.id); };
     row.appendChild(removeBtn);
 
-    content.appendChild(row);
+    return row;
+  }
+
+  topLevel.forEach(function(v) {
+    content.appendChild(makeVoterRow(v, false));
+    if (childrenOf[v.id]) {
+      childrenOf[v.id].forEach(function(child) {
+        content.appendChild(makeVoterRow(child, true));
+      });
+    }
+  });
+  // Orphaned children (parent not in filtered set)
+  filtered.filter(function(v) { return v.parent_voter_id && !topLevel.some(function(p) { return p.id == v.parent_voter_id; }); }).forEach(function(v) {
+    content.appendChild(makeVoterRow(v, true));
   });
 }
 
