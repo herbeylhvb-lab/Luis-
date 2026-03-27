@@ -1671,6 +1671,54 @@ router.get('/early-voting/stats', (req, res) => {
   res.json({ total, earlyVoted, remaining, byDate, byMethod, byPrecinct, byBallot });
 });
 
+// Delete ALL election_votes — used before full reimport from CSV
+router.post('/bulk-delete-election-votes', (req, res) => {
+  const count = db.prepare('SELECT COUNT(*) as c FROM election_votes').get().c;
+  db.prepare('DELETE FROM election_votes').run();
+  db.prepare("DELETE FROM elections").run();
+  console.log('[bulk] Deleted', count, 'election_votes records');
+  res.json({ deleted: count });
+});
+
+// Bulk insert election records from CSV data
+router.post('/bulk-insert-election-votes', (req, res) => {
+  const { records } = req.body;
+  if (!records || !Array.isArray(records)) return res.status(400).json({ error: 'records array required' });
+
+  const ELECTION_DATES = {
+    'Primary 2026':'2026-03-03','Primary 2024':'2024-03-05','Primary 2022':'2022-03-01','Primary 2020':'2020-03-03','Primary 2018':'2018-03-06','Primary 2016':'2016-03-01',
+    'General 2024':'2024-11-05','General 2022':'2022-11-08','General 2020':'2020-11-03','General 2018':'2018-11-06','General 2016':'2016-11-08',
+    'Primary Runoff 2024':'2024-05-28','Primary Runoff 2022':'2022-05-24','Primary Runoff 2020':'2020-07-14','Primary Runoff 2018':'2018-05-22',
+    'General Runoff 2024':'2024-12-14','General Runoff 2020':'2020-12-15',
+    'Constitutional Amendment 2025':'2025-05-03','Constitutional Amendment 2023':'2023-11-07','Constitutional Amendment 2021':'2021-11-02','Constitutional Amendment 2019':'2019-11-05',
+    'Special 2026':'2026-01-01','Special 2025':'2025-01-01','Special Election CD34 2022':'2022-06-14',
+    'Special Election SPI 2024':'2024-01-20','Drainage District 5 Election':'2024-01-01',
+    'Runoff Jun 2025':'2025-06-17','Runoff Jun 2024':'2024-06-18','Runoff Jun 2022':'2022-06-14',
+    'Local May 2025':'2025-05-03','Local May 2024':'2024-05-04','Local May 2023':'2023-05-06','Local May 2022':'2022-05-07','Local May 2021':'2021-05-01',
+    'Local May 2019':'2019-05-04','Local May 2018':'2018-05-05','Local May 2017':'2017-05-06','Local May 2016':'2016-05-07',
+    'Local Jun 2023':'2023-06-10','Local Jun 2021':'2021-06-05','Local Jun 2019':'2019-06-08','Local Jun 2018':'2018-06-09','Local Jun 2016':'2016-06-11',
+  };
+
+  const findVoter = db.prepare('SELECT id FROM voters WHERE registration_number = ?');
+  const insertVote = db.prepare('INSERT OR IGNORE INTO election_votes (voter_id, election_name, election_date, election_type, election_cycle, party_voted, vote_method) VALUES (?, ?, ?, ?, ?, ?, ?)');
+
+  let inserted = 0, notFound = 0;
+  const tx = db.transaction(() => {
+    for (const rec of records) {
+      const voter = findVoter.get(rec.vuid);
+      if (!voter) { notFound++; continue; }
+      for (const el of (rec.elections || [])) {
+        const date = ELECTION_DATES[el.name] || '2000-01-01';
+        const type = el.name.includes('Primary') ? 'primary' : el.name.includes('General') ? 'general' : el.name.includes('Runoff') ? 'runoff' : el.name.includes('Local') ? 'local' : 'special';
+        const r = insertVote.run(voter.id, el.name, date, type, '', el.party || '', el.method || '');
+        if (r.changes > 0) inserted++;
+      }
+    }
+  });
+  tx();
+  res.json({ inserted, notFound, processed: records.length });
+});
+
 // Bulk update vote methods on existing election_votes records
 router.post('/bulk-update-vote-methods', (req, res) => {
   const { updates } = req.body;
