@@ -620,6 +620,15 @@ try {
   }
 } catch (e) { /* ignore */ }
 
+// Clean up orphaned election_votes records where voter was deleted
+try {
+  const orphaned = db.prepare("SELECT COUNT(*) as c FROM election_votes WHERE voter_id NOT IN (SELECT id FROM voters)").get();
+  if (orphaned.c > 0) {
+    const del = db.prepare("DELETE FROM election_votes WHERE voter_id NOT IN (SELECT id FROM voters)").run();
+    console.log('[cleanup] Removed', del.changes, 'orphaned election records from deleted voters');
+  }
+} catch (e) { /* ignore */ }
+
 // --- Fix election name duplicates from Cameron County import ---
 // Run after server starts to avoid health check timeout
 setTimeout(() => {
