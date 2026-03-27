@@ -10671,8 +10671,16 @@ function renderFilterOptions() {
   checkboxes('filterStateBoardEd', fo.state_board_eds || [], 'filter-stateboarded-cb');
   checkboxes('filterUSCongress', fo.us_congress || [], 'filter-uscongress-cb');
   checkboxes('filterHospital', fo.hospital_districts || [], 'filter-hospital-cb');
-  // Vote method checkboxes — hardcoded since these are the known values
-  checkboxes('filterVoteMethod', ['early', 'mail', 'election_day', 'provisional'], 'filter-votemethod-cb');
+  // Vote method with nice labels
+  var vmEl = document.getElementById('filterVoteMethod');
+  vmEl.innerHTML = [
+    { val: 'early', label: 'Voted Early' },
+    { val: 'mail', label: 'Mail' },
+    { val: 'election_day', label: 'Election Day' },
+    { val: 'provisional', label: 'Provisional' }
+  ].map(function(m) {
+    return '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:2px 0"><input type="checkbox" class="filter-votemethod-cb" value="' + m.val + '" style="accent-color:#06b6d4"> ' + m.label + '</label>';
+  }).join('');
 }
 
 window.applyRacePrecincts = function() {
