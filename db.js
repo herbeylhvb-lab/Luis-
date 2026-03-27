@@ -668,6 +668,18 @@ try {
     if (r.changes > 0) renamed += r.changes;
   }
   if (renamed > 0) console.log('[migrate] Renamed', renamed, 'election records to fix duplicate names');
+  // Delete empty ghost records (0 voters) left after merge
+  const emptyNames = [
+    'General Nov 2024', 'Primary Runoff May 2024', 'Primary Mar 2024',
+    'General Nov 2022', 'Primary Runoff May 2022', 'Primary Mar 2022',
+    'General Nov 2020', 'Primary Runoff Jul 2020', 'Primary Mar 2020',
+    'General Nov 2018', 'Primary Runoff May 2018', 'Primary Mar 2018',
+    'General Nov 2016', 'Primary Mar 2016'
+  ];
+  for (const name of emptyNames) {
+    db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
+  }
+  console.log('[migrate] Cleaned up', emptyNames.length, 'empty duplicate election records');
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
 }, 5000); // run after server starts
 

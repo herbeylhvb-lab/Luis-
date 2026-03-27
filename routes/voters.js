@@ -2083,18 +2083,12 @@ router.post('/election-votes/import-turnout', requireAuth, importLimiter, (req, 
 
 // Get all distinct elections in the database
 router.get('/election-votes/elections', (req, res) => {
-  // Combine election definitions with actual vote data so empty elections still appear
+  // Only show elections that have actual voter data
   const elections = db.prepare(`
-    SELECT election_name, election_date, election_type, election_cycle, voter_count
-    FROM (
-      SELECT election_name, election_date, election_type, election_cycle, COUNT(DISTINCT voter_id) as voter_count
-      FROM election_votes
-      GROUP BY election_name
-      UNION ALL
-      SELECT e.election_name, e.election_date, e.election_type, e.election_cycle, 0 as voter_count
-      FROM elections e
-      WHERE e.election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)
-    )
+    SELECT election_name, election_date, election_type, election_cycle, COUNT(DISTINCT voter_id) as voter_count
+    FROM election_votes
+    GROUP BY election_name
+    HAVING voter_count > 0
     ORDER BY election_date DESC
   `).all();
   res.json({ elections });
