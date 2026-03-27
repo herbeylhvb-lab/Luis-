@@ -7093,10 +7093,10 @@ function parseVoterRow(header, cols, rawHeaders) {
   if (!v.address || !v.address.trim()) {
     var parts = [v._streetno, v._streetprefix, v._streetname, v._streettype].filter(Boolean);
     if (parts.length) v.address = parts.join(' ').trim();
-    // Add unit separately so it stays in the unit field
-    if (v._apt && v.address) {
-      v.unit = (v._unittype ? v._unittype + ' ' : '') + v._apt;
-    }
+  }
+  // Always set unit/apartment if available (even when address came from a single column)
+  if (v._apt && !v.unit) {
+    v.unit = (v._unittype ? v._unittype + ' ' : '') + v._apt;
   }
   if (!v.phone && v.secondary_phone) { v.phone = v.secondary_phone; v.secondary_phone = ''; }
   // Calculate age from DOB if age not directly provided

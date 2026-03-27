@@ -229,8 +229,8 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
     const insertVoter = db.prepare(
       `INSERT INTO voters (first_name, last_name, middle_name, suffix, phone, secondary_phone, email,
         address, city, state, zip, zip4, party, support_level, tags, registration_number, precinct,
-        county_file_id, vanid, address_id, state_file_id, gender, age, qr_token)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        county_file_id, vanid, address_id, state_file_id, gender, age, qr_token, unit, voter_status, navigation_district)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const updateVoter = db.prepare(
@@ -322,7 +322,8 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
             v.party || '', v.support_level || 'unknown', v.tags || '',
             v.registration_number || '', v.precinct || '',
             v.county_file_id || '', v.vanid || '', v.address_id || '', v.state_file_id || '',
-            voterGender, voterAge, generateQrToken()
+            voterGender, voterAge, generateQrToken(),
+            v.unit || '', v.voter_status || '', v.navigation_district || ''
           );
           voterId = r.lastInsertRowid;
           if (customCols.length > 0) updateCustomFields(voterId, v, customCols);
