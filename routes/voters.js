@@ -1719,6 +1719,27 @@ router.post('/bulk-insert-election-votes', (req, res) => {
   res.json({ inserted, notFound, processed: records.length });
 });
 
+// Bulk update party_voted on existing election_votes records
+router.post('/bulk-update-party', (req, res) => {
+  const { updates } = req.body;
+  if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'updates array required' });
+  const findVoter = db.prepare('SELECT id FROM voters WHERE registration_number = ?');
+  const updateParty = db.prepare('UPDATE election_votes SET party_voted = ? WHERE voter_id = ? AND election_name = ?');
+  let updated = 0, notFound = 0;
+  const tx = db.transaction(() => {
+    for (const u of updates) {
+      const voter = findVoter.get(u.vuid);
+      if (!voter) { notFound++; continue; }
+      for (const [elName, party] of Object.entries(u.parties || {})) {
+        const r = updateParty.run(party, voter.id, elName);
+        if (r.changes > 0) updated++;
+      }
+    }
+  });
+  tx();
+  res.json({ updated, notFound, processed: updates.length });
+});
+
 // Bulk update vote methods on existing election_votes records
 router.post('/bulk-update-vote-methods', (req, res) => {
   const { updates } = req.body;
