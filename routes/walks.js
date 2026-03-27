@@ -2822,6 +2822,53 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   res.json({ walk, addresses, progress: countDoors(addresses) });
 });
 
+// Repopulate all empty walks from voter file by precinct
+router.post('/repopulate-walks', (req, res) => {
+  const walks = db.prepare("SELECT id, name FROM block_walks").all();
+  const insertAddr = db.prepare(
+    'INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, voter_id, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+
+  let totalRepopulated = 0;
+  let totalAddresses = 0;
+
+  const tx = db.transaction(() => {
+    for (const walk of walks) {
+      // Check if walk already has addresses
+      const existing = db.prepare('SELECT COUNT(*) as c FROM walk_addresses WHERE walk_id = ?').get(walk.id);
+      if (existing.c > 0) continue;
+
+      // Extract precinct from walk name "Precinct Walk: 73"
+      const match = walk.name.match(/Precinct Walk:\s*(\d+)/);
+      if (!match) continue;
+      const precinct = match[1];
+
+      // Get all active voters in this precinct with BND navigation district
+      const voters = db.prepare(`
+        SELECT id, first_name, last_name, address, unit, city, zip
+        FROM voters
+        WHERE precinct = ? AND address != '' AND address IS NOT NULL
+          AND (voter_status = 'ACTIVE' OR voter_status IS NULL OR voter_status = '')
+        ORDER BY address, unit, last_name
+      `).all(precinct);
+
+      if (voters.length === 0) continue;
+
+      let i = 0;
+      for (const v of voters) {
+        const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
+        insertAddr.run(walk.id, v.address, v.unit || '', v.city || '', v.zip || '', voterName, v.id, i++);
+      }
+      totalRepopulated++;
+      totalAddresses += voters.length;
+    }
+  });
+  tx();
+
+  console.log('[repopulate] Repopulated', totalRepopulated, 'walks with', totalAddresses, 'addresses');
+  res.json({ repopulated: totalRepopulated, addresses: totalAddresses });
+});
+
 module.exports = router;
 module.exports.geocodeWalkAddresses = geocodeWalkAddresses;
 module.exports.parseAddressUnit = parseAddressUnit;
