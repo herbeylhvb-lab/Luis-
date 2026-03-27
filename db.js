@@ -712,9 +712,14 @@ const districtRenames = [
   ['school_district', 'ISB', 'San Benito ISD'],
   ['school_district', 'ISM', 'Santa Maria ISD'],
   ['school_district', 'ISR', 'Santa Rosa ISD'],
-  // City abbreviations — only rename ones we're certain about
-  // CCB, CIL, CLO, CPI, CPV, CRH, CSR are Cameron County codes
-  // Keep as-is for now since they may represent unincorporated areas
+  // City abbreviations — Cameron County codes (C = City + initials)
+  ['city_district', 'CCB', 'Combes'],
+  ['city_district', 'CIL', 'Los Indios'],
+  ['city_district', 'CLO', 'Lozano'],
+  ['city_district', 'CPI', 'Primera'],
+  ['city_district', 'CPV', 'Palm Valley'],
+  ['city_district', 'CRH', 'Rangerville'],
+  ['city_district', 'CSR', 'Santa Rosa'],
 ];
 for (const [col, abbrev, fullName] of districtRenames) {
   try {
