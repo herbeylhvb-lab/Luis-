@@ -2294,6 +2294,12 @@ function buildStep1Filter(filters) {
     params.push(...voter_statuses);
   }
 
+  // Vote method filter: voters who have voted using any of these methods
+  if (filters.vote_methods && filters.vote_methods.length > 0) {
+    clauses.push('voters.id IN (SELECT voter_id FROM election_votes WHERE vote_method IN (' + filters.vote_methods.map(() => '?').join(',') + '))');
+    params.push(...filters.vote_methods);
+  }
+
   // Minimum elections filter: only voters who voted in at least N distinct elections
   if (min_elections != null && min_elections > 0) {
     clauses.push('voters.id IN (SELECT voter_id FROM election_votes GROUP BY voter_id HAVING COUNT(DISTINCT election_name) >= ?)');
@@ -2315,14 +2321,14 @@ router.post('/universe/build', (req, res) => {
           list_name, list_name_universe, list_name_sub, list_name_priority,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
-          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts } = req.body;
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
-    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts });
+    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
 
@@ -2446,14 +2452,14 @@ router.post('/universe/preview', (req, res) => {
   const { precincts, years_back, selected_elections,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
-          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts } = req.body;
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
-    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts });
+    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
   const elecNames = (selected_elections || []).filter(n => n && n.trim());
