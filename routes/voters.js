@@ -479,7 +479,7 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
     res.json({ success: true, ...results });
   } catch (err) {
     console.error('Voter file import error:', err);
-    res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
+    res.status(500).json({ error: 'Import failed: ' + (err.message || err).toString().slice(0, 500) });
   }
 });
 
