@@ -2375,11 +2375,8 @@ function buildStep1Filter(filters) {
     params.push(...voter_statuses);
   }
 
-  // Vote method filter: voters who have voted using any of these methods
-  if (filters.vote_methods && filters.vote_methods.length > 0) {
-    clauses.push('voters.id IN (SELECT voter_id FROM election_votes WHERE vote_method IN (' + filters.vote_methods.map(() => '?').join(',') + '))');
-    params.push(...filters.vote_methods);
-  }
+  // Vote method filter: applied in election targeting query, NOT here
+  // (so it combines with selected_elections to mean "voted by mail IN that election")
 
   // Minimum elections filter: only voters who voted in at least N distinct elections
   if (min_elections != null && min_elections > 0) {
@@ -2452,14 +2449,29 @@ router.post('/universe/build', (req, res) => {
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_universe').get() || { c: 0 }).c;
 
     // Step 3: Election Targeting — voter voted in ANY of the selected elections (OR logic)
+    // If vote_methods is set, also filter by how they voted IN those elections
     let targetedCount = universeCount;
     db.exec('DROP TABLE IF EXISTS _univ_targeted');
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
+      let methodClause = '';
+      const targetParams = [...elecNames];
+      if (vote_methods && vote_methods.length > 0) {
+        methodClause = ' AND vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
+        targetParams.push(...vote_methods);
+      }
       db.exec('CREATE TEMP TABLE _univ_targeted (voter_id INTEGER PRIMARY KEY)');
       db.prepare(`INSERT INTO _univ_targeted
         SELECT DISTINCT voter_id FROM election_votes
-        WHERE election_name IN (${ph}) AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...elecNames);
+        WHERE election_name IN (${ph})${methodClause} AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...targetParams);
+      targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
+    } else if (vote_methods && vote_methods.length > 0) {
+      // No elections selected but vote method filter is set
+      const ph = vote_methods.map(() => '?').join(',');
+      db.exec('CREATE TEMP TABLE _univ_targeted (voter_id INTEGER PRIMARY KEY)');
+      db.prepare(`INSERT INTO _univ_targeted
+        SELECT DISTINCT voter_id FROM election_votes
+        WHERE vote_method IN (${ph}) AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...vote_methods);
       targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
     } else {
       db.exec('CREATE TEMP TABLE _univ_targeted AS SELECT * FROM _univ_universe');
@@ -2569,13 +2581,27 @@ router.post('/universe/preview', (req, res) => {
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_universe').get() || { c: 0 }).c;
 
     // Election targeting: voter voted in ANY of the selected elections (OR logic)
+    // If vote_methods is set, also filter by how they voted IN those elections
     let targetedCount = universeCount;
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
+      let methodClause = '';
+      const targetParams = [...elecNames];
+      if (vote_methods && vote_methods.length > 0) {
+        methodClause = ' AND vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
+        targetParams.push(...vote_methods);
+      }
       targetedCount = (db.prepare(`
         SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
-        WHERE election_name IN (${ph}) AND voter_id IN (SELECT voter_id FROM _prev_universe)
-      `).get(...elecNames) || { c: 0 }).c;
+        WHERE election_name IN (${ph})${methodClause} AND voter_id IN (SELECT voter_id FROM _prev_universe)
+      `).get(...targetParams) || { c: 0 }).c;
+    } else if (vote_methods && vote_methods.length > 0) {
+      // No specific elections selected, but vote method filter is set — find voters who ever voted by this method
+      const ph = vote_methods.map(() => '?').join(',');
+      targetedCount = (db.prepare(`
+        SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
+        WHERE vote_method IN (${ph}) AND voter_id IN (SELECT voter_id FROM _prev_universe)
+      `).get(...vote_methods) || { c: 0 }).c;
     }
 
     // Count unique households based on address dedup
