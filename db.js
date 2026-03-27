@@ -1337,7 +1337,8 @@ try {
 // Step 2: Sync support_level from walk_addresses result for ALL voters
 // Uses walk_addresses.result directly (not walk_attempts) because household logging
 // updates all walk_address rows at an address, but only creates 1 walk_attempt
-try {
+// Support sync — deferred to avoid health check timeout
+setTimeout(() => { try {
   const resultToSupport = {
     'support': 'strong_support', 'lean_support': 'lean_support',
     'undecided': 'undecided', 'lean_oppose': 'lean_oppose',
@@ -1388,6 +1389,7 @@ try {
     console.log('[migrate] WARNING: ' + orphanAttempts.reduce((s,r) => s + r.cnt, 0) + ' walk attempts still have no voter_id link:', JSON.stringify(orphanAttempts));
   }
 } catch(e) { console.error('[migrate] backfill error:', e.message); }
+}, 5000);
 
 // Migrate existing texting_volunteers and walkers into unified table (one-time)
 try {
@@ -1482,8 +1484,10 @@ function computePartyScores() {
   console.log('[party-score] Computed party scores for ' + rows.length + ' voters with primary history');
 }
 
-// Compute on startup
-try { computePartyScores(); } catch (e) { console.error('[party-score] Error:', e.message); }
+// Compute after startup to avoid health check timeout
+setTimeout(() => {
+  try { computePartyScores(); } catch (e) { console.error('[party-score] Error:', e.message); }
+}, 15000);
 
 module.exports = db;
 module.exports.generateQrToken = generateQrToken;
