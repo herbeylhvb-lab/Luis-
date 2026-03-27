@@ -14,7 +14,8 @@ function triggerSync(req) {
 const bulkDeleteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many delete requests, try again later.' } });
 const checkinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 60, message: { error: 'Too many check-in attempts. Please wait.' } });
 const voterCreateLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many voter creation requests. Please wait.' } });
-const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, message: { error: 'Too many import requests. Please wait.' } });
+// TEMP: Rate limit disabled for bulk import — re-enable after import complete
+const importLimiter = (req, res, next) => next();
 
 // Auth middleware for admin-only endpoints
 function requireAuth(req, res, next) {
