@@ -404,12 +404,29 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           const codeKey = 'Election' + padded + ' Code';
           const partyKey = 'Election' + padded + ' Party Code';
           const voteTypeKey = 'Election' + padded + ' Vote Type';
-          const elCode = (v[codeKey] || '').trim();
-          if (!elCode) continue;
+          let elCode = (v[codeKey] || '').trim();
+          const partyCodeRaw = (v[partyKey] || '').trim();
+          const voteTypeRaw = (v[voteTypeKey] || '').trim();
 
-          // Skip if this is actually a vote type in the code field (EV, ED, Mail etc.)
-          const upperCode = elCode.toUpperCase();
-          if (['EV', 'ED', 'MAIL', 'VOTED EARLY', 'ELECTION DAY', 'PROVISIONAL', '1'].includes(upperCode)) continue;
+          // Detect if Code column has vote method instead of election code
+          let codeIsVoteMethod = false;
+          const upperCodeCheck = elCode.toUpperCase();
+          if (['EV', 'ED', 'MAIL', 'VOTED EARLY', 'ELECTION DAY', 'PROVISIONAL', '1', 'ABSENTEE'].includes(upperCodeCheck)) {
+            codeIsVoteMethod = true;
+          }
+
+          // If Code is a vote method, use Party Code as the election identifier
+          if (codeIsVoteMethod) {
+            if (!partyCodeRaw) continue; // No election code at all, skip
+            // Store the vote method from Code column, then use Party Code as the election code
+            voteMethodData['__pending_' + eIdx] = elCode; // save for later
+            elCode = partyCodeRaw; // use party code as election identifier
+          } else if (!elCode && partyCodeRaw) {
+            // Code is empty but Party Code has the election identifier (e.g. Primary 2026)
+            elCode = partyCodeRaw;
+          } else if (!elCode) {
+            continue; // nothing to work with
+          }
 
           let elName, elDate, elType;
 
@@ -462,14 +479,24 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           const r = insertVote.run(voterId, elName, elDate, elType, '');
           if (r.changes > 0) results.elections_recorded++;
 
-          // Party code
-          const party = (v[partyKey] || '').trim();
-          if (party) {
-            partyData[elName] = party;
+          // Party code — if Code was vote method, party is in Vote Type column
+          if (codeIsVoteMethod) {
+            // Party is in the Vote Type column (DEM/REP)
+            if (voteTypeRaw && ['DEM', 'REP', 'LIB', 'GRN'].includes(voteTypeRaw.toUpperCase())) {
+              partyData[elName] = voteTypeRaw.toUpperCase();
+            }
+          } else {
+            // Normal case: party is in Party Code
+            const party = partyCodeRaw;
+            if (party) {
+              partyData[elName] = party;
+            }
           }
 
-          // Vote type/method: "Mail", "EV"/"Voted Early", "ED"/"Election Day", "Provisional"
-          const voteType = (v[voteTypeKey] || '').trim();
+          // Vote type/method: check pending (from Code column) first, then Vote Type column
+          const pendingMethod = voteMethodData['__pending_' + eIdx];
+          const voteType = pendingMethod || (v[voteTypeKey] || '').trim();
+          delete voteMethodData['__pending_' + eIdx]; // clean up pending
           if (voteType) {
             const vt = voteType.toUpperCase();
             let method = '';
@@ -478,8 +505,12 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
             else if (vt === 'ED' || vt === 'ELECTION DAY' || vt === 'IN PERSON') method = 'election_day';
             else if (vt === 'PROVISIONAL') method = 'provisional';
             else if (vt === '1') method = 'voted';
+            else if (vt === 'DEM' || vt === 'REP' || vt === 'LIB' || vt === 'GRN') {
+              // This is actually a party, not a vote method — skip
+              method = '';
+            }
             else method = voteType.toLowerCase();
-            voteMethodData[elName] = method;
+            if (method) voteMethodData[elName] = method;
           }
         }
 
