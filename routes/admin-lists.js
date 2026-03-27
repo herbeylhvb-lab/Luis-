@@ -226,12 +226,17 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
     }
 
     // Clean embedded city/state/zip from address string
-    function clean(addr, city, zip) {
+    // Handles: "PO BOX 4590 BROWNSVILLE TX 78523 -4590" → "PO BOX 4590"
+    // Handles: "341 JOSE MARTI BROWNSVILLE TX 78526 -" → "341 JOSE MARTI"
+    function clean(addr) {
       if (!addr) return '';
-      let c = addr.trim().replace(/\s*-\s*$/, '').trim();
-      if (zip) { try { c = c.replace(new RegExp('\\s+' + zip.replace(/\D/g,'') + '\\s*$'), '').trim(); } catch(e){} }
-      c = c.replace(/\s+TX\s*$/i, '').trim();
-      if (city) { try { c = c.replace(new RegExp('\\s+' + city.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\s*$', 'i'), '').trim(); } catch(e){} }
+      let c = addr.trim();
+      // Remove pattern: [CITY] TX [ZIP] [-ZIP4] at the end
+      c = c.replace(/\s+[A-Z]{2,}\s+TX\s+\d{5}[\s\-]*\d*\s*$/i, '').trim();
+      // Also try without city: just " TX 78520 -1234"
+      c = c.replace(/\s+TX\s+\d{5}[\s\-]*\d*\s*$/i, '').trim();
+      // Remove trailing dash
+      c = c.replace(/\s*-\s*$/, '').trim();
       return c;
     }
 
@@ -240,7 +245,7 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
       const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
       // Use mailing address if different from residential, otherwise residential
       const useMailAddr = h.mail_addr && h.mail_addr !== h.res_addr;
-      const addr = clean(useMailAddr ? h.mail_addr : h.res_addr, useMailAddr ? h.mail_city : h.res_city, useMailAddr ? h.mail_zip : h.res_zip);
+      const addr = clean(useMailAddr ? h.mail_addr : h.res_addr);
       const city = (useMailAddr && h.mail_city) ? h.mail_city : h.res_city;
       const zip = (useMailAddr && h.mail_zip) ? h.mail_zip : h.res_zip;
       return [name, addr, h.unit, city, h.state, zip, h.precinct, h.household_size].map(esc).join(',');
