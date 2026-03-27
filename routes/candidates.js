@@ -646,29 +646,35 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
 router.get('/candidates/:id/household', requireCandidateAuth, (req, res) => {
   const { voter_id } = req.query;
   if (!voter_id) return res.json({ household: [] });
-  const voter = db.prepare('SELECT address, zip, city FROM voters WHERE id = ?').get(voter_id);
+  const voter = db.prepare('SELECT address, unit, zip, city FROM voters WHERE id = ?').get(voter_id);
   if (!voter || !voter.address) return res.json({ household: [] });
 
-  const streetNum = (voter.address.match(/^(\d+)/) || [])[1];
-  if (!streetNum) return res.json({ household: [] });
+  // Match by address + unit — only people in the SAME apartment/unit
+  const voterUnit = (voter.unit || '').trim().toLowerCase();
 
   let candidates;
   if (voter.zip) {
-    const zipShort = voter.zip.replace(/-\d+$/, '');
-    candidates = db.prepare('SELECT * FROM voters WHERE (zip = ? OR zip LIKE ?) AND address LIKE ? AND id != ? ORDER BY last_name LIMIT 100').all(voter.zip, zipShort + '%', streetNum + ' %', voter_id);
-  } else if (voter.city) {
-    candidates = db.prepare('SELECT * FROM voters WHERE LOWER(city) = LOWER(?) AND address LIKE ? AND id != ? ORDER BY last_name LIMIT 100').all(voter.city, streetNum + ' %', voter_id);
+    candidates = db.prepare(`
+      SELECT * FROM voters
+      WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
+        AND (zip = ? OR zip LIKE ?)
+        AND id != ?
+      ORDER BY last_name, first_name LIMIT 50
+    `).all(voter.address, voterUnit, voter.zip, voter.zip.replace(/-\d+$/, '') + '%', voter_id);
   } else {
-    candidates = db.prepare('SELECT * FROM voters WHERE address LIKE ? AND id != ? ORDER BY last_name LIMIT 100').all(streetNum + ' %', voter_id);
+    candidates = db.prepare(`
+      SELECT * FROM voters
+      WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(city,''))) = LOWER(TRIM(?))
+        AND id != ?
+      ORDER BY last_name, first_name LIMIT 50
+    `).all(voter.address, voterUnit, voter.city || '', voter_id);
   }
 
-  // Simple normalized address match
-  // Deduplicate by registration_number (VUID) to prevent same person appearing twice
-  const norm = voter.address.trim().toLowerCase().replace(/\b(apt|unit|suite|ste|#)\b\.?\s*\S*/gi, '').replace(/\s+/g, ' ').trim();
   const seen = new Set();
   const household = candidates.filter(c => {
-    const cn = (c.address || '').trim().toLowerCase().replace(/\b(apt|unit|suite|ste|#)\b\.?\s*\S*/gi, '').replace(/\s+/g, ' ').trim();
-    if (cn !== norm) return false;
     const key = (c.registration_number || c.id).toString().toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);

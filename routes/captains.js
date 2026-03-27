@@ -649,50 +649,40 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
   res.json({ voters });
 });
 
-// Get household members for a voter (normalized address match)
+// Get household members for a voter (same address + same unit)
 router.get('/captains/:id/household', requireCaptainAuth, (req, res) => {
   const { voter_id } = req.query;
   if (!voter_id) return res.json({ household: [] });
-  const voter = db.prepare('SELECT address, zip, city FROM voters WHERE id = ?').get(voter_id);
+  const voter = db.prepare('SELECT address, unit, zip, city FROM voters WHERE id = ?').get(voter_id);
   if (!voter || !voter.address) return res.json({ household: [] });
-  const streetNum = extractStreetNumber(voter.address);
-  if (!streetNum) return res.json({ household: [] });
 
-  // Strategy: find candidates by street number, then filter by normalized address match
-  // This handles apt/unit differences, abbreviation differences (St vs Street), etc.
-  const normalizedAddr = normalizeAddress(voter.address);
+  // Match by address + unit — only people in the SAME apartment/unit
+  const voterUnit = (voter.unit || '').trim().toLowerCase();
 
-  // Build query: street number prefix match + at least one location anchor (zip, city, or precinct)
   let candidates;
   if (voter.zip) {
-    // Primary match: same zip + same street number prefix
-    const zipShort = voter.zip.replace(/-\d+$/, ''); // handle 78701-1234 → 78701
     candidates = db.prepare(`
       SELECT * FROM voters
-      WHERE (zip = ? OR zip LIKE ? OR zip = ?) AND address LIKE ? AND id != ?
-      ORDER BY last_name, first_name LIMIT 100
-    `).all(voter.zip, zipShort + '%', zipShort, streetNum + ' %', voter_id);
-  } else if (voter.city) {
-    // Fallback: same city + same street number prefix
-    candidates = db.prepare(`
-      SELECT * FROM voters
-      WHERE LOWER(city) = LOWER(?) AND address LIKE ? AND id != ?
-      ORDER BY last_name, first_name LIMIT 100
-    `).all(voter.city, streetNum + ' %', voter_id);
+      WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
+        AND (zip = ? OR zip LIKE ?)
+        AND id != ?
+      ORDER BY last_name, first_name LIMIT 50
+    `).all(voter.address, voterUnit, voter.zip, voter.zip.replace(/-\d+$/, '') + '%', voter_id);
   } else {
-    // Last resort: just street number prefix (less precise)
     candidates = db.prepare(`
       SELECT * FROM voters
-      WHERE address LIKE ? AND id != ?
-      ORDER BY last_name, first_name LIMIT 100
-    `).all(streetNum + ' %', voter_id);
+      WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(city,''))) = LOWER(TRIM(?))
+        AND id != ?
+      ORDER BY last_name, first_name LIMIT 50
+    `).all(voter.address, voterUnit, voter.city || '', voter_id);
   }
 
-  // Filter candidates: normalized address must match (ignores apt/unit differences)
-  // Deduplicate by registration_number (VUID) to prevent same person appearing twice
+  // Deduplicate by registration_number
   const seen = new Set();
   const household = candidates.filter(c => {
-    if (normalizeAddress(c.address) !== normalizedAddr) return false;
     const key = (c.registration_number || c.id).toString().toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
