@@ -1702,9 +1702,20 @@ function openDoor(idx) {
       result: null
     });
   }
+  // Add household members — but skip those who have their own walk_address entry
+  // (they appear as household because buildHouseholdFromWalkAddresses groups same-unit voters,
+  // but they already have their own door card, so showing them here duplicates them)
   if (a.household && a.household.length > 0) {
+    // Build set of voter_ids that have their own walk_address entry
+    var walkVoterIds = {};
+    for (var wvi = 0; wvi < walkState.walk.addresses.length; wvi++) {
+      var wva = walkState.walk.addresses[wvi];
+      if (wva.voter_id) walkVoterIds[wva.voter_id] = true;
+    }
     for (var h = 0; h < a.household.length; h++) {
       var m = a.household[h];
+      // Skip if this person has their own walk_address entry (they'll get their own door card)
+      if (m.voter_id && walkVoterIds[m.voter_id]) continue;
       var memberAddr = a.address + (m.unit ? ' ' + m.unit : a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
       doorState.allMembers.push({
         voter_id: m.voter_id || null,
@@ -2650,24 +2661,39 @@ function renderMap(addresses, walkerLocations, progress) {
       var groupIcon = createApartmentIcon(groupColor, group.length, allDone);
 
       // Build popup as a building directory — all names grouped by unit
-      // First, sub-group all people by unit number
+      // First, sub-group all people by unit number, deduplicating by name
       var unitMap = {};
       var unitOrder = [];
+      var unitSeenNames = {}; // track names per unit to prevent duplicates
       for (var u3 = 0; u3 < group.length; u3++) {
         var unitKey = (group[u3].unit || '').trim();
         if (!unitMap[unitKey]) {
           unitMap[unitKey] = [];
           unitOrder.push(unitKey);
+          unitSeenNames[unitKey] = {};
         }
-        // Collect all people for this unit: primary voter + household members
+        // Collect people for this unit — only the primary voter (not household)
+        // because household members are OTHER walk_address entries who will appear
+        // as their own primary voter entry in this same group
         var people = [];
         if (group[u3].voter_name) {
-          people.push({ name: group[u3].voter_name, age: group[u3].voter_age, addr_id: group[u3].id, result: group[u3].result, assigned_walker: group[u3].assigned_walker });
+          var nameNorm = group[u3].voter_name.trim().toLowerCase();
+          if (!unitSeenNames[unitKey][nameNorm]) {
+            unitSeenNames[unitKey][nameNorm] = true;
+            people.push({ name: group[u3].voter_name, age: group[u3].voter_age, addr_id: group[u3].id, result: group[u3].result, assigned_walker: group[u3].assigned_walker });
+          }
         }
+        // Only add household members that are NOT already on the walk list
+        // (those with not_on_list flag from enrichHouseholdFromVoterFile)
         if (group[u3].household && group[u3].household.length > 0) {
           for (var hh = 0; hh < group[u3].household.length; hh++) {
             var hhm = group[u3].household[hh];
-            people.push({ name: (hhm.first_name || '') + ' ' + (hhm.last_name || ''), age: hhm.age });
+            if (!hhm.not_on_list) continue; // skip — they have their own walk_address entry
+            var hhmName = ((hhm.first_name || '') + ' ' + (hhm.last_name || '')).trim().toLowerCase();
+            if (!unitSeenNames[unitKey][hhmName]) {
+              unitSeenNames[unitKey][hhmName] = true;
+              people.push({ name: (hhm.first_name || '') + ' ' + (hhm.last_name || ''), age: hhm.age });
+            }
           }
         }
         unitMap[unitKey].push({ addr: group[u3], people: people });
