@@ -621,6 +621,8 @@ try {
 } catch (e) { /* ignore */ }
 
 // --- Fix election name duplicates from Cameron County import ---
+// Run after server starts to avoid health check timeout
+setTimeout(() => {
 try {
   const renames = {
     // Fix 3-digit codes that were parsed as "Local May XXX"
@@ -667,6 +669,7 @@ try {
   }
   if (renamed > 0) console.log('[migrate] Renamed', renamed, 'election records to fix duplicate names');
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }
+}, 5000); // run after server starts
 
 // --- Add remaining district columns ---
 addColumn("ALTER TABLE voters ADD COLUMN court_of_appeals TEXT DEFAULT ''");
