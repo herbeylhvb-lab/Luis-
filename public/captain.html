@@ -1043,6 +1043,96 @@ function onVoterDragEnd(e, voterId) {
   document.querySelectorAll('.drop-highlight').forEach(function(el) { el.classList.remove('drop-highlight'); });
 }
 
+// ========== TOUCH DRAG-DROP FOR IPAD/MOBILE ==========
+var _touchDragState = null;
+var _touchGhost = null;
+
+function initTouchDrag(row, voterId) {
+  var longPressTimer = null;
+  row.addEventListener('touchstart', function(e) {
+    longPressTimer = setTimeout(function() {
+      e.preventDefault();
+      _touchDragState = { voterId: voterId, row: row, startY: e.touches[0].clientY };
+      row.classList.add('dragging');
+      row.style.opacity = '0.5';
+      // Create ghost
+      _touchGhost = document.createElement('div');
+      _touchGhost.style.cssText = 'position:fixed;z-index:9999;background:#f59e0b;color:#000;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:700;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+      _touchGhost.textContent = row.querySelector('.name') ? row.querySelector('.name').textContent : 'Voter';
+      document.body.appendChild(_touchGhost);
+      _touchGhost.style.left = (e.touches[0].clientX - 40) + 'px';
+      _touchGhost.style.top = (e.touches[0].clientY - 20) + 'px';
+    }, 500); // 500ms long press to start drag
+  }, { passive: false });
+
+  row.addEventListener('touchmove', function(e) {
+    if (!_touchDragState) { clearTimeout(longPressTimer); return; }
+    e.preventDefault();
+    if (_touchGhost) {
+      _touchGhost.style.left = (e.touches[0].clientX - 40) + 'px';
+      _touchGhost.style.top = (e.touches[0].clientY - 20) + 'px';
+    }
+    // Highlight drop target
+    var target = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+    document.querySelectorAll('.right-voter').forEach(function(r) { r.style.outline = ''; });
+    if (target) {
+      var voterRow = target.closest('.right-voter');
+      if (voterRow && voterRow.id !== 'vrow_' + _touchDragState.voterId) {
+        voterRow.style.outline = '2px solid #3b82f6';
+      }
+      // Also highlight list targets
+      var listTarget = target.closest('[data-list-id]');
+      if (listTarget) listTarget.classList.add('drop-highlight');
+    }
+  }, { passive: false });
+
+  row.addEventListener('touchend', function(e) {
+    clearTimeout(longPressTimer);
+    if (!_touchDragState) return;
+    // Find drop target
+    var touch = e.changedTouches[0];
+    var target = document.elementFromPoint(touch.clientX, touch.clientY);
+    // Clean up
+    _touchDragState.row.classList.remove('dragging');
+    _touchDragState.row.style.opacity = '';
+    document.querySelectorAll('.right-voter').forEach(function(r) { r.style.outline = ''; });
+    document.querySelectorAll('.drop-highlight').forEach(function(r) { r.classList.remove('drop-highlight'); });
+    if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
+
+    if (target) {
+      // Check if dropped on a voter row (grouping)
+      var voterRow = target.closest('.right-voter');
+      if (voterRow && voterRow.id !== 'vrow_' + _touchDragState.voterId) {
+        var targetId = voterRow.id.replace('vrow_', '');
+        var draggedId = String(_touchDragState.voterId);
+        var url = getListApiBase() + '/voters/' + draggedId + '/parent';
+        apiPut(url, { parent_voter_id: targetId }).then(function() { loadListVoters(); }).catch(function(err) {
+          showToast('Could not group: ' + (err.message || err), 'error');
+        });
+      }
+      // Check if dropped on a list (move to list)
+      var listTarget = target.closest('[data-list-id]');
+      if (listTarget) {
+        var listId = listTarget.getAttribute('data-list-id');
+        var listName = listTarget.getAttribute('data-list-name') || 'list';
+        showDropConfirmDialog([_touchDragState.voterId], listId, listName);
+      }
+    }
+    _touchDragState = null;
+  });
+
+  row.addEventListener('touchcancel', function() {
+    clearTimeout(longPressTimer);
+    if (_touchDragState) {
+      _touchDragState.row.classList.remove('dragging');
+      _touchDragState.row.style.opacity = '';
+    }
+    if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
+    _touchDragState = null;
+    document.querySelectorAll('.right-voter').forEach(function(r) { r.style.outline = ''; });
+  });
+}
+
 function setupDropTarget(el, listId, listName) {
   el.addEventListener('dragover', function(e) {
     e.preventDefault();
@@ -1309,6 +1399,8 @@ function renderListVoters() {
     row.draggable = true;
     row.addEventListener('dragstart', (function(vid) { return function(e) { onVoterDragStart(e, vid); }; })(v.id));
     row.addEventListener('dragend', (function(vid) { return function(e) { onVoterDragEnd(e, vid); }; })(v.id));
+    // Touch support for iPad/mobile
+    initTouchDrag(row, v.id);
 
     // Drop-on-voter to group
     if (!isChild) {

@@ -12598,6 +12598,56 @@ function renderAdminListVoterTable(voters, container, raceType, listContext) {
         apiPut(url, { parent_voter_id: v.id, list_type: listContext.listType || 'admin' })
           .then(function() { if (listContext.refresh) listContext.refresh(); });
       });
+      // Touch support for iPad/mobile
+      (function(row, vid, ctx, child) {
+        var _lpt = null;
+        var _tds = null;
+        var _tg = null;
+        row.addEventListener('touchstart', function(e) {
+          _lpt = setTimeout(function() {
+            _tds = { vid: vid, row: row };
+            row.style.opacity = '0.5';
+            _tg = document.createElement('div');
+            _tg.style.cssText = 'position:fixed;z-index:9999;background:#f59e0b;color:#000;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:700;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+            _tg.textContent = row.querySelector('td:nth-child(2)') ? row.querySelector('td:nth-child(2)').textContent : 'Voter';
+            document.body.appendChild(_tg);
+            _tg.style.left = (e.touches[0].clientX - 40) + 'px';
+            _tg.style.top = (e.touches[0].clientY - 20) + 'px';
+          }, 500);
+        }, { passive: false });
+        row.addEventListener('touchmove', function(e) {
+          if (!_tds) { clearTimeout(_lpt); return; }
+          e.preventDefault();
+          if (_tg) { _tg.style.left = (e.touches[0].clientX - 40) + 'px'; _tg.style.top = (e.touches[0].clientY - 20) + 'px'; }
+          var tgt = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+          document.querySelectorAll('tr[data-voter-id]').forEach(function(r) { r.style.background = ''; });
+          if (tgt) { var vr = tgt.closest('tr[data-voter-id]'); if (vr && vr.dataset.voterId != vid) vr.style.background = '#1e3a5f'; }
+        }, { passive: false });
+        row.addEventListener('touchend', function(e) {
+          clearTimeout(_lpt);
+          if (!_tds) return;
+          var touch = e.changedTouches[0];
+          var tgt = document.elementFromPoint(touch.clientX, touch.clientY);
+          _tds.row.style.opacity = '';
+          document.querySelectorAll('tr[data-voter-id]').forEach(function(r) { r.style.background = ''; });
+          if (_tg) { _tg.remove(); _tg = null; }
+          if (tgt && !child) {
+            var vr = tgt.closest('tr[data-voter-id]');
+            if (vr && vr.dataset.voterId != vid) {
+              var url = '/api/candidates/' + ctx.candidateId + '/lists/' + ctx.listId + '/voters/' + vid + '/parent';
+              apiPut(url, { parent_voter_id: vr.dataset.voterId, list_type: ctx.listType || 'admin' })
+                .then(function() { if (ctx.refresh) ctx.refresh(); });
+            }
+          }
+          _tds = null;
+        });
+        row.addEventListener('touchcancel', function() {
+          clearTimeout(_lpt);
+          if (_tds) _tds.row.style.opacity = '';
+          if (_tg) { _tg.remove(); _tg = null; }
+          _tds = null;
+        });
+      })(tr, v.id, listContext, isChild);
     }
 
     var tdId = document.createElement('td');
