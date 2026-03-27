@@ -10985,7 +10985,8 @@ window.createWalkFromUniverse = async function(listId, splitByPrecinct) {
     } else {
       alert('Walk created!\nName: ' + data.walk_name + '\nAddresses: ' + data.added_addresses);
     }
-    document.querySelector('[data-page="page-walks"]').click();
+    var walkNav = document.querySelector('[data-page="blockwalk"]');
+    if (walkNav) walkNav.click();
   } catch(e) {
     alert('Failed to create walk: ' + (e.message || 'Unknown error'));
   }
