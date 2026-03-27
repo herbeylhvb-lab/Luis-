@@ -11,6 +11,7 @@ const path = require('path');
 const CSV_PATH = process.argv[2] || '/Users/luisvillarreal/Desktop/VR-HIST-03262026.csv';
 const SERVER = process.argv[3] || 'https://campaigntext-production.up.railway.app';
 const BATCH_SIZE = 500;
+const SKIP_BATCHES = parseInt(process.env.SKIP_BATCHES || '0');
 
 // Read credentials from env or hardcode for one-time use
 const USERNAME = process.env.ADMIN_USER || 'admin';
@@ -192,20 +193,35 @@ async function main() {
   let totalAdded = 0, totalUpdated = 0, totalElections = 0;
   const batches = Math.ceil(allVoters.length / BATCH_SIZE);
 
-  for (let b = 0; b < batches; b++) {
+  if (SKIP_BATCHES > 0) console.log('Skipping first', SKIP_BATCHES, 'batches (' + (SKIP_BATCHES * BATCH_SIZE) + ' voters)');
+
+  for (let b = SKIP_BATCHES; b < batches; b++) {
     const start = b * BATCH_SIZE;
     const batch = allVoters.slice(start, start + BATCH_SIZE);
-    try {
-      const result = await sendBatch(batch);
-      totalAdded += result.added || 0;
-      totalUpdated += result.updated || 0;
-      totalElections += result.elections_recorded || 0;
-      const pct = Math.round(((b + 1) / batches) * 100);
-      process.stdout.write(`\r[${pct}%] Batch ${b + 1}/${batches} — Added: ${totalAdded}, Updated: ${totalUpdated}, Elections: ${totalElections}`);
-    } catch (err) {
-      console.error(`\nBatch ${b + 1} failed:`, err.message);
-      // Continue with next batch
+    let retries = 0;
+    while (retries < 5) {
+      try {
+        const result = await sendBatch(batch);
+        totalAdded += result.added || 0;
+        totalUpdated += result.updated || 0;
+        totalElections += result.elections_recorded || 0;
+        const pct = Math.round(((b + 1) / batches) * 100);
+        process.stdout.write(`\r[${pct}%] Batch ${b + 1}/${batches} — Added: ${totalAdded}, Updated: ${totalUpdated}, Elections: ${totalElections}    `);
+        break;
+      } catch (err) {
+        if (err.message.includes('429') || err.message.includes('Too many')) {
+          retries++;
+          const wait = retries * 3000;
+          process.stdout.write(`\r[Rate limited] Waiting ${wait/1000}s...    `);
+          await new Promise(r => setTimeout(r, wait));
+        } else {
+          console.error(`\nBatch ${b + 1} failed:`, err.message);
+          break;
+        }
+      }
     }
+    // Delay between batches to avoid rate limit
+    await new Promise(r => setTimeout(r, 500));
   }
 
   console.log('\n\nDone!');
