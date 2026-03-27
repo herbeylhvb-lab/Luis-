@@ -622,6 +622,12 @@ try {
 
 // Heavy migrations — run after server starts to avoid health check timeout
 setTimeout(() => {
+  // Remove ghost voter records (empty registration_number + empty name)
+  try {
+    const ghosts = db.prepare("DELETE FROM voters WHERE (registration_number IS NULL OR registration_number = '') AND (first_name IS NULL OR TRIM(first_name) = '') AND (last_name IS NULL OR TRIM(last_name) = '')").run();
+    if (ghosts.changes > 0) console.log('[cleanup] Removed', ghosts.changes, 'ghost voter records');
+  } catch (e) { /* ignore */ }
+
   // Backfill unit data on walk_addresses from voter file
   try {
     const missingUnits = db.prepare(`
