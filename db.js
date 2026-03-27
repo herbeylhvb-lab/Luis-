@@ -678,6 +678,8 @@ try {
   ];
   for (const name of emptyNames) {
     db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(name);
+    // Also remove from elections definitions table
+    db.prepare('DELETE FROM elections WHERE election_name = ?').run(name);
   }
   console.log('[migrate] Cleaned up', emptyNames.length, 'empty duplicate election records');
 } catch (e) { console.error('[migrate] Election rename error:', e.message); }

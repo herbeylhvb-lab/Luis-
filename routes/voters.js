@@ -2100,18 +2100,9 @@ router.get('/election-votes/groups', (req, res) => {
     SELECT election_type, election_name, election_date, COUNT(DISTINCT voter_id) as voter_count
     FROM election_votes
     GROUP BY election_name
+    HAVING voter_count > 0
     ORDER BY election_type, election_date DESC
   `).all();
-
-  // Also include elections with zero votes
-  const definedOnly = db.prepare(`
-    SELECT election_type, election_name, election_date
-    FROM elections
-    WHERE election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)
-  `).all();
-  for (const e of definedOnly) {
-    rows.push({ election_type: e.election_type, election_name: e.election_name, election_date: e.election_date, voter_count: 0 });
-  }
 
   // Group by type
   const groups = {};
