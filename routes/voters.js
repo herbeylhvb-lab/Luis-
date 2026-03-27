@@ -450,34 +450,24 @@ router.post('/voters/import-voter-file', requireAuth, importLimiter, (req, res) 
           const partyUpper = partyVal.toUpperCase();
           const typeUpper = typeVal.toUpperCase();
 
-          // Determine election name, vote method, and party
-          let elInfo = null, voteMethod = '', partyVoted = '';
-
-          if (VOTE_METHODS_SET.has(codeUpper)) {
-            // Code = vote method, Party Code = election ID, Vote Type = party
-            elInfo = ELECTION_LOOKUP[partyVal] || ELECTION_LOOKUP[partyUpper];
-            voteMethod = codeVal;
-            if (PARTIES_SET.has(typeUpper)) partyVoted = typeUpper;
-          } else if (ELECTION_LOOKUP[codeVal] || ELECTION_LOOKUP[codeUpper]) {
-            // Code = election ID (rare)
-            elInfo = ELECTION_LOOKUP[codeVal] || ELECTION_LOOKUP[codeUpper];
-            if (PARTIES_SET.has(typeUpper)) partyVoted = typeUpper;
-            else if (PARTIES_SET.has(partyUpper)) partyVoted = partyUpper;
-          } else if (!codeVal && (ELECTION_LOOKUP[partyVal] || ELECTION_LOOKUP[partyUpper])) {
-            // Code empty, Party Code = election ID (e.g. Primary 2026)
-            elInfo = ELECTION_LOOKUP[partyVal] || ELECTION_LOOKUP[partyUpper];
-            if (PARTIES_SET.has(typeUpper)) partyVoted = typeUpper;
-          }
-
+          // Column mapping is CONSISTENT across all elections:
+          //   Code = election identifier (P26, GN24, 525, etc.)
+          //   Party Code = party voted (DEM, REP) — only for primaries
+          //   Vote Type = vote method (EV, ED, MAIL, Voted Early, Election Day, etc.)
+          let elInfo = ELECTION_LOOKUP[codeVal] || ELECTION_LOOKUP[codeUpper];
           if (!elInfo) continue;
 
-          // Normalize vote method
-          const vm = voteMethod.toUpperCase();
+          // Party is in Party Code column
+          let partyVoted = '';
+          if (PARTIES_SET.has(partyUpper)) partyVoted = partyUpper;
+
+          // Vote method is in Vote Type column
           let method = '';
-          if (vm === 'EV' || vm === 'VOTED EARLY' || vm === 'EARLY') method = 'early';
-          else if (vm === 'ED' || vm === 'ELECTION DAY' || vm === 'IN PERSON') method = 'election_day';
-          else if (vm === 'MAIL' || vm === 'ABSENTEE') method = 'mail';
-          else if (vm === 'PROVISIONAL') method = 'provisional';
+          if (typeUpper === 'EV' || typeUpper === 'VOTED EARLY' || typeUpper === 'EARLY') method = 'early';
+          else if (typeUpper === 'ED' || typeUpper === 'ELECTION DAY' || typeUpper === 'IN PERSON') method = 'election_day';
+          else if (typeUpper === 'MAIL' || typeUpper === 'ABSENTEE') method = 'mail';
+          else if (typeUpper === 'PROVISIONAL') method = 'provisional';
+          else if (typeUpper === '1') method = 'voted';
 
           const r = insertVote.run(voterId, elInfo.name, elInfo.date, elInfo.type, '');
           if (r.changes > 0) results.elections_recorded++;
