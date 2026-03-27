@@ -2831,28 +2831,26 @@ router.post('/repopulate-walks', (req, res) => {
 
   let totalRepopulated = 0;
   let totalAddresses = 0;
+  const debug = [];
 
   const tx = db.transaction(() => {
     for (const walk of walks) {
-      // Check if walk already has addresses
       const existing = db.prepare('SELECT COUNT(*) as c FROM walk_addresses WHERE walk_id = ?').get(walk.id);
-      if (existing.c > 0) continue;
+      if (existing.c > 0) { debug.push(walk.name + ': has ' + existing.c + ' addrs, skip'); continue; }
 
-      // Extract precinct from walk name "Precinct Walk: 73"
-      const match = walk.name.match(/Precinct Walk:\s*(\d+)/);
-      if (!match) continue;
-      const precinct = match[1];
+      const match = walk.name.match(/Precinct Walk:\s*(.+)/);
+      if (!match) { debug.push(walk.name + ': no precinct match'); continue; }
+      const precinct = match[1].trim();
 
-      // Get all active voters in this precinct with BND navigation district
+      // Get ALL voters in this precinct — no status filter
       const voters = db.prepare(`
         SELECT id, first_name, last_name, address, unit, city, zip
         FROM voters
-        WHERE precinct = ? AND address != '' AND address IS NOT NULL
-          AND (voter_status = 'ACTIVE' OR voter_status IS NULL OR voter_status = '')
+        WHERE precinct = ? AND address IS NOT NULL AND address != ''
         ORDER BY address, unit, last_name
       `).all(precinct);
 
-      if (voters.length === 0) continue;
+      if (voters.length === 0) { debug.push(walk.name + ': 0 voters in precinct ' + precinct); continue; }
 
       let i = 0;
       for (const v of voters) {
@@ -2861,12 +2859,13 @@ router.post('/repopulate-walks', (req, res) => {
       }
       totalRepopulated++;
       totalAddresses += voters.length;
+      debug.push(walk.name + ': added ' + voters.length + ' voters');
     }
   });
   tx();
 
   console.log('[repopulate] Repopulated', totalRepopulated, 'walks with', totalAddresses, 'addresses');
-  res.json({ repopulated: totalRepopulated, addresses: totalAddresses });
+  res.json({ repopulated: totalRepopulated, addresses: totalAddresses, debug: debug.slice(0, 20) });
 });
 
 module.exports = router;
