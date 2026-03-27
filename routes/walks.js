@@ -83,18 +83,19 @@ function countDoors(addresses) {
   return { total: total, knocked: knocked, remaining: total - knocked };
 }
 
-// Build household members from walk_addresses — groups by address+unit
-// so apartment residents only see people in their same unit, not the whole building
+// Build household members from walk_addresses — groups by street address (NOT unit)
+// so ALL residents at the same building address are shown together, each with their unit number
 function buildHouseholdFromWalkAddresses(addresses) {
   if (!addresses || !addresses.length) return;
   const grouped = {};
   for (const addr of addresses) {
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    // Group by street address + city only — NOT unit. This keeps all apt residents together.
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(addr);
   }
   for (const addr of addresses) {
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
     const others = grouped[key].filter(a => a.id !== addr.id && (a.voter_name || '').trim());
     addr.household = others.map(a => {
       const parts = (a.voter_name || '').trim().split(' ');

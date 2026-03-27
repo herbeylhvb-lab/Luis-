@@ -418,8 +418,8 @@ router.get('/admin-lists/:id/households', (req, res) => {
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ?
-    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.unit,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
-    ORDER BY v.city, v.address, v.unit
+    GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
+    ORDER BY v.city, v.address
   `).all(req.params.id);
 
   res.json({ households, total_households: households.length });
