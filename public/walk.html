@@ -1626,36 +1626,42 @@ function openDoor(idx) {
     return x.unit.localeCompare(y.unit);
   });
 
+  // Determine current unit for highlight matching (handles multi-voter same unit)
+  var currentUnitNorm = (a.unit || '').trim().toLowerCase();
+
   if (siblingUnits.length > 1) {
     aptNav.style.display = '';
-    aptNav.innerHTML = '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">' + escHtml(a.address) + ' &mdash; ' + siblingUnits.length + ' units</div>';
+    aptNav.textContent = '';
+    var headerDiv = document.createElement('div');
+    headerDiv.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:4px';
+    headerDiv.innerHTML = escHtml(a.address) + ' &mdash; ' + siblingUnits.length + ' units';
+    aptNav.appendChild(headerDiv);
+
     for (var su = 0; su < siblingUnits.length; su++) {
       var sib = siblingUnits[su];
-      var isCurrent = sib.id === a.id;
+      var isCurrent = sib.unitNorm === currentUnitNorm;
       var isDone = sib.result && sib.result !== 'not_visited';
       var bgColor = isCurrent ? '#3b82f6' : isDone ? '#22c55e' : '#334155';
       var txtColor = isCurrent || isDone ? '#fff' : '#94a3b8';
-      var border = isCurrent ? '2px solid #60a5fa' : '2px solid transparent';
-      var btn = '<button class="apt-nav-btn" data-apt-idx="' + sib.idx + '" style="display:inline-block;padding:4px 10px;margin:2px 4px 2px 0;border-radius:6px;background:' + bgColor + ';color:' + txtColor + ';border:' + border + ';font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">' +
-        escHtml(sib.unit);
-      if (isDone && !isCurrent) btn += ' &#x2713;';
-      btn += '</button>';
-      aptNav.innerHTML += btn;
+      var navBtn = document.createElement('button');
+      navBtn.className = 'apt-nav-btn';
+      navBtn.setAttribute('data-apt-idx', sib.idx);
+      navBtn.style.cssText = 'display:inline-block;padding:4px 10px;margin:2px 4px 2px 0;border-radius:6px;background:' + bgColor + ';color:' + txtColor + ';border:' + (isCurrent ? '2px solid #60a5fa' : '2px solid transparent') + ';font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap';
+      navBtn.textContent = sib.unit + (isDone && !isCurrent ? ' \u2713' : '');
+      (function(targetIdx) {
+        navBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          openDoor(targetIdx);
+        });
+      })(sib.idx);
+      aptNav.appendChild(navBtn);
     }
-    // Attach click handlers
-    aptNav.querySelectorAll('.apt-nav-btn').forEach(function(b) {
-      b.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var targetIdx = parseInt(b.getAttribute('data-apt-idx'));
-        openDoor(targetIdx);
-      });
-    });
     // Auto-scroll current unit into view
     var currentBtn = aptNav.querySelector('.apt-nav-btn[data-apt-idx="' + idx + '"]');
-    if (currentBtn) currentBtn.scrollIntoView({ inline: 'center', block: 'nearest' });
+    if (currentBtn) setTimeout(function() { currentBtn.scrollIntoView({ inline: 'center', block: 'nearest' }); }, 50);
   } else {
     aptNav.style.display = 'none';
-    aptNav.innerHTML = '';
+    aptNav.textContent = '';
   }
   document.getElementById('doorGmapsLink').href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
 
@@ -2069,6 +2075,7 @@ async function logDoor() {
       if (nextAptIdx >= 0) {
         // Jump to the next unvisited unit in this building
         renderWalk();
+        if (walkState.isGroupMode && walkState.routeActive) refreshLiveRoute();
         if (mapState.currentView === 'map') refreshMapData();
         _logDoorInProgress = false;
         btn.textContent = 'Log & Next \u27A1';
