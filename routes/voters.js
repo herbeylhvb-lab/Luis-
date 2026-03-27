@@ -2384,9 +2384,11 @@ function buildStep1Filter(filters) {
     params.push(min_elections);
   }
 
-  // Party filter: voter must have voted with one of these parties in any primary
+  // Party filter: applied in election targeting query when elections are selected
+  // Falls back to "ever voted with this party" when no elections selected
   let partyJoin = '';
-  if (parties && parties.length > 0) {
+  if (parties && parties.length > 0 && !(filters._hasSelectedElections)) {
+    // No elections selected — filter by party across all elections
     clauses.push('voters.id IN (SELECT ev_party.voter_id FROM election_votes ev_party WHERE ev_party.party_voted IN (' + parties.map(() => '?').join(',') + '))');
     params.push(...parties);
   }
@@ -2406,7 +2408,8 @@ router.post('/universe/build', (req, res) => {
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
-    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods });
+    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods,
+    _hasSelectedElections: !!(selected_elections && selected_elections.filter(n => n && n.trim()).length > 0) });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
 
@@ -2454,24 +2457,36 @@ router.post('/universe/build', (req, res) => {
     db.exec('DROP TABLE IF EXISTS _univ_targeted');
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
-      let methodClause = '';
+      let extraClauses = '';
       const targetParams = [...elecNames];
       if (vote_methods && vote_methods.length > 0) {
-        methodClause = ' AND vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
+        extraClauses += ' AND vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
         targetParams.push(...vote_methods);
+      }
+      if (parties && parties.length > 0) {
+        extraClauses += ' AND party_voted IN (' + parties.map(() => '?').join(',') + ')';
+        targetParams.push(...parties);
       }
       db.exec('CREATE TEMP TABLE _univ_targeted (voter_id INTEGER PRIMARY KEY)');
       db.prepare(`INSERT INTO _univ_targeted
         SELECT DISTINCT voter_id FROM election_votes
-        WHERE election_name IN (${ph})${methodClause} AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...targetParams);
+        WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...targetParams);
       targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
-    } else if (vote_methods && vote_methods.length > 0) {
-      // No elections selected but vote method filter is set
-      const ph = vote_methods.map(() => '?').join(',');
+    } else if (vote_methods && vote_methods.length > 0 || parties && parties.length > 0) {
+      let extraClauses = '';
+      const targetParams = [];
+      if (vote_methods && vote_methods.length > 0) {
+        extraClauses += (extraClauses ? ' AND ' : '') + 'vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
+        targetParams.push(...vote_methods);
+      }
+      if (parties && parties.length > 0) {
+        extraClauses += (extraClauses ? ' AND ' : '') + 'party_voted IN (' + parties.map(() => '?').join(',') + ')';
+        targetParams.push(...parties);
+      }
       db.exec('CREATE TEMP TABLE _univ_targeted (voter_id INTEGER PRIMARY KEY)');
       db.prepare(`INSERT INTO _univ_targeted
         SELECT DISTINCT voter_id FROM election_votes
-        WHERE vote_method IN (${ph}) AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...vote_methods);
+        WHERE ${extraClauses} AND voter_id IN (SELECT voter_id FROM _univ_universe)`).run(...targetParams);
       targetedCount = (db.prepare('SELECT COUNT(*) as c FROM _univ_targeted').get() || { c: 0 }).c;
     } else {
       db.exec('CREATE TEMP TABLE _univ_targeted AS SELECT * FROM _univ_universe');
@@ -2552,7 +2567,8 @@ router.post('/universe/preview', (req, res) => {
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
-    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods });
+    county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods,
+    _hasSelectedElections: !!(selected_elections && selected_elections.filter(n => n && n.trim()).length > 0) });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
   const elecNames = (selected_elections || []).filter(n => n && n.trim());
@@ -2581,27 +2597,40 @@ router.post('/universe/preview', (req, res) => {
     const universeCount = (db.prepare('SELECT COUNT(*) as c FROM _prev_universe').get() || { c: 0 }).c;
 
     // Election targeting: voter voted in ANY of the selected elections (OR logic)
-    // If vote_methods is set, also filter by how they voted IN those elections
+    // If vote_methods or parties set, combine with election filter
     let targetedCount = universeCount;
     if (elecNames.length > 0) {
       const ph = elecNames.map(() => '?').join(',');
-      let methodClause = '';
+      let extraClauses = '';
       const targetParams = [...elecNames];
       if (vote_methods && vote_methods.length > 0) {
-        methodClause = ' AND vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
+        extraClauses += ' AND vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
         targetParams.push(...vote_methods);
+      }
+      if (parties && parties.length > 0) {
+        extraClauses += ' AND party_voted IN (' + parties.map(() => '?').join(',') + ')';
+        targetParams.push(...parties);
       }
       targetedCount = (db.prepare(`
         SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
-        WHERE election_name IN (${ph})${methodClause} AND voter_id IN (SELECT voter_id FROM _prev_universe)
+        WHERE election_name IN (${ph})${extraClauses} AND voter_id IN (SELECT voter_id FROM _prev_universe)
       `).get(...targetParams) || { c: 0 }).c;
-    } else if (vote_methods && vote_methods.length > 0) {
-      // No specific elections selected, but vote method filter is set — find voters who ever voted by this method
-      const ph = vote_methods.map(() => '?').join(',');
+    } else if (vote_methods && vote_methods.length > 0 || parties && parties.length > 0) {
+      // No elections selected but vote method or party filter set
+      let extraClauses = '';
+      const targetParams = [];
+      if (vote_methods && vote_methods.length > 0) {
+        extraClauses += (extraClauses ? ' AND ' : '') + 'vote_method IN (' + vote_methods.map(() => '?').join(',') + ')';
+        targetParams.push(...vote_methods);
+      }
+      if (parties && parties.length > 0) {
+        extraClauses += (extraClauses ? ' AND ' : '') + 'party_voted IN (' + parties.map(() => '?').join(',') + ')';
+        targetParams.push(...parties);
+      }
       targetedCount = (db.prepare(`
         SELECT COUNT(DISTINCT voter_id) as c FROM election_votes
-        WHERE vote_method IN (${ph}) AND voter_id IN (SELECT voter_id FROM _prev_universe)
-      `).get(...vote_methods) || { c: 0 }).c;
+        WHERE ${extraClauses} AND voter_id IN (SELECT voter_id FROM _prev_universe)
+      `).get(...targetParams) || { c: 0 }).c;
     }
 
     // Count unique households based on address dedup
