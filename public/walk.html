@@ -247,31 +247,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   <div style="max-width:500px;margin:0 auto;padding:16px">
     <div id="walkSelectList"></div>
 
-    <!-- Create Walk Form -->
-    <div id="createWalkSection" style="margin-top:20px;border-top:1px solid #334155;padding-top:16px">
-      <div id="createWalkToggle">
-        <button class="btn btn-walk" style="width:100%;padding:12px" onclick="showCreateWalk()">+ Create a New Walk</button>
-      </div>
-      <div id="createWalkForm" style="display:none">
-        <h3 style="font-size:16px;color:#e2e8f0;margin:0 0 12px 0">Create a Walk</h3>
-        <div class="form-group">
-          <label>Walk Name</label>
-          <input type="text" id="newWalkName" placeholder="e.g. Oak Street Block" maxlength="100">
-        </div>
-        <div style="margin-bottom:8px">
-          <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Search and add addresses</label>
-          <input type="text" id="addressAutocomplete" placeholder="Start typing an address..." style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;outline:none;margin-bottom:6px">
-          <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Or paste addresses (one per line)</label>
-          <textarea id="newWalkAddresses" placeholder="123 Main St&#10;456 Oak Ave&#10;789 Elm Blvd" style="width:100%;min-height:120px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;resize:vertical;outline:none"></textarea>
-          <div style="font-size:11px;color:#64748b;margin-top:4px">Type in the search box to autocomplete, or paste addresses one per line with city/zip.</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-walk" style="flex:1" id="btnCreateWalk" onclick="createWalk()">Create Walk</button>
-          <button class="btn btn-secondary btn-sm" onclick="hideCreateWalk()">Cancel</button>
-        </div>
-        <div class="error-msg" id="createWalkError"></div>
-      </div>
-    </div>
+    <!-- Walks are created by admins/candidates and assigned to walkers -->
   </div>
 </div>
 
@@ -729,67 +705,7 @@ function renderWalkList(walks) {
   });
 }
 
-function showCreateWalk() {
-  document.getElementById('createWalkToggle').style.display = 'none';
-  document.getElementById('createWalkForm').style.display = '';
-  document.getElementById('createWalkError').textContent = '';
-}
-
-function hideCreateWalk() {
-  document.getElementById('createWalkForm').style.display = 'none';
-  document.getElementById('createWalkToggle').style.display = '';
-}
-
-async function createWalk() {
-  var name = document.getElementById('newWalkName').value.trim();
-  var rawAddresses = document.getElementById('newWalkAddresses').value.trim();
-  var errEl = document.getElementById('createWalkError');
-  errEl.textContent = '';
-
-  if (!name) { errEl.textContent = 'Please enter a walk name.'; return; }
-  if (!rawAddresses) { errEl.textContent = 'Please enter at least one address.'; return; }
-
-  // Parse addresses: one per line, optionally with city/zip after commas
-  var lines = rawAddresses.split('\n').filter(function(l) { return l.trim(); });
-  var addresses = lines.map(function(line) {
-    var parts = line.split(',').map(function(p) { return p.trim(); });
-    return {
-      address: parts[0] || '',
-      city: parts[1] || '',
-      zip: parts[2] || ''
-    };
-  });
-
-  if (addresses.length === 0) { errEl.textContent = 'Please enter at least one address.'; return; }
-
-  var btn = document.getElementById('btnCreateWalk');
-  btn.disabled = true;
-  btn.textContent = 'Creating...';
-
-  try {
-    var resp = await fetch('/api/volunteers/create-walk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        walkerId: walkState.walkerId,
-        walkerName: walkState.walkerName,
-        walkName: name,
-        addresses: addresses
-      })
-    });
-    var data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || 'Failed to create walk');
-
-    // Load the new walk directly
-    walkState.walkId = data.walkId;
-    document.getElementById('walkSelectScreen').style.display = 'none';
-    loadWalk();
-  } catch (e) {
-    errEl.textContent = e.message || 'Failed to create walk.';
-    btn.disabled = false;
-    btn.textContent = 'Create Walk';
-  }
-}
+// Walk creation removed — walks are created by admins/candidates only
 
 function walkerLogout() {
   walkState.walkerId = null;
@@ -3019,53 +2935,7 @@ async function triggerGeocode() {
   }
 })();
 
-// Google Places Autocomplete for address input
-(function() {
-  fetch('/api/config/public').then(function(r){return r.json()}).then(function(cfg) {
-    if (!cfg.mapsKey) return;
-    var script = document.createElement('script');
-    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(cfg.mapsKey) + '&libraries=places&callback=initPlacesAutocomplete';
-    script.async = true;
-    document.head.appendChild(script);
-  }).catch(function(){});
-})();
-
-function initPlacesAutocomplete() {
-  var input = document.getElementById('addressAutocomplete');
-  if (!input || !window.google || !google.maps || !google.maps.places) return;
-
-  var autocomplete = new google.maps.places.Autocomplete(input, {
-    types: ['address'],
-    componentRestrictions: { country: 'us' }
-  });
-
-  autocomplete.addListener('place_changed', function() {
-    var place = autocomplete.getPlace();
-    if (!place || !place.address_components) return;
-
-    var street = '', city = '', zip = '';
-    var streetNum = '', route = '';
-    for (var i = 0; i < place.address_components.length; i++) {
-      var c = place.address_components[i];
-      if (c.types.indexOf('street_number') >= 0) streetNum = c.long_name;
-      if (c.types.indexOf('route') >= 0) route = c.long_name;
-      if (c.types.indexOf('locality') >= 0) city = c.long_name;
-      if (c.types.indexOf('postal_code') >= 0) zip = c.short_name;
-    }
-    street = (streetNum + ' ' + route).trim();
-    if (!street) street = place.formatted_address || '';
-
-    var line = street;
-    if (city) line += ', ' + city;
-    if (zip) line += ', ' + zip;
-
-    var textarea = document.getElementById('newWalkAddresses');
-    if (textarea.value.trim()) textarea.value += '\n';
-    textarea.value += line;
-    input.value = '';
-    input.focus();
-  });
-}
+// Google Places Autocomplete removed — walk creation is admin-only
 
 // Polling location lookup via Google Civic Info API
 var _pollingCache = {};
