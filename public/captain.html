@@ -1699,10 +1699,21 @@ function downloadListCsv() {
 
   if (voters.length === 0) { alert('No voters to download.'); return; }
 
-  var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
-  var headers = ['Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date'];
-  var csvRows = [headers.join(',')];
+  // Group by parent for indented output
+  var topVoters = voters.filter(function(v) { return !v.parent_voter_id; });
+  var childrenOf = {};
   voters.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
+      childrenOf[v.parent_voter_id].push(v);
+    }
+  });
+
+  var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
+  var headers = ['Group', 'Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date', 'Notes'];
+  var csvRows = [headers.join(',')];
+
+  function voterToCsvRow(v, groupLabel) {
     var votedStatus = 'Not Voted';
     if (v.early_voted) {
       var b = v.early_voted_ballot || '';
@@ -1710,7 +1721,8 @@ function downloadListCsv() {
       else if (b === 'Republican' || b === 'R') votedStatus = 'Voted (R)';
       else votedStatus = 'Voted';
     }
-    var row = [
+    return [
+      csvEscape(groupLabel),
       csvEscape(v.registration_number || v.county_file_id || v.vanid || ''),
       csvEscape(v.first_name || ''),
       csvEscape(v.last_name || ''),
@@ -1723,9 +1735,19 @@ function downloadListCsv() {
       csvEscape(v.precinct || ''),
       votedStatus,
       csvEscape(v.early_voted_ballot || ''),
-      csvEscape(v.early_voted_date || '')
-    ];
-    csvRows.push(row.join(','));
+      csvEscape(v.early_voted_date || ''),
+      csvEscape(v.captain_notes || '')
+    ].join(',');
+  }
+
+  topVoters.forEach(function(v) {
+    var hasChildren = childrenOf[v.id] && childrenOf[v.id].length > 0;
+    csvRows.push(voterToCsvRow(v, hasChildren ? 'CAPTAIN' : ''));
+    if (childrenOf[v.id]) {
+      childrenOf[v.id].forEach(function(child) {
+        csvRows.push(voterToCsvRow(child, '  └ Member'));
+      });
+    }
   });
 
   var csvContent = csvRows.join('\n');

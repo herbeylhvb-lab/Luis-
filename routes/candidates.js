@@ -885,14 +885,14 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   // Step 3: Get source info for these voters
   const voterIdSet = new Set(voterRows.map(v => v.id));
   const sourceRows = voterIdSet.size > 0 ? db.prepare(`
-    SELECT voter_id, source_name, source_type, list_name, added_at FROM (
+    SELECT voter_id, source_name, source_type, list_name, added_at, parent_voter_id FROM (
       SELECT alv.voter_id, 'My List' as source_name, 'admin' as source_type,
-             al.name as list_name, alv.added_at
+             al.name as list_name, alv.added_at, alv.parent_voter_id
       FROM admin_list_voters alv
       JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
       UNION ALL
       SELECT clv.voter_id, c.name as source_name, 'captain' as source_type,
-             cl.name as list_name, clv.added_at
+             cl.name as list_name, clv.added_at, clv.parent_voter_id
       FROM captain_list_voters clv
       JOIN captain_lists cl ON clv.list_id = cl.id
       JOIN captains c ON cl.captain_id = c.id
@@ -917,10 +917,16 @@ router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   }
   for (const s of sourceRows) {
     if (voterMap.has(s.voter_id)) {
-      voterMap.get(s.voter_id).lists.push({
+      const v = voterMap.get(s.voter_id);
+      v.lists.push({
         source_name: s.source_name, source_type: s.source_type,
-        list_name: s.list_name, added_at: s.added_at
+        list_name: s.list_name, added_at: s.added_at,
+        parent_voter_id: s.parent_voter_id || null
       });
+      // Track parent relationship (first one found wins)
+      if (s.parent_voter_id && !v.parent_voter_id) {
+        v.parent_voter_id = s.parent_voter_id;
+      }
     }
   }
 
