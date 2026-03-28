@@ -380,6 +380,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <!-- STEP 2: Support level for the person you talked to -->
     <div class="hh-step" id="doorStep2">
       <div class="hh-step-title" id="step2Title">Support level</div>
+      <div id="step2VoterHistory" style="display:none"></div>
 
       <!-- Script talking points & survey questions (injected dynamically) -->
       <div id="doorScriptSection" style="display:none"></div>
@@ -1832,10 +1833,6 @@ function renderMemberList() {
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.party_score) nameHtml += walkerPartyBadge(m.party_score);
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
-    // Election history dot grid
-    if (m.election_votes && m.election_votes.length > 0) {
-      nameHtml += '<div style="margin-top:4px">' + buildElectionDotGrid(m.election_votes, 'name', 'party') + '</div>';
-    }
     nameHtml += '</div>';
 
     var statusHtml = '';
@@ -1895,6 +1892,16 @@ function selectMember(idx) {
   // If already talked, tap again to change their result
   doorState.activeMemberIdx = idx;
   document.getElementById('step2Title').textContent = 'How does ' + m.name + ' feel?';
+
+  // Show election history dot grid for this voter
+  var histEl = document.getElementById('step2VoterHistory');
+  if (m.election_votes && m.election_votes.length > 0) {
+    histEl.style.display = '';
+    histEl.innerHTML = buildElectionDotGrid(m.election_votes, 'name', 'party');
+  } else {
+    histEl.style.display = 'none';
+    histEl.innerHTML = '';
+  }
 
   // Clear previous selection
   var btns = document.querySelectorAll('.disp-btn');
