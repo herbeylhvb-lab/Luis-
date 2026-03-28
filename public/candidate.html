@@ -1026,14 +1026,17 @@ function showCandidateVoterDetail(voter) {
   h3.textContent = voterFullName(voter);
   box.appendChild(h3);
 
-  // DOB formatting
-  var dobDisplay = 'N/A';
+  // Estimate birth year from age (county file gives age, not DOB)
+  var birthYearDisplay = 'N/A';
   if (voter.birth_date) {
     var bd = voter.birth_date;
     if (bd.match(/^\d{4}-\d{2}-\d{2}/)) {
       var parts = bd.split('-');
-      dobDisplay = parts[1] + '/' + parts[2].slice(0,2) + '/' + parts[0];
-    } else { dobDisplay = bd; }
+      birthYearDisplay = parts[1] + '/' + parts[2].slice(0,2) + '/' + parts[0];
+    } else { birthYearDisplay = bd; }
+  } else if (voter.age) {
+    var estYear = new Date().getFullYear() - parseInt(voter.age);
+    birthYearDisplay = 'Born ~' + estYear + ' (est.)';
   }
 
   // Info grid — same as captain portal
@@ -1044,7 +1047,7 @@ function showCandidateVoterDetail(voter) {
     ['Phone', voter.phone || 'N/A'],
     ['Email', voter.email || 'N/A'],
     ['Age', voter.age ? voter.age + ' years old' : 'N/A'],
-    ['Date of Birth', dobDisplay],
+    ['Born', birthYearDisplay],
     ['Party ID', voter.party_score || 'No primary history'],
     ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
     ['Precinct', voter.precinct || 'N/A'],
