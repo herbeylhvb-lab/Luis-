@@ -2124,42 +2124,62 @@ function renderListVoterRows(voters, content, listId) {
     row.appendChild(cb);
 
     var infoDiv = document.createElement('div');
-    infoDiv.style.flex = '1';
+    infoDiv.style.cssText = 'flex:1;cursor:pointer;min-width:0';
+    infoDiv.addEventListener('click', (function(voter) { return function() { showCandidateVoterDetail(voter); }; })(v));
+
+    // Name row with badges
+    var nameRow2 = document.createElement('div');
+    nameRow2.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
     var nameEl = document.createElement('div');
     nameEl.className = 'name';
-    nameEl.style.cssText = 'cursor:pointer;color:#818cf8';
     var childCount = childrenOf[v.id] ? childrenOf[v.id].length : 0;
     var nameText = (isChild ? '\u21B3 ' : '') + voterFullName(v);
     if (!isChild && childCount > 0) nameText += ' (' + childCount + ' sub)';
-    nameEl.textContent = nameText + ' \u25B8';
-    nameEl.title = 'Click to expand details';
-    (function(voter, rowEl) {
-      nameEl.onclick = function() {
-        var existing = rowEl.querySelector('.voter-expand-panel');
-        if (existing) { existing.remove(); return; }
-        rowEl.appendChild(createVoterExpandPanel(voter));
-      };
-    })(v, row);
-    infoDiv.appendChild(nameEl);
-    var metaDiv = document.createElement('div');
-    metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;align-items:center';
-    metaDiv.appendChild(createVotedBadge(v));
-    var rb = createRaceBadge(v);
-    if (rb) metaDiv.appendChild(rb);
-    if (v.p26_party) {
-      var partyBadge = document.createElement('span');
-      var pc = v.p26_party === 'DEM' ? 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6' : 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444';
-      partyBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;' + pc;
-      partyBadge.textContent = 'P26: ' + v.p26_party;
-      metaDiv.appendChild(partyBadge);
+    nameEl.textContent = nameText;
+    nameRow2.appendChild(nameEl);
+
+    if (v.registration_number) {
+      var idBadge2 = document.createElement('span');
+      idBadge2.style.cssText = 'font-size:10px;color:#64748b';
+      idBadge2.textContent = '#' + v.registration_number;
+      nameRow2.appendChild(idBadge2);
     }
+    nameRow2.appendChild(createVotedBadge(v));
     if (v.age) {
       var ageBadge2 = document.createElement('span');
-      ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
-      ageBadge2.textContent = 'Age ' + v.age;
-      metaDiv.appendChild(ageBadge2);
+      ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)';
+      ageBadge2.textContent = v.age;
+      nameRow2.appendChild(ageBadge2);
     }
-    infoDiv.appendChild(metaDiv);
+    if (v.party_score) {
+      var pColors2 = { D:'#3b82f6', DD:'#3b82f6', DDD:'#3b82f6', R:'#ef4444', RR:'#ef4444', RRR:'#ef4444', SWING:'#a855f7' };
+      var pc2 = pColors2[v.party_score] || '#64748b';
+      var pBadge2 = document.createElement('span');
+      pBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;letter-spacing:1px;background:' + pc2 + '22;color:' + pc2 + ';border:1px solid ' + pc2 + '44';
+      pBadge2.textContent = v.party_score;
+      nameRow2.appendChild(pBadge2);
+    }
+    var rb = createRaceBadge(v);
+    if (rb) nameRow2.appendChild(rb);
+    infoDiv.appendChild(nameRow2);
+
+    // Address
+    var addrEl2 = document.createElement('div');
+    addrEl2.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    addrEl2.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    infoDiv.appendChild(addrEl2);
+
+    // Phone + email
+    if (v.phone || v.email) {
+      var contactEl2 = document.createElement('div');
+      contactEl2.style.cssText = 'font-size:11px;color:#818cf8;margin-top:1px';
+      var cp2 = [];
+      if (v.phone) cp2.push(v.phone);
+      if (v.email) cp2.push(v.email);
+      contactEl2.textContent = cp2.join(' \u2022 ');
+      infoDiv.appendChild(contactEl2);
+    }
+
     row.appendChild(infoDiv);
     if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
@@ -2333,27 +2353,67 @@ function renderCaptainVoterRows(voters, container) {
     row.appendChild(cb);
 
     var info = document.createElement('div');
-    info.style.flex = '1';
+    info.style.cssText = 'flex:1;cursor:pointer;min-width:0';
+    info.addEventListener('click', (function(voter) { return function() { showCandidateVoterDetail(voter); }; })(v));
+
+    // Name row with badges
+    var nameRow = document.createElement('div');
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
     var nameEl = document.createElement('div');
     nameEl.className = 'name';
-    nameEl.style.cssText = 'cursor:pointer;color:#818cf8';
-    nameEl.textContent = voterFullName(v) + ' \u25B8';
-    nameEl.title = 'Click to expand details';
-    (function(voter, rowEl) {
-      nameEl.onclick = function() {
-        var existing = rowEl.querySelector('.voter-expand-panel');
-        if (existing) { existing.remove(); nameEl.textContent = voterFullName(voter) + ' \u25B8'; return; }
-        nameEl.textContent = voterFullName(voter) + ' \u25BE';
-        rowEl.appendChild(createVoterExpandPanel(voter));
-      };
-    })(v, row);
-    info.appendChild(nameEl);
-    var metaDiv = document.createElement('div');
-    metaDiv.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap';
-    metaDiv.appendChild(createVotedBadge(v));
+    nameEl.textContent = voterFullName(v);
+    nameRow.appendChild(nameEl);
+
+    // Reg # badge
+    if (v.registration_number) {
+      var idBadge = document.createElement('span');
+      idBadge.style.cssText = 'font-size:10px;color:#64748b';
+      idBadge.textContent = '#' + v.registration_number;
+      nameRow.appendChild(idBadge);
+    }
+
+    // Voted badge
+    nameRow.appendChild(createVotedBadge(v));
+
+    // Age badge
+    if (v.age) {
+      var ageBadge = document.createElement('span');
+      ageBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)';
+      ageBadge.textContent = v.age;
+      nameRow.appendChild(ageBadge);
+    }
+
+    // Party score badge
+    if (v.party_score) {
+      var pColors = { D:'#3b82f6', DD:'#3b82f6', DDD:'#3b82f6', R:'#ef4444', RR:'#ef4444', RRR:'#ef4444', SWING:'#a855f7' };
+      var pc = pColors[v.party_score] || '#64748b';
+      var pBadge = document.createElement('span');
+      pBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;letter-spacing:1px;background:' + pc + '22;color:' + pc + ';border:1px solid ' + pc + '44';
+      pBadge.textContent = v.party_score;
+      nameRow.appendChild(pBadge);
+    }
+
     var rb2 = createRaceBadge(v);
-    if (rb2) metaDiv.appendChild(rb2);
-    info.appendChild(metaDiv);
+    if (rb2) nameRow.appendChild(rb2);
+    info.appendChild(nameRow);
+
+    // Address line
+    var addrEl = document.createElement('div');
+    addrEl.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
+    info.appendChild(addrEl);
+
+    // Phone + email line
+    if (v.phone || v.email) {
+      var contactEl = document.createElement('div');
+      contactEl.style.cssText = 'font-size:11px;color:#818cf8;margin-top:1px';
+      var contactParts = [];
+      if (v.phone) contactParts.push(v.phone);
+      if (v.email) contactParts.push(v.email);
+      contactEl.textContent = contactParts.join(' \u2022 ');
+      info.appendChild(contactEl);
+    }
+
     row.appendChild(info);
     if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
