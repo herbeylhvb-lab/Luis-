@@ -961,38 +961,65 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Election history scorecard — rows=types (Primary/General), columns=years, dots=party
 function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   if (!electionVotes || electionVotes.length === 0) return '';
-  var voted = {};
+  var parsed = [];
   for (var i = 0; i < electionVotes.length; i++) {
     var ev = electionVotes[i];
-    voted[ev[nameKey]] = ev[partyKey] || 'V';
+    var info = parseElectionNameParts(ev[nameKey]);
+    if (info) parsed.push({ type: info.type, year: info.year, party: ev[partyKey] || 'V' });
   }
-  var names = Object.keys(voted);
-  names.sort(function(a, b) { return b.localeCompare(a); });
+  if (parsed.length === 0) return '';
+
+  var yearSet = {};
+  for (var j = 0; j < parsed.length; j++) yearSet[parsed[j].year] = true;
+  var years = Object.keys(yearSet).sort(function(a, b) { return parseInt(b) - parseInt(a); });
+
+  var typeOrder = ['Primary', 'Primary Runoff', 'General', 'Runoff', 'Special', 'Special Runoff', 'Constitutional', 'Joint', 'Uniform'];
+  var typeSet = {};
+  for (var k = 0; k < parsed.length; k++) typeSet[parsed[k].type] = true;
+  var types = typeOrder.filter(function(t) { return typeSet[t]; });
+  Object.keys(typeSet).forEach(function(t) { if (types.indexOf(t) === -1) types.push(t); });
+
+  var voted = {};
+  for (var p = 0; p < parsed.length; p++) {
+    if (!voted[parsed[p].type]) voted[parsed[p].type] = {};
+    voted[parsed[p].type][parsed[p].year] = parsed[p].party;
+  }
+
+  var typeLabels = { 'Primary': 'Pri', 'Primary Runoff': 'PriRO', 'General': 'Gen', 'Runoff': 'RO', 'Special': 'Spc', 'Constitutional': 'Const' };
   var html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
   html += '<table style="border-collapse:collapse;font-size:10px">';
-  html += '<tr>';
-  for (var n = 0; n < names.length; n++) {
-    html += '<th style="padding:2px 4px;color:#94a3b8;font-weight:600;text-align:center;white-space:nowrap;font-size:9px">' + shortenElectionName(names[n]) + '</th>';
+  html += '<tr><th style="padding:2px 4px"></th>';
+  for (var y = 0; y < years.length; y++) {
+    html += '<th style="padding:2px 6px;color:#e2e8f0;font-weight:700;text-align:center;font-size:10px">\'' + years[y].slice(-2) + '</th>';
   }
-  html += '</tr><tr>';
-  for (var d = 0; d < names.length; d++) {
-    var party = voted[names[d]];
-    var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
-    var isRep = party === 'R' || party === 'REP' || party === 'Republican';
-    var dotColor = isDem ? '#3b82f6' : isRep ? '#ef4444' : party ? '#a855f7' : '#475569';
-    html += '<td style="padding:3px;text-align:center"><div style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';margin:0 auto;opacity:' + (party ? '1' : '0.3') + '"></div></td>';
+  html += '</tr>';
+  for (var t = 0; t < types.length; t++) {
+    html += '<tr><td style="padding:2px 4px;color:#94a3b8;font-size:9px;font-weight:600;white-space:nowrap">' + (typeLabels[types[t]] || types[t]) + '</td>';
+    for (var yi = 0; yi < years.length; yi++) {
+      var party = voted[types[t]] && voted[types[t]][years[yi]];
+      if (party) {
+        var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
+        var isRep = party === 'R' || party === 'REP' || party === 'Republican';
+        var dc = isDem ? '#3b82f6' : isRep ? '#ef4444' : '#a855f7';
+        html += '<td style="padding:2px;text-align:center"><div style="width:10px;height:10px;border-radius:50%;background:' + dc + ';margin:0 auto"></div></td>';
+      } else {
+        html += '<td style="padding:2px;text-align:center"><div style="width:10px;height:10px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
+      }
+    }
+    html += '</tr>';
   }
-  html += '</tr></table></div>';
+  html += '</table></div>';
   return html;
 }
 
-function shortenElectionName(name) {
-  if (!name) return '?';
-  var m = name.match(/(General|Primary|Runoff|Constitutional|Joint|Special|Uniform)\s*(\d{4})/i);
-  if (m) return m[1][0].toUpperCase() + m[2].slice(-2);
-  return name.length > 5 ? name.slice(0, 4) : name;
+function parseElectionNameParts(name) {
+  if (!name) return null;
+  var m = name.match(/^(.+?)\s+(\d{4})$/);
+  if (m) return { type: m[1].trim(), year: m[2] };
+  return null;
 }
 
 function walkerPartyBadge(score) {
