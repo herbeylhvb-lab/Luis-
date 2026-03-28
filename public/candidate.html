@@ -463,6 +463,7 @@ var selectedListId = null;
 var searchTimer = null;
 var currentView = 'dashboard';
 var workspaceSelection = { type: null, id: null, name: '' }; // type: 'list', 'captain', 'master'
+var _expandedCaptains = {}; // track which captains are expanded in sidebar
 var masterListData = [];
 var captainListVoters = [];
 
@@ -1570,7 +1571,7 @@ function renderWorkspaceSidebar() {
   var captains = candidateData.captains || [];
   var lists = candidateData.lists || [];
 
-  // Captains
+  // Captains — rendered as expandable tree with sub-captains
   var capContainer = document.getElementById('sidebarCaptains');
   capContainer.textContent = '';
   if (captains.length === 0) {
@@ -1579,32 +1580,108 @@ function renderWorkspaceSidebar() {
     empty.textContent = 'No captains yet';
     capContainer.appendChild(empty);
   }
+
+  // Build parent→children map
+  var capChildrenOf = {};
   captains.forEach(function(cap) {
+    var pid = cap.parent_captain_id || 0;
+    if (!capChildrenOf[pid]) capChildrenOf[pid] = [];
+    capChildrenOf[pid].push(cap);
+  });
+  // Top-level captains: no parent, or parent not in this candidate's captains
+  var capIds = new Set(captains.map(function(c) { return c.id; }));
+  var topCaptains = captains.filter(function(c) {
+    return !c.parent_captain_id || !capIds.has(c.parent_captain_id);
+  });
+
+  function renderCaptainNode(cap, depth) {
+    var wrap = document.createElement('div');
+
+    // Captain row
     var item = document.createElement('div');
     var isActive = workspaceSelection.type === 'captain' && workspaceSelection.id === cap.id;
     item.className = 'list-item' + (isActive ? ' active' : '');
-    // Set data-list-id for drag-drop (use first list if captain has lists)
-    if (cap.lists && cap.lists.length > 0) {
-      item.setAttribute('data-list-id', cap.lists[0].id);
+    item.style.paddingLeft = (12 + depth * 14) + 'px';
+    if (cap.lists && cap.lists.length > 0) item.setAttribute('data-list-id', cap.lists[0].id);
+
+    var children = capChildrenOf[cap.id] || [];
+    var hasChildren = children.length > 0;
+    var isExpanded = _expandedCaptains[cap.id];
+
+    // Expand arrow (if has sub-captains)
+    if (hasChildren) {
+      var arrow = document.createElement('span');
+      arrow.style.cssText = 'font-size:10px;color:#64748b;margin-right:4px;cursor:pointer;display:inline-block;transition:transform 0.15s;transform:rotate(' + (isExpanded ? '90' : '0') + 'deg)';
+      arrow.textContent = '\u25B6';
+      arrow.addEventListener('click', (function(cid, arrowEl) { return function(e) {
+        e.stopPropagation();
+        _expandedCaptains[cid] = !_expandedCaptains[cid];
+        renderWorkspaceSidebar();
+      }; })(cap.id, arrow));
+      item.appendChild(arrow);
+    } else if (depth > 0) {
+      var indent = document.createElement('span');
+      indent.style.cssText = 'font-size:10px;color:#475569;margin-right:4px';
+      indent.textContent = '\u2514';
+      item.appendChild(indent);
     }
+
     var left = document.createElement('div');
-    left.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    left.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;display:inline';
     var nameSpan = document.createElement('span');
+    nameSpan.style.fontWeight = depth === 0 ? '600' : '400';
     nameSpan.textContent = cap.name;
     left.appendChild(nameSpan);
     var codeMeta = document.createElement('span');
-    codeMeta.style.cssText = 'font-size:11px;color:#64748b;margin-left:6px;font-family:monospace';
+    codeMeta.style.cssText = 'font-size:10px;color:#64748b;margin-left:6px;font-family:monospace';
     codeMeta.textContent = cap.code;
     left.appendChild(codeMeta);
     item.appendChild(left);
+
     var count = document.createElement('span');
     count.className = 'count';
     count.textContent = cap.total_voters || 0;
     item.appendChild(count);
+
     item.addEventListener('click', (function(c) {
       return function() { sidebarSelectCaptain(c); };
     })(cap));
-    capContainer.appendChild(item);
+    wrap.appendChild(item);
+
+    // Show lists under this captain when expanded
+    if (hasChildren && isExpanded) {
+      // Show this captain's own lists
+      if (cap.lists && cap.lists.length > 0) {
+        cap.lists.forEach(function(l) {
+          var listItem = document.createElement('div');
+          listItem.className = 'list-item';
+          listItem.style.cssText = 'padding-left:' + (26 + depth * 14) + 'px;font-size:12px;color:#94a3b8;border-left:2px solid #334155;margin-left:' + (12 + depth * 14) + 'px';
+          listItem.setAttribute('data-list-id', l.id);
+          var listName = document.createElement('span');
+          listName.textContent = '\uD83D\uDCCB ' + l.name;
+          listItem.appendChild(listName);
+          var lCount = document.createElement('span');
+          lCount.className = 'count';
+          lCount.textContent = l.voter_count || 0;
+          listItem.appendChild(lCount);
+          listItem.addEventListener('click', (function(li, cn) { return function() {
+            loadCaptainListInRight(li.id, cn);
+          }; })(l, cap.name));
+          wrap.appendChild(listItem);
+        });
+      }
+
+      // Render sub-captains
+      children.forEach(function(child) {
+        wrap.appendChild(renderCaptainNode(child, depth + 1));
+      });
+    }
+
+    return wrap;
+  }
+
+  topCaptains.forEach(function(cap) {
+    capContainer.appendChild(renderCaptainNode(cap, 0));
   });
 
   // Lists
