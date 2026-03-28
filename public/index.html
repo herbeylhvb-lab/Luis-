@@ -9225,10 +9225,7 @@ async function loadUnifiedVols() {
       shareBtn.style.cssText = 'background:#22c55e;color:#fff;padding:3px 8px;font-size:11px;min-width:auto';
       shareBtn.textContent = 'Share';
       shareBtn.addEventListener('click', (function(vol) { return function() {
-        var link = window.location.origin + '/volunteer';
-        var msg = 'Hi ' + vol.name + '! Your volunteer code is: ' + vol.code + '\n\nSign in here: ' + link;
-        if (navigator.share) { navigator.share({ title: 'Volunteer Code', text: msg }).catch(function(){}); }
-        else { window.open('sms:' + (vol.phone || '') + '?&body=' + encodeURIComponent(msg), '_blank'); }
+        showVolunteerShareModal(vol.name, vol.code);
       }; })(v));
       td8.appendChild(shareBtn);
       var delBtn = document.createElement('button');
@@ -9248,6 +9245,60 @@ async function loadUnifiedVols() {
     wrap.appendChild(table);
     el.appendChild(wrap);
   } catch (e) { /* silent */ }
+}
+
+function showVolunteerShareModal(volName, volCode) {
+  var portalUrl = window.location.origin + '/volunteer';
+  var shareMsg = 'Hi ' + volName + '! Your volunteer code is: ' + volCode + '\n\nSign in here: ' + portalUrl + ' and enter this code to get started.';
+
+  var existing = document.getElementById('volShareOverlay');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div');
+  overlay.id = 'volShareOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:300';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:28px;max-width:380px;width:90%;text-align:center';
+  box.innerHTML = '<div style="font-size:2.5rem;margin-bottom:8px">📤</div>'
+    + '<h3 style="font-size:17px;margin-bottom:4px">Share Volunteer Code</h3>'
+    + '<p style="color:#94a3b8;font-size:13px;margin-bottom:16px">' + escHtml(volName) + '</p>'
+    + '<div style="background:#1e1b4b;border:1px solid #312e81;border-radius:10px;padding:16px;margin-bottom:12px;cursor:pointer" id="vsCodeBox" title="Click to copy code">'
+    + '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Login Code</div>'
+    + '<div style="font-size:28px;font-weight:700;color:#818cf8;letter-spacing:4px;font-family:monospace" id="vsCodeText">' + escHtml(volCode) + '</div>'
+    + '<div style="font-size:10px;color:#64748b;margin-top:4px">Tap to copy</div>'
+    + '</div>'
+    + '<div style="margin-bottom:16px"><a href="' + portalUrl + '" target="_blank" style="color:#818cf8;font-size:12px;word-break:break-all">' + portalUrl + '</a></div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="vsShareBtn" class="btn btn-primary" style="flex:1;justify-content:center">📤 Share</button>'
+    + '<button id="vsCopyBtn" class="btn btn-secondary" style="flex:1;justify-content:center">📋 Copy All</button>'
+    + '<button id="vsDoneBtn" class="btn btn-secondary" style="flex:0 0 auto;justify-content:center">Done</button>'
+    + '</div>';
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  document.getElementById('vsCodeBox').onclick = function() {
+    navigator.clipboard.writeText(volCode).then(function() {
+      document.getElementById('vsCodeText').textContent = 'Copied!';
+      setTimeout(function() { document.getElementById('vsCodeText').textContent = volCode; }, 1500);
+    });
+  };
+  document.getElementById('vsShareBtn').onclick = function() {
+    if (navigator.share) {
+      navigator.share({ title: 'Volunteer Code for ' + volName, text: shareMsg }).catch(function(){});
+    } else {
+      window.open('sms:?&body=' + encodeURIComponent(shareMsg), '_blank');
+    }
+  };
+  document.getElementById('vsCopyBtn').onclick = function() {
+    navigator.clipboard.writeText(shareMsg).then(function() {
+      document.getElementById('vsCopyBtn').innerHTML = '✅ Copied!';
+      setTimeout(function() { document.getElementById('vsCopyBtn').innerHTML = '📋 Copy All'; }, 1500);
+    });
+  };
+  document.getElementById('vsDoneBtn').onclick = function() { overlay.remove(); };
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
 }
 
 // ===================== LEGACY TEXTING VOLUNTEERS (kept for backward compat) =====================
@@ -12472,9 +12523,10 @@ function showCaptainShareModal(captainName, captainCode, isNew) {
   box.innerHTML = '<div style="font-size:2.5rem;margin-bottom:8px">' + headerIcon + '</div>'
     + '<h3 style="font-size:17px;margin-bottom:4px">' + headerText + '</h3>'
     + '<p style="color:#94a3b8;font-size:13px;margin-bottom:16px">' + escHtml(captainName) + '</p>'
-    + '<div style="background:#451a03;border:1px solid #78350f;border-radius:10px;padding:16px;margin-bottom:12px">'
+    + '<div id="csCodeBox" style="background:#451a03;border:1px solid #78350f;border-radius:10px;padding:16px;margin-bottom:12px;cursor:pointer" title="Click to copy code">'
     + '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">Login Code</div>'
-    + '<div style="font-size:28px;font-weight:700;color:#f59e0b;letter-spacing:4px;font-family:monospace">' + escHtml(captainCode) + '</div>'
+    + '<div style="font-size:28px;font-weight:700;color:#f59e0b;letter-spacing:4px;font-family:monospace" id="csCodeText">' + escHtml(captainCode) + '</div>'
+    + '<div style="font-size:10px;color:#64748b;margin-top:4px">Tap to copy</div>'
     + '</div>'
     + '<div style="margin-bottom:16px"><a href="' + portalUrl + '" target="_blank" style="color:#818cf8;font-size:12px;word-break:break-all">' + portalUrl + '</a></div>'
     + '<div style="display:flex;gap:8px">'
@@ -12486,6 +12538,12 @@ function showCaptainShareModal(captainName, captainCode, isNew) {
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
+  document.getElementById('csCodeBox').onclick = function() {
+    navigator.clipboard.writeText(captainCode).then(function() {
+      document.getElementById('csCodeText').textContent = 'Copied!';
+      setTimeout(function() { document.getElementById('csCodeText').textContent = captainCode; }, 1500);
+    });
+  };
   document.getElementById('csShareBtn').onclick = function() {
     if (navigator.share) {
       navigator.share({ title: 'Block Captain Code for ' + captainName, text: shareMsg }).catch(function(){});
