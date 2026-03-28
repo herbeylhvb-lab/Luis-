@@ -2383,10 +2383,27 @@ async function showVoterDetail(voter) {
   var grid = document.createElement('div');
   grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px';
 
+  // Format DOB for display
+  var dobDisplay = 'N/A';
+  if (voter.birth_date) {
+    var bd = voter.birth_date;
+    // Try to format as MM/DD/YYYY from various formats
+    if (bd.match(/^\d{4}-\d{2}-\d{2}/)) {
+      var parts = bd.split('-');
+      dobDisplay = parts[1] + '/' + parts[2].slice(0,2) + '/' + parts[0];
+    } else if (bd.match(/^\d{2}\/\d{2}\/\d{4}/)) {
+      dobDisplay = bd;
+    } else {
+      dobDisplay = bd;
+    }
+  }
+
   var fields = [
     ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.state ? ', ' + voter.state : '') + (voter.zip ? ' ' + voter.zip : '')],
     ['Phone', voter.phone || 'N/A'],
     ['Email', voter.email || 'N/A'],
+    ['Age', voter.age ? voter.age + ' years old' : 'N/A'],
+    ['Date of Birth', dobDisplay],
     ['Party ID', voter.party_score || 'No primary history'],
     ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
     ['Precinct', voter.precinct || 'N/A'],
