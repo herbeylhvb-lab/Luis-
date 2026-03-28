@@ -2840,7 +2840,7 @@ function printMasterList() {
 }
 
 function downloadMasterCSV() {
-  var headers = ['Captain/Source', 'Role', 'Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone'];
+  var headers = ['Captain/Source', 'Role', 'Group Leader', 'First Name', 'Last Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone'];
   var csvRows = [headers.map(csvEscape).join(',')];
 
   // Group by captain
@@ -2864,12 +2864,17 @@ function downloadMasterCSV() {
         childMap[v.parent_voter_id].push(v);
       }
     });
+
+    // Blank row between captain sections (except first)
+    if (csvRows.length > 1) csvRows.push('');
+
     topVoters.forEach(function(v) {
       var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
-      csvRows.push([csvEscape(captainName), hasChildren ? 'Captain' : '', csvEscape(voterFullName(v)), csvEscape(voterIdDisplay(v)), csvEscape(v.address || ''), csvEscape(v.city || ''), csvEscape(v.zip || ''), csvEscape(v.party_score || ''), csvEscape(v.precinct || ''), isVoted(v) ? 'Yes' : 'No', csvEscape(v.phone || '')].join(','));
+      var leaderName = hasChildren ? voterFullName(v) : '';
+      csvRows.push([csvEscape(captainName), hasChildren ? '★ LEADER' : '', csvEscape(leaderName), csvEscape(v.first_name || ''), csvEscape(v.last_name || ''), csvEscape(voterIdDisplay(v)), csvEscape(v.address || ''), csvEscape(v.city || ''), csvEscape(v.zip || ''), csvEscape(v.party_score || ''), csvEscape(v.precinct || ''), isVoted(v) ? 'Yes' : 'No', csvEscape(v.phone || '')].join(','));
       if (childMap[v.id]) {
         childMap[v.id].forEach(function(child) {
-          csvRows.push([csvEscape(captainName), '  └ Sub-member', csvEscape(voterFullName(child)), csvEscape(voterIdDisplay(child)), csvEscape(child.address || ''), csvEscape(child.city || ''), csvEscape(child.zip || ''), csvEscape(child.party_score || ''), csvEscape(child.precinct || ''), isVoted(child) ? 'Yes' : 'No', csvEscape(child.phone || '')].join(','));
+          csvRows.push([csvEscape(captainName), '    └ Under', csvEscape(leaderName), csvEscape(child.first_name || ''), csvEscape(child.last_name || ''), csvEscape(voterIdDisplay(child)), csvEscape(child.address || ''), csvEscape(child.city || ''), csvEscape(child.zip || ''), csvEscape(child.party_score || ''), csvEscape(child.precinct || ''), isVoted(child) ? 'Yes' : 'No', csvEscape(child.phone || '')].join(','));
         });
       }
     });

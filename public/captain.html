@@ -1703,7 +1703,7 @@ function renderListVoters() {
   updateSelectionUI();
 }
 
-// Download current filtered list as CSV
+// Download current filtered list as CSV with clear hierarchy
 function downloadListCsv() {
   var voters = _currentListVoters;
   var tab = _currentListTab;
@@ -1715,30 +1715,45 @@ function downloadListCsv() {
   // Group by parent for indented output
   var topVoters = voters.filter(function(v) { return !v.parent_voter_id; });
   var childrenOf = {};
+  var parentNames = {};
   voters.forEach(function(v) {
     if (v.parent_voter_id) {
       if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
       childrenOf[v.parent_voter_id].push(v);
     }
   });
+  // Build parent name lookup
+  topVoters.forEach(function(v) {
+    if (childrenOf[v.id]) parentNames[v.id] = (v.first_name || '') + ' ' + (v.last_name || '');
+  });
 
   var tabLabels = { all: 'All', voted: 'Voted', not_voted: 'Not_Voted' };
-  var headers = ['Group', 'Voter ID', 'First Name', 'Last Name', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted Status', 'Ballot', 'Vote Date', 'Notes'];
-  var csvRows = [headers.join(',')];
+  var captainName = (captainState.captain && captainState.captain.name) || '';
+  var listName2 = captainState.selectedListName || 'My Voters';
+  var headers = ['Role', 'Group Leader', 'First Name', 'Last Name', 'Voter ID', 'Address', 'City', 'Zip', 'Phone', 'Email', 'Party ID', 'Precinct', 'Voted', 'Ballot', 'Vote Date', 'Notes'];
+  var csvRows = [];
+  // Add captain info rows at top so Excel shows whose list this is
+  csvRows.push('Captain:,' + csvEscape(captainName));
+  csvRows.push('List:,' + csvEscape(listName2));
+  csvRows.push('Voters:,' + voters.length);
+  csvRows.push(''); // blank separator
+  csvRows.push(headers.join(','));
 
-  function voterToCsvRow(v, groupLabel) {
-    var votedStatus = 'Not Voted';
-    if (v.early_voted) {
-      var b = v.early_voted_ballot || '';
-      if (b === 'Democrat' || b === 'D') votedStatus = 'Voted (D)';
-      else if (b === 'Republican' || b === 'R') votedStatus = 'Voted (R)';
-      else votedStatus = 'Voted';
-    }
+  function getVotedStatus(v) {
+    if (!v.early_voted) return 'Not Voted';
+    var b = v.early_voted_ballot || '';
+    if (b === 'Democrat' || b === 'D') return 'Voted (D)';
+    if (b === 'Republican' || b === 'R') return 'Voted (R)';
+    return 'Voted';
+  }
+
+  function voterRow(v, role, leaderName) {
     return [
-      csvEscape(groupLabel),
-      csvEscape(v.registration_number || v.county_file_id || v.vanid || ''),
+      csvEscape(role),
+      csvEscape(leaderName),
       csvEscape(v.first_name || ''),
       csvEscape(v.last_name || ''),
+      csvEscape(v.registration_number || v.county_file_id || v.vanid || ''),
       csvEscape(v.address || ''),
       csvEscape(v.city || ''),
       csvEscape(v.zip || ''),
@@ -1746,7 +1761,7 @@ function downloadListCsv() {
       csvEscape(v.email || ''),
       csvEscape(v.party_score || v.party || ''),
       csvEscape(v.precinct || ''),
-      votedStatus,
+      getVotedStatus(v),
       csvEscape(v.early_voted_ballot || ''),
       csvEscape(v.early_voted_date || ''),
       csvEscape(v.captain_notes || '')
@@ -1755,10 +1770,13 @@ function downloadListCsv() {
 
   topVoters.forEach(function(v) {
     var hasChildren = childrenOf[v.id] && childrenOf[v.id].length > 0;
-    csvRows.push(voterToCsvRow(v, hasChildren ? 'CAPTAIN' : ''));
+    var name = (v.first_name || '') + ' ' + (v.last_name || '');
+    // Add a blank separator row before each group leader (except the first)
+    if (hasChildren && csvRows.length > 1) csvRows.push('');
+    csvRows.push(voterRow(v, hasChildren ? '★ LEADER' : '', hasChildren ? name : ''));
     if (childrenOf[v.id]) {
       childrenOf[v.id].forEach(function(child) {
-        csvRows.push(voterToCsvRow(child, '  └ Member'));
+        csvRows.push(voterRow(child, '    └ Under', name));
       });
     }
   });
