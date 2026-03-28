@@ -517,17 +517,14 @@ function buildVotingHistorySQL(filters, params) {
     } else if (ps === 'SWING') {
       sql += " AND voters.party_score = 'SWING'";
     } else if (ps === 'DD') {
-      // DD+ means DD or DDD
       sql += " AND voters.party_score IN ('DD','DDD')";
     } else if (ps === 'D') {
-      // D+ means any Dem primary voter
       sql += " AND voters.party_score IN ('D','DD','DDD')";
     } else if (ps === 'RR') {
       sql += " AND voters.party_score IN ('RR','RRR')";
     } else if (ps === 'R') {
       sql += " AND voters.party_score IN ('R','RR','RRR')";
     } else {
-      // Exact match (DDD, RRR)
       sql += ' AND voters.party_score = ?';
       params.push(ps);
     }

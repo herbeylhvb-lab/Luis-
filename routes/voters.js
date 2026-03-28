@@ -1100,7 +1100,7 @@ router.get('/voters/precinct-counts', (req, res) => {
     }
   }
 
-  // VAN-style party score filter (D/DD/DDD, R/RR/RRR, SWING, NONE)
+  // VAN-style party score filter (DDD/DD/D/R/RR/RRR/SWING)
   if (party_score) {
     if (party_score === 'NONE') {
       sql += " AND (party_score = '' OR party_score IS NULL)";

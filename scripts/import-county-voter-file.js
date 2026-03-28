@@ -317,29 +317,50 @@ async function main() {
 
   // Recompute VAN-style party scores (D/DD/DDD, R/RR/RRR) from election history
   console.log('\nComputing party scores...');
+  // VAN-style party score with recency weighting
   const partyRows = db.prepare(`
-    SELECT voter_id,
-      SUM(CASE WHEN party_voted IN ('D','DEM','Democrat') THEN 1 ELSE 0 END) as d_count,
-      SUM(CASE WHEN party_voted IN ('R','REP','Republican') THEN 1 ELSE 0 END) as r_count
+    SELECT voter_id, party_voted, election_date
     FROM election_votes
     WHERE party_voted IS NOT NULL AND party_voted != ''
-    GROUP BY voter_id
+      AND party_voted IN ('D','DEM','Democrat','R','REP','Republican')
+    ORDER BY voter_id, election_date DESC
   `).all();
+  const voterVotes = {};
+  for (const r of partyRows) {
+    if (!voterVotes[r.voter_id]) voterVotes[r.voter_id] = [];
+    const party = (r.party_voted === 'D' || r.party_voted === 'DEM' || r.party_voted === 'Democrat') ? 'D' : 'R';
+    voterVotes[r.voter_id].push(party);
+  }
   const updateScore = db.prepare('UPDATE voters SET party_score = ? WHERE id = ?');
   db.transaction(() => {
     db.prepare("UPDATE voters SET party_score = '' WHERE party_score != ''").run();
-    for (const r of partyRows) {
-      let score = '';
-      if (r.d_count > 0 && r.d_count >= r.r_count) {
-        score = r.d_count >= 3 ? 'DDD' : r.d_count === 2 ? 'DD' : 'D';
-      } else if (r.r_count > 0 && r.r_count > r.d_count) {
-        score = r.r_count >= 3 ? 'RRR' : r.r_count === 2 ? 'RR' : 'R';
+    for (const [voterId, votes] of Object.entries(voterVotes)) {
+      let dScore = 0, rScore = 0;
+      for (let i = 0; i < votes.length; i++) {
+        const weight = i === 0 ? 3 : i === 1 ? 2 : 1;
+        if (votes[i] === 'D') dScore += weight;
+        else rScore += weight;
       }
-      if (r.d_count > 0 && r.r_count > 0 && r.d_count === r.r_count) score = 'SWING';
-      if (score) updateScore.run(score, r.voter_id);
+      let score = '';
+      const total = dScore + rScore;
+      const dPct = dScore / total;
+      const rPct = rScore / total;
+      if (dScore > 0 && rScore === 0) {
+        score = dScore >= 5 ? 'DDD' : dScore >= 3 ? 'DD' : 'D';
+      } else if (rScore > 0 && dScore === 0) {
+        score = rScore >= 5 ? 'RRR' : rScore >= 3 ? 'RR' : 'R';
+      } else if (dPct >= 0.75) {
+        score = dScore >= 5 ? 'DD' : 'D';
+      } else if (rPct >= 0.75) {
+        score = rScore >= 5 ? 'RR' : 'R';
+      } else {
+        score = votes[0] === 'D' ? 'D' : 'R';
+        if (Math.abs(dPct - rPct) < 0.2) score = 'SWING';
+      }
+      if (score) updateScore.run(score, voterId);
     }
   })();
-  console.log('Party scores computed for ' + partyRows.length + ' voters');
+  console.log('Party scores computed for ' + Object.keys(voterVotes).length + ' voters');
 
   console.log('\n=== Import Complete ===');
   console.log(`Total voter rows:    ${rows.length}`);

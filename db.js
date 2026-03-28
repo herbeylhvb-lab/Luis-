@@ -1458,35 +1458,68 @@ try {
 
 // --- Compute VAN-style party scores (D/DD/DDD, R/RR/RRR) from election history ---
 function computePartyScores() {
+  // VAN-style party score: DDD/DD/D/R/RR/RRR strength scale
+  // Based on primary ballot history with RECENCY WEIGHTING:
+  // - Most recent primary counts 3x
+  // - Second most recent counts 2x
+  // - Older primaries count 1x each
+  // This means a DDD voter who just pulled R drops to D or SWING, not stays DDD
   const rows = db.prepare(`
-    SELECT voter_id,
-      SUM(CASE WHEN party_voted IN ('D','DEM','Democrat') THEN 1 ELSE 0 END) as d_count,
-      SUM(CASE WHEN party_voted IN ('R','REP','Republican') THEN 1 ELSE 0 END) as r_count
+    SELECT voter_id, party_voted, election_date
     FROM election_votes
     WHERE party_voted IS NOT NULL AND party_voted != ''
-    GROUP BY voter_id
+      AND party_voted IN ('D','DEM','Democrat','R','REP','Republican')
+    ORDER BY voter_id, election_date DESC
   `).all();
+
+  // Group by voter, most recent first
+  const voterVotes = {};
+  for (const r of rows) {
+    if (!voterVotes[r.voter_id]) voterVotes[r.voter_id] = [];
+    const party = (r.party_voted === 'D' || r.party_voted === 'DEM' || r.party_voted === 'Democrat') ? 'D' : 'R';
+    voterVotes[r.voter_id].push(party);
+  }
 
   const update = db.prepare('UPDATE voters SET party_score = ? WHERE id = ?');
   const batch = db.transaction(() => {
-    // Clear all first so voters with no history get blank
     db.prepare("UPDATE voters SET party_score = '' WHERE party_score != ''").run();
-    for (const r of rows) {
+    for (const [voterId, votes] of Object.entries(voterVotes)) {
+      // Weighted scoring: most recent = 3pts, second = 2pts, rest = 1pt each
+      let dScore = 0, rScore = 0;
+      for (let i = 0; i < votes.length; i++) {
+        const weight = i === 0 ? 3 : i === 1 ? 2 : 1;
+        if (votes[i] === 'D') dScore += weight;
+        else rScore += weight;
+      }
+
       let score = '';
-      if (r.d_count > 0 && r.d_count >= r.r_count) {
-        score = r.d_count >= 3 ? 'DDD' : r.d_count === 2 ? 'DD' : 'D';
-      } else if (r.r_count > 0 && r.r_count > r.d_count) {
-        score = r.r_count >= 3 ? 'RRR' : r.r_count === 2 ? 'RR' : 'R';
+      const total = dScore + rScore;
+      const dPct = dScore / total;
+      const rPct = rScore / total;
+
+      if (dScore > 0 && rScore === 0) {
+        // Pure D
+        score = dScore >= 5 ? 'DDD' : dScore >= 3 ? 'DD' : 'D';
+      } else if (rScore > 0 && dScore === 0) {
+        // Pure R
+        score = rScore >= 5 ? 'RRR' : rScore >= 3 ? 'RR' : 'R';
+      } else if (dPct >= 0.75) {
+        // Mostly D (75%+ weighted)
+        score = dScore >= 5 ? 'DD' : 'D';
+      } else if (rPct >= 0.75) {
+        // Mostly R (75%+ weighted)
+        score = rScore >= 5 ? 'RR' : 'R';
+      } else {
+        // Mixed — lean based on most recent
+        score = votes[0] === 'D' ? 'D' : 'R';
+        // If truly close, mark as swing
+        if (Math.abs(dPct - rPct) < 0.2) score = 'SWING';
       }
-      // Mixed: if equal D and R primaries, mark as swing
-      if (r.d_count > 0 && r.r_count > 0 && r.d_count === r.r_count) {
-        score = 'SWING';
-      }
-      if (score) update.run(score, r.voter_id);
+      if (score) update.run(score, voterId);
     }
   });
   batch();
-  console.log('[party-score] Computed party scores for ' + rows.length + ' voters with primary history');
+  console.log('[party-score] Computed party scores for ' + Object.keys(voterVotes).length + ' voters with primary history');
 }
 
 // Compute after startup to avoid health check timeout
