@@ -2010,15 +2010,6 @@ async function loadListVoters(listId) {
       return filterByRace(f, _raceFilter);
     }
 
-    var printBtn = document.createElement('button');
-    printBtn.className = 'btn-icon';
-    printBtn.innerHTML = '&#128424; Print';
-    printBtn.onclick = function() {
-      captainListVoters = getFilteredListVoters();
-      printCaptainList(listName);
-    };
-    controls.appendChild(printBtn);
-
     var dlBtn = document.createElement('button');
     dlBtn.className = 'btn-icon';
     dlBtn.innerHTML = '&#128229; CSV';
@@ -2305,12 +2296,6 @@ async function loadCaptainListInRight(listId, captainName) {
       controls.appendChild(raceFilterEl);
     }
 
-    var printBtn = document.createElement('button');
-    printBtn.className = 'btn-icon';
-    printBtn.innerHTML = '&#128424; Print';
-    printBtn.onclick = function() { printCaptainList(captainName); };
-    controls.appendChild(printBtn);
-
     var dlBtn = document.createElement('button');
     dlBtn.className = 'btn-icon';
     dlBtn.textContent = '\uD83D\uDCE5 CSV';
@@ -2521,12 +2506,6 @@ async function loadMasterListInRight() {
     searchInput.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;width:140px';
     searchInput.oninput = function() { filterMasterListRight(); };
     controls.appendChild(searchInput);
-
-    var printBtn = document.createElement('button');
-    printBtn.className = 'btn-icon';
-    printBtn.innerHTML = '&#128424; Print';
-    printBtn.onclick = function() { printMasterList(); };
-    controls.appendChild(printBtn);
 
     var dlBtn = document.createElement('button');
     dlBtn.className = 'btn-icon';
@@ -3024,156 +3003,7 @@ function isVoted(v) {
   return v.early_voted === 1;
 }
 
-function buildPrintPage(title, subtitle, tableHeaders, rows) {
-  var printStyle = 'body{font-family:Arial,sans-serif;margin:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse;margin-top:12px}th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:12px;text-transform:uppercase}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:12px}.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}.indent{padding-left:20px;color:#555}';
-  var w = window.open('', '_blank');
-  if (!w) { alert('Pop-up blocked. Please allow pop-ups for this site to print.'); return; }
-  var doc = w.document;
-  doc.open();
-  var styleEl = doc.createElement('style');
-  styleEl.textContent = printStyle;
-  doc.head.appendChild(styleEl);
-  doc.title = title;
-  var h1 = doc.createElement('h1');
-  h1.textContent = title;
-  doc.body.appendChild(h1);
-  var sub = doc.createElement('div');
-  sub.style.cssText = 'color:#666;font-size:12px;margin-bottom:8px';
-  sub.textContent = subtitle;
-  doc.body.appendChild(sub);
-  var table = doc.createElement('table');
-  var thead = doc.createElement('thead');
-  var headTr = doc.createElement('tr');
-  tableHeaders.forEach(function(h) {
-    var th = doc.createElement('th');
-    th.textContent = h;
-    headTr.appendChild(th);
-  });
-  thead.appendChild(headTr);
-  table.appendChild(thead);
-  var tbody = doc.createElement('tbody');
-  rows.forEach(function(cells) {
-    var tr = doc.createElement('tr');
-    cells.forEach(function(cell) {
-      var td = doc.createElement('td');
-      if (typeof cell === 'object' && cell.className) {
-        var span = doc.createElement('span');
-        span.className = cell.className;
-        span.textContent = cell.text;
-        td.appendChild(span);
-      } else {
-        td.textContent = cell;
-      }
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-  doc.body.appendChild(table);
-  doc.close();
-  w.focus();
-  setTimeout(function() { w.print(); }, 300);
-}
 
-function printMasterList() {
-  var title = (candidateData.candidate.name || '') + ' \u2014 Master Voter List';
-  var subtitle = masterListData.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
-
-  // Group voters by captain/source, with parent-child nesting
-  var byCaptain = {};
-  var captainOrder = [];
-  masterListData.forEach(function(v) {
-    (v.lists || []).forEach(function(l) {
-      var key = l.source_type === 'captain' ? l.source_name : l.list_name || 'Unassigned';
-      if (!byCaptain[key]) { byCaptain[key] = []; captainOrder.push(key); }
-      byCaptain[key].push(v);
-    });
-  });
-
-  // Build custom print page with sections per captain
-  var printStyle = 'body{font-family:Arial,sans-serif;margin:20px}h1{font-size:18px}h2{font-size:15px;color:#555;margin:20px 0 6px;border-bottom:2px solid #333;padding-bottom:4px}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{text-align:left;padding:5px 6px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;background:#f5f5f5}td{padding:4px 6px;border-bottom:1px solid #ddd;font-size:11px}.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}.indent{padding-left:24px;color:#555;font-style:italic}.captain-label{font-weight:700;background:#f0f0f0}.sub-label{padding-left:20px;font-size:10px;color:#666}';
-  var w = window.open('', '_blank');
-  if (!w) { alert('Pop-up blocked. Please allow pop-ups.'); return; }
-  var doc = w.document;
-  doc.open();
-  var styleEl = doc.createElement('style');
-  styleEl.textContent = printStyle;
-  doc.head.appendChild(styleEl);
-  doc.title = title;
-  var h1 = doc.createElement('h1');
-  h1.textContent = title;
-  doc.body.appendChild(h1);
-  var sub = doc.createElement('div');
-  sub.style.cssText = 'color:#666;font-size:12px;margin-bottom:12px';
-  sub.textContent = subtitle;
-  doc.body.appendChild(sub);
-
-  captainOrder.forEach(function(captainName) {
-    var voters = byCaptain[captainName];
-    var h2 = doc.createElement('h2');
-    h2.textContent = captainName + ' (' + voters.length + ' voters)';
-    doc.body.appendChild(h2);
-
-    var table = doc.createElement('table');
-    var thead = doc.createElement('thead');
-    var headTr = doc.createElement('tr');
-    ['', 'Voter', 'Reg #', 'Address', 'Party', 'Voted', 'Phone'].forEach(function(h) {
-      var th = doc.createElement('th'); th.textContent = h; headTr.appendChild(th);
-    });
-    thead.appendChild(headTr);
-    table.appendChild(thead);
-
-    // Sort: parents first, then children nested under parents
-    var topVoters = voters.filter(function(v) { return !v.parent_voter_id; });
-    var childMap = {};
-    voters.forEach(function(v) {
-      if (v.parent_voter_id) {
-        if (!childMap[v.parent_voter_id]) childMap[v.parent_voter_id] = [];
-        childMap[v.parent_voter_id].push(v);
-      }
-    });
-
-    var tbody = doc.createElement('tbody');
-    function addRow(v, role) {
-      var tr = doc.createElement('tr');
-      var tdRole = doc.createElement('td');
-      tdRole.style.cssText = 'font-size:10px;font-weight:700;width:24px;text-align:center';
-      if (role === 'captain') { tdRole.textContent = '\u2605'; tdRole.title = 'Captain'; }
-      else if (role === 'sub') { tdRole.textContent = '  \u2514'; tdRole.style.color = '#999'; }
-      tr.appendChild(tdRole);
-      var tdName = doc.createElement('td');
-      tdName.textContent = voterFullName(v);
-      if (role === 'sub') tdName.style.cssText = 'padding-left:16px;color:#555';
-      tr.appendChild(tdName);
-      var tdId = doc.createElement('td'); tdId.textContent = voterIdDisplay(v) || ''; tr.appendChild(tdId);
-      var tdAddr = doc.createElement('td'); tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : ''); tr.appendChild(tdAddr);
-      var tdParty = doc.createElement('td'); tdParty.textContent = v.party_score || ''; tr.appendChild(tdParty);
-      var tdVoted = doc.createElement('td');
-      var voted = isVoted(v);
-      var span = doc.createElement('span');
-      span.className = voted ? 'voted' : 'not-voted';
-      span.textContent = voted ? 'Voted' : 'Not Voted';
-      tdVoted.appendChild(span);
-      tr.appendChild(tdVoted);
-      var tdPhone = doc.createElement('td'); tdPhone.textContent = v.phone || ''; tr.appendChild(tdPhone);
-      tbody.appendChild(tr);
-    }
-
-    topVoters.forEach(function(v) {
-      var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
-      addRow(v, hasChildren ? 'captain' : '');
-      if (childMap[v.id]) {
-        childMap[v.id].forEach(function(child) { addRow(child, 'sub'); });
-      }
-    });
-    table.appendChild(tbody);
-    doc.body.appendChild(table);
-  });
-
-  doc.close();
-  w.focus();
-  setTimeout(function() { w.print(); }, 300);
-}
 
 function downloadMasterCSV() {
   var headers = ['Captain/Source', 'Role', 'Group Leader', 'First Name', 'Last Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone'];
@@ -3221,51 +3051,6 @@ function downloadMasterCSV() {
   triggerDownload(name, csv);
 }
 
-function printCaptainList(captainName) {
-  var title = captainName + ' \u2014 Voter List';
-  var subtitle = captainListVoters.length + ' voter' + (captainListVoters.length !== 1 ? 's' : '') + ' \u00B7 Printed ' + new Date().toLocaleString();
-  var headers = ['', 'Voter', 'Voter ID', 'Address', 'Party ID', 'Voted', 'Phone'];
-
-  // Group parents and children
-  var topVoters = captainListVoters.filter(function(v) { return !v.parent_voter_id; });
-  var childMap = {};
-  captainListVoters.forEach(function(v) {
-    if (v.parent_voter_id) {
-      if (!childMap[v.parent_voter_id]) childMap[v.parent_voter_id] = [];
-      childMap[v.parent_voter_id].push(v);
-    }
-  });
-
-  var rows = [];
-  topVoters.forEach(function(v) {
-    var voted = isVoted(v);
-    var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
-    rows.push([
-      hasChildren ? '\u2605' : '',
-      voterFullName(v),
-      voterIdDisplay(v) || '\u2014',
-      (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : ''),
-      v.party_score || '',
-      { text: voted ? 'Voted' : 'Not Voted', className: voted ? 'voted' : 'not-voted' },
-      v.phone || ''
-    ]);
-    if (childMap[v.id]) {
-      childMap[v.id].forEach(function(child) {
-        var cVoted = isVoted(child);
-        rows.push([
-          '  \u2514',
-          { text: voterFullName(child), className: 'indent' },
-          voterIdDisplay(child) || '\u2014',
-          (child.address || '') + (child.city ? ', ' + child.city : ''),
-          child.party_score || '',
-          { text: cVoted ? 'Voted' : 'Not Voted', className: cVoted ? 'voted' : 'not-voted' },
-          child.phone || ''
-        ]);
-      });
-    }
-  });
-  buildPrintPage(title, subtitle, headers, rows);
-}
 
 function downloadCaptainTreeCSV(captainName, data) {
   var voters = data.voters || [];
