@@ -831,6 +831,45 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
   res.json({ list, voters });
 });
 
+// Get ALL voters under a captain + their sub-captains (full tree)
+router.get('/candidates/:id/captains/:captainId/all-voters', requireCandidateAuth, (req, res) => {
+  const captainId = parseInt(req.params.captainId, 10);
+  const captain = db.prepare('SELECT id, name, parent_captain_id FROM captains WHERE id = ?').get(captainId);
+  if (!captain) return res.status(404).json({ error: 'Captain not found.' });
+
+  // Collect all captain IDs in the tree (this captain + all sub-captains recursively)
+  const allCaptains = db.prepare('SELECT id, name, parent_captain_id FROM captains WHERE candidate_id = (SELECT candidate_id FROM captains WHERE id = ?)').all(captainId);
+  const captainIds = [captainId];
+  const captainNameMap = {};
+  captainNameMap[captainId] = captain.name;
+  // BFS to find all descendants
+  let queue = [captainId];
+  while (queue.length > 0) {
+    const parentId = queue.shift();
+    for (const c of allCaptains) {
+      if (c.parent_captain_id === parentId && !captainIds.includes(c.id)) {
+        captainIds.push(c.id);
+        captainNameMap[c.id] = c.name;
+        queue.push(c.id);
+      }
+    }
+  }
+
+  // Get all voters from all lists belonging to these captains
+  const ph = captainIds.map(() => '?').join(',');
+  const voters = db.prepare(`
+    SELECT v.*, clv.parent_voter_id, c.name as captain_name, c.id as captain_id
+    FROM captain_list_voters clv
+    JOIN captain_lists cl ON clv.list_id = cl.id
+    JOIN captains c ON cl.captain_id = c.id
+    JOIN voters v ON clv.voter_id = v.id
+    WHERE c.id IN (${ph})
+    ORDER BY c.name, clv.parent_voter_id NULLS FIRST, v.last_name, v.first_name
+  `).all(...captainIds);
+
+  res.json({ captain: captain.name, sub_captains: captainIds.map(id => captainNameMap[id]), voters, total: voters.length });
+});
+
 // Set/remove parent voter grouping on any list type
 router.put('/candidates/:id/lists/:listId/voters/:voterId/parent', requireCandidateAuth, (req, res) => {
   const { parent_voter_id, list_type } = req.body;

@@ -245,6 +245,7 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/candidates\/\d+\/household/) ||
       req.path.match(/^\/api\/candidates\/\d+\/lists/) ||
       req.path.match(/^\/api\/candidates\/\d+\/captain-lists/) ||
+      req.path.match(/^\/api\/candidates\/\d+\/captains\/\d+\/all-voters/) ||
       req.path.match(/^\/api\/candidates\/\d+\/master-list/)) {
     return next();
   }

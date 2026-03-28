@@ -2106,9 +2106,27 @@ async function loadCaptainListInRight(listId, captainName) {
 
     var dlBtn = document.createElement('button');
     dlBtn.className = 'btn-icon';
-    dlBtn.innerHTML = '&#128229; CSV';
+    dlBtn.textContent = '\uD83D\uDCE5 CSV';
     dlBtn.onclick = function() { downloadCaptainListCSV(captainName); };
     controls.appendChild(dlBtn);
+
+    // "Download All" button — includes sub-captain voters
+    if (workspaceSelection && workspaceSelection.type === 'captain' && workspaceSelection.id) {
+      var dlAllBtn = document.createElement('button');
+      dlAllBtn.className = 'btn-icon';
+      dlAllBtn.style.cssText = 'background:#422006;color:#fcd34d;border-color:#78350f';
+      dlAllBtn.textContent = '\uD83D\uDCE5 All + Subs';
+      dlAllBtn.title = 'Download this captain + all sub-captain voters';
+      (function(capId, capName) {
+        dlAllBtn.onclick = async function() {
+          try {
+            var data = await api('/api/candidates/' + candidateId + '/captains/' + capId + '/all-voters');
+            downloadCaptainTreeCSV(capName, data);
+          } catch (e) { alert('Error: ' + (e.message || e)); }
+        };
+      })(workspaceSelection.id, captainName);
+      controls.appendChild(dlAllBtn);
+    }
 
     headerArea.appendChild(controls);
 
@@ -2937,12 +2955,90 @@ function printCaptainList(captainName) {
   buildPrintPage(title, subtitle, headers, rows);
 }
 
-function downloadCaptainListCSV(captainName) {
-  var headers = ['Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Voted', 'Phone'];
-  var rows = captainListVoters.map(function(v) {
-    return [voterFullName(v), voterIdDisplay(v), v.address || '', v.city || '', v.zip || '', v.party_score || '', isVoted(v) ? 'Yes' : 'No', v.phone || ''].map(csvEscape).join(',');
+function downloadCaptainTreeCSV(captainName, data) {
+  var voters = data.voters || [];
+  if (voters.length === 0) { alert('No voters found.'); return; }
+
+  var headers = ['Captain/Sub-Captain', 'Role', 'Group Leader', 'First Name', 'Last Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone'];
+  var csvRows = [];
+  csvRows.push('Captain:,' + csvEscape(captainName));
+  csvRows.push('Sub-Captains:,' + csvEscape((data.sub_captains || []).join(', ')));
+  csvRows.push('Total Voters:,' + voters.length);
+  csvRows.push('');
+  csvRows.push(headers.map(csvEscape).join(','));
+
+  // Group voters by captain_name
+  var byCaptain = {};
+  var captainOrder = [];
+  voters.forEach(function(v) {
+    var cn = v.captain_name || 'Unknown';
+    if (!byCaptain[cn]) { byCaptain[cn] = []; captainOrder.push(cn); }
+    byCaptain[cn].push(v);
   });
-  var csv = headers.join(',') + '\n' + rows.join('\n');
+
+  captainOrder.forEach(function(cn) {
+    var capVoters = byCaptain[cn];
+    if (csvRows.length > 5) csvRows.push('');
+
+    // Group parents and children within this captain
+    var topVoters = capVoters.filter(function(v) { return !v.parent_voter_id; });
+    var childMap = {};
+    capVoters.forEach(function(v) {
+      if (v.parent_voter_id) {
+        if (!childMap[v.parent_voter_id]) childMap[v.parent_voter_id] = [];
+        childMap[v.parent_voter_id].push(v);
+      }
+    });
+
+    topVoters.forEach(function(v) {
+      var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
+      var leaderName = hasChildren ? voterFullName(v) : '';
+      csvRows.push([csvEscape(cn), hasChildren ? '\u2605 LEADER' : '', csvEscape(leaderName), csvEscape(v.first_name || ''), csvEscape(v.last_name || ''), csvEscape(voterIdDisplay(v)), csvEscape(v.address || ''), csvEscape(v.city || ''), csvEscape(v.zip || ''), csvEscape(v.party_score || ''), csvEscape(v.precinct || ''), isVoted(v) ? 'Yes' : 'No', csvEscape(v.phone || '')].join(','));
+      if (childMap[v.id]) {
+        childMap[v.id].forEach(function(child) {
+          csvRows.push([csvEscape(cn), '    \u2514 Under', csvEscape(leaderName), csvEscape(child.first_name || ''), csvEscape(child.last_name || ''), csvEscape(voterIdDisplay(child)), csvEscape(child.address || ''), csvEscape(child.city || ''), csvEscape(child.zip || ''), csvEscape(child.party_score || ''), csvEscape(child.precinct || ''), isVoted(child) ? 'Yes' : 'No', csvEscape(child.phone || '')].join(','));
+        });
+      }
+    });
+  });
+
+  var csv = csvRows.join('\n');
+  var name = (captainName || 'captain').replace(/\s+/g, '_') + '_full_team.csv';
+  triggerDownload(name, csv);
+}
+
+function downloadCaptainListCSV(captainName) {
+  var voters = captainListVoters;
+  var headers = ['Captain', 'Role', 'Group Leader', 'First Name', 'Last Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone'];
+  var csvRows = [];
+  csvRows.push('Captain:,' + csvEscape(captainName));
+  csvRows.push('Voters:,' + voters.length);
+  csvRows.push('');
+  csvRows.push(headers.map(csvEscape).join(','));
+
+  // Group parents and children
+  var topVoters = voters.filter(function(v) { return !v.parent_voter_id; });
+  var childMap = {};
+  voters.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childMap[v.parent_voter_id]) childMap[v.parent_voter_id] = [];
+      childMap[v.parent_voter_id].push(v);
+    }
+  });
+
+  topVoters.forEach(function(v) {
+    var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
+    var leaderName = hasChildren ? voterFullName(v) : '';
+    if (hasChildren && csvRows.length > 4) csvRows.push('');
+    csvRows.push([csvEscape(captainName), hasChildren ? '\u2605 LEADER' : '', csvEscape(leaderName), csvEscape(v.first_name || ''), csvEscape(v.last_name || ''), csvEscape(voterIdDisplay(v)), csvEscape(v.address || ''), csvEscape(v.city || ''), csvEscape(v.zip || ''), csvEscape(v.party_score || ''), csvEscape(v.precinct || ''), isVoted(v) ? 'Yes' : 'No', csvEscape(v.phone || '')].join(','));
+    if (childMap[v.id]) {
+      childMap[v.id].forEach(function(child) {
+        csvRows.push([csvEscape(captainName), '    \u2514 Under', csvEscape(leaderName), csvEscape(child.first_name || ''), csvEscape(child.last_name || ''), csvEscape(voterIdDisplay(child)), csvEscape(child.address || ''), csvEscape(child.city || ''), csvEscape(child.zip || ''), csvEscape(child.party_score || ''), csvEscape(child.precinct || ''), isVoted(child) ? 'Yes' : 'No', csvEscape(child.phone || '')].join(','));
+      });
+    }
+  });
+
+  var csv = csvRows.join('\n');
   var name = (captainName || 'captain').replace(/\s+/g, '_') + '_voters.csv';
   triggerDownload(name, csv);
 }
