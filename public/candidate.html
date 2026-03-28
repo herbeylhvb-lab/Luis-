@@ -864,6 +864,12 @@ function switchView(view) {
   if (view === 'workspace') {
     renderWorkspaceSidebar();
     populateListSelector();
+    // Auto-select first list if none selected
+    if (!selectedListId && candidateData && candidateData.lists && candidateData.lists.length > 0) {
+      var first = candidateData.lists[0];
+      selectedListId = first.id;
+      sidebarSelectList(first.id, first.name);
+    }
     // Show mobile tabs
     var tabs = document.getElementById('mobileTabs');
     if (tabs) tabs.style.display = '';

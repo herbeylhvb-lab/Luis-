@@ -440,13 +440,23 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     `).get(c.id, c.id) || { n: 0 }).n;
   }
 
-  const lists = db.prepare(`
+  let lists = db.prepare(`
     SELECT al.*, COUNT(alv.id) as voter_count
     FROM admin_lists al
     LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
     WHERE al.candidate_id = ?
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(candidate.id);
+
+  // Auto-create a default "My Voters" list if the candidate has none
+  if (lists.length === 0) {
+    db.prepare('INSERT INTO admin_lists (name, description, candidate_id, list_type) VALUES (?, ?, ?, ?)').run('My Voters', 'Default voter list', candidate.id, 'general');
+    lists = db.prepare(`
+      SELECT al.*, COUNT(alv.id) as voter_count FROM admin_lists al
+      LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+      WHERE al.candidate_id = ? GROUP BY al.id ORDER BY al.created_at DESC
+    `).all(candidate.id);
+  }
 
   // Aggregate stats for dashboard (include shared captain voters)
   const allVoterCount = (db.prepare(`
