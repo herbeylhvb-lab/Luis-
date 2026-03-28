@@ -376,7 +376,7 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   var years = Object.keys(yearSet).sort(function(a, b) { return parseInt(b) - parseInt(a); });
 
   // Collect unique types (rows) — in a sensible order
-  var typeOrder = ['Primary', 'Primary Runoff', 'General', 'Runoff', 'Special', 'Special Runoff', 'Constitutional', 'Joint', 'Uniform', 'May Runoff', 'November Runoff'];
+  var typeOrder = ['Primary', 'Primary Runoff', 'General', 'Runoff', 'Local', 'Local Runoff', 'Special', 'Special Runoff', 'Constitutional', 'Joint', 'Uniform'];
   var typeSet = {};
   for (var k = 0; k < parsed.length; k++) typeSet[parsed[k].type] = true;
   var types = typeOrder.filter(function(t) { return typeSet[t]; });
@@ -391,7 +391,7 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   }
 
   // Short type labels for rows
-  var typeLabels = { 'Primary': 'Primary', 'Primary Runoff': 'Pri Runoff', 'General': 'General', 'Runoff': 'Runoff', 'Special': 'Special', 'Special Runoff': 'Spc Runoff', 'Constitutional': 'Const', 'Joint': 'Joint', 'Uniform': 'Uniform', 'May Runoff': 'May RO', 'November Runoff': 'Nov RO' };
+  var typeLabels = { 'Primary': 'Primary', 'Primary Runoff': 'Pri Runoff', 'General': 'General', 'Runoff': 'Runoff', 'Local': 'Local (May)', 'Local Runoff': 'Local RO', 'Special': 'Special', 'Special Runoff': 'Spc Runoff', 'Constitutional': 'Const', 'Joint': 'Joint', 'Uniform': 'Uniform' };
 
   var html = '<div style="overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">';
   html += '<table style="border-collapse:collapse;font-size:11px;width:100%">';
@@ -433,14 +433,24 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   return html;
 }
 
-// Parse "Primary 2024" -> { type: "Primary", year: "2024" }
-// Parse "General 2022" -> { type: "General", year: "2022" }
+// Parse election name into { type, year }
+// Normalizes May/Municipal/Local elections into "Local" type
 function parseElectionNameParts(name) {
   if (!name) return null;
-  // Match patterns like "Primary 2024", "General 2022", "Primary Runoff 2024", "Special 2021"
   var m = name.match(/^(.+?)\s+(\d{4})$/);
-  if (m) return { type: m[1].trim(), year: m[2] };
-  return null;
+  if (!m) return null;
+  var type = m[1].trim();
+  var year = m[2];
+  // Normalize local/May/Municipal elections into "Local"
+  var lower = type.toLowerCase();
+  if (lower === 'may election' || lower === 'municipal' || lower === 'local may' || lower === 'local' || lower === 'may') {
+    type = 'Local';
+  } else if (lower === 'may runoff' || lower === 'local runoff' || lower === 'local may runoff') {
+    type = 'Local Runoff';
+  } else if (lower === 'november runoff' || lower === 'nov runoff') {
+    type = 'Runoff';
+  }
+  return { type: type, year: year };
 }
 
 function esc(t) {
