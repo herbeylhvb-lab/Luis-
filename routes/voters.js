@@ -1309,6 +1309,23 @@ router.get('/voters/:id', (req, res) => {
   if (!voter) return res.status(404).json({ error: 'Voter not found.' });
   voter.contactHistory = db.prepare('SELECT * FROM voter_contacts WHERE voter_id = ? ORDER BY contacted_at DESC').all(req.params.id);
   voter.election_history = db.prepare('SELECT election_name, election_date, election_type, election_cycle, party_voted FROM election_votes WHERE voter_id = ? ORDER BY election_date DESC').all(req.params.id);
+
+  // Household — other registered voters at same address + unit
+  if (voter.address) {
+    voter.household = db.prepare(`
+      SELECT id, first_name, last_name, age, unit, party_score, voter_status, phone, early_voted, early_voted_ballot, early_voted_date
+      FROM voters
+      WHERE id != ?
+        AND LOWER(TRIM(address)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(city,''))) = LOWER(TRIM(?))
+        AND voter_status = 'ACTIVE'
+      ORDER BY last_name, first_name
+    `).all(voter.id, voter.address, voter.unit || '', voter.city || '');
+  } else {
+    voter.household = [];
+  }
+
   res.json({ voter });
 });
 

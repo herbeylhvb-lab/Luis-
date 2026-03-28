@@ -1575,6 +1575,11 @@ tr:hover td{background:#1e293b80}
           <button class="btn btn-primary" onclick="saveVoterDetail()">Save Changes</button>
           <button class="btn btn-secondary" style="margin-left:8px" onclick="showVoterTouchpoints(state.currentVoterId)">&#128200; View All Touchpoints</button>
         </div>
+        <div class="card" id="vdHouseholdCard" style="display:none">
+          <h3>Household Members</h3>
+          <p style="color:#64748b;font-size:12px;margin-bottom:8px">Other registered voters at the same address.</p>
+          <div id="vdHouseholdList"></div>
+        </div>
         <div class="card">
           <h3>Election History</h3>
           <p style="color:#64748b;font-size:12px;margin-bottom:8px">Check/uncheck to mark which elections this voter participated in.</p>
@@ -6772,6 +6777,37 @@ async function loadVoterDetail(id) {
     evEl.innerHTML = '<span style="color:#f59e0b">Has not voted early</span>' +
       ' <button class="btn btn-xs" style="background:#7c3aed;color:#fff;margin-left:12px" onclick="markEarlyVoted(' + v.id + ')">Mark as Voted</button>';
   }
+  // Household members
+  var hhCard = document.getElementById('vdHouseholdCard');
+  var hhList = document.getElementById('vdHouseholdList');
+  if (v.household && v.household.length > 0) {
+    hhCard.style.display = '';
+    hhList.innerHTML = v.household.map(function(h) {
+      var name = escHtml((h.first_name || '') + ' ' + (h.last_name || ''));
+      var partyBadge = '';
+      if (h.party_score) {
+        var pc = { D:'badge-blue', DD:'badge-blue', DDD:'badge-blue', R:'badge-red', RR:'badge-red', RRR:'badge-red', SWING:'badge-purple' };
+        partyBadge = ' <span class="badge ' + (pc[h.party_score] || 'badge-gray') + '" style="font-size:10px;font-weight:700;letter-spacing:1px">' + escHtml(h.party_score) + '</span>';
+      }
+      var ageBadge = h.age ? ' <span style="font-size:10px;color:#a78bfa">(age ' + h.age + ')</span>' : '';
+      var evBadge = '';
+      if (h.early_voted) {
+        var bl = h.early_voted_ballot || '';
+        var ec = '#22c55e';
+        if (bl === 'Democrat' || bl === 'D') ec = '#3b82f6';
+        else if (bl === 'Republican' || bl === 'R') ec = '#ef4444';
+        evBadge = ' <span style="font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(34,197,94,0.15);color:' + ec + '">Voted' + (h.early_voted_date ? ' ' + escHtml(h.early_voted_date) : '') + '</span>';
+      }
+      var phoneTxt = h.phone ? ' <span style="font-size:11px;color:#818cf8">' + escHtml(h.phone) + '</span>' : '';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px;border-bottom:1px solid #1e293b;cursor:pointer" onclick="showVoterDetail(' + h.id + ')">' +
+        '<div><strong style="color:#e2e8f0;font-size:13px">' + name + '</strong>' + ageBadge + partyBadge + evBadge + phoneTxt + '</div>' +
+        '<span style="font-size:11px;color:#64748b">&rarr;</span></div>';
+    }).join('');
+  } else {
+    hhCard.style.display = 'none';
+    hhList.innerHTML = '';
+  }
+
   // Election history
   var ehEl = document.getElementById('vdElectionHistory');
   try {
