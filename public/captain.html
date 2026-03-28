@@ -930,10 +930,16 @@ async function loadAllTeamVoters() {
   var headerRow = nameEl.parentNode;
   headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
 
+  var printBtn = document.createElement('button');
+  printBtn.className = 'btn btn-xs btn-captain';
+  printBtn.style.marginLeft = 'auto';
+  printBtn.textContent = '\uD83D\uDDA8 Print';
+  printBtn.addEventListener('click', function() { printVoterList(); });
+  headerRow.appendChild(printBtn);
+
   var dlBtn = document.createElement('button');
   dlBtn.id = 'btnDownloadList';
   dlBtn.className = 'btn btn-xs btn-captain';
-  dlBtn.style.marginLeft = 'auto';
   dlBtn.textContent = '\u2B07 Download';
   dlBtn.addEventListener('click', function() { downloadListCsv(); });
   headerRow.appendChild(dlBtn);
@@ -1351,11 +1357,18 @@ async function loadListVoters() {
   var headerRow = nameEl.parentNode;
   headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
 
+  // Print button
+  var printBtn = document.createElement('button');
+  printBtn.className = 'btn btn-xs btn-captain';
+  printBtn.style.marginLeft = 'auto';
+  printBtn.textContent = '\uD83D\uDDA8 Print';
+  printBtn.addEventListener('click', function() { printVoterList(); });
+  headerRow.appendChild(printBtn);
+
   // Download button (always visible)
   var dlBtn = document.createElement('button');
   dlBtn.id = 'btnDownloadList';
   dlBtn.className = 'btn btn-xs btn-captain';
-  dlBtn.style.marginLeft = 'auto';
   dlBtn.textContent = '\u2B07 Download';
   dlBtn.addEventListener('click', function() { downloadListCsv(); });
   headerRow.appendChild(dlBtn);
@@ -1767,6 +1780,138 @@ function csvEscape(val) {
     return '"' + s.replace(/"/g, '""') + '"';
   }
   return s;
+}
+
+// ===================== PRINT LIST =====================
+function printVoterList() {
+  var voters = _currentListVoters;
+  var tab = _currentListTab;
+  if (tab === 'voted') voters = voters.filter(function(v) { return v.early_voted; });
+  else if (tab === 'not_voted') voters = voters.filter(function(v) { return !v.early_voted; });
+  if (voters.length === 0) { alert('No voters to print.'); return; }
+
+  var listName = captainState.selectedListName || 'My Voters';
+  var tabLabels = { all: '', voted: ' (Voted)', not_voted: ' (Not Voted)' };
+
+  // Group parents and children
+  var topVoters = voters.filter(function(v) { return !v.parent_voter_id; });
+  var childMap = {};
+  voters.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childMap[v.parent_voter_id]) childMap[v.parent_voter_id] = [];
+      childMap[v.parent_voter_id].push(v);
+    }
+  });
+
+  var printStyle = 'body{font-family:Arial,sans-serif;margin:20px;color:#222}h1{font-size:18px;margin-bottom:4px}' +
+    '.sub{color:#666;font-size:12px;margin-bottom:12px}' +
+    'table{width:100%;border-collapse:collapse}' +
+    'th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;background:#f5f5f5}' +
+    'td{padding:5px 8px;border-bottom:1px solid #ddd;font-size:12px}' +
+    '.indent{padding-left:24px;color:#555}' +
+    '.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}' +
+    '.note{font-size:10px;color:#666;font-style:italic;margin-top:1px}' +
+    '.star{color:#b45309;font-weight:700}' +
+    '@media print{body{margin:10px}table{page-break-inside:auto}tr{page-break-inside:avoid}}';
+
+  var w = window.open('', '_blank');
+  if (!w) { alert('Pop-up blocked. Please allow pop-ups to print.'); return; }
+  var doc = w.document;
+  doc.open();
+  var style = doc.createElement('style'); style.textContent = printStyle; doc.head.appendChild(style);
+  doc.title = listName;
+
+  var h1 = doc.createElement('h1'); h1.textContent = listName + (tabLabels[tab] || ''); doc.body.appendChild(h1);
+  var sub = doc.createElement('div'); sub.className = 'sub';
+  sub.textContent = voters.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
+  doc.body.appendChild(sub);
+
+  var table = doc.createElement('table');
+  var thead = doc.createElement('thead');
+  var headTr = doc.createElement('tr');
+  ['', 'Voter', 'Reg #', 'Address', 'Party', 'Voted', 'Phone', 'Notes'].forEach(function(h) {
+    var th = doc.createElement('th'); th.textContent = h; headTr.appendChild(th);
+  });
+  thead.appendChild(headTr); table.appendChild(thead);
+
+  var tbody = doc.createElement('tbody');
+
+  function addVoterRow(v, role) {
+    var tr = doc.createElement('tr');
+
+    // Role column (star or indent)
+    var tdRole = doc.createElement('td');
+    tdRole.style.width = '20px';
+    tdRole.style.textAlign = 'center';
+    if (role === 'parent') { tdRole.className = 'star'; tdRole.textContent = '\u2605'; }
+    else if (role === 'child') { tdRole.textContent = '\u2514'; tdRole.style.color = '#999'; }
+    tr.appendChild(tdRole);
+
+    // Name
+    var tdName = doc.createElement('td');
+    tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
+    if (role === 'child') tdName.className = 'indent';
+    tr.appendChild(tdName);
+
+    // Reg #
+    var tdId = doc.createElement('td');
+    tdId.textContent = v.registration_number || v.county_file_id || '';
+    tr.appendChild(tdId);
+
+    // Address
+    var tdAddr = doc.createElement('td');
+    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '');
+    tr.appendChild(tdAddr);
+
+    // Party
+    var tdParty = doc.createElement('td');
+    tdParty.textContent = v.party_score || '';
+    tdParty.style.fontWeight = '700';
+    tr.appendChild(tdParty);
+
+    // Voted
+    var tdVoted = doc.createElement('td');
+    var voted = v.early_voted;
+    var span = doc.createElement('span');
+    span.className = voted ? 'voted' : 'not-voted';
+    var votedText = 'Not Voted';
+    if (voted) {
+      var b = v.early_voted_ballot || '';
+      if (b === 'Democrat' || b === 'D') votedText = 'Voted (D)';
+      else if (b === 'Republican' || b === 'R') votedText = 'Voted (R)';
+      else votedText = 'Voted';
+    }
+    span.textContent = votedText;
+    tdVoted.appendChild(span);
+    tr.appendChild(tdVoted);
+
+    // Phone
+    var tdPhone = doc.createElement('td');
+    tdPhone.textContent = v.phone || '';
+    tr.appendChild(tdPhone);
+
+    // Notes
+    var tdNotes = doc.createElement('td');
+    tdNotes.className = 'note';
+    tdNotes.textContent = v.captain_notes || '';
+    tr.appendChild(tdNotes);
+
+    tbody.appendChild(tr);
+  }
+
+  topVoters.forEach(function(v) {
+    var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
+    addVoterRow(v, hasChildren ? 'parent' : '');
+    if (childMap[v.id]) {
+      childMap[v.id].forEach(function(child) { addVoterRow(child, 'child'); });
+    }
+  });
+
+  table.appendChild(tbody);
+  doc.body.appendChild(table);
+  doc.close();
+  w.focus();
+  setTimeout(function() { w.print(); }, 300);
 }
 
 // ===================== CITY FILTER =====================
