@@ -2055,6 +2055,32 @@ async function showVoterDetail(voter) {
     box.appendChild(turnoutWrap);
   }
 
+  // Captain notes section in detail modal
+  if (captainState.selectedListId) {
+    var notesTitle = document.createElement('h4');
+    notesTitle.style.cssText = 'margin-bottom:8px;color:#f59e0b';
+    notesTitle.textContent = 'My Notes';
+    box.appendChild(notesTitle);
+    var notesArea = document.createElement('textarea');
+    notesArea.style.cssText = 'width:100%;height:60px;background:#0f172a;border:1px solid #f59e0b;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px;resize:vertical;font-family:inherit;margin-bottom:4px;box-sizing:border-box';
+    notesArea.placeholder = 'How do you know this person? Personal reminders...';
+    notesArea.value = voter.captain_notes || '';
+    box.appendChild(notesArea);
+    var notesSaveBtn = document.createElement('button');
+    notesSaveBtn.className = 'btn btn-xs btn-captain';
+    notesSaveBtn.textContent = 'Save Note';
+    notesSaveBtn.style.marginBottom = '16px';
+    notesSaveBtn.addEventListener('click', function() {
+      apiPut(getListApiBase() + '/voters/' + voter.id + '/notes', { notes: notesArea.value.trim() }).then(function() {
+        voter.captain_notes = notesArea.value.trim();
+        notesSaveBtn.textContent = 'Saved!';
+        setTimeout(function() { notesSaveBtn.textContent = 'Save Note'; }, 1500);
+        renderListVoters();
+      }).catch(function() { alert('Failed to save note'); });
+    });
+    box.appendChild(notesSaveBtn);
+  }
+
   // Household section
   var hhTitle = document.createElement('h4');
   hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8';
