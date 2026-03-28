@@ -950,6 +950,9 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_admin_lists_candidate ON admin_lis
 addColumn("ALTER TABLE admin_list_voters ADD COLUMN parent_voter_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE captain_list_voters ADD COLUMN parent_voter_id INTEGER DEFAULT NULL");
 
+// Captain notes per voter (how they know them, personal reminders)
+addColumn("ALTER TABLE captain_list_voters ADD COLUMN notes TEXT DEFAULT ''");
+
 // Rename existing "My Voters" lists to the captain's actual name
 try {
   const renamed = db.prepare(`

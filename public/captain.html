@@ -1535,6 +1535,33 @@ function renderListVoters() {
       info.appendChild(contact);
     }
 
+    // Captain notes (personal reminders about this voter)
+    var notesWrap = document.createElement('div');
+    notesWrap.style.cssText = 'margin-top:4px';
+    if (v.captain_notes) {
+      // Show existing note inline
+      var noteText = document.createElement('div');
+      noteText.style.cssText = 'font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:4px;padding:3px 6px;margin-top:2px;cursor:pointer';
+      noteText.title = 'Click to edit note';
+      noteText.textContent = '\uD83D\uDCDD ' + v.captain_notes;
+      noteText.addEventListener('click', (function(voter, wrap) { return function(e) {
+        e.stopPropagation();
+        showNoteEditor(voter, wrap);
+      }; })(v, notesWrap));
+      notesWrap.appendChild(noteText);
+    } else {
+      // Show small "add note" link
+      var addNote = document.createElement('button');
+      addNote.style.cssText = 'background:none;border:none;color:#64748b;font-size:11px;cursor:pointer;padding:0;margin-top:2px';
+      addNote.textContent = '+ Add note';
+      addNote.addEventListener('click', (function(voter, wrap) { return function(e) {
+        e.stopPropagation();
+        showNoteEditor(voter, wrap);
+      }; })(v, notesWrap));
+      notesWrap.appendChild(addNote);
+    }
+    info.appendChild(notesWrap);
+
     row.appendChild(info);
 
     if (captainState.selectedListType !== 'all-team') {
@@ -2442,6 +2469,73 @@ async function removeVoterFromList(voterId) {
     await loadListVoters();
     refreshSidebar();
   } catch (e) { alert('Failed to remove voter: ' + (e.message || 'Error')); }
+}
+
+// ===================== VOTER NOTES =====================
+
+function showNoteEditor(voter, wrap) {
+  wrap.textContent = '';
+  var editor = document.createElement('div');
+  editor.style.cssText = 'margin-top:2px';
+  editor.addEventListener('click', function(e) { e.stopPropagation(); });
+  var ta = document.createElement('textarea');
+  ta.style.cssText = 'width:100%;height:50px;background:#0f172a;border:1px solid #f59e0b;border-radius:4px;padding:6px;color:#e2e8f0;font-size:12px;resize:vertical;font-family:inherit';
+  ta.placeholder = 'How do you know them? Personal notes...';
+  ta.value = voter.captain_notes || '';
+  editor.appendChild(ta);
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:6px;margin-top:4px';
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-xs btn-captain';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', async function() {
+    try {
+      await apiPut(getListApiBase() + '/voters/' + voter.id + '/notes', { notes: ta.value.trim() });
+      voter.captain_notes = ta.value.trim();
+      wrap.textContent = '';
+      if (voter.captain_notes) {
+        var noteText = document.createElement('div');
+        noteText.style.cssText = 'font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:4px;padding:3px 6px;cursor:pointer';
+        noteText.title = 'Click to edit note';
+        noteText.textContent = '\uD83D\uDCDD ' + voter.captain_notes;
+        noteText.addEventListener('click', function(e) { e.stopPropagation(); showNoteEditor(voter, wrap); });
+        wrap.appendChild(noteText);
+      } else {
+        var addNote = document.createElement('button');
+        addNote.style.cssText = 'background:none;border:none;color:#64748b;font-size:11px;cursor:pointer;padding:0';
+        addNote.textContent = '+ Add note';
+        addNote.addEventListener('click', function(e) { e.stopPropagation(); showNoteEditor(voter, wrap); });
+        wrap.appendChild(addNote);
+      }
+      showToast('Note saved');
+    } catch (e) { showToast('Failed to save note', 'error'); }
+  });
+  btnRow.appendChild(saveBtn);
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-xs btn-secondary';
+  cancelBtn.style.cssText = 'font-size:11px;padding:3px 8px;color:#94a3b8';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() {
+    wrap.textContent = '';
+    if (voter.captain_notes) {
+      var noteText = document.createElement('div');
+      noteText.style.cssText = 'font-size:11px;color:#f59e0b;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:4px;padding:3px 6px;cursor:pointer';
+      noteText.title = 'Click to edit note';
+      noteText.textContent = '\uD83D\uDCDD ' + voter.captain_notes;
+      noteText.addEventListener('click', function(e) { e.stopPropagation(); showNoteEditor(voter, wrap); });
+      wrap.appendChild(noteText);
+    } else {
+      var addNote = document.createElement('button');
+      addNote.style.cssText = 'background:none;border:none;color:#64748b;font-size:11px;cursor:pointer;padding:0';
+      addNote.textContent = '+ Add note';
+      addNote.addEventListener('click', function(e) { e.stopPropagation(); showNoteEditor(voter, wrap); });
+      wrap.appendChild(addNote);
+    }
+  });
+  btnRow.appendChild(cancelBtn);
+  editor.appendChild(btnRow);
+  wrap.appendChild(editor);
+  ta.focus();
 }
 
 // ===================== LIST MANAGEMENT =====================

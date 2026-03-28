@@ -784,7 +784,7 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const voters = db.prepare(`
-    SELECT v.*, clv.added_at, clv.parent_voter_id,
+    SELECT v.*, clv.added_at, clv.parent_voter_id, clv.notes as captain_notes,
       (SELECT ev.party_voted FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_party,
       (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method
     FROM captain_list_voters clv
@@ -888,6 +888,17 @@ router.delete('/captains/:id/lists/:listId/voters/:voterId/parent', requireCapta
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   db.prepare('UPDATE captain_list_voters SET parent_voter_id = NULL WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
+  res.json({ success: true });
+});
+
+// Save captain notes on a voter (personal reminders, how they know them)
+router.put('/captains/:id/lists/:listId/voters/:voterId/notes', requireCaptainAuth, (req, res) => {
+  const { notes } = req.body;
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const row = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, req.params.voterId);
+  if (!row) return res.status(404).json({ error: 'Voter not on this list.' });
+  db.prepare('UPDATE captain_list_voters SET notes = ? WHERE list_id = ? AND voter_id = ?').run(notes || '', req.params.listId, req.params.voterId);
   res.json({ success: true });
 });
 
