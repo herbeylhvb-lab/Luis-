@@ -988,7 +988,7 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
     voted[parsed[p].type][parsed[p].year] = parsed[p].party;
   }
 
-  var typeLabels = { 'Primary': 'Pri', 'Primary Runoff': 'PriRO', 'General': 'Gen', 'Runoff': 'RO', 'Local': 'Local', 'Local Runoff': 'LclRO', 'Special': 'Spc', 'Constitutional': 'Const' };
+  var typeLabels = { 'Primary': 'Primary', 'Primary Runoff': 'Pri Runoff', 'General': 'General', 'Runoff': 'Runoff', 'Local': 'Local', 'Local Runoff': 'Lcl Runoff', 'Special': 'Special', 'Constitutional': 'Const' };
   var html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
   html += '<table style="border-collapse:collapse;font-size:10px">';
   html += '<tr><th style="padding:2px 4px"></th>';
