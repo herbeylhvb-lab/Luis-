@@ -389,9 +389,17 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
 
   // Own captains + shared captains
+  // Get captains for this candidate + full sub-captain tree (recursive)
+  // Sub-captains may have NULL candidate_id if created before inheritance was added
   const ownCapsPortal = db.prepare(`
+    WITH RECURSIVE captain_tree AS (
+      SELECT id FROM captains WHERE candidate_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN captain_tree ct ON c.parent_captain_id = ct.id
+    )
     SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 0 as is_shared
-    FROM captains c WHERE c.candidate_id = ? ORDER BY c.name
+    FROM captains c WHERE c.id IN (SELECT id FROM captain_tree)
+    ORDER BY c.name
   `).all(candidate.id);
   const sharedCapsPortal = db.prepare(`
     SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 1 as is_shared
@@ -400,6 +408,12 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     WHERE cc.candidate_id = ? ORDER BY c.name
   `).all(candidate.id);
   const captains = ownCapsPortal.concat(sharedCapsPortal);
+
+  // Backfill: set candidate_id on sub-captains that are missing it
+  const fixOrphans = db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ? AND candidate_id IS NULL');
+  for (const c of captains) {
+    if (!c.candidate_id) fixOrphans.run(candidate.id, c.id);
+  }
 
   for (const c of captains) {
     // Captain-created lists + admin-assigned lists
