@@ -1596,70 +1596,41 @@ function renderWorkspaceSidebar() {
 
   function renderCaptainNode(cap, depth) {
     var wrap = document.createElement('div');
+    var children = capChildrenOf[cap.id] || [];
 
-    // Captain row
+    // Captain row — just name + voter count, click to load
     var item = document.createElement('div');
     var isActive = workspaceSelection.type === 'captain' && workspaceSelection.id === cap.id;
     item.className = 'list-item' + (isActive ? ' active' : '');
     item.style.paddingLeft = (12 + depth * 14) + 'px';
     if (cap.lists && cap.lists.length > 0) item.setAttribute('data-list-id', cap.lists[0].id);
 
-    var children = capChildrenOf[cap.id] || [];
-    var hasChildren = children.length > 0;
-    var isExpanded = _expandedCaptains[cap.id];
-
-    // Expand arrow (if has sub-captains)
-    if (hasChildren) {
-      var arrow = document.createElement('span');
-      arrow.style.cssText = 'font-size:10px;color:#64748b;margin-right:4px;cursor:pointer;display:inline-block;transition:transform 0.15s;transform:rotate(' + (isExpanded ? '90' : '0') + 'deg)';
-      arrow.textContent = '\u25B6';
-      arrow.addEventListener('click', (function(cid, arrowEl) { return function(e) {
-        e.stopPropagation();
-        _expandedCaptains[cid] = !_expandedCaptains[cid];
-        renderWorkspaceSidebar();
-      }; })(cap.id, arrow));
-      item.appendChild(arrow);
-    } else if (depth > 0) {
+    if (depth > 0) {
       var indent = document.createElement('span');
       indent.style.cssText = 'font-size:10px;color:#475569;margin-right:4px';
       indent.textContent = '\u2514';
       item.appendChild(indent);
     }
 
-    var left = document.createElement('div');
-    left.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;display:inline';
     var nameSpan = document.createElement('span');
-    nameSpan.style.fontWeight = depth === 0 ? '600' : '400';
+    nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-weight:' + (depth === 0 ? '600' : '400');
     nameSpan.textContent = cap.name;
-    left.appendChild(nameSpan);
-    var codeMeta = document.createElement('span');
-    codeMeta.style.cssText = 'font-size:10px;color:#64748b;margin-left:6px;font-family:monospace';
-    codeMeta.textContent = cap.code;
-    left.appendChild(codeMeta);
-    item.appendChild(left);
+    item.appendChild(nameSpan);
 
     var count = document.createElement('span');
     count.className = 'count';
     count.textContent = cap.total_voters || 0;
     item.appendChild(count);
 
-    // Click captain → load their voters directly (each captain has one list)
     item.addEventListener('click', (function(c) {
-      return function() {
-        // Also auto-expand to show sub-captains
-        if ((capChildrenOf[c.id] || []).length > 0) _expandedCaptains[c.id] = true;
-        sidebarSelectCaptain(c);
-      };
+      return function() { sidebarSelectCaptain(c); };
     })(cap));
     wrap.appendChild(item);
 
-    // Show sub-captains when expanded (no separate list items — clicking captain loads the list)
-    if (hasChildren && isExpanded) {
-      // Render sub-captains
-      children.forEach(function(child) {
-        wrap.appendChild(renderCaptainNode(child, depth + 1));
-      });
-    }
+    // Always show sub-captains inline (no expand/collapse needed)
+    children.forEach(function(child) {
+      wrap.appendChild(renderCaptainNode(child, depth + 1));
+    });
 
     return wrap;
   }
