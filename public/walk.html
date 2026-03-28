@@ -960,6 +960,40 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
+  if (!electionVotes || electionVotes.length === 0) return '';
+  var voted = {};
+  for (var i = 0; i < electionVotes.length; i++) {
+    var ev = electionVotes[i];
+    voted[ev[nameKey]] = ev[partyKey] || 'V';
+  }
+  var names = Object.keys(voted);
+  names.sort(function(a, b) { return b.localeCompare(a); });
+  var html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  html += '<table style="border-collapse:collapse;font-size:10px">';
+  html += '<tr>';
+  for (var n = 0; n < names.length; n++) {
+    html += '<th style="padding:2px 4px;color:#94a3b8;font-weight:600;text-align:center;white-space:nowrap;font-size:9px">' + shortenElectionName(names[n]) + '</th>';
+  }
+  html += '</tr><tr>';
+  for (var d = 0; d < names.length; d++) {
+    var party = voted[names[d]];
+    var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
+    var isRep = party === 'R' || party === 'REP' || party === 'Republican';
+    var dotColor = isDem ? '#3b82f6' : isRep ? '#ef4444' : party ? '#a855f7' : '#475569';
+    html += '<td style="padding:3px;text-align:center"><div style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';margin:0 auto;opacity:' + (party ? '1' : '0.3') + '"></div></td>';
+  }
+  html += '</tr></table></div>';
+  return html;
+}
+
+function shortenElectionName(name) {
+  if (!name) return '?';
+  var m = name.match(/(General|Primary|Runoff|Constitutional|Joint|Special|Uniform)\s*(\d{4})/i);
+  if (m) return m[1][0].toUpperCase() + m[2].slice(-2);
+  return name.length > 5 ? name.slice(0, 4) : name;
+}
+
 function walkerPartyBadge(score) {
   if (!score) return '';
   var colors = { D:'#3b82f6', DD:'#3b82f6', DDD:'#3b82f6', R:'#ef4444', RR:'#ef4444', RRR:'#ef4444', SWING:'#a855f7' };
@@ -1798,8 +1832,11 @@ function renderMemberList() {
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.party_score) nameHtml += walkerPartyBadge(m.party_score);
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
+    // Election history dot grid
+    if (m.election_votes && m.election_votes.length > 0) {
+      nameHtml += '<div style="margin-top:4px">' + buildElectionDotGrid(m.election_votes, 'name', 'party') + '</div>';
+    }
     nameHtml += '</div>';
-    // Address and voting history removed — address already shown on the door card, party rating (DDD) badge kept above
 
     var statusHtml = '';
     if (m.status === 'talked') {

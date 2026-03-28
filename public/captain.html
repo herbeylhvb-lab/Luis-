@@ -353,6 +353,61 @@ function votedBadgeColor(v) {
   return { bg: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '#22c55e' };
 }
 
+// Election history dot grid — compact visual showing each election as a column
+// with colored dots: blue=Dem, red=Rep, purple=voted(other), gray=didn't vote
+// nameKey/partyKey let it work with different field names from different APIs
+function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
+  if (!electionVotes || electionVotes.length === 0) return '';
+  // Build lookup of elections this voter participated in
+  var voted = {};
+  for (var i = 0; i < electionVotes.length; i++) {
+    var ev = electionVotes[i];
+    voted[ev[nameKey]] = ev[partyKey] || 'V';
+  }
+  // Sort elections: most recent first (by name which includes year)
+  var names = Object.keys(voted);
+  names.sort(function(a, b) { return b.localeCompare(a); });
+
+  var html = '<div style="overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">';
+  html += '<table style="border-collapse:collapse;font-size:11px;min-width:100%">';
+  // Header row — short election labels
+  html += '<tr>';
+  for (var n = 0; n < names.length; n++) {
+    var short = shortenElectionName(names[n]);
+    html += '<th style="padding:4px 6px;color:#94a3b8;font-weight:600;text-align:center;white-space:nowrap;border-bottom:1px solid #334155;font-size:10px">' + short + '</th>';
+  }
+  html += '</tr>';
+  // Dot row
+  html += '<tr>';
+  for (var d = 0; d < names.length; d++) {
+    var party = voted[names[d]];
+    var dotColor = '#475569'; // didn't vote
+    var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
+    var isRep = party === 'R' || party === 'REP' || party === 'Republican';
+    if (isDem) dotColor = '#3b82f6';
+    else if (isRep) dotColor = '#ef4444';
+    else if (party) dotColor = '#a855f7';
+    var title = names[d] + (isDem ? ' (D)' : isRep ? ' (R)' : party ? ' (Voted)' : '');
+    html += '<td style="padding:6px;text-align:center"><div title="' + title + '" style="width:14px;height:14px;border-radius:50%;background:' + dotColor + ';margin:0 auto;opacity:' + (party ? '1' : '0.3') + '"></div></td>';
+  }
+  html += '</tr>';
+  html += '</table></div>';
+  return html;
+}
+
+// Shorten election names for grid headers: "General 2024" -> "G24", "Primary 2022" -> "P22"
+function shortenElectionName(name) {
+  if (!name) return '?';
+  var m = name.match(/(General|Primary|Runoff|Constitutional|Joint|Special|Uniform)\s*(\d{4})/i);
+  if (m) {
+    var prefix = m[1][0].toUpperCase(); // G, P, R, C, J, S, U
+    var yr = m[2].slice(-2); // last 2 digits of year
+    return prefix + yr;
+  }
+  // Fallback: first 4 chars
+  return name.length > 5 ? name.slice(0, 4) : name;
+}
+
 function esc(t) {
   var d = document.createElement('div');
   d.textContent = t;
@@ -2030,29 +2085,15 @@ async function showVoterDetail(voter) {
   }
   box.appendChild(evStatusDiv);
 
-  // Turnout tags in detail modal
+  // Election history dot grid
   if (voter.election_votes && voter.election_votes.length > 0) {
     var turnoutTitle = document.createElement('h4');
     turnoutTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8';
-    turnoutTitle.textContent = 'Election Participation';
+    turnoutTitle.textContent = 'Election History';
     box.appendChild(turnoutTitle);
-    var turnoutWrap = document.createElement('div');
-    turnoutWrap.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px';
-    voter.election_votes.forEach(function(ev) {
-      var tag = document.createElement('span');
-      var isDem = ev.party_voted === 'D' || ev.party_voted === 'DEM' || ev.party_voted === 'Democrat';
-      var isRep = ev.party_voted === 'R' || ev.party_voted === 'REP' || ev.party_voted === 'Republican';
-      var colorStyle = isRep ? 'background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444'
-        : isDem ? 'background:rgba(59,130,246,0.15);color:#3b82f6;border:1px solid #3b82f6'
-        : 'background:rgba(168,85,247,0.15);color:#a855f7;border:1px solid #a855f7';
-      tag.style.cssText = 'display:inline-block;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:600;' + colorStyle;
-      var label = ev.election_name;
-      if (isRep) label += ' (R)';
-      else if (isDem) label += ' (D)';
-      tag.textContent = label;
-      turnoutWrap.appendChild(tag);
-    });
-    box.appendChild(turnoutWrap);
+    var gridDiv = document.createElement('div');
+    gridDiv.innerHTML = buildElectionDotGrid(voter.election_votes, 'election_name', 'party_voted');
+    box.appendChild(gridDiv);
   }
 
   // Captain notes section in detail modal
