@@ -930,16 +930,10 @@ async function loadAllTeamVoters() {
   var headerRow = nameEl.parentNode;
   headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
 
-  var printBtn = document.createElement('button');
-  printBtn.className = 'btn btn-xs btn-captain';
-  printBtn.style.marginLeft = 'auto';
-  printBtn.textContent = '\uD83D\uDDA8 Print';
-  printBtn.addEventListener('click', function() { printVoterList(); });
-  headerRow.appendChild(printBtn);
-
   var dlBtn = document.createElement('button');
   dlBtn.id = 'btnDownloadList';
   dlBtn.className = 'btn btn-xs btn-captain';
+  dlBtn.style.marginLeft = 'auto';
   dlBtn.textContent = '\u2B07 Download';
   dlBtn.addEventListener('click', function() { downloadListCsv(); });
   headerRow.appendChild(dlBtn);
@@ -1359,18 +1353,11 @@ async function loadListVoters() {
   var headerRow = nameEl.parentNode;
   headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
 
-  // Print button
-  var printBtn = document.createElement('button');
-  printBtn.className = 'btn btn-xs btn-captain';
-  printBtn.style.marginLeft = 'auto';
-  printBtn.textContent = '\uD83D\uDDA8 Print';
-  printBtn.addEventListener('click', function() { printVoterList(); });
-  headerRow.appendChild(printBtn);
-
-  // Download button (always visible)
+  // Download button
   var dlBtn = document.createElement('button');
   dlBtn.id = 'btnDownloadList';
   dlBtn.className = 'btn btn-xs btn-captain';
+  dlBtn.style.marginLeft = 'auto';
   dlBtn.textContent = '\u2B07 Download';
   dlBtn.addEventListener('click', function() { downloadListCsv(); });
   headerRow.appendChild(dlBtn);
@@ -1831,219 +1818,6 @@ function csvEscape(val) {
     return '"' + s.replace(/"/g, '""') + '"';
   }
   return s;
-}
-
-// ===================== PRINT LIST =====================
-function printVoterList() {
-  var voters = _currentListVoters;
-  var tab = _currentListTab;
-  if (tab === 'voted') voters = voters.filter(function(v) { return v.early_voted; });
-  else if (tab === 'not_voted') voters = voters.filter(function(v) { return !v.early_voted; });
-  if (voters.length === 0) { alert('No voters to print.'); return; }
-
-  var listName = captainState.selectedListName || 'My Voters';
-  var tabLabels = { all: '', voted: ' (Voted)', not_voted: ' (Not Voted)' };
-
-  // Group parents and children
-  var topVoters = voters.filter(function(v) { return !v.parent_voter_id; });
-  var childMap = {};
-  voters.forEach(function(v) {
-    if (v.parent_voter_id) {
-      if (!childMap[v.parent_voter_id]) childMap[v.parent_voter_id] = [];
-      childMap[v.parent_voter_id].push(v);
-    }
-  });
-
-  var printStyle = 'body{font-family:Arial,sans-serif;margin:20px;color:#222}h1{font-size:18px;margin-bottom:4px}' +
-    '.sub{color:#666;font-size:12px;margin-bottom:12px}' +
-    'table{width:100%;border-collapse:collapse}' +
-    'th{text-align:left;padding:6px 8px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;background:#f5f5f5}' +
-    'td{padding:5px 8px;border-bottom:1px solid #ddd;font-size:12px}' +
-    '.indent{padding-left:24px;color:#555}' +
-    '.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}' +
-    '.note{font-size:10px;color:#666;font-style:italic;margin-top:1px}' +
-    '.star{color:#b45309;font-weight:700}' +
-    '.team-box{background:#f8f8f8;border:1px solid #ddd;border-radius:6px;padding:12px 16px;margin-bottom:16px}' +
-    '.team-box h3{font-size:14px;margin:0 0 8px;color:#333}' +
-    '.team-member{padding:3px 0 3px 12px;font-size:12px;border-left:2px solid #ccc}' +
-    '.team-member.indent-1{margin-left:16px}' +
-    '.team-member .role{color:#888;font-size:10px}' +
-    '@media print{body{margin:10px}table{page-break-inside:auto}tr{page-break-inside:avoid}}';
-
-  // Reuse same print window to prevent multiple tabs
-  if (window._printWindow && !window._printWindow.closed) {
-    window._printWindow.close();
-  }
-  var w = window.open('', 'captainPrint');
-  window._printWindow = w;
-  if (!w) { alert('Pop-up blocked. Please allow pop-ups to print.'); return; }
-  var doc = w.document;
-  doc.open();
-  var style = doc.createElement('style'); style.textContent = printStyle; doc.head.appendChild(style);
-  doc.title = listName;
-
-  // Header
-  var captainName = (captainState.captain && captainState.captain.name) || '';
-  var h1 = doc.createElement('h1');
-  h1.textContent = captainName + ' \u2014 ' + listName + (tabLabels[tab] || '');
-  doc.body.appendChild(h1);
-  var sub = doc.createElement('div'); sub.className = 'sub';
-  sub.textContent = voters.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
-  doc.body.appendChild(sub);
-
-  // Team directory — show sub-captains if any
-  var subCaptains = (captainState.captain && captainState.captain.sub_captains) || [];
-  var teamMembers = (captainState.captain && captainState.captain.team_members) || [];
-  if (subCaptains.length > 0 || teamMembers.length > 0) {
-    var teamBox = doc.createElement('div');
-    teamBox.className = 'team-box';
-    var teamTitle = doc.createElement('h3');
-    teamTitle.textContent = '\u2605 Team Structure';
-    teamBox.appendChild(teamTitle);
-
-    // Captain at top
-    var capLine = doc.createElement('div');
-    capLine.style.cssText = 'font-weight:700;font-size:13px;margin-bottom:6px';
-    capLine.textContent = '\u2605 ' + captainName + ' (Captain)';
-    teamBox.appendChild(capLine);
-
-    // Render sub-captains recursively
-    var scChildrenOf = {};
-    subCaptains.forEach(function(sc) {
-      var pid = sc.parent_captain_id || 0;
-      if (!scChildrenOf[pid]) scChildrenOf[pid] = [];
-      scChildrenOf[pid].push(sc);
-    });
-
-    function printTeamNode(parentId, depth) {
-      var children = scChildrenOf[parentId] || [];
-      children.forEach(function(sc) {
-        var line = doc.createElement('div');
-        line.className = 'team-member' + (depth > 0 ? ' indent-1' : '');
-        line.style.marginLeft = (depth * 16) + 'px';
-        var prefix = depth > 0 ? '\u2514\u2500 ' : '\u251C\u2500 ';
-        line.innerHTML = prefix + '<strong>' + (sc.name || '') + '</strong> <span class="role">Sub-Captain</span>';
-        if (sc.phone) line.innerHTML += ' <span class="role">\u00B7 ' + sc.phone + '</span>';
-        teamBox.appendChild(line);
-        printTeamNode(sc.id, depth + 1);
-      });
-    }
-
-    // Direct sub-captains (parent = this captain)
-    var captainId = captainState.captain.id;
-    var directSubs = subCaptains.filter(function(sc) { return !sc.parent_captain_id || sc.parent_captain_id === captainId; });
-    var nestedSubs = subCaptains.filter(function(sc) { return sc.parent_captain_id && sc.parent_captain_id !== captainId; });
-
-    directSubs.forEach(function(sc) {
-      var line = doc.createElement('div');
-      line.className = 'team-member';
-      line.innerHTML = '\u251C\u2500 <strong>' + (sc.name || '') + '</strong> <span class="role">Sub-Captain</span>';
-      if (sc.phone) line.innerHTML += ' <span class="role">\u00B7 ' + sc.phone + '</span>';
-      teamBox.appendChild(line);
-      // Render their children
-      printTeamNode(sc.id, 1);
-    });
-
-    // Legacy team members (not sub-captains)
-    teamMembers.forEach(function(tm) {
-      // Skip if already shown as sub-captain
-      var isSc = subCaptains.some(function(sc) { return sc.name === tm.name; });
-      if (isSc) return;
-      var line = doc.createElement('div');
-      line.className = 'team-member';
-      line.innerHTML = '\u251C\u2500 ' + (tm.name || '') + ' <span class="role">Team Member</span>';
-      teamBox.appendChild(line);
-    });
-
-    doc.body.appendChild(teamBox);
-  }
-
-  var table = doc.createElement('table');
-  var thead = doc.createElement('thead');
-  var headTr = doc.createElement('tr');
-  ['', 'Voter', 'Reg #', 'Address', 'Party', 'Voted', 'Phone', 'Notes'].forEach(function(h) {
-    var th = doc.createElement('th'); th.textContent = h; headTr.appendChild(th);
-  });
-  thead.appendChild(headTr); table.appendChild(thead);
-
-  var tbody = doc.createElement('tbody');
-
-  function addVoterRow(v, role) {
-    var tr = doc.createElement('tr');
-
-    // Role column (star or indent)
-    var tdRole = doc.createElement('td');
-    tdRole.style.width = '20px';
-    tdRole.style.textAlign = 'center';
-    if (role === 'parent') { tdRole.className = 'star'; tdRole.textContent = '\u2605'; }
-    else if (role === 'child') { tdRole.textContent = '\u2514'; tdRole.style.color = '#999'; }
-    tr.appendChild(tdRole);
-
-    // Name
-    var tdName = doc.createElement('td');
-    tdName.textContent = (v.first_name || '') + ' ' + (v.last_name || '');
-    if (role === 'child') tdName.className = 'indent';
-    tr.appendChild(tdName);
-
-    // Reg #
-    var tdId = doc.createElement('td');
-    tdId.textContent = v.registration_number || v.county_file_id || '';
-    tr.appendChild(tdId);
-
-    // Address
-    var tdAddr = doc.createElement('td');
-    tdAddr.textContent = (v.address || '') + (v.city ? ', ' + v.city : '');
-    tr.appendChild(tdAddr);
-
-    // Party
-    var tdParty = doc.createElement('td');
-    tdParty.textContent = v.party_score || '';
-    tdParty.style.fontWeight = '700';
-    tr.appendChild(tdParty);
-
-    // Voted
-    var tdVoted = doc.createElement('td');
-    var voted = v.early_voted;
-    var span = doc.createElement('span');
-    span.className = voted ? 'voted' : 'not-voted';
-    var votedText = 'Not Voted';
-    if (voted) {
-      var b = v.early_voted_ballot || '';
-      if (b === 'Democrat' || b === 'D') votedText = 'Voted (D)';
-      else if (b === 'Republican' || b === 'R') votedText = 'Voted (R)';
-      else votedText = 'Voted';
-    }
-    span.textContent = votedText;
-    tdVoted.appendChild(span);
-    tr.appendChild(tdVoted);
-
-    // Phone
-    var tdPhone = doc.createElement('td');
-    tdPhone.textContent = v.phone || '';
-    tr.appendChild(tdPhone);
-
-    // Notes
-    var tdNotes = doc.createElement('td');
-    tdNotes.className = 'note';
-    tdNotes.textContent = v.captain_notes || '';
-    tr.appendChild(tdNotes);
-
-    tbody.appendChild(tr);
-  }
-
-  topVoters.forEach(function(v) {
-    var hasChildren = childMap[v.id] && childMap[v.id].length > 0;
-    addVoterRow(v, hasChildren ? 'parent' : '');
-    if (childMap[v.id]) {
-      childMap[v.id].forEach(function(child) { addVoterRow(child, 'child'); });
-    }
-  });
-
-  table.appendChild(tbody);
-  doc.body.appendChild(table);
-  doc.close();
-  w.focus();
-  setTimeout(function() { w.print(); }, 300);
 }
 
 // ===================== CITY FILTER =====================
