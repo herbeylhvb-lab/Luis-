@@ -1830,6 +1830,11 @@ function printVoterList() {
     '.voted{color:#166534;font-weight:600}.not-voted{color:#991b1b}' +
     '.note{font-size:10px;color:#666;font-style:italic;margin-top:1px}' +
     '.star{color:#b45309;font-weight:700}' +
+    '.team-box{background:#f8f8f8;border:1px solid #ddd;border-radius:6px;padding:12px 16px;margin-bottom:16px}' +
+    '.team-box h3{font-size:14px;margin:0 0 8px;color:#333}' +
+    '.team-member{padding:3px 0 3px 12px;font-size:12px;border-left:2px solid #ccc}' +
+    '.team-member.indent-1{margin-left:16px}' +
+    '.team-member .role{color:#888;font-size:10px}' +
     '@media print{body{margin:10px}table{page-break-inside:auto}tr{page-break-inside:avoid}}';
 
   var w = window.open('', '_blank');
@@ -1839,10 +1844,81 @@ function printVoterList() {
   var style = doc.createElement('style'); style.textContent = printStyle; doc.head.appendChild(style);
   doc.title = listName;
 
-  var h1 = doc.createElement('h1'); h1.textContent = listName + (tabLabels[tab] || ''); doc.body.appendChild(h1);
+  // Header
+  var captainName = (captainState.captain && captainState.captain.name) || '';
+  var h1 = doc.createElement('h1');
+  h1.textContent = captainName + ' \u2014 ' + listName + (tabLabels[tab] || '');
+  doc.body.appendChild(h1);
   var sub = doc.createElement('div'); sub.className = 'sub';
   sub.textContent = voters.length + ' voters \u00B7 Printed ' + new Date().toLocaleString();
   doc.body.appendChild(sub);
+
+  // Team directory — show sub-captains if any
+  var subCaptains = (captainState.captain && captainState.captain.sub_captains) || [];
+  var teamMembers = (captainState.captain && captainState.captain.team_members) || [];
+  if (subCaptains.length > 0 || teamMembers.length > 0) {
+    var teamBox = doc.createElement('div');
+    teamBox.className = 'team-box';
+    var teamTitle = doc.createElement('h3');
+    teamTitle.textContent = '\u2605 Team Structure';
+    teamBox.appendChild(teamTitle);
+
+    // Captain at top
+    var capLine = doc.createElement('div');
+    capLine.style.cssText = 'font-weight:700;font-size:13px;margin-bottom:6px';
+    capLine.textContent = '\u2605 ' + captainName + ' (Captain)';
+    teamBox.appendChild(capLine);
+
+    // Render sub-captains recursively
+    var scChildrenOf = {};
+    subCaptains.forEach(function(sc) {
+      var pid = sc.parent_captain_id || 0;
+      if (!scChildrenOf[pid]) scChildrenOf[pid] = [];
+      scChildrenOf[pid].push(sc);
+    });
+
+    function printTeamNode(parentId, depth) {
+      var children = scChildrenOf[parentId] || [];
+      children.forEach(function(sc) {
+        var line = doc.createElement('div');
+        line.className = 'team-member' + (depth > 0 ? ' indent-1' : '');
+        line.style.marginLeft = (depth * 16) + 'px';
+        var prefix = depth > 0 ? '\u2514\u2500 ' : '\u251C\u2500 ';
+        line.innerHTML = prefix + '<strong>' + (sc.name || '') + '</strong> <span class="role">Sub-Captain</span>';
+        if (sc.phone) line.innerHTML += ' <span class="role">\u00B7 ' + sc.phone + '</span>';
+        teamBox.appendChild(line);
+        printTeamNode(sc.id, depth + 1);
+      });
+    }
+
+    // Direct sub-captains (parent = this captain)
+    var captainId = captainState.captain.id;
+    var directSubs = subCaptains.filter(function(sc) { return !sc.parent_captain_id || sc.parent_captain_id === captainId; });
+    var nestedSubs = subCaptains.filter(function(sc) { return sc.parent_captain_id && sc.parent_captain_id !== captainId; });
+
+    directSubs.forEach(function(sc) {
+      var line = doc.createElement('div');
+      line.className = 'team-member';
+      line.innerHTML = '\u251C\u2500 <strong>' + (sc.name || '') + '</strong> <span class="role">Sub-Captain</span>';
+      if (sc.phone) line.innerHTML += ' <span class="role">\u00B7 ' + sc.phone + '</span>';
+      teamBox.appendChild(line);
+      // Render their children
+      printTeamNode(sc.id, 1);
+    });
+
+    // Legacy team members (not sub-captains)
+    teamMembers.forEach(function(tm) {
+      // Skip if already shown as sub-captain
+      var isSc = subCaptains.some(function(sc) { return sc.name === tm.name; });
+      if (isSc) return;
+      var line = doc.createElement('div');
+      line.className = 'team-member';
+      line.innerHTML = '\u251C\u2500 ' + (tm.name || '') + ' <span class="role">Team Member</span>';
+      teamBox.appendChild(line);
+    });
+
+    doc.body.appendChild(teamBox);
+  }
 
   var table = doc.createElement('table');
   var thead = doc.createElement('thead');
