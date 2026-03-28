@@ -802,6 +802,7 @@ addColumn("ALTER TABLE voters ADD COLUMN mailing_city TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN mailing_state TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN mailing_zip TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN mailing_unit TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN birth_date TEXT DEFAULT ''");
 
 // Index for vote_method filtering
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_vote_method ON election_votes(vote_method)"); } catch (e) { /* exists */ }

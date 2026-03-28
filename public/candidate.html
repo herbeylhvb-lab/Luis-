@@ -1007,48 +1007,163 @@ function filterByRace(voters, raceFilter) {
   return voters;
 }
 
-function createVoterExpandPanel(v) {
-  var panel = document.createElement('div');
-  panel.className = 'voter-expand-panel';
-  panel.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px 12px;margin-top:6px;font-size:12px;color:#94a3b8;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px';
-  var fields = [
-    ['Address', (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '')],
-    ['Phone', v.phone || '\u2014'],
-    ['Party ID', v.party_score || 'No primary history'],
-    ['Precinct', v.precinct || '\u2014'],
-    ['Voter ID', v.registration_number || v.state_file_id || v.county_file_id || v.vanid || '\u2014'],
-    ['Voted', v.early_voted === 1 ? '\u2713 Yes' + (v.early_voted_date ? ' (' + v.early_voted_date + ')' : '') + (v.early_voted_method ? ' \u2014 ' + v.early_voted_method : '') : 'Not yet']
-  ];
-  fields.forEach(function(f) {
-    var item = document.createElement('div');
-    var label = document.createElement('span');
-    label.style.color = '#64748b';
-    label.textContent = f[0] + ': ';
-    var val = document.createElement('span');
-    val.style.color = '#e2e8f0';
-    val.textContent = f[1] || '';
-    item.appendChild(label);
-    item.appendChild(val);
-    panel.appendChild(item);
-  });
+function showCandidateVoterDetail(voter) {
+  var existing = document.getElementById('candVoterDetailModal');
+  if (existing) existing.remove();
 
-  // Bulk add household members by Voter ID
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'candVoterDetailModal';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:16px;padding:24px;max-width:520px;width:100%;max-height:85vh;overflow-y:auto;-webkit-overflow-scrolling:touch';
+
+  // Header
+  var h3 = document.createElement('h3');
+  h3.style.cssText = 'font-size:18px;margin:0 0 4px;color:#e2e8f0';
+  h3.textContent = voterFullName(voter);
+  box.appendChild(h3);
+
+  // DOB formatting
+  var dobDisplay = 'N/A';
+  if (voter.birth_date) {
+    var bd = voter.birth_date;
+    if (bd.match(/^\d{4}-\d{2}-\d{2}/)) {
+      var parts = bd.split('-');
+      dobDisplay = parts[1] + '/' + parts[2].slice(0,2) + '/' + parts[0];
+    } else { dobDisplay = bd; }
+  }
+
+  // Info grid — same as captain portal
+  var grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px';
+  var fields = [
+    ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.zip ? ' ' + voter.zip : '')],
+    ['Phone', voter.phone || 'N/A'],
+    ['Email', voter.email || 'N/A'],
+    ['Age', voter.age ? voter.age + ' years old' : 'N/A'],
+    ['Date of Birth', dobDisplay],
+    ['Party ID', voter.party_score || 'No primary history'],
+    ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
+    ['Precinct', voter.precinct || 'N/A'],
+    ['Reg #', voter.registration_number || voter.state_file_id || voter.vanid || 'N/A'],
+    ['Tags', voter.tags || 'None'],
+    ['Gender', voter.gender || 'N/A']
+  ];
+  if (voter.secondary_phone) fields.push(['Alt Phone', voter.secondary_phone]);
+  fields.forEach(function(f) {
+    var label = document.createElement('div');
+    label.style.color = '#64748b';
+    label.textContent = f[0];
+    grid.appendChild(label);
+    var val = document.createElement('div');
+    val.style.color = '#e2e8f0';
+    val.textContent = f[1];
+    grid.appendChild(val);
+  });
+  box.appendChild(grid);
+
+  // Early voting status banner
+  var evDiv = document.createElement('div');
+  evDiv.style.cssText = 'border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px;font-weight:600';
+  if (voter.early_voted) {
+    var bl = voter.early_voted_ballot || '';
+    var ec = '#22c55e'; var ebg = 'rgba(34,197,94,0.1)'; var ebd = 'rgba(34,197,94,0.3)';
+    if (bl === 'Democrat' || bl === 'D') { ec = '#3b82f6'; ebg = 'rgba(59,130,246,0.1)'; ebd = 'rgba(59,130,246,0.3)'; }
+    else if (bl === 'Republican' || bl === 'R') { ec = '#ef4444'; ebg = 'rgba(239,68,68,0.1)'; ebd = 'rgba(239,68,68,0.3)'; }
+    evDiv.style.background = ebg; evDiv.style.border = '1px solid ' + ebd; evDiv.style.color = ec;
+    var evText = '\u2705 Voted';
+    if (bl) evText += ' \u2014 ' + bl + ' ballot';
+    if (voter.early_voted_date) evText += ' on ' + voter.early_voted_date;
+    if (voter.early_voted_method) evText += ' (' + voter.early_voted_method + ')';
+    evDiv.textContent = evText;
+  } else {
+    evDiv.style.background = 'rgba(245,158,11,0.1)'; evDiv.style.border = '1px solid rgba(245,158,11,0.3)'; evDiv.style.color = '#f59e0b';
+    evDiv.textContent = 'Has not voted yet';
+  }
+  box.appendChild(evDiv);
+
+  // Election history dot grid
+  if (voter.election_votes && voter.election_votes.length > 0) {
+    var ehTitle = document.createElement('h4');
+    ehTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8;font-size:14px';
+    ehTitle.textContent = 'Election History';
+    box.appendChild(ehTitle);
+    var gridDiv = document.createElement('div');
+    gridDiv.innerHTML = buildElectionDotGrid(voter.election_votes, 'election_name', 'party_voted');
+    box.appendChild(gridDiv);
+  }
+
+  // Household section
+  var hhTitle = document.createElement('h4');
+  hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8;font-size:14px';
+  hhTitle.textContent = 'Household Members';
+  box.appendChild(hhTitle);
+  var hhContainer = document.createElement('div');
+  hhContainer.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px;min-height:36px';
+  hhContainer.textContent = 'Loading...';
+  box.appendChild(hhContainer);
+
+  // Load household async
+  api('/api/candidates/' + candidateId + '/household?voter_id=' + voter.id).then(function(data) {
+    var household = data.household || [];
+    hhContainer.textContent = '';
+    if (household.length === 0) {
+      hhContainer.style.color = '#475569';
+      hhContainer.textContent = 'No other people found at this address.';
+      return;
+    }
+    var hhScroll = document.createElement('div');
+    hhScroll.style.cssText = 'max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch';
+    household.forEach(function(h) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
+      var info = document.createElement('div');
+      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+      var nameSpan = document.createElement('span');
+      nameSpan.style.color = '#e2e8f0';
+      nameSpan.textContent = (h.first_name || '') + ' ' + (h.last_name || '');
+      info.appendChild(nameSpan);
+      if (h.age) { var ageSpan = document.createElement('span'); ageSpan.style.cssText = 'font-size:11px;color:#a78bfa'; ageSpan.textContent = '(' + h.age + ')'; info.appendChild(ageSpan); }
+      if (h.party_score) { var psSpan = document.createElement('span'); psSpan.style.cssText = 'font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;background:#1e293b;color:#818cf8;border:1px solid #334155'; psSpan.textContent = h.party_score; info.appendChild(psSpan); }
+      var evBadge = document.createElement('span');
+      if (h.early_voted) {
+        var hbl = h.early_voted_ballot || '';
+        var hc = '#22c55e';
+        if (hbl === 'Democrat' || hbl === 'D') hc = '#3b82f6';
+        else if (hbl === 'Republican' || hbl === 'R') hc = '#ef4444';
+        evBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(34,197,94,0.15);color:' + hc;
+        evBadge.textContent = 'Voted';
+      } else {
+        evBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b';
+        evBadge.textContent = 'Not Voted';
+      }
+      info.appendChild(evBadge);
+      row.appendChild(info);
+      hhScroll.appendChild(row);
+    });
+    hhContainer.appendChild(hhScroll);
+  }).catch(function() { hhContainer.textContent = 'Could not load household.'; });
+
+  // Bulk add section (if viewing a list)
   if (currentRightPanelListId) {
     var bulkSection = document.createElement('div');
-    bulkSection.style.cssText = 'grid-column:1/-1;margin-top:8px;padding:10px;background:#1e293b;border:1px solid #334155;border-radius:6px';
+    bulkSection.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px';
     var bulkTitle = document.createElement('div');
-    bulkTitle.style.cssText = 'font-size:11px;font-weight:700;color:#818cf8;margin-bottom:6px';
-    bulkTitle.textContent = '📋 Add Members Under ' + voterFullName(v);
+    bulkTitle.style.cssText = 'font-size:12px;font-weight:700;color:#818cf8;margin-bottom:6px';
+    bulkTitle.textContent = '\uD83D\uDCCB Add Members Under ' + voterFullName(voter);
     bulkSection.appendChild(bulkTitle);
     var bulkInput = document.createElement('textarea');
-    bulkInput.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:6px;font-size:12px;resize:vertical;min-height:40px';
+    bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box';
     bulkInput.placeholder = 'Paste Reg # (one per line or comma separated)';
     bulkSection.appendChild(bulkInput);
     var bulkBtnRow = document.createElement('div');
     bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';
     var bulkBtn = document.createElement('button');
     bulkBtn.className = 'btn btn-sm btn-primary';
-    bulkBtn.textContent = '+ Add Under ' + (v.first_name || 'Voter');
+    bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
     var bulkStatus = document.createElement('span');
     bulkStatus.style.cssText = 'font-size:11px;color:#94a3b8';
     bulkBtn.onclick = function() {
@@ -1056,30 +1171,40 @@ function createVoterExpandPanel(v) {
       if (!raw) return;
       var ids = raw.split(/[\n,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
       if (!ids.length) return;
-      bulkBtn.disabled = true;
-      bulkBtn.textContent = 'Adding...';
-      apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', { identifiers: ids, parent_voter_id: v.id })
+      bulkBtn.disabled = true; bulkBtn.textContent = 'Adding...';
+      apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', { identifiers: ids, parent_voter_id: voter.id })
         .then(function(data) {
-          bulkBtn.disabled = false;
-          bulkBtn.textContent = '+ Add Under ' + (v.first_name || 'Voter');
+          bulkBtn.disabled = false; bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
           bulkStatus.textContent = data.added + ' added, ' + data.nested + ' grouped' + (data.notFound && data.notFound.length ? ', ' + data.notFound.length + ' not found' : '');
-          bulkStatus.style.color = '#22c55e';
-          bulkInput.value = '';
-          loadListVoters(currentRightPanelListId);
+          bulkStatus.style.color = '#22c55e'; bulkInput.value = '';
+          if (currentRightPanelListId) loadListVoters(currentRightPanelListId);
         }).catch(function(err) {
-          bulkBtn.disabled = false;
-          bulkBtn.textContent = '+ Add Under ' + (v.first_name || 'Voter');
-          bulkStatus.textContent = 'Error: ' + (err.message || err);
-          bulkStatus.style.color = '#ef4444';
+          bulkBtn.disabled = false; bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
+          bulkStatus.textContent = 'Error: ' + (err.message || err); bulkStatus.style.color = '#ef4444';
         });
     };
     bulkBtnRow.appendChild(bulkBtn);
     bulkBtnRow.appendChild(bulkStatus);
     bulkSection.appendChild(bulkBtnRow);
-    panel.appendChild(bulkSection);
+    box.appendChild(bulkSection);
   }
 
-  return panel;
+  // Close button
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn btn-secondary';
+  closeBtn.style.cssText = 'width:100%;padding:10px';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { overlay.remove(); };
+  box.appendChild(closeBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+// Legacy expand panel — now opens the full modal
+function createVoterExpandPanel(v) {
+  showCandidateVoterDetail(v);
+  return document.createElement('span'); // return empty element since caller appends it
 }
 
 // ===================== DASHBOARD RENDERING =====================
@@ -2670,6 +2795,71 @@ async function createList() {
 }
 
 // ===================== HELPERS =====================
+
+// Election history scorecard for voter detail
+function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
+  if (!electionVotes || electionVotes.length === 0) return '';
+  var parsed = [];
+  for (var i = 0; i < electionVotes.length; i++) {
+    var ev = electionVotes[i];
+    var info = parseElectionNameParts(ev[nameKey]);
+    if (info) parsed.push({ type: info.type, year: info.year, party: ev[partyKey] || 'V' });
+  }
+  if (parsed.length === 0) return '';
+  var yearSet = {};
+  for (var j = 0; j < parsed.length; j++) yearSet[parsed[j].year] = true;
+  var years = Object.keys(yearSet).sort(function(a, b) { return parseInt(b) - parseInt(a); });
+  var typeOrder = ['Primary', 'Primary Runoff', 'General', 'Runoff', 'Local', 'Local Runoff', 'Special', 'Special Runoff', 'Constitutional', 'Joint', 'Uniform'];
+  var typeSet = {};
+  for (var k = 0; k < parsed.length; k++) typeSet[parsed[k].type] = true;
+  var types = typeOrder.filter(function(t) { return typeSet[t]; });
+  Object.keys(typeSet).forEach(function(t) { if (types.indexOf(t) === -1) types.push(t); });
+  var voted = {};
+  for (var p = 0; p < parsed.length; p++) {
+    if (!voted[parsed[p].type]) voted[parsed[p].type] = {};
+    voted[parsed[p].type][parsed[p].year] = parsed[p].party;
+  }
+  var typeLabels = { 'Primary': 'Primary', 'Primary Runoff': 'Primary Runoff', 'General': 'General', 'Runoff': 'Runoff', 'Local': 'Local (May)', 'Local Runoff': 'Local Runoff', 'Special': 'Special', 'Constitutional': 'Constitutional' };
+  var html = '<div style="overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">';
+  html += '<table style="border-collapse:collapse;font-size:11px;width:100%">';
+  html += '<tr><th style="padding:4px 8px;text-align:left;color:#64748b;font-size:10px;border-bottom:1px solid #334155"></th>';
+  for (var y = 0; y < years.length; y++) html += '<th style="padding:4px 8px;color:#e2e8f0;font-weight:700;text-align:center;border-bottom:1px solid #334155;font-size:12px">\'' + years[y].slice(-2) + '</th>';
+  html += '</tr>';
+  for (var t = 0; t < types.length; t++) {
+    html += '<tr><td style="padding:5px 8px;color:#94a3b8;font-size:11px;font-weight:600;white-space:nowrap;border-right:1px solid #334155">' + (typeLabels[types[t]] || types[t]) + '</td>';
+    for (var yi = 0; yi < years.length; yi++) {
+      var party = voted[types[t]] && voted[types[t]][years[yi]];
+      if (party) {
+        var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
+        var isRep = party === 'R' || party === 'REP' || party === 'Republican';
+        var dc = isDem ? '#3b82f6' : isRep ? '#ef4444' : '#a855f7';
+        html += '<td style="padding:4px;text-align:center"><div style="width:14px;height:14px;border-radius:50%;background:' + dc + ';margin:0 auto"></div></td>';
+      } else {
+        html += '<td style="padding:4px;text-align:center"><div style="width:14px;height:14px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+  html += '<div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:#64748b">';
+  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3b82f6;vertical-align:middle"></span> Dem</span>';
+  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;vertical-align:middle"></span> Rep</span>';
+  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#a855f7;vertical-align:middle"></span> Voted</span>';
+  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#334155;opacity:0.3;vertical-align:middle"></span> No vote</span>';
+  html += '</div></div>';
+  return html;
+}
+function parseElectionNameParts(name) {
+  if (!name) return null;
+  var m = name.match(/^(.+?)\s+(\d{4})$/);
+  if (!m) return null;
+  var type = m[1].trim(); var year = m[2];
+  var lower = type.toLowerCase();
+  if (lower === 'may election' || lower === 'municipal' || lower === 'local may' || lower === 'local' || lower === 'may') type = 'Local';
+  else if (lower === 'may runoff' || lower === 'local runoff') type = 'Local Runoff';
+  else if (lower === 'november runoff' || lower === 'nov runoff') type = 'Runoff';
+  return { type: type, year: year };
+}
 
 function voterFullName(v) {
   var parts = [];
