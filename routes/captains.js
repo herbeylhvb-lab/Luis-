@@ -1237,11 +1237,17 @@ router.post('/captains/:id/transfer-voters', requireCaptainAuth, (req, res) => {
   if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
   if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
 
-  // Validate the captain owns the source list (or it's assigned to them)
+  // Validate the captain owns the source list OR it belongs to a sub-captain in their tree
   const sourceList = db.prepare(`
-    SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?
-  `).get(sourceListId, captainId);
-  if (!sourceList) return res.status(404).json({ error: 'Source list not found or not owned by this captain.' });
+    WITH RECURSIVE sub_tree AS (
+      SELECT ? as id
+      UNION ALL
+      SELECT c.id FROM captains c JOIN sub_tree st ON c.parent_captain_id = st.id
+    )
+    SELECT cl.id FROM captain_lists cl
+    WHERE cl.id = ? AND cl.captain_id IN (SELECT id FROM sub_tree)
+  `).get(captainId, sourceListId);
+  if (!sourceList) return res.status(404).json({ error: 'Source list not found or not accessible by this captain.' });
 
   // Validate the target list belongs to any sub-captain in this captain's tree
   // Uses recursive CTE to walk the full sub-captain hierarchy
