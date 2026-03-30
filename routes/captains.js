@@ -1232,10 +1232,10 @@ router.post('/captains/:id/transfer-voters', requireCaptainAuth, (req, res) => {
   const { voterIds, targetListId, removeFromSource, sourceListId } = req.body;
 
   if (!voterIds || !Array.isArray(voterIds) || voterIds.length === 0) {
-    return res.status(400).json({ error: 'voterIds array is required.' });
+    return res.status(400).json({ error: 'voterIds array is required. Got: ' + JSON.stringify(voterIds) });
   }
-  if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
-  if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
+  if (!targetListId) return res.status(400).json({ error: 'targetListId is required. Got: ' + targetListId });
+  if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required. Got: ' + sourceListId + '. Make sure a list is selected.' });
 
   // Validate the captain owns the source list OR it belongs to a sub-captain in their tree
   const sourceList = db.prepare(`

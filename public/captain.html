@@ -1345,24 +1345,38 @@ function showDropConfirmDialog(voterIds, targetListId, targetListName) {
 }
 
 async function executeDropTransfer(voterIds, targetListId, removeFromSource) {
+  var sourceId = captainState.selectedListId;
+  if (!sourceId) {
+    alert('No list is currently selected. Please select a list first.');
+    return;
+  }
+  if (sourceId === targetListId) {
+    alert('Source and target are the same list.');
+    return;
+  }
   try {
-    await api('/api/captains/' + captainState.captain.id + '/transfer-voters', {
+    var resp = await fetch('/api/captains/' + captainState.captain.id + '/transfer-voters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         voterIds: voterIds,
         targetListId: targetListId,
-        sourceListId: captainState.selectedListId,
+        sourceListId: sourceId,
         removeFromSource: removeFromSource
       })
     });
+    var data = await resp.json();
+    if (!resp.ok) {
+      alert('Transfer failed: ' + (data.error || 'Server error ' + resp.status));
+      return;
+    }
     var action = removeFromSource ? 'Moved' : 'Copied';
     showToast(action + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : ''), 'success');
     clearVoterSelection();
     await loadListVoters();
     refreshSidebar();
   } catch(e) {
-    alert('Transfer failed: ' + (e.message || 'Unknown error'));
+    alert('Transfer failed: ' + (e.message || 'Network error'));
   }
 }
 
