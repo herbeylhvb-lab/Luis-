@@ -1308,7 +1308,7 @@ router.get('/voters/:id', (req, res) => {
   const voter = db.prepare('SELECT * FROM voters WHERE id = ?').get(req.params.id);
   if (!voter) return res.status(404).json({ error: 'Voter not found.' });
   voter.contactHistory = db.prepare('SELECT * FROM voter_contacts WHERE voter_id = ? ORDER BY contacted_at DESC').all(req.params.id);
-  voter.election_history = db.prepare('SELECT election_name, election_date, election_type, election_cycle, party_voted FROM election_votes WHERE voter_id = ? ORDER BY election_date DESC').all(req.params.id);
+  voter.election_history = db.prepare('SELECT election_name, election_date, election_type, election_cycle, party_voted, vote_method FROM election_votes WHERE voter_id = ? ORDER BY election_date DESC').all(req.params.id);
 
   // Household — other registered voters at same address + unit
   if (voter.address) {

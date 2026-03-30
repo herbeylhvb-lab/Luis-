@@ -1078,7 +1078,7 @@ function showCandidateVoterDetail(voter) {
     ehTitle.textContent = 'Election History';
     box.appendChild(ehTitle);
     var gridDiv = document.createElement('div');
-    gridDiv.innerHTML = buildElectionDotGrid(voter.election_votes, 'election_name', 'party_voted');
+    gridDiv.innerHTML = buildElectionDotGrid(voter.election_votes, 'election_name', 'party_voted', 'vote_method');
     box.appendChild(gridDiv);
   }
 
@@ -2832,13 +2832,13 @@ async function createList() {
 // ===================== HELPERS =====================
 
 // Election history scorecard for voter detail
-function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
+function buildElectionDotGrid(electionVotes, nameKey, partyKey, methodKey) {
   if (!electionVotes || electionVotes.length === 0) return '';
   var parsed = [];
   for (var i = 0; i < electionVotes.length; i++) {
     var ev = electionVotes[i];
     var info = parseElectionNameParts(ev[nameKey]);
-    if (info) parsed.push({ type: info.type, year: info.year, party: ev[partyKey] || 'V' });
+    if (info) parsed.push({ type: info.type, year: info.year, party: ev[partyKey] || 'V', method: methodKey ? (ev[methodKey] || '') : '' });
   }
   if (parsed.length === 0) return '';
   var yearSet = {};
@@ -2850,9 +2850,11 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   var types = typeOrder.filter(function(t) { return typeSet[t]; });
   Object.keys(typeSet).forEach(function(t) { if (types.indexOf(t) === -1) types.push(t); });
   var voted = {};
+  var methods = {};
   for (var p = 0; p < parsed.length; p++) {
-    if (!voted[parsed[p].type]) voted[parsed[p].type] = {};
+    if (!voted[parsed[p].type]) { voted[parsed[p].type] = {}; methods[parsed[p].type] = {}; }
     voted[parsed[p].type][parsed[p].year] = parsed[p].party;
+    methods[parsed[p].type][parsed[p].year] = parsed[p].method || '';
   }
   var typeLabels = { 'Primary': 'Primary', 'Primary Runoff': 'Primary Runoff', 'General': 'General', 'Runoff': 'Runoff', 'Local': 'Local (May)', 'Local Runoff': 'Local Runoff', 'Special': 'Special', 'Constitutional': 'Constitutional' };
   var html = '<div style="overflow-x:auto;margin-bottom:16px;-webkit-overflow-scrolling:touch">';
@@ -2868,19 +2870,27 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
         var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
         var isRep = party === 'R' || party === 'REP' || party === 'Republican';
         var dc = isDem ? '#3b82f6' : isRep ? '#ef4444' : '#a855f7';
-        html += '<td style="padding:4px;text-align:center"><div style="width:14px;height:14px;border-radius:50%;background:' + dc + ';margin:0 auto"></div></td>';
+        var vm = (methods[types[t]] && methods[types[t]][years[yi]]) || '';
+        var vmL = '';
+        if (vm === 'early' || vm === 'EV' || vm === 'Voted Early') vmL = 'E';
+        else if (vm === 'mail' || vm === 'MAIL' || vm === 'Mail') vmL = 'M';
+        else if (vm === 'election_day' || vm === 'ED' || vm === 'Election Day') vmL = 'D';
+        else if (vm === 'provisional') vmL = 'P';
+        var dotTitle = types[t] + ' ' + years[yi] + (isDem ? ' (D)' : isRep ? ' (R)' : '') + (vm ? ' — ' + vm : '');
+        html += '<td style="padding:4px;text-align:center" title="' + dotTitle + '"><div style="width:20px;height:20px;border-radius:50%;background:' + dc + ';margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff">' + vmL + '</div></td>';
       } else {
-        html += '<td style="padding:4px;text-align:center"><div style="width:14px;height:14px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
+        html += '<td style="padding:4px;text-align:center"><div style="width:20px;height:20px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
       }
     }
     html += '</tr>';
   }
   html += '</table>';
-  html += '<div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:#64748b">';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3b82f6;vertical-align:middle"></span> Dem</span>';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;vertical-align:middle"></span> Rep</span>';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#a855f7;vertical-align:middle"></span> Voted</span>';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#334155;opacity:0.3;vertical-align:middle"></span> No vote</span>';
+  html += '<div style="display:flex;gap:10px;margin-top:6px;font-size:10px;color:#64748b;flex-wrap:wrap">';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;vertical-align:middle"></span> Dem</span>';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;vertical-align:middle"></span> Rep</span>';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;vertical-align:middle"></span> Voted</span>';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#334155;opacity:0.3;vertical-align:middle"></span> No vote</span>';
+  html += '<span style="border-left:1px solid #475569;padding-left:8px">E=Early M=Mail D=Elec Day</span>';
   html += '</div></div>';
   return html;
 }

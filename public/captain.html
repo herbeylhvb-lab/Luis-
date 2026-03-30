@@ -354,18 +354,20 @@ function votedBadgeColor(v) {
 }
 
 // Election history scorecard — rows are election types (Primary, General, Runoff)
-// columns are years, cells are colored dots showing if/how they voted
+// columns are years, cells are colored dots with vote method letter inside
 // blue=Dem, red=Rep, purple=voted(other/nonpartisan), faded=didn't vote
-function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
+// Letter inside: E=Early, M=Mail, D=Election Day, P=Provisional, blank=unknown
+function buildElectionDotGrid(electionVotes, nameKey, partyKey, methodKey) {
   if (!electionVotes || electionVotes.length === 0) return '';
 
-  // Parse each election into { type, year, party }
+  // Parse each election into { type, year, party, method }
   var parsed = [];
   for (var i = 0; i < electionVotes.length; i++) {
     var ev = electionVotes[i];
     var info = parseElectionNameParts(ev[nameKey]);
     if (info) {
-      parsed.push({ type: info.type, year: info.year, party: ev[partyKey] || 'V', name: ev[nameKey] });
+      var rawMethod = methodKey ? (ev[methodKey] || '') : '';
+      parsed.push({ type: info.type, year: info.year, party: ev[partyKey] || 'V', name: ev[nameKey], method: rawMethod });
     }
   }
   if (parsed.length === 0) return '';
@@ -383,11 +385,14 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   // Add any types not in the predefined order
   Object.keys(typeSet).forEach(function(t) { if (types.indexOf(t) === -1) types.push(t); });
 
-  // Build lookup: voted[type][year] = party
+  // Build lookup: voted[type][year] = { party, method }
   var voted = {};
+  var methods = {};
   for (var p = 0; p < parsed.length; p++) {
-    if (!voted[parsed[p].type]) voted[parsed[p].type] = {};
+    if (!voted[parsed[p].type]) { voted[parsed[p].type] = {}; methods[parsed[p].type] = {}; }
     voted[parsed[p].type][parsed[p].year] = parsed[p].party;
+    methods[parsed[p].type] = methods[parsed[p].type] || {};
+    methods[parsed[p].type][parsed[p].year] = parsed[p].method || '';
   }
 
   // Short type labels for rows
@@ -413,10 +418,17 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
         var isDem = party === 'D' || party === 'DEM' || party === 'Democrat';
         var isRep = party === 'R' || party === 'REP' || party === 'Republican';
         var dotColor = isDem ? '#3b82f6' : isRep ? '#ef4444' : '#a855f7';
-        var dotTitle = rowType + ' ' + years[yi] + (isDem ? ' (D)' : isRep ? ' (R)' : '');
-        html += '<td style="padding:4px;text-align:center" title="' + dotTitle + '"><div style="width:14px;height:14px;border-radius:50%;background:' + dotColor + ';margin:0 auto"></div></td>';
+        // Vote method letter: E=Early, M=Mail, D=Election Day, P=Provisional
+        var vm = (methods[rowType] && methods[rowType][years[yi]]) || '';
+        var vmLetter = '';
+        if (vm === 'early' || vm === 'EV' || vm === 'Voted Early') vmLetter = 'E';
+        else if (vm === 'mail' || vm === 'MAIL' || vm === 'Mail' || vm === 'absentee') vmLetter = 'M';
+        else if (vm === 'election_day' || vm === 'ED' || vm === 'Election Day') vmLetter = 'D';
+        else if (vm === 'provisional' || vm === 'Provisional') vmLetter = 'P';
+        var dotTitle = rowType + ' ' + years[yi] + (isDem ? ' (D)' : isRep ? ' (R)' : '') + (vm ? ' — ' + vm : '');
+        html += '<td style="padding:4px;text-align:center" title="' + dotTitle + '"><div style="width:20px;height:20px;border-radius:50%;background:' + dotColor + ';margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff">' + vmLetter + '</div></td>';
       } else {
-        html += '<td style="padding:4px;text-align:center"><div style="width:14px;height:14px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
+        html += '<td style="padding:4px;text-align:center"><div style="width:20px;height:20px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
       }
     }
     html += '</tr>';
@@ -424,11 +436,12 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey) {
   html += '</table>';
 
   // Legend
-  html += '<div style="display:flex;gap:12px;margin-top:6px;font-size:10px;color:#64748b">';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3b82f6;vertical-align:middle"></span> Dem</span>';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;vertical-align:middle"></span> Rep</span>';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#a855f7;vertical-align:middle"></span> Voted</span>';
-  html += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#334155;opacity:0.3;vertical-align:middle"></span> No vote</span>';
+  html += '<div style="display:flex;gap:10px;margin-top:6px;font-size:10px;color:#64748b;flex-wrap:wrap">';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;vertical-align:middle"></span> Dem</span>';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;vertical-align:middle"></span> Rep</span>';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#a855f7;vertical-align:middle"></span> Voted</span>';
+  html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#334155;opacity:0.3;vertical-align:middle"></span> No vote</span>';
+  html += '<span style="border-left:1px solid #475569;padding-left:8px">E=Early M=Mail D=Elec Day</span>';
   html += '</div></div>';
   return html;
 }
@@ -2246,7 +2259,7 @@ async function showVoterDetail(voter) {
     turnoutTitle.textContent = 'Election History';
     box.appendChild(turnoutTitle);
     var gridDiv = document.createElement('div');
-    gridDiv.innerHTML = buildElectionDotGrid(voter.election_votes, 'election_name', 'party_voted');
+    gridDiv.innerHTML = buildElectionDotGrid(voter.election_votes, 'election_name', 'party_voted', 'vote_method');
     box.appendChild(gridDiv);
   }
 

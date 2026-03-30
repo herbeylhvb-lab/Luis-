@@ -1180,12 +1180,12 @@ router.get('/walks/:id/volunteer', (req, res) => {
   const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
     const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
     ).all(...voterIds);
     const evMap = {};
     for (const r of evRows) {
       if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '' });
+      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
     }
     for (const a of walk.addresses) {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
@@ -2800,12 +2800,12 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
   const voterIds = addresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
     const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
     ).all(...voterIds);
     const evMap = {};
     for (const r of evRows) {
       if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '' });
+      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
     }
     for (const a of addresses) {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];

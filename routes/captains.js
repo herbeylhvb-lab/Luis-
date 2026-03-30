@@ -12,12 +12,12 @@ function attachElectionVotes(voters) {
   if (!voters || voters.length === 0) return;
   const ids = voters.map(v => v.id);
   const evRows = db.prepare(
-    'SELECT voter_id, election_name, election_type, party_voted FROM election_votes WHERE voter_id IN (' + ids.map(() => '?').join(',') + ')'
+    'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + ids.map(() => '?').join(',') + ')'
   ).all(...ids);
   const map = {};
   for (const r of evRows) {
     if (!map[r.voter_id]) map[r.voter_id] = [];
-    map[r.voter_id].push({ election_name: r.election_name, election_type: r.election_type, party_voted: r.party_voted || '' });
+    map[r.voter_id].push({ election_name: r.election_name, election_type: r.election_type, party_voted: r.party_voted || '', vote_method: r.vote_method || '' });
   }
   for (const v of voters) {
     v.election_votes = map[v.id] || [];
