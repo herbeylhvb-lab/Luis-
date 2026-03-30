@@ -1726,7 +1726,15 @@ function populateListSelector() {
 
 function onListSelectChange() {
   var sel = document.getElementById('activeListSelect');
-  selectedListId = sel.value ? parseInt(sel.value, 10) : null;
+  var val = sel.value || '';
+  // Captain list values are prefixed with 'cap_' — handle both types
+  if (val.startsWith('cap_')) {
+    var capListId = parseInt(val.replace('cap_', ''), 10);
+    var capName = sel.options[sel.selectedIndex].textContent.replace(/\s*\(\d+\)\s*$/, '');
+    loadCaptainListInRight(capListId, capName);
+    return;
+  }
+  selectedListId = val ? parseInt(val, 10) : null;
   if (selectedListId) {
     sidebarSelectList(selectedListId, sel.options[sel.selectedIndex].textContent.replace(/\s*\(\d+\)\s*$/, ''));
   } else {
@@ -2977,6 +2985,7 @@ function isVoted(v) {
 
 
 function downloadMasterCSV() {
+  if (!masterListData || masterListData.length === 0) { alert('No voters to download.'); return; }
   var headers = ['Captain/Source', 'Role', 'Group Leader', 'First Name', 'Last Name', 'Voter ID', 'Address', 'City', 'Zip', 'Party ID', 'Precinct', 'Voted', 'Phone'];
   var csvRows = [headers.map(csvEscape).join(',')];
 

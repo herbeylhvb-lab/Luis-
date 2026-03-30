@@ -1779,21 +1779,31 @@ function showDoorStep(step) {
 function renderMemberList() {
   var list = document.getElementById('doorMemberList');
   list.innerHTML = '';
+  // Build lookup of voter IDs on the walk list for "Also lives here" detection
+  var walkVoterIdSet = {};
+  if (walkState.walk && walkState.walk.addresses) {
+    for (var wk = 0; wk < walkState.walk.addresses.length; wk++) {
+      if (walkState.walk.addresses[wk].voter_id) walkVoterIdSet[walkState.walk.addresses[wk].voter_id] = true;
+    }
+  }
 
   // Reset nobody home button
   document.getElementById('btnNobodyHome').classList.remove('selected');
 
   for (var i = 0; i < doorState.allMembers.length; i++) {
     var m = doorState.allMembers[i];
+    var isNonTarget = !m.isPrimary && m.voter_id && !walkVoterIdSet[m.voter_id];
     var el = document.createElement('div');
     el.className = 'hh-member' + (m.status === 'talked' ? ' talked' : m.status === 'not_home' ? ' not-home' : '');
     el.dataset.idx = i;
+    if (isNonTarget) el.style.borderLeft = '3px solid #3b82f6';
 
     var nameHtml = '<div>';
     nameHtml += '<span class="hh-name">' + escHtml(m.name) + '</span>';
     if (m.age) nameHtml += '<span class="hh-age">(age ' + escHtml(String(m.age)) + ')</span>';
     if (m.party_score) nameHtml += walkerPartyBadge(m.party_score);
     if (m.isPrimary) nameHtml += '<span style="color:#f59e0b;font-size:10px;margin-left:6px">PRIMARY</span>';
+    if (isNonTarget) nameHtml += '<span style="color:#60a5fa;font-size:10px;margin-left:6px;background:rgba(96,165,250,0.15);padding:1px 6px;border-radius:3px">Also lives here</span>';
     nameHtml += '</div>';
 
     var statusHtml = '';
