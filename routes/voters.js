@@ -1395,7 +1395,7 @@ router.get('/voters/:id', (req, res) => {
         AND LOWER(TRIM(address)) = LOWER(TRIM(?))
         AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
         AND LOWER(TRIM(COALESCE(city,''))) = LOWER(TRIM(?))
-        AND voter_status = 'ACTIVE'
+        AND (voter_status = 'ACTIVE' OR voter_status = '' OR voter_status IS NULL)
       ORDER BY last_name, first_name
     `).all(voter.id, voter.address, voter.unit || '', voter.city || '');
   } else {

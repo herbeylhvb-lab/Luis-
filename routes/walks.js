@@ -118,7 +118,7 @@ function enrichHouseholdFromVoterFile(addresses) {
     WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(?))
       AND LOWER(TRIM(COALESCE(v.unit,''))) = LOWER(TRIM(?))
       AND LOWER(TRIM(COALESCE(v.city,''))) = LOWER(TRIM(?))
-      AND v.voter_status = 'ACTIVE'
+      AND (v.voter_status = 'ACTIVE' OR v.voter_status = '' OR v.voter_status IS NULL)
     ORDER BY v.last_name
   `);
 
@@ -134,31 +134,38 @@ function enrichHouseholdFromVoterFile(addresses) {
   }
 
   // For each walk address, find other voters in the SAME unit
-  const checked = new Set();
+  // Cache results by address key so we don't query the same address twice
+  const enrichCache = {};
   for (const addr of addresses) {
     const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
-    if (checked.has(key)) continue;
-    checked.add(key);
 
-    const others = findByAddressUnit.all(addr.address || '', addr.unit || '', addr.city || '');
-    const newMembers = others
-      .filter(v => !walkVoterIds.has(v.id))
-      .map(v => ({
-        voter_id: v.id,
-        first_name: v.first_name || '',
-        last_name: v.last_name || '',
-        age: v.age || null,
-        unit: v.unit || '',
-        party_score: v.party_score || '',
-        not_on_list: true
-      }));
+    let newMembers;
+    if (enrichCache[key]) {
+      // Reuse cached results but filter out this address's own voter
+      newMembers = enrichCache[key].filter(v => v.voter_id !== addr.voter_id && !walkVoterIds.has(v.voter_id));
+    } else {
+      const others = findByAddressUnit.all(addr.address || '', addr.unit || '', addr.city || '');
+      const allNew = others
+        .filter(v => !walkVoterIds.has(v.id))
+        .map(v => ({
+          voter_id: v.id,
+          first_name: v.first_name || '',
+          last_name: v.last_name || '',
+          age: v.age || null,
+          unit: v.unit || '',
+          party_score: v.party_score || '',
+          not_on_list: true
+        }));
+      enrichCache[key] = allNew;
+      newMembers = allNew;
+      for (const m of allNew) walkVoterIds.add(m.voter_id);
+    }
 
     if (newMembers.length === 0) continue;
 
     // Add to the walk address
     if (!addr.household) addr.household = [];
     addr.household.push(...newMembers);
-    for (const m of newMembers) walkVoterIds.add(m.voter_id);
   }
 }
 
