@@ -68,9 +68,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .progress-fill.green{background:linear-gradient(90deg,#22c55e,#4ade80)}
 .progress-fill.blue{background:linear-gradient(90deg,#3b82f6,#60a5fa)}
 .progress-fill.purple{background:linear-gradient(90deg,#818cf8,#a78bfa)}
-.captain-lists-row{display:flex;gap:8px;flex-wrap:wrap}
-.list-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:#0f172a;border:1px solid #334155;border-radius:9999px;font-size:12px;color:#94a3b8}
-.list-chip .chip-count{color:#818cf8;font-weight:700}
 .captain-portal-link{font-size:12px;color:#64748b;margin-top:8px}
 .captain-portal-link a{color:#818cf8;text-decoration:none}
 .captain-portal-link a:hover{text-decoration:underline}
@@ -242,20 +239,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   .captain-stats{gap:16px}
 }
 
-@media print{
-  body{background:#fff!important;color:#000!important}
-  .app-header,.tab-bar,.btn,.btn-icon,.action-btns,.master-search,.btn-leave,.captain-code,.captain-portal-link,.progress-bar,.sidebar,.center-panel,.mobile-tabs,.sidebar-dash-btn{display:none!important}
-  .view-container{display:block!important;height:auto!important;overflow:visible!important}
-  .right-panel{display:block!important;border:none!important;min-width:0!important}
-  .master-table thead th{background:#f1f5f9!important;color:#000!important;border-bottom:2px solid #000!important}
-  .master-table tbody td{border-bottom:1px solid #ccc!important;color:#000!important}
-  .badge,.source-tag,.overlap-badge{border:1px solid #999!important;color:#000!important;background:#f1f5f9!important}
-  .master-stat{border:1px solid #ccc!important;background:#fff!important}
-  .master-stat .num{color:#000!important}
-  .master-stat .label{color:#333!important}
-  .stat-card{border:1px solid #ccc!important;background:#fff!important}
-  .stat-card .stat-num{color:#000!important}
-}
 </style>
 </head>
 <body>
@@ -463,7 +446,6 @@ var selectedListId = null;
 var searchTimer = null;
 var currentView = 'dashboard';
 var workspaceSelection = { type: null, id: null, name: '' }; // type: 'list', 'captain', 'master'
-var _expandedCaptains = {}; // track which captains are expanded in sidebar
 var masterListData = [];
 var captainListVoters = [];
 
@@ -1205,11 +1187,6 @@ function showCandidateVoterDetail(voter) {
   document.body.appendChild(overlay);
 }
 
-// Legacy expand panel — now opens the full modal
-function createVoterExpandPanel(v) {
-  showCandidateVoterDetail(v);
-  return document.createElement('span'); // return empty element since caller appends it
-}
 
 // ===================== DASHBOARD RENDERING =====================
 
@@ -2585,27 +2562,11 @@ function renderMasterRowsRight(voters, container) {
     var tdName = document.createElement('td');
     var nameText = document.createElement('div');
     nameText.style.cssText = 'font-weight:600;color:#818cf8;cursor:pointer';
-    nameText.textContent = voterFullName(v) + ' \u25B8';
-    nameText.title = 'Click to expand details';
-    (function(voter, tableRow) {
-      nameText.onclick = function() {
-        var next = tableRow.nextElementSibling;
-        if (next && next.classList.contains('voter-detail-row')) {
-          next.remove();
-          nameText.textContent = voterFullName(voter) + ' \u25B8';
-          return;
-        }
-        nameText.textContent = voterFullName(voter) + ' \u25BE';
-        var detailTr = document.createElement('tr');
-        detailTr.className = 'voter-detail-row';
-        var detailTd = document.createElement('td');
-        detailTd.colSpan = 7;
-        detailTd.style.cssText = 'padding:0 8px 10px';
-        detailTd.appendChild(createVoterExpandPanel(voter));
-        detailTr.appendChild(detailTd);
-        tableRow.parentNode.insertBefore(detailTr, tableRow.nextSibling);
-      };
-    })(v, tr);
+    nameText.textContent = voterFullName(v);
+    nameText.title = 'Click for details';
+    (function(voter) {
+      nameText.onclick = function() { showCandidateVoterDetail(voter); };
+    })(v);
     tdName.appendChild(nameText);
     if (v.precinct) {
       var precEl = document.createElement('div');

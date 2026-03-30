@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { randomBytes } = require('crypto');
 const db = require('../db');
-const { generateAlphaCode } = require('../utils');
-const { geocodeWalkAddresses, parseAddressUnit } = require('./walks');
+
 
 function generateVolCode() { return randomBytes(3).toString('hex').toUpperCase().slice(0, 6); }
 
@@ -205,50 +204,6 @@ router.post('/volunteers/login', (req, res) => {
     sessions,
     walks
   });
-});
-
-// Walker-accessible: create a walk with addresses (no admin required)
-router.post('/volunteers/create-walk', (req, res) => {
-  const { walkerId, walkerName, walkName, addresses } = req.body;
-  if (!walkerId) return res.status(400).json({ error: 'Walker ID is required.' });
-  if (!walkName || !walkName.trim()) return res.status(400).json({ error: 'Walk name is required.' });
-  if (!addresses || !Array.isArray(addresses) || addresses.length === 0) {
-    return res.status(400).json({ error: 'At least one address is required.' });
-  }
-
-  // Verify the walker exists
-  const walker = db.prepare('SELECT id, name, phone, candidate_id FROM walkers WHERE id = ?').get(walkerId);
-  if (!walker) return res.status(404).json({ error: 'Walker not found.' });
-
-  // Create the walk — stamp it with the walker's candidate
-  const joinCode = generateAlphaCode(4);
-  const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, join_code, candidate_id, created_by_walker_id) VALUES (?, ?, ?, ?, ?)'
-  ).run(walkName.trim(), '', joinCode, walker.candidate_id || null, walker.id);
-  const walkId = walkResult.lastInsertRowid;
-
-  // Add addresses — parse unit from address string for proper apartment grouping
-  const insAddr = db.prepare('INSERT INTO walk_addresses (walk_id, address, unit, city, zip, voter_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  let order = 0;
-  for (const addr of addresses) {
-    if (!addr.address || !addr.address.trim()) continue;
-    const parsed = parseAddressUnit(addr.address.trim());
-    insAddr.run(walkId, parsed.street || addr.address.trim(), parsed.unit || '', addr.city || '', addr.zip || '', addr.voter_name || '', order++);
-  }
-
-  // Assign walkers from same candidate only (including this one)
-  const sameTeamWalkers = db.prepare('SELECT id, name, phone FROM walkers WHERE is_active = 1 AND candidate_id = ?').all(walker.candidate_id || -1);
-  const insMember = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
-  for (const w of sameTeamWalkers) {
-    insMember.run(walkId, w.name, w.id, w.phone || '');
-  }
-
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Walk created by walker: ' + walkName.trim() + ' (' + order + ' addresses)');
-
-  // Geocode addresses in background so they appear on the map
-  geocodeWalkAddresses(walkId);
-
-  res.json({ success: true, walkId, joinCode, addressCount: order });
 });
 
 // Volunteer dashboard (public)
