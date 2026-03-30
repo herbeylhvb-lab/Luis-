@@ -1256,6 +1256,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-subtab="universes-tab">My Universes</div>
         <div class="sub-tab" data-subtab="universe-tab">Universe Builder</div>
         <div class="sub-tab" data-subtab="phone-validation-tab">Phone Cleanup</div>
+        <div class="sub-tab" data-subtab="contact-match-tab">Contact Match</div>
         <div class="sub-tab" data-subtab="vbm-tab">Vote by Mail</div>
       </div>
       <!-- SUB-TAB: VOTERS -->
@@ -1906,6 +1907,29 @@ tr:hover td{background:#1e293b80}
           </div>
         </div>
       </div><!-- end phone-validation-tab -->
+
+      <!-- SUB-TAB: CONTACT MATCH -->
+      <div class="sub-page" id="contact-match-tab">
+        <div class="card">
+          <h3>🔍 Contact Match</h3>
+          <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Paste a list of names (Facebook friends, event attendees, etc.) to cross-reference against your voter database. One name per line.</p>
+          <textarea id="contactMatchInput" rows="12" placeholder="John Smith&#10;Maria Garcia&#10;Carlos Perez&#10;...one name per line..." style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;color:#e2e8f0;font-size:14px;resize:vertical;font-family:inherit;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+            <button class="btn btn-primary" id="btnMatchContacts" onclick="runContactMatch()">🔍 Match Against Voter File</button>
+            <span id="contactMatchStatus" style="font-size:13px;color:#94a3b8"></span>
+          </div>
+          <div id="contactMatchResults" style="display:none;margin-top:16px">
+            <div id="contactMatchStats" style="display:flex;gap:16px;margin-bottom:12px"></div>
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+              <button class="btn btn-sm btn-success" onclick="downloadContactMatchCSV()">Download CSV</button>
+              <button class="btn btn-sm btn-secondary" onclick="addMatchedToList()">Add All to List</button>
+            </div>
+            <div class="table-wrap" style="max-height:500px;overflow-y:auto">
+              <table><thead><tr><th>Contact Name</th><th>Match</th><th>Voter Name</th><th>Reg #</th><th>Address</th><th>Party</th><th>Age</th><th>Phone</th><th>Voted</th></tr></thead><tbody id="contactMatchBody"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- SUB-TAB: VOTE BY MAIL -->
       <div class="sub-page" id="vbm-tab">
@@ -15698,6 +15722,82 @@ async function saveTwilioCreds() {
   } catch(e) {
     document.getElementById('twilioCredStatus').innerHTML = '<span style="color:#ef4444">Failed to save: ' + escHtml(e.message) + '</span>';
   }
+}
+
+// ===================== CONTACT MATCH =====================
+var _contactMatchResults = [];
+
+async function runContactMatch() {
+  var input = document.getElementById('contactMatchInput').value.trim();
+  if (!input) { alert('Paste some names first.'); return; }
+  var names = input.split('\n').map(function(n) { return n.trim(); }).filter(function(n) { return n.length > 2; });
+  if (names.length === 0) { alert('No valid names found.'); return; }
+
+  var btn = document.getElementById('btnMatchContacts');
+  var status = document.getElementById('contactMatchStatus');
+  btn.disabled = true;
+  btn.textContent = 'Matching ' + names.length + ' names...';
+  status.textContent = '';
+
+  try {
+    var data = await apiPost('/api/voters/match-contacts', { names: names });
+    _contactMatchResults = data.results || [];
+
+    // Stats
+    var statsEl = document.getElementById('contactMatchStats');
+    statsEl.innerHTML = '<div class="stat-card"><div class="label">Total Names</div><div class="value">' + data.total + '</div></div>' +
+      '<div class="stat-card"><div class="label">Matched</div><div class="value" style="color:#22c55e">' + data.matched + '</div></div>' +
+      '<div class="stat-card"><div class="label">No Match</div><div class="value" style="color:#f59e0b">' + data.noMatch + '</div></div>' +
+      '<div class="stat-card"><div class="label">Skipped</div><div class="value" style="color:#64748b">' + data.skipped + '</div></div>';
+
+    // Table
+    var tbody = document.getElementById('contactMatchBody');
+    tbody.innerHTML = _contactMatchResults.map(function(r) {
+      var votedBadge = r.early_voted ? '<span style="color:#22c55e;font-weight:700">Voted</span>' : '<span style="color:#f59e0b">No</span>';
+      var qualityBadge = r.quality === 'exact' ? '<span style="color:#22c55e;font-size:11px">Exact</span>' : '<span style="color:#f59e0b;font-size:11px">Fuzzy</span>';
+      return '<tr><td>' + escHtml(r.contact_name) + '</td><td>' + qualityBadge + '</td><td>' + escHtml(r.first_name + ' ' + r.last_name) + '</td><td style="font-size:11px;color:#64748b">' + escHtml(r.registration_number || '') + '</td><td style="font-size:12px">' + escHtml(r.address || '') + (r.city ? ', ' + escHtml(r.city) : '') + '</td><td style="font-weight:700">' + escHtml(r.party_score || '') + '</td><td>' + (r.age || '') + '</td><td style="font-size:12px;color:#818cf8">' + escHtml(r.phone || '') + '</td><td>' + votedBadge + '</td></tr>';
+    }).join('');
+
+    document.getElementById('contactMatchResults').style.display = '';
+    status.textContent = data.matched + ' contacts matched to ' + _contactMatchResults.length + ' voter records';
+    status.style.color = '#22c55e';
+  } catch (e) {
+    status.textContent = 'Error: ' + (e.message || e);
+    status.style.color = '#ef4444';
+  }
+  btn.disabled = false;
+  btn.textContent = '\uD83D\uDD0D Match Against Voter File';
+}
+
+function downloadContactMatchCSV() {
+  if (_contactMatchResults.length === 0) { alert('No results to download.'); return; }
+  var headers = ['Contact Name','Match Quality','First Name','Last Name','Reg #','Address','City','ZIP','Phone','Party Score','Support','Precinct','Age','Gender','Nav District','Voted'];
+  var rows = _contactMatchResults.map(function(r) {
+    return [r.contact_name, r.quality, r.first_name, r.last_name, r.registration_number || '', r.address || '', r.city || '', r.zip || '', r.phone || '', r.party_score || '', r.support_level || '', r.precinct || '', r.age || '', r.gender || '', r.navigation_district || '', r.early_voted ? 'Yes' : 'No'].map(function(v) {
+      var s = String(v || '');
+      return s.includes(',') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',');
+  });
+  var csv = headers.join(',') + '\n' + rows.join('\n');
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'contact_match_results.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function addMatchedToList() {
+  if (_contactMatchResults.length === 0) { alert('No results to add.'); return; }
+  var listName = prompt('Create a list with these matched voters. List name:', 'Facebook Contacts Match');
+  if (!listName) return;
+  var voterIds = _contactMatchResults.map(function(r) { return r.id; }).filter(function(id, i, arr) { return arr.indexOf(id) === i; }); // unique
+  try {
+    var listData = await apiPost('/api/admin-lists', { name: listName, description: 'Matched from contact list (' + voterIds.length + ' voters)', list_type: 'general' });
+    await apiPost('/api/admin-lists/' + listData.id + '/voters/bulk', { voter_ids: voterIds });
+    alert('List "' + listName + '" created with ' + voterIds.length + ' voters!');
+  } catch (e) { alert('Error: ' + (e.message || e)); }
 }
 
 async function startPhoneCleanup() {

@@ -1301,6 +1301,82 @@ router.post('/voters/phone-remove-bad', requireAuth, (req, res) => {
   res.json({ removed: result.changes });
 });
 
+// Cross-reference a list of names against the voter database
+router.post('/voters/match-contacts', requireAuth, (req, res) => {
+  const { names } = req.body;
+  if (!names || !Array.isArray(names) || names.length === 0) {
+    return res.status(400).json({ error: 'Provide an array of names to match.' });
+  }
+  if (names.length > 5000) return res.status(400).json({ error: 'Maximum 5000 names per request.' });
+
+  const exactMatch = db.prepare(`
+    SELECT id, first_name, last_name, registration_number, address, city, zip,
+           phone, party_score, support_level, precinct, age, gender, navigation_district,
+           early_voted, voter_status
+    FROM voters
+    WHERE LOWER(TRIM(first_name)) = LOWER(?) AND LOWER(TRIM(last_name)) = LOWER(?)
+    AND (voter_status = 'ACTIVE' OR voter_status = '' OR voter_status IS NULL)
+  `);
+  const fuzzyMatch = db.prepare(`
+    SELECT id, first_name, last_name, registration_number, address, city, zip,
+           phone, party_score, support_level, precinct, age, gender, navigation_district,
+           early_voted, voter_status
+    FROM voters
+    WHERE LOWER(TRIM(last_name)) = LOWER(?) AND LOWER(TRIM(first_name)) LIKE ?
+    AND (voter_status = 'ACTIVE' OR voter_status = '' OR voter_status IS NULL)
+    LIMIT 5
+  `);
+
+  function parseName(full) {
+    let clean = full.replace(/\s+(Jr\.?|Sr\.?|III|II|IV|V)$/i, '')
+      .replace(/^(Dr|Dra|Mr|Mrs|Ms|Coach|Judge|Mayor|Commissioner)\.?\s+/i, '').trim();
+    if (/^(El |La |Los |Las |Club |Team )/i.test(clean)) return null;
+    if (clean.includes('@') || clean.includes('.com')) return null;
+    const parts = clean.split(/\s+/).filter(p => p.length > 0);
+    if (parts.length < 2) return null;
+    const combos = [{ first: parts[0], last: parts[parts.length - 1] }];
+    if (parts.length >= 3) combos.push({ first: parts[0], last: parts[parts.length - 2] });
+    return combos;
+  }
+
+  const results = [];
+  let matched = 0, skipped = 0, noMatch = 0;
+
+  for (const name of names) {
+    const n = (name || '').trim();
+    if (!n || n.length < 3) { skipped++; continue; }
+    const combos = parseName(n);
+    if (!combos) { skipped++; continue; }
+
+    let found = false;
+    for (const { first, last } of combos) {
+      const exact = exactMatch.all(first, last);
+      if (exact.length > 0) {
+        matched++;
+        for (const v of exact) results.push({ contact_name: n, quality: 'exact', ...v });
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      for (const { first, last } of combos) {
+        if (first.length >= 3) {
+          const fuzzy = fuzzyMatch.all(last, first.substring(0, 3) + '%');
+          if (fuzzy.length > 0) {
+            matched++;
+            for (const v of fuzzy) results.push({ contact_name: n, quality: 'fuzzy', ...v });
+            found = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!found) noMatch++;
+  }
+
+  res.json({ total: names.length, matched, skipped, noMatch, results });
+});
+
 // --- Wildcard :id routes MUST come after all static-segment routes above ---
 
 // Get voter detail with contact history and election votes
