@@ -811,6 +811,24 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_vote_method ON election_votes(v
 // Strips embedded city/state/zip, collapses multiple spaces, trims
 try {
   const needsCleanup = db.prepare("SELECT COUNT(*) as c FROM voters WHERE address LIKE '%  %' OR address LIKE '% TX %'").get();
+  const walkNeedsCleanup = db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE address LIKE '% TX %' OR address LIKE '%  %'").get();
+  if (walkNeedsCleanup && walkNeedsCleanup.c > 0 && (!needsCleanup || needsCleanup.c === 0)) {
+    // Voter addresses already clean but walk addresses still dirty
+    console.log('[migrate] Cleaning ' + walkNeedsCleanup.c + ' walk addresses...');
+    const walkTxOnly = db.prepare("SELECT id, address FROM walk_addresses WHERE address LIKE '% TX %'").all();
+    const updateWA = db.prepare('UPDATE walk_addresses SET address = ? WHERE id = ?');
+    let wc = 0;
+    db.transaction(() => {
+      for (const w of walkTxOnly) {
+        let clean = w.address.replace(/\s+(TX|TEXAS)\s+\d{5}[\s\-]*$/i, '').trim().replace(/\s*-\s*$/, '')
+          .replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA|BAYVIEW|LOZANO|SEBASTIAN|LYFORD|LOS INDIOS|PALM VALLEY|INDIAN LAKE|PRIMERA)\s*$/i, '').trim()
+          .replace(/\s+/g, ' ');
+        if (clean !== w.address) { updateWA.run(clean, w.id); wc++; }
+      }
+    })();
+    db.prepare("UPDATE walk_addresses SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
+    console.log('[migrate] Walk address cleanup done: ' + wc + ' cleaned');
+  }
   if (needsCleanup && needsCleanup.c > 0) {
     console.log('[migrate] Cleaning ' + needsCleanup.c + ' voter addresses with spacing/format issues...');
     // Step 1: Strip embedded " CITY TX ZIPCODE -" from addresses
@@ -841,11 +859,28 @@ try {
     // Run twice to catch triple spaces
     db.prepare("UPDATE voters SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
 
-    // Step 3: Clean walk_addresses too
-    const walkDbl = db.prepare("UPDATE walk_addresses SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
+    // Step 3: Clean walk_addresses too — same full cleanup
+    const walkTx = db.prepare("SELECT id, address FROM walk_addresses WHERE address LIKE '% TX %'").all();
+    const updateWalkAddr = db.prepare('UPDATE walk_addresses SET address = ? WHERE id = ?');
+    let walkCleaned = 0;
+    const cleanWalkTx = db.transaction(() => {
+      for (const w of walkTx) {
+        let clean = w.address
+          .replace(/\s+(TX|TEXAS)\s+\d{5}[\s\-]*$/i, '').trim()
+          .replace(/\s*-\s*$/, '')
+          .replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA|BAYVIEW|LOZANO|SEBASTIAN|LYFORD|LOS INDIOS|PALM VALLEY|INDIAN LAKE|PRIMERA)\s*$/i, '').trim()
+          .replace(/\s+/g, ' ');
+        if (clean !== w.address) {
+          updateWalkAddr.run(clean, w.id);
+          walkCleaned++;
+        }
+      }
+    });
+    cleanWalkTx();
+    // Also collapse remaining double spaces
     db.prepare("UPDATE walk_addresses SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
 
-    console.log('[migrate] Address cleanup done: ' + txCleaned + ' stripped city/state/zip, ' + dblSpace.changes + ' collapsed spaces, ' + walkDbl.changes + ' walk addresses fixed');
+    console.log('[migrate] Address cleanup done: ' + txCleaned + ' voters stripped, ' + dblSpace.changes + ' spaces collapsed, ' + walkCleaned + ' walk addresses cleaned');
   }
 } catch (e) { console.error('[migrate] Address cleanup error:', e.message); }
 
