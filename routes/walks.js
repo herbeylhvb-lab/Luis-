@@ -1237,12 +1237,7 @@ router.get('/walks/:id/volunteer', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
-  // Build household members — group by address so all building residents are shown together
-  buildHouseholdFromWalkAddresses(walk.addresses);
-  // Add other registered voters at the same address from the full voter file
-  enrichHouseholdFromVoterFile(walk.addresses);
-
-  // Attach election votes (party primary history) for voter info display
+  // Attach election votes FIRST so household members get the data
   const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
     const evRows = db.prepare(
@@ -1257,6 +1252,11 @@ router.get('/walks/:id/volunteer', (req, res) => {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
     }
   }
+
+  // NOW build households — election_votes are attached so household members get them
+  buildHouseholdFromWalkAddresses(walk.addresses);
+  // Add other registered voters at the same address from the full voter file
+  enrichHouseholdFromVoterFile(walk.addresses);
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
