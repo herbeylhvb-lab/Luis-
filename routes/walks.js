@@ -1648,7 +1648,8 @@ router.get('/walks/:id/walker/:name', (req, res) => {
     `SELECT wa.id, wa.address, wa.unit, wa.city, wa.zip, wa.voter_name, wa.result, wa.notes,
             wa.knocked_at, wa.sort_order, wa.gps_verified, wa.assigned_walker, wa.lat, wa.lng, wa.voter_id,
             wa.outside_precinct,
-            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last
+            v.age as voter_age, v.first_name as voter_first, v.last_name as voter_last,
+            v.party_score as voter_party_score, v.support_level as voter_support
      FROM walk_addresses wa
      LEFT JOIN voters v ON wa.voter_id = v.id
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
@@ -1660,8 +1661,26 @@ router.get('/walks/:id/walker/:name', (req, res) => {
     addr.assigned_to_me = addr.assigned_walker === walkerName;
   }
 
-  // Build household members — group by address+unit so apartments only show people in the same unit
+  // Attach election votes FIRST so household members get the data
+  const voterIds = allAddresses.map(a => a.voter_id).filter(Boolean);
+  if (voterIds.length > 0) {
+    const evRows = db.prepare(
+      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+    ).all(...voterIds);
+    const evMap = {};
+    for (const r of evRows) {
+      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
+      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
+    }
+    for (const a of allAddresses) {
+      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
+    }
+  }
+
+  // NOW build households — election_votes are attached so household members get them
   buildHouseholdFromWalkAddresses(allAddresses);
+  // Add other registered voters at the same address from the full voter file
+  enrichHouseholdFromVoterFile(allAddresses);
 
   // Add attempt counts per address
   const attemptCounts = db.prepare(
@@ -2869,10 +2888,7 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
     addr.knocked_by_me = myKnocks.has(addr.id);
   }
 
-  // Build household members — group by address+unit so apartments only show people in the same unit
-  buildHouseholdFromWalkAddresses(addresses);
-
-  // Attach election votes (party primary history) for voter info display
+  // Attach election votes FIRST so household members get the data
   const voterIds = addresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
     const evRows = db.prepare(
@@ -2887,6 +2903,11 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
     }
   }
+
+  // NOW build households — election_votes are attached so household members get them
+  buildHouseholdFromWalkAddresses(addresses);
+  // Add other registered voters at the same address from the full voter file
+  enrichHouseholdFromVoterFile(addresses);
 
   // Attempt counts
   const attemptCounts = db.prepare('SELECT address_id, COUNT(*) as c FROM walk_attempts WHERE walk_id = ? GROUP BY address_id').all(req.params.id);
