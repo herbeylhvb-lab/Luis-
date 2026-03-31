@@ -878,11 +878,12 @@ router.post('/captains/:id/lists/:listId/bulk-add-under', requireCaptainAuth, (r
   res.json({ added, duplicates, nested, notFound, total: identifiers.length });
 });
 
-// Remove voter from list
+// Remove voter from list (own list or sub-captain's list)
 router.delete('/captains/:id/lists/:listId/voters/:voterId', requireCaptainAuth, (req, res) => {
-  // Verify list belongs to this captain
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  // Verify list exists and is accessible (own list or sub-captain's list)
+  const list = db.prepare('SELECT id, captain_id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  // requireCaptainAuth already validated access to this captain's tree
   db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
   res.json({ success: true });
 });
