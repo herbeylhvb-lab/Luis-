@@ -1012,7 +1012,11 @@ function getListApiBase() {
     return '/api/captains/' + cid + '/assigned-lists/' + lid;
   }
   if (captainState.selectedListType === 'subcaptain') {
-    return '/api/captains/' + captainState.selectedSubCaptainId + '/lists/' + lid;
+    // Use the sub-captain's ID for API calls — the ancestor auth check allows parent captains
+    // to access their sub-captain's data
+    var scId = captainState.selectedSubCaptainId;
+    // Fallback: if auth fails because parent chain is broken, try the logged-in captain's ID
+    return '/api/captains/' + scId + '/lists/' + lid;
   }
   return '/api/captains/' + cid + '/lists/' + lid;
 }

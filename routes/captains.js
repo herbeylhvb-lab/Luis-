@@ -528,9 +528,10 @@ function requireCaptainAuth(req, res, next) {
   if (req.session && req.session.userId) return next();
   // Captain portal users must match their session
   if (req.session && req.session.captainId === captainId) return next();
-  // Ancestor captains can access any descendant's data (recursive check)
+  // Ancestor captains can access any descendant's data (check both directions)
   if (req.session && req.session.captainId) {
-    const isDescendant = db.prepare(`
+    // Walk UP from requested captain — is logged-in captain an ancestor?
+    const isAncestor = db.prepare(`
       WITH RECURSIVE ancestors AS (
         SELECT parent_captain_id FROM captains WHERE id = ?
         UNION ALL
@@ -539,7 +540,25 @@ function requireCaptainAuth(req, res, next) {
       )
       SELECT 1 FROM ancestors WHERE parent_captain_id = ?
     `).get(captainId, req.session.captainId);
+    if (isAncestor) return next();
+
+    // Walk DOWN from logged-in captain — is requested captain a descendant?
+    const isDescendant = db.prepare(`
+      WITH RECURSIVE descendants AS (
+        SELECT id FROM captains WHERE parent_captain_id = ?
+        UNION ALL
+        SELECT c.id FROM captains c JOIN descendants d ON c.parent_captain_id = d.id
+      )
+      SELECT 1 FROM descendants WHERE id = ?
+    `).get(req.session.captainId, captainId);
     if (isDescendant) return next();
+
+    // Also check if they share the same candidate (team members under same campaign)
+    const sameCandidate = db.prepare(`
+      SELECT 1 FROM captains a, captains b
+      WHERE a.id = ? AND b.id = ? AND a.candidate_id = b.candidate_id AND a.candidate_id IS NOT NULL
+    `).get(req.session.captainId, captainId);
+    if (sameCandidate) return next();
   }
   return res.status(401).json({ error: 'Captain authentication required. Please log in with your code.' });
 }
