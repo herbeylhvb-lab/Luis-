@@ -90,12 +90,12 @@ function buildHouseholdFromWalkAddresses(addresses) {
   const grouped = {};
   for (const addr of addresses) {
     // Group by street address + unit + city — keeps apartment units separate
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    const key = (addr.address || '').trim().toLowerCase().replace(/\s+/g, ' ') + '\0' + (addr.unit || '').trim().toLowerCase();
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(addr);
   }
   for (const addr of addresses) {
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    const key = (addr.address || '').trim().toLowerCase().replace(/\s+/g, ' ') + '\0' + (addr.unit || '').trim().toLowerCase();
     const others = grouped[key].filter(a => a.id !== addr.id && (a.voter_name || '').trim());
     addr.household = others.map(a => {
       const parts = (a.voter_name || '').trim().split(' ');
@@ -112,12 +112,13 @@ function buildHouseholdFromWalkAddresses(addresses) {
 // Shows roommates/family not on the walk list but registered at the same address+unit
 function enrichHouseholdFromVoterFile(addresses) {
   if (!addresses || !addresses.length) return;
+  // Match by address with whitespace normalization — REPLACE collapses double spaces
+  // Also uses LIKE prefix match to handle addresses with embedded city/state/zip
   const findByAddressUnit = db.prepare(`
     SELECT v.id, v.first_name, v.last_name, v.age, v.unit, v.party_score, v.voter_status
     FROM voters v
-    WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(?))
+    WHERE REPLACE(LOWER(TRIM(v.address)), '  ', ' ') LIKE REPLACE(LOWER(TRIM(?)), '  ', ' ') || '%'
       AND LOWER(TRIM(COALESCE(v.unit,''))) = LOWER(TRIM(?))
-      AND LOWER(TRIM(COALESCE(v.city,''))) = LOWER(TRIM(?))
       AND (v.voter_status = 'ACTIVE' OR v.voter_status = '' OR v.voter_status IS NULL)
     ORDER BY v.last_name
   `);
@@ -137,14 +138,19 @@ function enrichHouseholdFromVoterFile(addresses) {
   // Cache results by address key so we don't query the same address twice
   const enrichCache = {};
   for (const addr of addresses) {
-    const key = (addr.address || '').trim().toLowerCase() + '\0' + (addr.unit || '').trim().toLowerCase() + '\0' + (addr.city || '').trim().toLowerCase();
+    const key = (addr.address || '').trim().toLowerCase().replace(/\s+/g, ' ') + '\0' + (addr.unit || '').trim().toLowerCase();
 
     let newMembers;
     if (enrichCache[key]) {
       // Reuse cached results but filter out this address's own voter
       newMembers = enrichCache[key].filter(v => v.voter_id !== addr.voter_id && !walkVoterIds.has(v.voter_id));
     } else {
-      const others = findByAddressUnit.all(addr.address || '', addr.unit || '', addr.city || '');
+      // Clean address: strip embedded city/state/zip before matching
+      const cleanAddr = (addr.address || '').trim()
+        .replace(/\s+(TX|TEXAS)\s+\d{5}.*$/i, '')
+        .replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA)\s*$/i, '')
+        .trim().replace(/\s*-\s*$/, '').replace(/\s+/g, ' ');
+      const others = findByAddressUnit.all(cleanAddr, addr.unit || '');
       const allNew = others
         .filter(v => !walkVoterIds.has(v.id))
         .map(v => ({
