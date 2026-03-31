@@ -807,6 +807,48 @@ addColumn("ALTER TABLE voters ADD COLUMN birth_date TEXT DEFAULT ''");
 // Index for vote_method filtering
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_vote_method ON election_votes(vote_method)"); } catch (e) { /* exists */ }
 
+// One-time address cleanup migration — standardize all voter addresses
+// Strips embedded city/state/zip, collapses multiple spaces, trims
+try {
+  const needsCleanup = db.prepare("SELECT COUNT(*) as c FROM voters WHERE address LIKE '%  %' OR address LIKE '% TX %'").get();
+  if (needsCleanup && needsCleanup.c > 0) {
+    console.log('[migrate] Cleaning ' + needsCleanup.c + ' voter addresses with spacing/format issues...');
+    // Step 1: Strip embedded " CITY TX ZIPCODE -" from addresses
+    const txPattern = db.prepare("SELECT id, address FROM voters WHERE address LIKE '% TX %'").all();
+    const updateAddr = db.prepare('UPDATE voters SET address = ? WHERE id = ?');
+    const cleanTx = db.transaction(() => {
+      let cleaned = 0;
+      for (const v of txPattern) {
+        let clean = v.address
+          .replace(/\s+(TX|TEXAS)\s+\d{5}[\s\-]*$/i, '') // strip TX 78520 -
+          .trim()
+          .replace(/\s*-\s*$/, ''); // trailing dash
+        // Strip common Cameron County city names from end
+        clean = clean.replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA|BAYVIEW|LOZANO|SEBASTIAN|LYFORD|LOS INDIOS|PALM VALLEY|INDIAN LAKE|PRIMERA|RIO GRANDE CITY|WESLACO|PHARR|MCALLEN|EDINBURG|MISSION|DONNA|ALAMO|SAN JUAN|PROGRESO|SULLIVAN CITY|HIDALGO|LA JOYA|PENITAS|LAURELES)\s*$/i, '').trim();
+        // Collapse multiple spaces
+        clean = clean.replace(/\s+/g, ' ');
+        if (clean !== v.address) {
+          updateAddr.run(clean, v.id);
+          cleaned++;
+        }
+      }
+      return cleaned;
+    });
+    const txCleaned = cleanTx();
+
+    // Step 2: Collapse remaining double spaces
+    const dblSpace = db.prepare("UPDATE voters SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
+    // Run twice to catch triple spaces
+    db.prepare("UPDATE voters SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
+
+    // Step 3: Clean walk_addresses too
+    const walkDbl = db.prepare("UPDATE walk_addresses SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
+    db.prepare("UPDATE walk_addresses SET address = REPLACE(address, '  ', ' ') WHERE address LIKE '%  %'").run();
+
+    console.log('[migrate] Address cleanup done: ' + txCleaned + ' stripped city/state/zip, ' + dblSpace.changes + ' collapsed spaces, ' + walkDbl.changes + ' walk addresses fixed');
+  }
+} catch (e) { console.error('[migrate] Address cleanup error:', e.message); }
+
 // Composite indexes for universe builder performance
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_election ON election_votes(voter_id, election_name)"); } catch (e) { /* exists */ }
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_voter_date ON election_votes(voter_id, election_date)"); } catch (e) { /* exists */ }
