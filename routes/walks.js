@@ -112,16 +112,6 @@ function buildHouseholdFromWalkAddresses(addresses) {
 // Shows roommates/family not on the walk list but registered at the same address+unit
 function enrichHouseholdFromVoterFile(addresses) {
   if (!addresses || !addresses.length) return;
-  // Match by address with whitespace normalization — REPLACE collapses double spaces
-  // Also uses LIKE prefix match to handle addresses with embedded city/state/zip
-  const findByAddressUnit = db.prepare(`
-    SELECT v.id, v.first_name, v.last_name, v.age, v.unit, v.party_score, v.voter_status
-    FROM voters v
-    WHERE REPLACE(LOWER(TRIM(v.address)), '  ', ' ') LIKE REPLACE(LOWER(TRIM(?)), '  ', ' ') || '%'
-      AND LOWER(TRIM(COALESCE(v.unit,''))) = LOWER(TRIM(?))
-      AND (v.voter_status = 'ACTIVE' OR v.voter_status = '' OR v.voter_status IS NULL)
-    ORDER BY v.last_name
-  `);
 
   // Collect all voter_ids already on the walk to skip them
   const walkVoterIds = new Set();
@@ -134,51 +124,86 @@ function enrichHouseholdFromVoterFile(addresses) {
     }
   }
 
-  // For each walk address, find other voters in the SAME unit
-  // Cache results by address key so we don't query the same address twice
-  const enrichCache = {};
+  // Collect unique cleaned addresses from the walk
+  const addrMap = {}; // cleanAddr+unit -> [walk address objects]
   for (const addr of addresses) {
-    const key = (addr.address || '').trim().toLowerCase().replace(/\s+/g, ' ') + '\0' + (addr.unit || '').trim().toLowerCase();
+    const cleanAddr = (addr.address || '').trim()
+      .replace(/\s+(TX|TEXAS)\s+\d{5}.*$/i, '')
+      .replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA)\s*$/i, '')
+      .trim().replace(/\s*-\s*$/, '').replace(/\s+/g, ' ').toUpperCase();
+    const unit = (addr.unit || '').trim().toUpperCase();
+    const key = cleanAddr + '\0' + unit;
+    if (!addrMap[key]) addrMap[key] = { cleanAddr, unit, walkAddrs: [] };
+    addrMap[key].walkAddrs.push(addr);
+  }
 
-    let newMembers;
-    if (enrichCache[key]) {
-      // Reuse cached results but filter out this address's own voter
-      newMembers = enrichCache[key].filter(v => v.voter_id !== addr.voter_id && !walkVoterIds.has(v.voter_id));
-    } else {
-      // Clean address: strip embedded city/state/zip before matching
-      const cleanAddr = (addr.address || '').trim()
-        .replace(/\s+(TX|TEXAS)\s+\d{5}.*$/i, '')
-        .replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA)\s*$/i, '')
-        .trim().replace(/\s*-\s*$/, '').replace(/\s+/g, ' ');
-      const others = findByAddressUnit.all(cleanAddr, addr.unit || '');
-      const allNew = others
-        .filter(v => !walkVoterIds.has(v.id))
-        .map(v => {
-          // Fetch election votes for this household member
-          const evRows = db.prepare(
-            'SELECT election_name as name, election_type as type, party_voted as party, vote_method as method FROM election_votes WHERE voter_id = ? ORDER BY election_date DESC'
-          ).all(v.id);
-          return {
-            voter_id: v.id,
-            first_name: v.first_name || '',
-            last_name: v.last_name || '',
-            age: v.age || null,
-            unit: v.unit || '',
-            party_score: v.party_score || '',
-            not_on_list: true,
-            election_votes: evRows
-          };
-        });
-      enrichCache[key] = allNew;
-      newMembers = allNew;
-      for (const m of allNew) walkVoterIds.add(m.voter_id);
+  const uniqueKeys = Object.values(addrMap);
+  if (uniqueKeys.length === 0) return;
+
+  // Batch query: one query per unique address (exact match, index-friendly)
+  // Addresses were already standardized by the migration so exact match works
+  // COLLATE NOCASE lets the index on voters(address) be used while still being case-insensitive
+  const findByAddr = db.prepare(`
+    SELECT v.id, v.first_name, v.last_name, v.age, v.unit, v.party_score
+    FROM voters v
+    WHERE v.address COLLATE NOCASE = ? COLLATE NOCASE
+      AND COALESCE(v.unit,'') COLLATE NOCASE = ? COLLATE NOCASE
+      AND (v.voter_status = 'ACTIVE' OR v.voter_status = '' OR v.voter_status IS NULL)
+    ORDER BY v.last_name
+  `);
+
+  // Find all enriched voters in one pass
+  const enrichedVoterIds = [];
+  const enrichByKey = {};
+  for (const entry of uniqueKeys) {
+    const others = findByAddr.all(entry.cleanAddr, entry.unit);
+    const newVoters = others.filter(v => !walkVoterIds.has(v.id));
+    if (newVoters.length > 0) {
+      enrichByKey[entry.cleanAddr + '\0' + entry.unit] = newVoters;
+      for (const v of newVoters) {
+        enrichedVoterIds.push(v.id);
+        walkVoterIds.add(v.id);
+      }
     }
+  }
 
-    if (newMembers.length === 0) continue;
+  // Batch fetch election votes for ALL enriched voters at once (one query instead of N)
+  const evByVoter = {};
+  if (enrichedVoterIds.length > 0) {
+    // Process in chunks of 500 to avoid SQLite variable limit
+    for (let i = 0; i < enrichedVoterIds.length; i += 500) {
+      const chunk = enrichedVoterIds.slice(i, i + 500);
+      const evRows = db.prepare(
+        'SELECT voter_id, election_name as name, election_type as type, party_voted as party, vote_method as method FROM election_votes WHERE voter_id IN (' + chunk.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+      ).all(...chunk);
+      for (const r of evRows) {
+        if (!evByVoter[r.voter_id]) evByVoter[r.voter_id] = [];
+        evByVoter[r.voter_id].push({ name: r.name, type: r.type, party: r.party || '', method: r.method || '' });
+      }
+    }
+  }
 
-    // Add to the walk address
-    if (!addr.household) addr.household = [];
-    addr.household.push(...newMembers);
+  // Attach enriched members to walk addresses
+  for (const entry of uniqueKeys) {
+    const key = entry.cleanAddr + '\0' + entry.unit;
+    const newVoters = enrichByKey[key];
+    if (!newVoters || newVoters.length === 0) continue;
+
+    const members = newVoters.map(v => ({
+      voter_id: v.id,
+      first_name: v.first_name || '',
+      last_name: v.last_name || '',
+      age: v.age || null,
+      unit: v.unit || '',
+      party_score: v.party_score || '',
+      not_on_list: true,
+      election_votes: evByVoter[v.id] || []
+    }));
+
+    for (const addr of entry.walkAddrs) {
+      if (!addr.household) addr.household = [];
+      addr.household.push(...members.filter(m => m.voter_id !== addr.voter_id));
+    }
   }
 }
 
