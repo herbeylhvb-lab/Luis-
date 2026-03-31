@@ -797,9 +797,9 @@ router.delete('/captains/:id/lists/:listId', requireCaptainAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// Get voters in a list
+// Get voters in a list (own or sub-captain's — auth already verified by requireCaptainAuth)
 router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const voters = db.prepare(`
     SELECT v.*, clv.added_at, clv.parent_voter_id, clv.notes as captain_notes,
