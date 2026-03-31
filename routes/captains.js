@@ -656,29 +656,28 @@ router.get('/captains/:id/household', requireCaptainAuth, (req, res) => {
   const voter = db.prepare('SELECT address, unit, zip, city FROM voters WHERE id = ?').get(voter_id);
   if (!voter || !voter.address) return res.json({ household: [] });
 
-  // Match by address + unit — only people in the SAME apartment/unit
+  // Clean address: strip embedded city/state/zip (e.g. "123 MAIN ST BROWNSVILLE TX 78520 -")
+  const cleanAddr = (voter.address || '').trim()
+    .replace(/\s+(TX|TEXAS)\s+\d{5}.*$/i, '')  // strip "TX 78520 -"
+    .replace(/\s+(BROWNSVILLE|HARLINGEN|LOS FRESNOS|PORT ISABEL|SAN BENITO|LAGUNA VISTA|SOUTH PADRE ISLAND|RANCHO VIEJO|MERCEDES|LA FERIA|RIO HONDO|COMBES|OLMITO|SANTA ROSA|SANTA MARIA|BAYVIEW|LOZANO|SEBASTIAN|LYFORD|LOS INDIOS)\s*$/i, '')  // strip city name
+    .trim()
+    .replace(/\s*-\s*$/, ''); // strip trailing dash
+
   const voterUnit = (voter.unit || '').trim().toLowerCase();
 
-  let candidates;
-  if (voter.zip) {
-    candidates = db.prepare(`
-      SELECT * FROM voters
-      WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
-        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
-        AND (zip = ? OR zip LIKE ?)
-        AND id != ?
-      ORDER BY last_name, first_name LIMIT 50
-    `).all(voter.address, voterUnit, voter.zip, voter.zip.replace(/-\d+$/, '') + '%', voter_id);
-  } else {
-    candidates = db.prepare(`
-      SELECT * FROM voters
-      WHERE LOWER(TRIM(address)) = LOWER(TRIM(?))
-        AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(TRIM(?))
-        AND LOWER(TRIM(COALESCE(city,''))) = LOWER(TRIM(?))
-        AND id != ?
-      ORDER BY last_name, first_name LIMIT 50
-    `).all(voter.address, voterUnit, voter.city || '', voter_id);
-  }
+  // Match by cleaned address + unit
+  const candidates = db.prepare(`
+    SELECT * FROM voters
+    WHERE id != ?
+      AND LOWER(TRIM(COALESCE(unit,''))) = LOWER(?)
+      AND (
+        LOWER(TRIM(address)) = LOWER(?)
+        OR LOWER(TRIM(address)) LIKE LOWER(?) || '%'
+        OR LOWER(?) LIKE LOWER(TRIM(address)) || '%'
+      )
+      AND (voter_status = 'ACTIVE' OR voter_status = '' OR voter_status IS NULL)
+    ORDER BY last_name, first_name LIMIT 50
+  `).all(voter_id, voterUnit, cleanAddr, cleanAddr, cleanAddr);
 
   // Deduplicate by registration_number
   const seen = new Set();
