@@ -1255,33 +1255,30 @@ router.post('/captains/:id/transfer-voters', requireCaptainAuth, (req, res) => {
   if (!targetListId) return res.status(400).json({ error: 'targetListId is required. Got: ' + targetListId });
   if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required. Got: ' + sourceListId + '. Make sure a list is selected.' });
 
-  // Validate the captain owns the source list OR it belongs to a sub-captain in their tree
-  const sourceList = db.prepare(`
-    WITH RECURSIVE sub_tree AS (
+  // Validate source and target lists are accessible by this captain
+  // Uses broad check: own lists + full descendant tree + same candidate team
+  const accessibleCaptains = db.prepare(`
+    WITH RECURSIVE team AS (
       SELECT ? as id
       UNION ALL
-      SELECT c.id FROM captains c JOIN sub_tree st ON c.parent_captain_id = st.id
+      SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
     )
-    SELECT cl.id FROM captain_lists cl
-    WHERE cl.id = ? AND cl.captain_id IN (SELECT id FROM sub_tree)
-  `).get(captainId, sourceListId);
-  if (!sourceList) return res.status(404).json({ error: 'Source list not found or not accessible by this captain.' });
+    SELECT id FROM team
+    UNION
+    SELECT id FROM captains WHERE candidate_id = (SELECT candidate_id FROM captains WHERE id = ?) AND candidate_id IS NOT NULL
+  `).all(captainId, captainId).map(r => r.id);
 
-  // Validate the target list belongs to any sub-captain in this captain's tree
-  // Uses recursive CTE to walk the full sub-captain hierarchy
-  const targetList = db.prepare(`
-    WITH RECURSIVE sub_tree AS (
-      SELECT id FROM captains WHERE parent_captain_id = ?
-      UNION ALL
-      SELECT c.id FROM captains c JOIN sub_tree st ON c.parent_captain_id = st.id
-    )
-    SELECT cl.id FROM captain_lists cl
-    WHERE cl.id = ? AND (
-      cl.captain_id IN (SELECT id FROM sub_tree)
-      OR cl.captain_id = ?
-    )
-  `).get(captainId, targetListId, captainId);
-  if (!targetList) return res.status(404).json({ error: 'Target list not found or does not belong to a sub-captain under this captain.' });
+  const accessibleSet = new Set(accessibleCaptains);
+
+  const sourceList = db.prepare('SELECT cl.id, cl.captain_id FROM captain_lists cl WHERE cl.id = ?').get(sourceListId);
+  if (!sourceList || !accessibleSet.has(sourceList.captain_id)) {
+    return res.status(404).json({ error: 'Source list not found or not accessible.' });
+  }
+
+  const targetList = db.prepare('SELECT cl.id, cl.captain_id FROM captain_lists cl WHERE cl.id = ?').get(targetListId);
+  if (!targetList || !accessibleSet.has(targetList.captain_id)) {
+    return res.status(404).json({ error: 'Target list not found or not accessible.' });
+  }
 
   const doTransfer = db.transaction(() => {
     const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
