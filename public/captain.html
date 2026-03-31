@@ -1600,9 +1600,47 @@ function renderListVoters() {
   el.appendChild(selectBar);
 
   // Group by parent_voter_id for nesting
-  var topFiltered = filtered.filter(function(v) { return !v.parent_voter_id; });
-  var childrenOf = {};
+  // Use ALL voters (not filtered) for building the parent/child tree
+  // so children show under their parent even when filters are applied
+  var allVoters = _currentListVoters;
+  var childrenOfAll = {};
+  var parentIds = new Set();
+  allVoters.forEach(function(v) {
+    if (v.parent_voter_id) {
+      if (!childrenOfAll[v.parent_voter_id]) childrenOfAll[v.parent_voter_id] = [];
+      childrenOfAll[v.parent_voter_id].push(v);
+      parentIds.add(v.parent_voter_id);
+    }
+  });
+
+  // Build the filtered set but also include children of filtered parents
+  var filteredIds = new Set(filtered.map(function(v) { return v.id; }));
+  // If a parent is in filtered, include all their children too
+  var expandedFiltered = filtered.slice();
   filtered.forEach(function(v) {
+    if (childrenOfAll[v.id]) {
+      childrenOfAll[v.id].forEach(function(child) {
+        if (!filteredIds.has(child.id)) {
+          expandedFiltered.push(child);
+          filteredIds.add(child.id);
+        }
+      });
+    }
+  });
+  // If a child matches search but parent doesn't, include the parent too
+  expandedFiltered.forEach(function(v) {
+    if (v.parent_voter_id && !filteredIds.has(v.parent_voter_id)) {
+      var parent = allVoters.find(function(p) { return p.id === v.parent_voter_id; });
+      if (parent) {
+        expandedFiltered.push(parent);
+        filteredIds.add(parent.id);
+      }
+    }
+  });
+
+  var topFiltered = expandedFiltered.filter(function(v) { return !v.parent_voter_id; });
+  var childrenOf = {};
+  expandedFiltered.forEach(function(v) {
     if (v.parent_voter_id) {
       if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
       childrenOf[v.parent_voter_id].push(v);
