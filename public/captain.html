@@ -1023,6 +1023,7 @@ var _currentListTab = 'all';
 var _currentRaceTab = 'all';
 var _currentP26Tab = 'all';
 var _listSearchTerm = '';
+var _listSearchRaw = '';
 var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
 
 // Multi-select state
@@ -1384,6 +1385,7 @@ async function loadListVoters() {
   if (!captainState.selectedListId) return;
   _selectedVoterIds.clear();
   _listSearchTerm = '';
+  _listSearchRaw = '';
   var data = await api(getListApiBase() + '/voters');
   var voters = data.voters || [];
   _currentListVoters = voters;
@@ -1475,13 +1477,22 @@ function renderListVoters() {
   searchInput.id = 'listSearchInput';
   searchInput.placeholder = 'Search list by name, address, phone...';
   searchInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box';
-  if (_listSearchTerm) searchInput.value = _listSearchTerm;
+  if (_listSearchRaw) searchInput.value = _listSearchRaw;
+  var _searchDebounce = null;
   searchInput.addEventListener('input', function() {
-    _listSearchTerm = searchInput.value.trim().toLowerCase();
-    renderListVoters();
-    // Re-focus and restore cursor position after re-render
-    var newInput = document.getElementById('listSearchInput');
-    if (newInput) { newInput.focus(); newInput.selectionStart = newInput.selectionEnd = newInput.value.length; }
+    _listSearchRaw = searchInput.value;
+    _listSearchTerm = searchInput.value.toLowerCase();
+    // Debounce re-render to avoid cursor issues
+    clearTimeout(_searchDebounce);
+    _searchDebounce = setTimeout(function() {
+      var cursorPos = searchInput.selectionStart;
+      renderListVoters();
+      var newInput = document.getElementById('listSearchInput');
+      if (newInput) {
+        newInput.focus();
+        newInput.selectionStart = newInput.selectionEnd = cursorPos;
+      }
+    }, 200);
   });
   searchBar.appendChild(searchInput);
   el.appendChild(searchBar);
