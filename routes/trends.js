@@ -2,6 +2,18 @@ const express = require('express');
 const router = express.Router();
 const googleTrends = require('google-trends-api');
 
+// Retry wrapper for Google Trends API (they rate-limit cloud IPs aggressively)
+async function withRetry(fn, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i === retries) throw e;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1))); // backoff
+    }
+  }
+}
+
 // Interest over time for a keyword
 router.get('/trends/interest', async (req, res) => {
   try {
@@ -15,7 +27,7 @@ router.get('/trends/interest', async (req, res) => {
       granularTimeResolution: false
     };
 
-    const results = await googleTrends.interestOverTime(options);
+    const results = await withRetry(() => googleTrends.interestOverTime(options));
     const parsed = JSON.parse(results);
     const timeline = (parsed.default?.timelineData || []).map(t => ({
       date: t.formattedAxisTime || t.formattedTime,
@@ -43,7 +55,7 @@ router.get('/trends/compare', async (req, res) => {
       granularTimeResolution: false
     };
 
-    const results = await googleTrends.interestOverTime(options);
+    const results = await withRetry(() => googleTrends.interestOverTime(options));
     const parsed = JSON.parse(results);
     const timeline = (parsed.default?.timelineData || []).map(t => {
       const point = { date: t.formattedAxisTime || t.formattedTime };
@@ -72,7 +84,7 @@ router.get('/trends/regions', async (req, res) => {
       resolution: resolution || 'CITY'
     };
 
-    const results = await googleTrends.interestByRegion(options);
+    const results = await withRetry(() => googleTrends.interestByRegion(options));
     const parsed = JSON.parse(results);
     const regions = (parsed.default?.geoMapData || []).map(r => ({
       name: r.geoName,
@@ -98,7 +110,7 @@ router.get('/trends/related', async (req, res) => {
       geo: geo || 'US-TX'
     };
 
-    const results = await googleTrends.relatedQueries(options);
+    const results = await withRetry(() => googleTrends.relatedQueries(options));
     const parsed = JSON.parse(results);
     const data = parsed.default?.rankedList || [];
 
@@ -139,7 +151,26 @@ router.get('/trends/realtime', async (req, res) => {
 
     res.json({ stories });
   } catch (e) {
-    res.status(500).json({ error: e.message || 'Failed to fetch realtime trends' });
+    // Google often blocks cloud server IPs — fall back to daily trends
+    console.warn('[trends] Realtime trends failed:', e.message, '— trying daily fallback');
+    try {
+      const daily = await googleTrends.dailyTrends({ trendDate: new Date(), geo: req.query.geo || 'US' });
+      const dp = JSON.parse(daily);
+      const days = dp.default?.trendingSearchesDays || [];
+      const stories = [];
+      days.forEach(day => {
+        (day.trendingSearches || []).slice(0, 15).forEach(s => {
+          stories.push({
+            title: s.title?.query || '',
+            entityNames: [],
+            articles: (s.articles || []).slice(0, 2).map(a => ({ title: a.title, url: a.url, source: a.source, time: '' }))
+          });
+        });
+      });
+      res.json({ stories: stories.slice(0, 20), source: 'daily_fallback' });
+    } catch (e2) {
+      res.status(502).json({ error: 'Google Trends is temporarily unavailable from this server. Try searching a specific topic instead.' });
+    }
   }
 });
 
@@ -171,7 +202,7 @@ router.get('/trends/daily', async (req, res) => {
 
     res.json({ searches: searches.slice(0, 25) });
   } catch (e) {
-    res.status(500).json({ error: e.message || 'Failed to fetch daily trends' });
+    res.status(502).json({ error: 'Google Trends is temporarily unavailable. Try again later or search a specific topic.' });
   }
 });
 
