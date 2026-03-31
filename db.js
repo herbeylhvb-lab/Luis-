@@ -1153,6 +1153,7 @@ addColumn("ALTER TABLE block_walks ADD COLUMN source_precincts TEXT DEFAULT NULL
 addColumn("ALTER TABLE block_walks ADD COLUMN source_filters_json TEXT DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN candidate_id INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN created_by_walker_id INTEGER DEFAULT NULL");
+addColumn("ALTER TABLE block_walks ADD COLUMN sandbox INTEGER DEFAULT 0");
 
 // --- Walkers — persistent block walk volunteers tied to a candidate ---
 db.exec(`

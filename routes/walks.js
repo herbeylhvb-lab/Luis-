@@ -1092,6 +1092,44 @@ router.put('/walks/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Toggle sandbox mode on an existing walk + undo any voter data it already logged
+router.post('/walks/:id/sandbox', (req, res) => {
+  const walk = db.prepare('SELECT id, name, sandbox FROM block_walks WHERE id = ?').get(req.params.id);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+  const { enable } = req.body;
+  const newVal = enable ? 1 : 0;
+
+  const result = db.transaction(() => {
+    db.prepare('UPDATE block_walks SET sandbox = ? WHERE id = ?').run(newVal, walk.id);
+
+    let undone = 0;
+    if (enable) {
+      // Undo: remove voter_contacts logged by this walk's attempts
+      const attempts = db.prepare('SELECT DISTINCT address_id FROM walk_attempts WHERE walk_id = ?').all(walk.id);
+      const addrIds = attempts.map(a => a.address_id);
+      if (addrIds.length > 0) {
+        // Get voter_ids from walk_addresses
+        const addrs = db.prepare('SELECT voter_id FROM walk_addresses WHERE walk_id = ? AND voter_id IS NOT NULL').all(walk.id);
+        const voterIds = [...new Set(addrs.map(a => a.voter_id))];
+        for (const vid of voterIds) {
+          // Remove door-knock contacts logged during this walk's timeframe
+          const r = db.prepare(
+            "DELETE FROM voter_contacts WHERE voter_id = ? AND contact_type = 'Door-knock' AND contacted_at >= (SELECT MIN(attempted_at) FROM walk_attempts WHERE walk_id = ?)"
+          ).run(vid, walk.id);
+          undone += r.changes;
+        }
+        // Reset support_level to 'unknown' for these voters (since we can't know what it was before)
+        for (const vid of voterIds) {
+          db.prepare("UPDATE voters SET support_level = 'unknown' WHERE id = ? AND support_level IN ('strong_support','lean_support','undecided','lean_oppose','strong_oppose','refused')").run(vid);
+        }
+      }
+    }
+    return { undone };
+  })();
+
+  res.json({ success: true, sandbox: !!newVal, undone: result.undone, walkName: walk.name });
+});
+
 // Delete a walk
 router.delete('/walks/:id', (req, res) => {
   const walk = db.prepare('SELECT name FROM block_walks WHERE id = ?').get(req.params.id);
@@ -1269,6 +1307,10 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
   const addr = db.prepare('SELECT * FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
   if (!addr) return res.status(404).json({ error: 'Address not found.' });
 
+  // Check if this walk is sandboxed (external campaign — don't update voter data)
+  const walkMeta = db.prepare('SELECT sandbox FROM block_walks WHERE id = ?').get(req.params.walkId);
+  const isSandbox = walkMeta && walkMeta.sandbox;
+
   // Determine GPS verification
   let gps_verified = 0;
   if (gps_lat != null && gps_lng != null && isValidCoord(gps_lat, gps_lng)) {
@@ -1341,8 +1383,8 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
       `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_name);
     }
 
-    // Auto-log voter contact if voter_id is linked
-    if (addr.voter_id) {
+    // Auto-log voter contact if voter_id is linked — SKIP for sandbox walks
+    if (addr.voter_id && !isSandbox) {
       const contactResult = {
         'support': 'Strong Support', 'lean_support': 'Lean Support',
         'undecided': 'Undecided', 'lean_oppose': 'Lean Oppose',
@@ -1402,6 +1444,10 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
 
   const addr = db.prepare('SELECT * FROM walk_addresses WHERE id = ? AND walk_id = ?').get(req.params.addrId, req.params.walkId);
   if (!addr) return res.status(404).json({ error: 'Address not found.' });
+
+  // Check sandbox
+  const walkMeta2 = db.prepare('SELECT sandbox FROM block_walks WHERE id = ?').get(req.params.walkId);
+  const isSandbox = walkMeta2 && walkMeta2.sandbox;
 
   // Determine overall address result from member results
   // If anyone was contacted (not not_home), address is contacted
@@ -1479,7 +1525,8 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
       `).run(contactInc, knocked_at, knocked_at, req.params.walkId, walker_name);
     }
 
-    // Log individual voter contacts for each member
+    // Log individual voter contacts — SKIP for sandbox walks
+    if (!isSandbox) {
     for (const m of members) {
       if (!m.voter_id || !m.result) continue;
       if (!VALID_RESULTS.has(m.result)) continue;
@@ -1504,6 +1551,7 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
         db.prepare("UPDATE voters SET support_level = ?, updated_at = datetime('now') WHERE id = ?").run(supportMap[m.result], m.voter_id);
       }
     }
+    } // end !isSandbox
 
     // Also log for the primary voter on the address — but only if they were explicitly
     // included in the members list. Don't auto-log "Not Home" for missing primary voters
@@ -1717,7 +1765,7 @@ router.post('/walks/:id/route/save', (req, res) => {
 
 // Auto-create a walk populated with voters from selected precincts
 router.post('/walks/from-precinct', (req, res) => {
-  const { precincts, name, description, filters, candidate_id } = req.body;
+  const { precincts, name, description, filters, candidate_id, sandbox } = req.body;
   if (!precincts || !precincts.length) return res.status(400).json({ error: 'At least one precinct is required.' });
 
   // Build voter query with optional filters
@@ -1755,8 +1803,8 @@ router.post('/walks/from-precinct', (req, res) => {
   const walkName = name || ('Precinct Walk: ' + precincts.join(', '));
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json, candidate_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}), candidate_id || null);
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json, candidate_id, sandbox) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}), candidate_id || null, sandbox ? 1 : 0);
   const walkId = walkResult.lastInsertRowid;
 
   // Add voter addresses to the walk, linked to voter_id for auto-contact-logging

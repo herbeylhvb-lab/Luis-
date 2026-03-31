@@ -925,6 +925,7 @@ tr:hover td{background:#1e293b80}
           <h3>&#127968; Create Walk from Precinct</h3>
           <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Auto-populate a walk with all voter addresses from selected precincts. Each address links to the voter record for auto-logging contact results.</p>
           <div class="form-group"><label>Walk Name (optional)</label><input type="text" id="precinctWalkName" placeholder="Auto-generated from precinct names"></div>
+          <div style="margin-bottom:12px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#f59e0b"><input type="checkbox" id="precinctWalkSandbox" style="accent-color:#ef4444;width:18px;height:18px"> Sandbox Mode — External campaign, results won't update your voter data</label></div>
           <div class="form-group">
             <label style="color:#f59e0b;font-weight:700;text-transform:uppercase;font-size:13px;letter-spacing:0.5px">&#127919; Step 1: Race / District</label>
             <select id="walkRaceFilter" onchange="onWalkRaceFilterChange()" style="margin-bottom:8px">
@@ -985,6 +986,7 @@ tr:hover td{background:#1e293b80}
             <div><strong style="color:#94a3b8;font-size:13px">Assigned to:</strong> <span id="walkDetailAssign"></span></div>
             <div><strong style="color:#94a3b8;font-size:13px">Status:</strong> <select class="inline-select" id="walkDetailStatus" onchange="updateWalkStatus()"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
             <div><strong style="color:#94a3b8;font-size:13px">Script:</strong> <select class="inline-select" id="walkDetailScript" onchange="updateWalkScript()"><option value="">None</option></select> <span id="walkScriptStatus" style="font-size:11px;color:#22c55e;display:none">Saved!</span></div>
+            <div><strong style="color:#94a3b8;font-size:13px">Mode:</strong> <span id="walkSandboxBadge"></span> <button class="btn btn-sm" id="btnToggleSandbox" style="font-size:11px;padding:3px 8px;margin-left:4px" onclick="toggleWalkSandbox()"></button></div>
           </div>
           <!-- Join codes removed — walkers use personal codes now -->
           <div id="walkGroupMembers" style="display:none;margin-bottom:12px"></div>
@@ -4858,9 +4860,26 @@ async function loadWalkDetail(id) {
   const data = await api('/api/walks/' + id);
   const w = data.walk;
   state.walkAddresses = w.addresses;
-  document.getElementById('walkDetailName').textContent = w.name;
+  document.getElementById('walkDetailName').textContent = w.name + (w.sandbox ? ' [SANDBOX]' : '');
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
   document.getElementById('walkDetailStatus').value = w.status;
+  // Show sandbox badge
+  var sandboxBadge = document.getElementById('walkSandboxBadge');
+  var sandboxBtn = document.getElementById('btnToggleSandbox');
+  if (w.sandbox) {
+    sandboxBadge.textContent = 'SANDBOX — Data isolated';
+    sandboxBadge.style.cssText = 'background:#ef4444;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700';
+    sandboxBtn.textContent = 'Switch to Normal';
+    sandboxBtn.style.background = '#334155';
+    sandboxBtn.style.color = '#e2e8f0';
+  } else {
+    sandboxBadge.textContent = 'Normal — Updates voter data';
+    sandboxBadge.style.cssText = 'background:#22c55e;color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700';
+    sandboxBtn.textContent = 'Switch to Sandbox';
+    sandboxBtn.style.background = '#ef4444';
+    sandboxBtn.style.color = '#fff';
+  }
+  state.currentWalkSandbox = w.sandbox;
   // Show flagged address count badge
   var flaggedCount = (w.addresses || []).filter(function(a) { return a.geo_flagged; }).length;
   var flagBadge = document.getElementById('walkFlaggedBadge');
@@ -5287,10 +5306,12 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (minAge && parseInt(minAge) > 0) filters.min_age = parseInt(minAge);
     if (maxAge && parseInt(maxAge) > 0) filters.max_age = parseInt(maxAge);
     if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) filters.exclude_early_voted = true;
+    var isSandbox = document.getElementById('precinctWalkSandbox').checked;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
       name: document.getElementById('precinctWalkName').value.trim() || undefined,
-      filters: Object.keys(filters).length > 0 ? filters : undefined
+      filters: Object.keys(filters).length > 0 ? filters : undefined,
+      sandbox: isSandbox ? 1 : 0
     });
     statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Walk created with ' + data.added + ' addresses from ' + precincts.length + ' precinct(s)!' + (data.autoAssigned ? ' Auto-assigned to ' + data.autoAssigned + ' walker(s).' : '') + '</span>';
     document.getElementById('precinctWalkName').value = '';
@@ -6652,6 +6673,22 @@ window.printCurrentWalk = function() {
   if (!state.currentWalkId) return;
   var w = window.open('/api/walks/' + state.currentWalkId + '/print', '_blank');
   if (!w) alert('Pop-up blocked. Please allow pop-ups.');
+};
+
+window.toggleWalkSandbox = async function() {
+  if (!state.currentWalkId) return;
+  var enabling = !state.currentWalkSandbox;
+  var msg = enabling
+    ? 'Switch to SANDBOX mode? This will:\n- Remove all voter contact logs from this walk\n- Reset support levels that were set by this walk\n- Future results will NOT update your voter data\n\nContinue?'
+    : 'Switch to NORMAL mode? Future results from this walk WILL update your voter data.\n\nContinue?';
+  if (!confirm(msg)) return;
+  try {
+    var data = await apiPost('/api/walks/' + state.currentWalkId + '/sandbox', { enable: enabling });
+    if (enabling && data.undone > 0) {
+      alert('Sandbox enabled. Removed ' + data.undone + ' voter contact records from this walk.');
+    }
+    loadWalkDetail(state.currentWalkId);
+  } catch(e) { alert('Failed: ' + (e.message || e)); }
 };
 
 window.downloadWalkCSV = async function() {
