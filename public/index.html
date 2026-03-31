@@ -996,6 +996,7 @@ tr:hover td{background:#1e293b80}
           <span id="walkFlaggedBadge" style="display:none;margin-left:8px;background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;cursor:pointer" onclick="scrollToFlaggedOnMap()" title="Click to show flagged addresses on map">⚠ <span id="walkFlaggedCount">0</span> flagged</span>
           <span id="walkOutsideBadge" style="display:none;margin-left:8px;background:#f59e0b;color:#0f172a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700" title="Voters registered in this precinct but address geocodes outside boundary">⚠ <span>0 outside precinct</span></span>
           <button class="btn btn-sm" id="btnPrintWalk" style="background:#059669;color:#fff;margin-left:8px" onclick="printCurrentWalk()">&#x1F5A8; Print Walk List</button>
+          <button class="btn btn-sm" style="background:#2563eb;color:#fff;margin-left:8px" onclick="downloadWalkCSV()">&#x2B07; Download CSV</button>
           <button class="btn btn-sm" id="btnRefreshTurf" style="background:#b45309;color:#fff;margin-left:8px;display:none" onclick="refreshCurrentTurf()">&#x1F504; Refresh Turf</button>
           <span id="geocodeStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
           <span id="refreshStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
@@ -6651,6 +6652,52 @@ window.printCurrentWalk = function() {
   if (!state.currentWalkId) return;
   var w = window.open('/api/walks/' + state.currentWalkId + '/print', '_blank');
   if (!w) alert('Pop-up blocked. Please allow pop-ups.');
+};
+
+window.downloadWalkCSV = async function() {
+  if (!state.currentWalkId) return;
+  try {
+    var data = await api('/api/walks/' + state.currentWalkId);
+    var w = data.walk || data;
+    var addrs = w.addresses || [];
+    if (addrs.length === 0) { alert('No addresses in this walk.'); return; }
+
+    var headers = ['#', 'Name', 'Reg #', 'Address', 'Unit', 'City', 'ZIP', 'Phone', 'Party', 'Age', 'Support', 'Result', 'Notes'];
+    var csvRows = [];
+    // Walk info header
+    csvRows.push('Walk:,' + csvEsc(w.name || ''));
+    csvRows.push('Addresses:,' + addrs.length);
+    csvRows.push('');
+    csvRows.push(headers.join(','));
+
+    addrs.forEach(function(a, i) {
+      var result = a.result || 'not_visited';
+      csvRows.push([
+        i + 1,
+        csvEsc(a.voter_name || ''),
+        csvEsc(a.voter_registration || ''),
+        csvEsc(a.address || ''),
+        csvEsc(a.unit || ''),
+        csvEsc(a.city || ''),
+        csvEsc(a.zip || ''),
+        csvEsc(a.voter_phone || ''),
+        csvEsc(a.voter_party_score || ''),
+        a.voter_age || '',
+        csvEsc(a.voter_support || ''),
+        result === 'not_visited' ? '' : result,
+        csvEsc(a.notes || '')
+      ].join(','));
+    });
+
+    var csv = csvRows.join('\n');
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = (w.name || 'walk').replace(/[^a-zA-Z0-9]/g, '_') + '.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Download failed: ' + (e.message || e)); }
 };
 
 window.refreshCurrentTurf = async function() {

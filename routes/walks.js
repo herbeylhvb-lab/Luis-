@@ -1056,7 +1056,15 @@ router.post('/walks', (req, res) => {
 router.get('/walks/:id', (req, res) => {
   const walk = db.prepare('SELECT * FROM block_walks WHERE id = ?').get(req.params.id);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
-  walk.addresses = db.prepare('SELECT * FROM walk_addresses WHERE walk_id = ? ORDER BY sort_order, id').all(req.params.id);
+  walk.addresses = db.prepare(`
+    SELECT wa.*, v.phone as voter_phone, v.party_score as voter_party_score,
+           v.age as voter_age, v.support_level as voter_support,
+           v.registration_number as voter_registration, v.first_name as voter_first,
+           v.last_name as voter_last, v.gender as voter_gender
+    FROM walk_addresses wa
+    LEFT JOIN voters v ON wa.voter_id = v.id
+    WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id
+  `).all(req.params.id);
   const stats = {};
   for (const a of walk.addresses) {
     stats[a.result] = (stats[a.result] || 0) + 1;
