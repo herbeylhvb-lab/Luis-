@@ -1698,20 +1698,16 @@ function openDoor(idx) {
       result: null
     });
   }
-  // Add household members — but skip those who have their own walk_address entry
-  // (they appear as household because buildHouseholdFromWalkAddresses groups same-unit voters,
-  // but they already have their own door card, so showing them here duplicates them)
+  // Add ALL household members — including those on the walk list
+  // They need to be loggable from this door card since the walker is AT this house
   if (a.household && a.household.length > 0) {
-    // Build set of voter_ids that have their own walk_address entry
-    var walkVoterIds = {};
-    for (var wvi = 0; wvi < walkState.walk.addresses.length; wvi++) {
-      var wva = walkState.walk.addresses[wvi];
-      if (wva.voter_id) walkVoterIds[wva.voter_id] = true;
-    }
+    var seenIds = {};
+    if (a.voter_id) seenIds[a.voter_id] = true; // skip the primary (already added above)
     for (var h = 0; h < a.household.length; h++) {
       var m = a.household[h];
-      // Skip if this person has their own walk_address entry (they'll get their own door card)
-      if (m.voter_id && walkVoterIds[m.voter_id]) continue;
+      // Skip if same voter_id as primary (already added)
+      if (m.voter_id && seenIds[m.voter_id]) continue;
+      if (m.voter_id) seenIds[m.voter_id] = true;
       var memberAddr = a.address + (m.unit ? ' ' + m.unit : a.unit ? ' ' + a.unit : '') + (a.city ? ', ' + a.city : '') + (a.zip ? ' ' + a.zip : '');
       doorState.allMembers.push({
         voter_id: m.voter_id || null,
