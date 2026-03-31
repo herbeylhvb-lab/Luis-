@@ -828,6 +828,26 @@ router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res)
   const existing = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, voterId);
   if (existing) return res.json({ success: true, already: true });
   db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)').run(req.params.listId, voterId);
+
+  // Auto-group: if someone at the same address+unit is already on this list, nest under them
+  const voter = db.prepare('SELECT address, unit, city FROM voters WHERE id = ?').get(voterId);
+  if (voter && voter.address) {
+    const existingAtAddress = db.prepare(`
+      SELECT clv.voter_id FROM captain_list_voters clv
+      JOIN voters v ON clv.voter_id = v.id
+      WHERE clv.list_id = ? AND clv.voter_id != ?
+        AND LOWER(TRIM(v.address)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(COALESCE(v.unit,''))) = LOWER(TRIM(?))
+        AND clv.parent_voter_id IS NULL
+      ORDER BY clv.added_at ASC LIMIT 1
+    `).get(req.params.listId, voterId, voter.address, voter.unit || '');
+    if (existingAtAddress) {
+      // Someone is already at this address — nest the new voter under them
+      db.prepare('UPDATE captain_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?')
+        .run(existingAtAddress.voter_id, req.params.listId, voterId);
+    }
+  }
+
   res.json({ success: true });
 });
 

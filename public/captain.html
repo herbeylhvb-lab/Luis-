@@ -2698,7 +2698,7 @@ async function submitAddVoter(voterId) {
   var addedCount = data.already ? 0 : 1;
   var alreadyCount = data.already ? 1 : 0;
 
-  // Add checked household members
+  // Add checked household members — automatically nest them under the main voter
   var hhCheckboxes = document.querySelectorAll('#addVoterHousehold .hh-checkbox:checked');
   for (var i = 0; i < hhCheckboxes.length; i++) {
     var hhId = parseInt(hhCheckboxes[i].dataset.voterId);
@@ -2709,6 +2709,10 @@ async function submitAddVoter(voterId) {
     });
     if (hhData.already) alreadyCount++;
     else addedCount++;
+    // Set parent_voter_id to group them under the main voter
+    try {
+      await apiPut(listBase + '/voters/' + hhId + '/parent', { parent_voter_id: voterId });
+    } catch(e) { /* ignore if parent set fails */ }
   }
 
   closeModal('addVoterModal');
