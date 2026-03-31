@@ -153,15 +153,22 @@ function enrichHouseholdFromVoterFile(addresses) {
       const others = findByAddressUnit.all(cleanAddr, addr.unit || '');
       const allNew = others
         .filter(v => !walkVoterIds.has(v.id))
-        .map(v => ({
-          voter_id: v.id,
-          first_name: v.first_name || '',
-          last_name: v.last_name || '',
-          age: v.age || null,
-          unit: v.unit || '',
-          party_score: v.party_score || '',
-          not_on_list: true
-        }));
+        .map(v => {
+          // Fetch election votes for this household member
+          const evRows = db.prepare(
+            'SELECT election_name as name, election_type as type, party_voted as party, vote_method as method FROM election_votes WHERE voter_id = ? ORDER BY election_date DESC'
+          ).all(v.id);
+          return {
+            voter_id: v.id,
+            first_name: v.first_name || '',
+            last_name: v.last_name || '',
+            age: v.age || null,
+            unit: v.unit || '',
+            party_score: v.party_score || '',
+            not_on_list: true,
+            election_votes: evRows
+          };
+        });
       enrichCache[key] = allNew;
       newMembers = allNew;
       for (const m of allNew) walkVoterIds.add(m.voter_id);
