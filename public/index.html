@@ -947,6 +947,11 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Min Age</label><input type="number" id="walkPrecinctMinAge" placeholder="e.g. 18" min="18" max="120"></div>
             <div class="form-group"><label>Max Age</label><input type="number" id="walkPrecinctMaxAge" placeholder="e.g. 65" min="18" max="120"></div>
           </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+            <div class="form-group"><label>Min Vote Freq %</label><input type="number" id="walkPrecinctMinVoteFreq" placeholder="e.g. 50" min="0" max="100"></div>
+            <div class="form-group"><label>Min General Freq %</label><input type="number" id="walkPrecinctMinGeneralFreq" placeholder="e.g. 75" min="0" max="100"></div>
+            <div class="form-group"><label>Min Primary Freq %</label><input type="number" id="walkPrecinctMinPrimaryFreq" placeholder="e.g. 25" min="0" max="100"></div>
+          </div>
           <div style="margin-bottom:12px">
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctHasVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeContacted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
@@ -1723,6 +1728,27 @@ tr:hover td{background:#1e293b80}
             <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Minimum Elections Voted In</label>
             <div style="display:flex;gap:6px;align-items:center;margin-top:4px"><input type="number" id="filterMinElections" placeholder="e.g. 3" min="1" max="39" style="width:80px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 8px;color:#e2e8f0;font-size:12px"><span style="color:#64748b;font-size:11px">Only voters who voted in at least this many elections</span></div></div>
             <div></div>
+          </div>
+
+          <!-- Vote Frequency Filters (VAN-style turnout propensity) -->
+          <div style="margin-top:16px;padding:12px;background:#0c1222;border:1px solid #1e3a5f;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:10px">📊 Vote Frequency (Turnout %)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+              <div><label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Overall Frequency</label>
+              <div style="display:flex;gap:4px;align-items:center">
+                <input type="number" id="filterMinVoteFreq" placeholder="Min %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
+                <span style="color:#475569">–</span>
+                <input type="number" id="filterMaxVoteFreq" placeholder="Max %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
+              </div>
+              <div style="color:#475569;font-size:10px;margin-top:2px">% of all eligible elections</div></div>
+              <div><label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">General Frequency</label>
+              <input type="number" id="filterMinGeneralFreq" placeholder="Min %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
+              <div style="color:#475569;font-size:10px;margin-top:2px">% of general elections</div></div>
+              <div><label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Primary Frequency</label>
+              <input type="number" id="filterMinPrimaryFreq" placeholder="Min %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
+              <div style="color:#475569;font-size:10px;margin-top:2px">% of primary elections</div></div>
+            </div>
+            <div style="margin-top:8px;color:#475569;font-size:11px">💡 Example: 80% overall + 0% primary = reliable general voter who skips primaries</div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
@@ -5135,6 +5161,12 @@ function getWalkFilterParams() {
   if (document.getElementById('walkPrecinctHasVoted').checked) params.push('has_voted=1');
   if (document.getElementById('walkPrecinctExcludeContacted').checked) params.push('exclude_contacted=1');
   if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) params.push('exclude_early_voted=1');
+  var minVoteFreq = document.getElementById('walkPrecinctMinVoteFreq').value;
+  if (minVoteFreq && parseInt(minVoteFreq) > 0) params.push('min_vote_frequency=' + parseInt(minVoteFreq));
+  var minGenFreq = document.getElementById('walkPrecinctMinGeneralFreq').value;
+  if (minGenFreq && parseInt(minGenFreq) > 0) params.push('min_general_frequency=' + parseInt(minGenFreq));
+  var minPriFreq = document.getElementById('walkPrecinctMinPrimaryFreq').value;
+  if (minPriFreq && parseInt(minPriFreq) > 0) params.push('min_primary_frequency=' + parseInt(minPriFreq));
   return params;
 }
 
@@ -5306,6 +5338,12 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (minAge && parseInt(minAge) > 0) filters.min_age = parseInt(minAge);
     if (maxAge && parseInt(maxAge) > 0) filters.max_age = parseInt(maxAge);
     if (document.getElementById('walkPrecinctExcludeEarlyVoted').checked) filters.exclude_early_voted = true;
+    var mVF = document.getElementById('walkPrecinctMinVoteFreq').value;
+    var mGF = document.getElementById('walkPrecinctMinGeneralFreq').value;
+    var mPF = document.getElementById('walkPrecinctMinPrimaryFreq').value;
+    if (mVF && parseInt(mVF) > 0) filters.min_vote_frequency = parseInt(mVF);
+    if (mGF && parseInt(mGF) > 0) filters.min_general_frequency = parseInt(mGF);
+    if (mPF && parseInt(mPF) > 0) filters.min_primary_frequency = parseInt(mPF);
     var isSandbox = document.getElementById('precinctWalkSandbox').checked;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
@@ -10927,7 +10965,11 @@ function getSelectedFilters() {
     vote_methods: checked('filter-votemethod-cb'),
     age_min: ageMin ? parseInt(ageMin) : null,
     age_max: ageMax ? parseInt(ageMax) : null,
-    min_elections: minElections ? parseInt(minElections) : null
+    min_elections: minElections ? parseInt(minElections) : null,
+    min_vote_frequency: document.getElementById('filterMinVoteFreq').value ? parseInt(document.getElementById('filterMinVoteFreq').value) : null,
+    max_vote_frequency: document.getElementById('filterMaxVoteFreq').value ? parseInt(document.getElementById('filterMaxVoteFreq').value) : null,
+    min_general_frequency: document.getElementById('filterMinGeneralFreq').value ? parseInt(document.getElementById('filterMinGeneralFreq').value) : null,
+    min_primary_frequency: document.getElementById('filterMinPrimaryFreq').value ? parseInt(document.getElementById('filterMinPrimaryFreq').value) : null
   };
 }
 
@@ -11094,6 +11136,10 @@ function buildUniversePayload() {
   if (filters.state_board_ed && filters.state_board_ed.length) payload.state_board_ed = filters.state_board_ed;
   if (filters.hospital_districts && filters.hospital_districts.length) payload.hospital_districts = filters.hospital_districts;
   if (filters.vote_methods && filters.vote_methods.length) payload.vote_methods = filters.vote_methods;
+  if (filters.min_vote_frequency) payload.min_vote_frequency = filters.min_vote_frequency;
+  if (filters.max_vote_frequency != null && filters.max_vote_frequency < 100) payload.max_vote_frequency = filters.max_vote_frequency;
+  if (filters.min_general_frequency) payload.min_general_frequency = filters.min_general_frequency;
+  if (filters.min_primary_frequency) payload.min_primary_frequency = filters.min_primary_frequency;
   var selectedElecNames = selectedElections;
   return { payload, precincts, yearsBack, selectedElecNames };
 }

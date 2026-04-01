@@ -579,6 +579,26 @@ function buildVotingHistorySQL(filters, params) {
     sql += ' AND voters.voter_score >= ?';
     params.push(parseInt(filters.min_voter_score));
   }
+  // Vote frequency percentage filters (VAN-style turnout propensity)
+  // Overall: "voted in at least X% of elections they were eligible for"
+  if (filters.min_vote_frequency != null && parseInt(filters.min_vote_frequency) > 0) {
+    sql += ' AND voters.vote_frequency >= ?';
+    params.push(parseInt(filters.min_vote_frequency));
+  }
+  if (filters.max_vote_frequency != null && parseInt(filters.max_vote_frequency) < 100) {
+    sql += ' AND voters.vote_frequency <= ?';
+    params.push(parseInt(filters.max_vote_frequency));
+  }
+  // General election frequency: "votes in X% of generals"
+  if (filters.min_general_frequency != null && parseInt(filters.min_general_frequency) > 0) {
+    sql += ' AND voters.general_frequency >= ?';
+    params.push(parseInt(filters.min_general_frequency));
+  }
+  // Primary election frequency: "votes in X% of primaries"
+  if (filters.min_primary_frequency != null && parseInt(filters.min_primary_frequency) > 0) {
+    sql += ' AND voters.primary_frequency >= ?';
+    params.push(parseInt(filters.min_primary_frequency));
+  }
   return sql;
 }
 
