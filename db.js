@@ -810,6 +810,7 @@ addColumn("ALTER TABLE voters ADD COLUMN general_frequency INTEGER DEFAULT NULL"
 addColumn("ALTER TABLE voters ADD COLUMN primary_frequency INTEGER DEFAULT NULL");
 addColumn("ALTER TABLE voters ADD COLUMN elections_voted INTEGER DEFAULT 0");
 addColumn("ALTER TABLE voters ADD COLUMN elections_eligible INTEGER DEFAULT 0");
+addColumn("ALTER TABLE voters ADD COLUMN may_frequency INTEGER DEFAULT NULL");
 
 // Index for vote_method filtering
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_ev_vote_method ON election_votes(vote_method)"); } catch (e) { /* exists */ }
@@ -1617,13 +1618,18 @@ function computeVoteFrequency() {
   if (evCount === 0) { console.log('[vote-freq] No election data, skipping'); return; }
 
   // Get all distinct elections by type
-  const allElections = db.prepare('SELECT DISTINCT election_name, election_type FROM election_votes ORDER BY election_name').all();
+  const allElections = db.prepare('SELECT DISTINCT election_name, election_type, election_date FROM election_votes ORDER BY election_name').all();
   const generalElections = allElections.filter(e => (e.election_type || '').toLowerCase().includes('general'));
   const primaryElections = allElections.filter(e => (e.election_type || '').toLowerCase().includes('primary'));
+  // May elections: any election held in May (month 05) — covers May primaries, May runoffs, May specials
+  const mayElections = allElections.filter(e => {
+    const d = e.election_date || '';
+    return d.substring(5, 7) === '05' || (e.election_name || '').toLowerCase().includes('may');
+  });
   const totalElections = allElections.length;
 
   console.log('[vote-freq] Computing frequency scores: ' + totalElections + ' elections (' +
-    generalElections.length + ' general, ' + primaryElections.length + ' primary)');
+    generalElections.length + ' general, ' + primaryElections.length + ' primary, ' + mayElections.length + ' may)');
 
   // Get per-voter election counts — all, general-only, primary-only
   // Also get their first election to determine eligibility window
@@ -1635,11 +1641,11 @@ function computeVoteFrequency() {
     GROUP BY voter_id
   `).all();
 
-  // Per-voter general and primary counts
+  // Per-voter general, primary, and may counts
   const generalCounts = {};
   const primaryCounts = {};
+  const mayCounts = {};
   if (generalElections.length > 0) {
-    const gNames = generalElections.map(e => e.election_name);
     const gRows = db.prepare(
       'SELECT voter_id, COUNT(DISTINCT election_name) as c FROM election_votes WHERE election_type LIKE \'%general%\' COLLATE NOCASE GROUP BY voter_id'
     ).all();
@@ -1651,19 +1657,27 @@ function computeVoteFrequency() {
     ).all();
     for (const r of pRows) primaryCounts[r.voter_id] = r.c;
   }
+  if (mayElections.length > 0) {
+    const mayNames = mayElections.map(e => e.election_name);
+    const mRows = db.prepare(
+      'SELECT voter_id, COUNT(DISTINCT election_name) as c FROM election_votes WHERE election_name IN (' + mayNames.map(() => '?').join(',') + ') GROUP BY voter_id'
+    ).all(...mayNames);
+    for (const r of mRows) mayCounts[r.voter_id] = r.c;
+  }
 
   // Build election order for eligibility calculation
   const electionOrder = allElections.map(e => e.election_name);
   const generalOrder = generalElections.map(e => e.election_name);
   const primaryOrder = primaryElections.map(e => e.election_name);
+  const mayOrder = mayElections.map(e => e.election_name);
 
   const update = db.prepare(
-    'UPDATE voters SET vote_frequency = ?, general_frequency = ?, primary_frequency = ?, elections_voted = ?, elections_eligible = ? WHERE id = ?'
+    'UPDATE voters SET vote_frequency = ?, general_frequency = ?, primary_frequency = ?, may_frequency = ?, elections_voted = ?, elections_eligible = ? WHERE id = ?'
   );
 
   const batch = db.transaction(() => {
     // Reset all to NULL first
-    db.prepare('UPDATE voters SET vote_frequency = NULL, general_frequency = NULL, primary_frequency = NULL, elections_voted = 0, elections_eligible = 0').run();
+    db.prepare('UPDATE voters SET vote_frequency = NULL, general_frequency = NULL, primary_frequency = NULL, may_frequency = NULL, elections_voted = 0, elections_eligible = 0').run();
 
     for (const vs of voterStats) {
       // Eligible = elections that occurred on or after their first recorded vote
@@ -1671,15 +1685,18 @@ function computeVoteFrequency() {
       const eligible = firstIdx >= 0 ? totalElections - firstIdx : totalElections;
       const eligibleGeneral = generalOrder.filter((e, i) => electionOrder.indexOf(e) >= firstIdx).length || generalElections.length;
       const eligiblePrimary = primaryOrder.filter((e, i) => electionOrder.indexOf(e) >= firstIdx).length || primaryElections.length;
+      const eligibleMay = mayOrder.filter((e, i) => electionOrder.indexOf(e) >= firstIdx).length || mayElections.length;
 
       const overallFreq = eligible > 0 ? Math.round((vs.total_voted / eligible) * 100) : 0;
       const genFreq = eligibleGeneral > 0 ? Math.round(((generalCounts[vs.voter_id] || 0) / eligibleGeneral) * 100) : null;
       const priFreq = eligiblePrimary > 0 ? Math.round(((primaryCounts[vs.voter_id] || 0) / eligiblePrimary) * 100) : null;
+      const mayFreq = eligibleMay > 0 ? Math.round(((mayCounts[vs.voter_id] || 0) / eligibleMay) * 100) : null;
 
       update.run(
         Math.min(overallFreq, 100),
         genFreq !== null ? Math.min(genFreq, 100) : null,
         priFreq !== null ? Math.min(priFreq, 100) : null,
+        mayFreq !== null ? Math.min(mayFreq, 100) : null,
         vs.total_voted,
         eligible,
         vs.voter_id

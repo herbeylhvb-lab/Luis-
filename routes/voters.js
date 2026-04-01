@@ -2517,6 +2517,28 @@ function buildStep1Filter(filters) {
     params.push(min_elections);
   }
 
+  // Vote frequency percentage filters (VAN-style turnout propensity)
+  if (filters.min_vote_frequency != null && parseInt(filters.min_vote_frequency) > 0) {
+    clauses.push('voters.vote_frequency >= ?');
+    params.push(parseInt(filters.min_vote_frequency));
+  }
+  if (filters.max_vote_frequency != null && parseInt(filters.max_vote_frequency) < 100) {
+    clauses.push('voters.vote_frequency <= ?');
+    params.push(parseInt(filters.max_vote_frequency));
+  }
+  if (filters.min_general_frequency != null && parseInt(filters.min_general_frequency) > 0) {
+    clauses.push('voters.general_frequency >= ?');
+    params.push(parseInt(filters.min_general_frequency));
+  }
+  if (filters.min_primary_frequency != null && parseInt(filters.min_primary_frequency) > 0) {
+    clauses.push('voters.primary_frequency >= ?');
+    params.push(parseInt(filters.min_primary_frequency));
+  }
+  if (filters.min_may_frequency != null && parseInt(filters.min_may_frequency) > 0) {
+    clauses.push('voters.may_frequency >= ?');
+    params.push(parseInt(filters.min_may_frequency));
+  }
+
   // Party filter: applied in election targeting query when elections are selected
   // Falls back to "ever voted with this party" when no elections selected
   let partyJoin = '';
@@ -2534,7 +2556,8 @@ router.post('/universe/build', (req, res) => {
           list_name, list_name_universe, list_name_sub, list_name_priority,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
-          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods } = req.body;
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods,
+          min_vote_frequency, max_vote_frequency, min_general_frequency, min_primary_frequency, min_may_frequency } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
@@ -2542,6 +2565,7 @@ router.post('/universe/build', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
     county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods,
+    min_vote_frequency, max_vote_frequency, min_general_frequency, min_primary_frequency, min_may_frequency,
     _hasSelectedElections: !!(selected_elections && selected_elections.filter(n => n && n.trim()).length > 0) });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();
@@ -2702,7 +2726,8 @@ router.post('/universe/preview', (req, res) => {
   const { precincts, years_back, selected_elections, require_all_elections,
           genders, age_min, age_max, cities, school_districts, college_districts,
           navigation_ports, port_authorities, state_reps, us_congress, parties, min_elections, voter_statuses,
-          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods } = req.body;
+          county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods,
+          min_vote_frequency, max_vote_frequency, min_general_frequency, min_primary_frequency, min_may_frequency } = req.body;
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
@@ -2710,6 +2735,7 @@ router.post('/universe/preview', (req, res) => {
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
     county_commissioners, justice_of_peace, state_senate, state_board_ed, hospital_districts, vote_methods,
+    min_vote_frequency, max_vote_frequency, min_general_frequency, min_primary_frequency, min_may_frequency,
     _hasSelectedElections: !!(selected_elections && selected_elections.filter(n => n && n.trim()).length > 0) });
 
   const hasElectionData = !!db.prepare('SELECT 1 FROM election_votes LIMIT 1').get();

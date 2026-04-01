@@ -952,6 +952,9 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Min General Freq %</label><input type="number" id="walkPrecinctMinGeneralFreq" placeholder="e.g. 75" min="0" max="100"></div>
             <div class="form-group"><label>Min Primary Freq %</label><input type="number" id="walkPrecinctMinPrimaryFreq" placeholder="e.g. 25" min="0" max="100"></div>
           </div>
+          <div style="display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:12px">
+            <div class="form-group"><label style="color:#f59e0b">🗓 Min May Freq %</label><input type="number" id="walkPrecinctMinMayFreq" placeholder="e.g. 50" min="0" max="100"></div>
+          </div>
           <div style="margin-bottom:12px">
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctHasVoted" style="width:16px;height:16px;accent-color:#f59e0b"> Only voters with voting history</label>
             <label style="font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="walkPrecinctExcludeContacted" style="width:16px;height:16px;accent-color:#f59e0b"> Skip already contacted</label>
@@ -1733,7 +1736,7 @@ tr:hover td{background:#1e293b80}
           <!-- Vote Frequency Filters (VAN-style turnout propensity) -->
           <div style="margin-top:16px;padding:12px;background:#0c1222;border:1px solid #1e3a5f;border-radius:8px">
             <div style="font-size:13px;font-weight:700;color:#60a5fa;margin-bottom:10px">📊 Vote Frequency (Turnout %)</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
               <div><label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Overall Frequency</label>
               <div style="display:flex;gap:4px;align-items:center">
                 <input type="number" id="filterMinVoteFreq" placeholder="Min %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
@@ -1747,8 +1750,11 @@ tr:hover td{background:#1e293b80}
               <div><label style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">Primary Frequency</label>
               <input type="number" id="filterMinPrimaryFreq" placeholder="Min %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
               <div style="color:#475569;font-size:10px;margin-top:2px">% of primary elections</div></div>
+              <div><label style="font-size:11px;color:#f59e0b;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px">🗓 May Frequency</label>
+              <input type="number" id="filterMinMayFreq" placeholder="Min %" min="0" max="100" style="width:65px;background:#1e293b;border:1px solid #f59e0b33;border-radius:4px;padding:4px 6px;color:#e2e8f0;font-size:12px">
+              <div style="color:#475569;font-size:10px;margin-top:2px">% of May elections voted</div></div>
             </div>
-            <div style="margin-top:8px;color:#475569;font-size:11px">💡 Example: 80% overall + 0% primary = reliable general voter who skips primaries</div>
+            <div style="margin-top:8px;color:#475569;font-size:11px">💡 Example: May ≥ 50% = voters who show up for May elections (your race!)</div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
@@ -5167,6 +5173,8 @@ function getWalkFilterParams() {
   if (minGenFreq && parseInt(minGenFreq) > 0) params.push('min_general_frequency=' + parseInt(minGenFreq));
   var minPriFreq = document.getElementById('walkPrecinctMinPrimaryFreq').value;
   if (minPriFreq && parseInt(minPriFreq) > 0) params.push('min_primary_frequency=' + parseInt(minPriFreq));
+  var minMayFreq = document.getElementById('walkPrecinctMinMayFreq').value;
+  if (minMayFreq && parseInt(minMayFreq) > 0) params.push('min_may_frequency=' + parseInt(minMayFreq));
   return params;
 }
 
@@ -5344,6 +5352,8 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     if (mVF && parseInt(mVF) > 0) filters.min_vote_frequency = parseInt(mVF);
     if (mGF && parseInt(mGF) > 0) filters.min_general_frequency = parseInt(mGF);
     if (mPF && parseInt(mPF) > 0) filters.min_primary_frequency = parseInt(mPF);
+    var mMF = document.getElementById('walkPrecinctMinMayFreq').value;
+    if (mMF && parseInt(mMF) > 0) filters.min_may_frequency = parseInt(mMF);
     var isSandbox = document.getElementById('precinctWalkSandbox').checked;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
@@ -10969,7 +10979,8 @@ function getSelectedFilters() {
     min_vote_frequency: document.getElementById('filterMinVoteFreq').value ? parseInt(document.getElementById('filterMinVoteFreq').value) : null,
     max_vote_frequency: document.getElementById('filterMaxVoteFreq').value ? parseInt(document.getElementById('filterMaxVoteFreq').value) : null,
     min_general_frequency: document.getElementById('filterMinGeneralFreq').value ? parseInt(document.getElementById('filterMinGeneralFreq').value) : null,
-    min_primary_frequency: document.getElementById('filterMinPrimaryFreq').value ? parseInt(document.getElementById('filterMinPrimaryFreq').value) : null
+    min_primary_frequency: document.getElementById('filterMinPrimaryFreq').value ? parseInt(document.getElementById('filterMinPrimaryFreq').value) : null,
+    min_may_frequency: document.getElementById('filterMinMayFreq').value ? parseInt(document.getElementById('filterMinMayFreq').value) : null
   };
 }
 
@@ -11140,6 +11151,7 @@ function buildUniversePayload() {
   if (filters.max_vote_frequency != null && filters.max_vote_frequency < 100) payload.max_vote_frequency = filters.max_vote_frequency;
   if (filters.min_general_frequency) payload.min_general_frequency = filters.min_general_frequency;
   if (filters.min_primary_frequency) payload.min_primary_frequency = filters.min_primary_frequency;
+  if (filters.min_may_frequency) payload.min_may_frequency = filters.min_may_frequency;
   var selectedElecNames = selectedElections;
   return { payload, precincts, yearsBack, selectedElecNames };
 }

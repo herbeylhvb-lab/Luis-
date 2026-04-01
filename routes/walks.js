@@ -599,6 +599,11 @@ function buildVotingHistorySQL(filters, params) {
     sql += ' AND voters.primary_frequency >= ?';
     params.push(parseInt(filters.min_primary_frequency));
   }
+  // May election frequency: "votes in X% of May elections"
+  if (filters.min_may_frequency != null && parseInt(filters.min_may_frequency) > 0) {
+    sql += ' AND voters.may_frequency >= ?';
+    params.push(parseInt(filters.min_may_frequency));
+  }
   return sql;
 }
 
