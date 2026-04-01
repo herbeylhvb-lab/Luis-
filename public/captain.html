@@ -2704,11 +2704,18 @@ async function submitAddVoter(voterId) {
 
   // Add main voter
   var listBase = getListApiBase();
-  var data = await api(listBase + '/voters', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  var data;
+  try {
+    data = await api(listBase + '/voters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch(err) {
+    closeModal('addVoterModal');
+    showToast('Failed to add voter: ' + (err.message || 'Unknown error'), 'warn');
+    return;
+  }
 
   var addedCount = data.already ? 0 : 1;
   var alreadyCount = data.already ? 1 : 0;

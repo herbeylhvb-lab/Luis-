@@ -826,8 +826,8 @@ router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res)
 
   if (email && !email.includes('@')) return res.status(400).json({ error: 'Invalid email format.' });
 
-  // Verify list belongs to this captain
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  // Verify list exists (auth middleware already validated captain access)
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
 
   // Update phone/email if provided
@@ -851,7 +851,7 @@ router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res)
 
 // Bulk add voters by registration number and nest under a parent voter
 router.post('/captains/:id/lists/:listId/bulk-add-under', requireCaptainAuth, (req, res) => {
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const { identifiers, parent_voter_id } = req.body;
   if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
@@ -892,7 +892,7 @@ router.delete('/captains/:id/lists/:listId/voters/:voterId', requireCaptainAuth,
 router.put('/captains/:id/lists/:listId/voters/:voterId/parent', requireCaptainAuth, (req, res) => {
   const { parent_voter_id } = req.body;
   if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const child = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, req.params.voterId);
   const parent = db.prepare('SELECT id, parent_voter_id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, parent_voter_id);
@@ -904,7 +904,7 @@ router.put('/captains/:id/lists/:listId/voters/:voterId/parent', requireCaptainA
 
 // Remove parent (ungroup)
 router.delete('/captains/:id/lists/:listId/voters/:voterId/parent', requireCaptainAuth, (req, res) => {
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   db.prepare('UPDATE captain_list_voters SET parent_voter_id = NULL WHERE list_id = ? AND voter_id = ?').run(req.params.listId, req.params.voterId);
   res.json({ success: true });
@@ -913,7 +913,7 @@ router.delete('/captains/:id/lists/:listId/voters/:voterId/parent', requireCapta
 // Save captain notes on a voter (personal reminders, how they know them)
 router.put('/captains/:id/lists/:listId/voters/:voterId/notes', requireCaptainAuth, (req, res) => {
   const { notes } = req.body;
-  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
+  const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const row = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(req.params.listId, req.params.voterId);
   if (!row) return res.status(404).json({ error: 'Voter not on this list.' });
