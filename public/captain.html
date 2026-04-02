@@ -1618,10 +1618,12 @@ function renderListVoters() {
   // Use ALL voters (not filtered) for building the parent/child tree
   // so children show under their parent even when filters are applied
   var allVoters = _currentListVoters;
+  var allVoterIds = new Set(allVoters.map(function(v) { return v.id; }));
   var childrenOfAll = {};
   var parentIds = new Set();
   allVoters.forEach(function(v) {
-    if (v.parent_voter_id) {
+    // Only nest if parent is actually on this list — orphaned children are treated as top-level
+    if (v.parent_voter_id && allVoterIds.has(v.parent_voter_id)) {
       if (!childrenOfAll[v.parent_voter_id]) childrenOfAll[v.parent_voter_id] = [];
       childrenOfAll[v.parent_voter_id].push(v);
       parentIds.add(v.parent_voter_id);
@@ -1653,10 +1655,16 @@ function renderListVoters() {
     }
   });
 
-  var topFiltered = expandedFiltered.filter(function(v) { return !v.parent_voter_id; });
+  // Build set of all voter IDs in the filtered list for parent lookup
+  var allFilteredIds = new Set(expandedFiltered.map(function(v) { return v.id; }));
+  var topFiltered = expandedFiltered.filter(function(v) {
+    // Top-level: no parent, OR parent is not on this list (orphaned child — show as top-level)
+    return !v.parent_voter_id || !allFilteredIds.has(v.parent_voter_id);
+  });
   var childrenOf = {};
   expandedFiltered.forEach(function(v) {
-    if (v.parent_voter_id) {
+    // Only nest if parent is actually present in the filtered list
+    if (v.parent_voter_id && allFilteredIds.has(v.parent_voter_id)) {
       if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
       childrenOf[v.parent_voter_id].push(v);
     }

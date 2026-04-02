@@ -801,6 +801,14 @@ router.delete('/captains/:id/lists/:listId', requireCaptainAuth, (req, res) => {
 router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(req.params.listId);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // Auto-fix orphaned parent_voter_id references (parent was removed from list)
+  db.prepare(`
+    UPDATE captain_list_voters SET parent_voter_id = NULL
+    WHERE list_id = ? AND parent_voter_id IS NOT NULL
+      AND parent_voter_id NOT IN (SELECT voter_id FROM captain_list_voters WHERE list_id = ?)
+  `).run(req.params.listId, req.params.listId);
+
   const voters = db.prepare(`
     SELECT v.*, clv.added_at, clv.parent_voter_id, clv.notes as captain_notes,
       (SELECT ev.party_voted FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_party,
