@@ -1090,13 +1090,14 @@ router.get('/walks/all-results-map', (req, res) => {
 // Count unique doors (address+unit) not individual voter rows
 router.get('/walks', (req, res) => {
   const walks = db.prepare(`
-    SELECT b.*,
+    SELECT b.*, c.name as candidate_name,
       (SELECT COUNT(DISTINCT LOWER(TRIM(wa2.address)) || '||' || LOWER(TRIM(COALESCE(wa2.unit, ''))))
        FROM walk_addresses wa2 WHERE wa2.walk_id = b.id) as totalAddresses,
       (SELECT COUNT(DISTINCT LOWER(TRIM(wa2.address)) || '||' || LOWER(TRIM(COALESCE(wa2.unit, ''))))
        FROM walk_addresses wa2
        WHERE wa2.walk_id = b.id AND wa2.result != 'not_visited') as knocked
     FROM block_walks b
+    LEFT JOIN candidates c ON b.candidate_id = c.id
     ORDER BY b.id DESC
   `).all();
   res.json({ walks });
@@ -1146,14 +1147,17 @@ router.get('/walks/:id', (req, res) => {
 
 // Update walk metadata
 router.put('/walks/:id', (req, res) => {
-  const { name, description, assigned_to, status, script_id } = req.body;
+  const { name, description, assigned_to, status, script_id, candidate_id } = req.body;
   const validStatuses = ['pending', 'in_progress', 'completed'];
   if (status && !validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be: ' + validStatuses.join(', ') });
   }
-  // Handle script_id separately since COALESCE can't set null
+  // Handle nullable fields separately since COALESCE can't set null
   if (script_id !== undefined) {
     db.prepare('UPDATE block_walks SET script_id = ? WHERE id = ?').run(script_id || null, req.params.id);
+  }
+  if (candidate_id !== undefined) {
+    db.prepare('UPDATE block_walks SET candidate_id = ? WHERE id = ?').run(candidate_id || null, req.params.id);
   }
   const result = db.prepare(
     'UPDATE block_walks SET name = COALESCE(?, name), description = COALESCE(?, description), assigned_to = COALESCE(?, assigned_to), status = COALESCE(?, status) WHERE id = ?'

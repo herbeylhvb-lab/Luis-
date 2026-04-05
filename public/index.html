@@ -992,7 +992,7 @@ tr:hover td{background:#1e293b80}
         </div>
         <div class="card">
           <h3>Walk Lists</h3>
-          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Assigned To</th><th>Status</th><th>Progress</th><th>Actions</th></tr></thead><tbody id="walksBody"></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Campaign</th><th>Assigned To</th><th>Status</th><th>Progress</th><th>Actions</th></tr></thead><tbody id="walksBody"></tbody></table></div>
         </div>
       </div>
       <!-- WALK DETAIL VIEW -->
@@ -1001,6 +1001,7 @@ tr:hover td{background:#1e293b80}
         <div class="card">
           <h3 id="walkDetailName"></h3>
           <div class="form-row" style="margin-bottom:16px">
+            <div><strong style="color:#94a3b8;font-size:13px">Campaign:</strong> <select class="inline-select" id="walkDetailCandidate" onchange="updateWalkCandidate()"><option value="">Unassigned</option></select> <span id="walkCandidateSaveStatus" style="font-size:11px;color:#22c55e;display:none">Saved!</span></div>
             <div><strong style="color:#94a3b8;font-size:13px">Assigned to:</strong> <span id="walkDetailAssign"></span></div>
             <div><strong style="color:#94a3b8;font-size:13px">Status:</strong> <select class="inline-select" id="walkDetailStatus" onchange="updateWalkStatus()"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
             <div><strong style="color:#94a3b8;font-size:13px">Script:</strong> <select class="inline-select" id="walkDetailScript" onchange="updateWalkScript()"><option value="">None</option></select> <span id="walkScriptStatus" style="font-size:11px;color:#22c55e;display:none">Saved!</span></div>
@@ -4912,10 +4913,13 @@ async function loadWalks() {
   populateCandidateDropdown('walkCandidate', null);
   const data = await api('/api/walks');
   const tbody = document.getElementById('walksBody');
-  if (!data.walks || data.walks.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No walks created yet.</td></tr>'; return; }
+  if (!data.walks || data.walks.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No walks created yet.</td></tr>'; return; }
   tbody.innerHTML = data.walks.map(w => {
     const pct = w.totalAddresses > 0 ? Math.round(w.knocked / w.totalAddresses * 100) : 0;
-    return '<tr><td><a href="#" onclick="showWalkDetail(' + w.id + ');return false">' + escHtml(w.name) + '</a></td><td>' + escHtml(w.assigned_to) + '</td><td>' + statusBadge(w.status) + '</td><td><div class="progress-bar" style="width:120px"><div class="progress-fill green" style="width:' + pct + '%"></div></div><span style="font-size:11px;color:#64748b">' + w.knocked + '/' + w.totalAddresses + '</span></td><td><button class="btn btn-danger btn-xs" onclick="deleteWalk(' + w.id + ')">Delete</button></td></tr>';
+    const campaignCell = w.candidate_name
+      ? '<span style="background:#1e3a5f;color:#60a5fa;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">' + escHtml(w.candidate_name) + '</span>'
+      : '<span style="color:#64748b;font-size:11px">Unassigned</span>';
+    return '<tr><td><a href="#" onclick="showWalkDetail(' + w.id + ');return false">' + escHtml(w.name) + '</a></td><td>' + campaignCell + '</td><td>' + escHtml(w.assigned_to) + '</td><td>' + statusBadge(w.status) + '</td><td><div class="progress-bar" style="width:120px"><div class="progress-fill green" style="width:' + pct + '%"></div></div><span style="font-size:11px;color:#64748b">' + w.knocked + '/' + w.totalAddresses + '</span></td><td><button class="btn btn-danger btn-xs" onclick="deleteWalk(' + w.id + ')">Delete</button></td></tr>';
   }).join('');
 }
 
@@ -4925,6 +4929,8 @@ async function loadWalkDetail(id) {
   state.walkAddresses = w.addresses;
   document.getElementById('walkDetailName').textContent = w.name + (w.sandbox ? ' [SANDBOX]' : '');
   document.getElementById('walkDetailAssign').textContent = w.assigned_to || 'Unassigned';
+  // Populate campaign dropdown and select current walk's candidate
+  populateCandidateDropdown('walkDetailCandidate', w.candidate_id);
   document.getElementById('walkDetailStatus').value = w.status;
   // Show sandbox badge
   var sandboxBadge = document.getElementById('walkSandboxBadge');
@@ -5085,6 +5091,13 @@ window.updateDoorNotes = async function(addrId, notes) {
 };
 window.updateWalkStatus = async function() {
   await apiPut('/api/walks/' + state.currentWalkId, { status: document.getElementById('walkDetailStatus').value });
+};
+window.updateWalkCandidate = async function() {
+  var val = document.getElementById('walkDetailCandidate').value;
+  await apiPut('/api/walks/' + state.currentWalkId, { candidate_id: val ? parseInt(val) : null });
+  var status = document.getElementById('walkCandidateSaveStatus');
+  if (status) { status.style.display = ''; setTimeout(function() { status.style.display = 'none'; }, 1500); }
+  if (typeof loadWalks === 'function') loadWalks(); // refresh list tags
 };
 window.updateWalkScript = async function() {
   var scriptId = document.getElementById('walkDetailScript').value;
