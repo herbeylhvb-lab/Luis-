@@ -11685,13 +11685,26 @@ async function populateCandidateDefaultList(candidateId, currentListId) {
   try {
     var data = await api('/api/admin-lists');
     var lists = (data && data.lists) || data || [];
-    lists.filter(function(l) { return l.candidate_id == candidateId; }).forEach(function(l) {
-      var opt = document.createElement('option');
-      opt.value = l.id;
-      opt.textContent = l.name + ' (' + (l.voter_count_with_phone || 0) + ' w/ phone)';
-      if (String(l.id) === String(currentListId)) opt.selected = true;
-      sel.appendChild(opt);
-    });
+    // Show ALL universes — group: candidate's own lists first, then others
+    var own = lists.filter(function(l) { return l.candidate_id == candidateId; });
+    var others = lists.filter(function(l) { return l.candidate_id != candidateId; });
+    var addOpts = function(arr, prefix) {
+      arr.forEach(function(l) {
+        var opt = document.createElement('option');
+        opt.value = l.id;
+        opt.textContent = (prefix || '') + l.name + ' (' + (l.voterCount || l.voter_count_with_phone || 0) + ' voters)';
+        if (String(l.id) === String(currentListId)) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    };
+    addOpts(own, '');
+    if (others.length > 0 && own.length > 0) {
+      var sep = document.createElement('option');
+      sep.disabled = true;
+      sep.textContent = '--- Other Lists ---';
+      sel.appendChild(sep);
+    }
+    addOpts(others, '');
   } catch(e) { console.error('populate default list failed', e); }
 }
 async function showCandidateDetail(id, name, code, raceType, raceValue) {

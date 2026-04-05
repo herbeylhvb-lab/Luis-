@@ -363,15 +363,8 @@ app.get('/api/stats', (req, res) => {
   let voterFilter = '';
   const vParams = [];
 
-  // candidate_id is the primary filter — scopes to voters in candidate's lists OR walks
-  if (candidate_id) {
-    voterFilter += ` AND id IN (
-      SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
-      UNION
-      SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
-    )`;
-    vParams.push(candidate_id, candidate_id);
-  }
+  // Voter scoping: race (district) is the primary geographic filter, list_id narrows further
+  // candidate_id is NOT used for voter scoping — it's only for walk-related queries
   if (race_col && validCols.includes(race_col) && race_val) {
     voterFilter += ` AND ${race_col} = ?`;
     vParams.push(race_val);

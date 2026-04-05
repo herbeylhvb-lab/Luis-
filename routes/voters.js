@@ -1650,17 +1650,13 @@ router.get('/analytics/precincts', (req, res) => {
     UNION
     SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
   )`;
-  // Push raceFilter params first (matches SQL concatenation order)
+  // Voter scoping: race is the primary geographic filter, list_id narrows further.
+  // candidate_id is NOT used for voter/precinct scoping — only for walk queries.
   if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
     raceFilter += ` AND ${race_col} = ?`;
     raceParams.push(race_val);
   }
-  // Then push listFilter params
-  if (candidate_id) {
-    listFilter = ' AND id IN ' + _candVoterSubquery;
-    joinListFilter = ' AND v.id IN ' + _candVoterSubquery;
-    raceParams.push(candidate_id, candidate_id);
-  } else if (list_id) {
+  if (list_id) {
     listFilter = ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     joinListFilter = ' AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     raceParams.push(list_id);
