@@ -1018,7 +1018,8 @@ router.get('/walks/civic-info', async (req, res) => {
 // ?list_id=X filters to voters in an admin_list universe (shows all addresses including unvisited)
 // Without list_id, shows only visited addresses across all walks
 router.get('/walks/all-results-map', (req, res) => {
-  const { list_id } = req.query;
+  const { list_id, race_col, race_val } = req.query;
+  const validDistrictCols = new Set(['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district']);
   let where = 'wa.lat IS NOT NULL AND wa.lng IS NOT NULL';
   const params = [];
 
@@ -1029,6 +1030,12 @@ router.get('/walks/all-results-map', (req, res) => {
   } else {
     // Without universe, only show visited
     where += " AND wa.result != 'not_visited'";
+  }
+
+  // Race/district filter — sandbox results to voters in a specific district
+  if (race_col && validDistrictCols.has(race_col) && race_val) {
+    where += ` AND wa.voter_id IN (SELECT id FROM voters WHERE ${race_col} = ?)`;
+    params.push(race_val);
   }
 
   // Deduplicate by address — show 1 dot per house, not per household member

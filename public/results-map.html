@@ -55,7 +55,27 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/Worl
 var byResult = {};
 var filters = {};
 
-fetch('/api/walks/all-results-map').then(function(r){return r.json()}).then(function(data){
+// Read dashboard filter settings (race/universe) from localStorage to sandbox the map
+function buildMapQueryString() {
+  var parts = [];
+  try {
+    var raw = localStorage.getItem('dashSettings');
+    if (raw) {
+      var saved = JSON.parse(raw);
+      if (saved.race) {
+        var rp = saved.race.split('|');
+        if (rp.length === 2) {
+          parts.push('race_col=' + encodeURIComponent(rp[0]));
+          parts.push('race_val=' + encodeURIComponent(rp[1]));
+        }
+      }
+      if (saved.universe) parts.push('list_id=' + encodeURIComponent(saved.universe));
+    }
+  } catch(e) {}
+  return parts.length ? '?' + parts.join('&') : '';
+}
+
+fetch('/api/walks/all-results-map' + buildMapQueryString()).then(function(r){return r.json()}).then(function(data){
   var addrs = data.addresses || [];
   var stats = data.stats || {};
   var bounds = [];

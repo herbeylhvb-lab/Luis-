@@ -22,6 +22,26 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Authentication required.' });
 }
 
+// Valid district/race columns for filtering (voters table columns).
+// Used across /voters/race-precincts, /voters/all-districts, /voters/district-values,
+// /voters/precinct-counts, and /analytics/precincts.
+const DISTRICT_COLUMNS = [
+  { col: 'navigation_port', label: 'Navigation Port' },
+  { col: 'navigation_district', label: 'Navigation District' },
+  { col: 'port_authority', label: 'Port Authority' },
+  { col: 'county_commissioner', label: 'County Commissioner' },
+  { col: 'justice_of_peace', label: 'Justice of the Peace' },
+  { col: 'state_board_ed', label: 'State Board of Education' },
+  { col: 'state_rep', label: 'State Representative' },
+  { col: 'state_senate', label: 'State Senate' },
+  { col: 'us_congress', label: 'US Congress' },
+  { col: 'city_district', label: 'City' },
+  { col: 'school_district', label: 'School District' },
+  { col: 'college_district', label: 'College District' },
+  { col: 'hospital_district', label: 'Hospital District' }
+];
+const DISTRICT_COLS_SET = new Set(DISTRICT_COLUMNS.map(d => d.col));
+
 // Search/list voters (with engagement scoring)
 router.get('/voters', (req, res) => {
   const { q, party, support, precinct, early_voting, city, zip, address, election, election_exclude } = req.query;
@@ -1024,28 +1044,14 @@ router.get('/voters/race-precincts', (req, res) => {
       precincts: (r.precincts || '').split(',').filter(Boolean)
     }));
   };
-  const races = [
-    ...mapCol('navigation_port', 'Navigation Port'),
-    ...mapCol('port_authority', 'Port Authority'),
-    ...mapCol('city_district', 'City'),
-    ...mapCol('school_district', 'School District'),
-    ...mapCol('college_district', 'College'),
-    ...mapCol('state_rep', 'State Rep'),
-    ...mapCol('state_senate', 'State Senate'),
-    ...mapCol('us_congress', 'US Congress'),
-    ...mapCol('county_commissioner', 'County Commissioner'),
-    ...mapCol('justice_of_peace', 'Justice of the Peace'),
-  ];
+  const races = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
   res.json({ races });
 });
 
 // Get all distinct values for a district column
 router.get('/voters/district-values', (req, res) => {
-  const validCols = ['navigation_port','port_authority','county_commissioner','justice_of_peace',
-    'state_board_ed','state_rep','state_senate','us_congress','city_district',
-    'school_district','college_district','hospital_district'];
   const col = req.query.column;
-  if (!col || !validCols.includes(col)) return res.status(400).json({ error: 'Invalid column. Valid: ' + validCols.join(', ') });
+  if (!col || !DISTRICT_COLS_SET.has(col)) return res.status(400).json({ error: 'Invalid column. Valid: ' + [...DISTRICT_COLS_SET].join(', ') });
 
   const rows = db.prepare(`SELECT ${col} as value, COUNT(*) as count FROM voters WHERE ${col} != '' AND ${col} IS NOT NULL GROUP BY ${col} ORDER BY ${col}`).all();
   res.json({ column: col, values: rows });
@@ -1053,22 +1059,7 @@ router.get('/voters/district-values', (req, res) => {
 
 // Get all district columns with their values for filters
 router.get('/voters/all-districts', (req, res) => {
-  const cols = [
-    { col: 'navigation_port', label: 'Navigation Port' },
-    { col: 'port_authority', label: 'Port Authority' },
-    { col: 'county_commissioner', label: 'County Commissioner' },
-    { col: 'justice_of_peace', label: 'Justice of the Peace' },
-    { col: 'state_board_ed', label: 'State Board of Education' },
-    { col: 'state_rep', label: 'State Representative' },
-    { col: 'state_senate', label: 'State Senate' },
-    { col: 'us_congress', label: 'US Congress' },
-    { col: 'city_district', label: 'City' },
-    { col: 'school_district', label: 'School District' },
-    { col: 'college_district', label: 'College District' },
-    { col: 'hospital_district', label: 'Hospital District' }
-  ];
-
-  const districts = cols.map(c => {
+  const districts = DISTRICT_COLUMNS.map(c => {
     const rows = db.prepare(`SELECT ${c.col} as value, COUNT(*) as count FROM voters WHERE ${c.col} != '' AND ${c.col} IS NOT NULL GROUP BY ${c.col} ORDER BY count DESC`).all();
     return { column: c.col, label: c.label, values: rows };
   }).filter(d => d.values.length > 0);
@@ -1079,13 +1070,12 @@ router.get('/voters/all-districts', (req, res) => {
 // Precinct voter counts with full filter support
 router.get('/voters/precinct-counts', (req, res) => {
   const { race_col, race_val, election, party, party_score, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;
-  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   let sql = "SELECT precinct, COUNT(*) as cnt FROM voters WHERE precinct != '' AND precinct IS NOT NULL";
   const params = [];
 
   // Race/district filter
-  if (race_col && validCols.includes(race_col) && race_val) {
+  if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
     sql += ` AND ${race_col} = ?`;
     params.push(race_val);
   }
@@ -1649,12 +1639,11 @@ router.get('/voters-cities', (req, res) => {
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
   const { race_col, race_val, list_id } = req.query;
-  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
 
   // Build optional race/district filter
   let raceFilter = '';
   const raceParams = [];
-  if (race_col && validCols.includes(race_col) && race_val) {
+  if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
     raceFilter += ` AND ${race_col} = ?`;
     raceParams.push(race_val);
   }

@@ -4295,7 +4295,7 @@ async function syncInboundMessages() {
 // ===================== DASHBOARD =====================
 async function loadDashboard() {
   try {
-    const data = await api('/api/stats');
+    const data = await api('/api/stats' + (typeof getDashFilterParams === 'function' ? getDashFilterParams() : ''));
     document.getElementById('statSent').textContent = data.sent || 0;
     document.getElementById('statResponses').textContent = data.responses || 0;
     document.getElementById('statContacts').textContent = data.contacts || 0;
@@ -15742,9 +15742,9 @@ function getDashFilterParams() {
 }
 
 function applyDashSettings() {
-  loadFilteredDashStats();
+  // Refresh dashboard stats + precinct analytics with current filter
+  loadDashboard();
   loadPrecinctAnalytics();
-  loadDashResultsData();
   // Also refresh GOTV if that page has been loaded
   if (document.getElementById('gotvTotal')) {
     loadGotvStats();

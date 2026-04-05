@@ -355,7 +355,7 @@ const _statsQueryDefault = db.prepare(`
 `);
 app.get('/api/stats', (req, res) => {
   const { race_col, race_val, list_id } = req.query;
-  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
+  const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
 
   // If no filters, use fast prepared statement
   if (!race_col && !list_id) return res.json(_statsQueryDefault.get());
