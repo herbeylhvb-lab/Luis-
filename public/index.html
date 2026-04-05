@@ -928,6 +928,7 @@ tr:hover td{background:#1e293b80}
           </div>
           <button class="btn btn-primary" id="btnCreateWalk">Create Walk</button>
           <button class="btn btn-sm" id="btnCreateFromPrecinct" style="margin-left:8px;background:#7c3aed;color:#fff">&#127968; Create from Precinct</button>
+          <button class="btn btn-sm" id="btnBulkAssignWalks" style="margin-left:8px;background:#f59e0b;color:#0f172a;display:none" onclick="bulkAssignUnassignedWalks()">Tag Unassigned Walks</button>
         </div>
         <!-- Create from Precinct panel -->
         <div class="card" id="precinctWalkCard" style="display:none">
@@ -4910,11 +4911,26 @@ function showWalkDetail(id) { state.currentWalkId = id; document.getElementById(
 window.showWalkList = showWalkList;
 window.showWalkDetail = showWalkDetail;
 
+window.bulkAssignUnassignedWalks = async function() {
+  var candSel = document.getElementById('walkCandidate');
+  var candId = candSel && candSel.value ? candSel.value : '';
+  if (!candId) return alert('Pick a Campaign in the dropdown above first, then click this button.');
+  var candName = candSel.options[candSel.selectedIndex].textContent;
+  if (!confirm('Assign all unassigned walks to "' + candName + '"?')) return;
+  var data = await apiPost('/api/walks/bulk-assign-candidate', { candidate_id: parseInt(candId) });
+  alert('Tagged ' + (data.updated || 0) + ' walk(s) to ' + candName);
+  loadWalks();
+};
 async function loadWalks() {
   // Populate the campaign dropdown on the walk-creation form (once)
   populateCandidateDropdown('walkCandidate', null);
   const data = await api('/api/walks');
   const tbody = document.getElementById('walksBody');
+  // Show bulk-assign button if any walks are unassigned
+  var unassignedCount = (data.walks || []).filter(function(w) { return !w.candidate_id; }).length;
+  var bulkBtn = document.getElementById('btnBulkAssignWalks');
+  if (bulkBtn) bulkBtn.style.display = unassignedCount > 0 ? '' : 'none';
+  if (bulkBtn && unassignedCount > 0) bulkBtn.textContent = 'Tag ' + unassignedCount + ' Unassigned Walk' + (unassignedCount > 1 ? 's' : '');
   if (!data.walks || data.walks.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="color:#64748b;text-align:center">No walks created yet.</td></tr>'; return; }
   tbody.innerHTML = data.walks.map(w => {
     const pct = w.totalAddresses > 0 ? Math.round(w.knocked / w.totalAddresses * 100) : 0;

@@ -380,7 +380,7 @@ app.get('/api/stats', (req, res) => {
   stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${voterFilter}`).get(...vParams).c;
   // Doors knocked — scope by candidate's walks if candidate_id set, else by list_id
   if (candidate_id) {
-    stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE wa.result != 'not_visited' AND (bw.candidate_id = ? OR bw.candidate_id IS NULL)`).get(candidate_id).c;
+    stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE wa.result != 'not_visited' AND bw.candidate_id = ?`).get(candidate_id).c;
   } else if (list_id) {
     stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses WHERE result != 'not_visited' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`).get(list_id).c;
   }
