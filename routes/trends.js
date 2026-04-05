@@ -129,80 +129,54 @@ router.get('/trends/related', async (req, res) => {
   }
 });
 
-// Real-time trending searches
+// "Trending now" — Google deprecated realTimeTrends/dailyTrends (returns 404 HTML).
+// We now derive rising topics from relatedQueries of a seed keyword.
+// The seed defaults to a campaign-relevant politics term and is configurable via ?seed=.
 router.get('/trends/realtime', async (req, res) => {
   try {
-    const { geo } = req.query;
-    const results = await googleTrends.realTimeTrends({
-      geo: geo || 'US',
-      category: 'all'
-    });
-    const parsed = JSON.parse(results);
-    const stories = (parsed.storySummaries?.trendingStories || []).slice(0, 20).map(s => ({
-      title: s.title,
-      entityNames: s.entityNames || [],
-      articles: (s.articles || []).slice(0, 3).map(a => ({
-        title: a.articleTitle,
-        url: a.url,
-        source: a.source,
-        time: a.time
-      }))
+    const seed = req.query.seed || 'election 2026';
+    const geo = req.query.geo || 'US';
+    const results = await withRetry(() => googleTrends.relatedQueries({
+      keyword: seed,
+      startTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      geo
     }));
-
-    res.json({ stories });
+    const parsed = JSON.parse(results);
+    const rising = parsed.default?.rankedList?.[1]?.rankedKeyword || [];
+    const stories = rising.slice(0, 20).map(r => ({
+      title: r.query,
+      entityNames: [],
+      traffic: r.formattedValue || String(r.value || ''),
+      articles: []
+    }));
+    res.json({ stories, seed, source: 'related_rising' });
   } catch (e) {
-    // Google often blocks cloud server IPs — fall back to daily trends
-    console.warn('[trends] Realtime trends failed:', e.message, '— trying daily fallback');
-    try {
-      const daily = await googleTrends.dailyTrends({ trendDate: new Date(), geo: req.query.geo || 'US' });
-      const dp = JSON.parse(daily);
-      const days = dp.default?.trendingSearchesDays || [];
-      const stories = [];
-      days.forEach(day => {
-        (day.trendingSearches || []).slice(0, 15).forEach(s => {
-          stories.push({
-            title: s.title?.query || '',
-            entityNames: [],
-            articles: (s.articles || []).slice(0, 2).map(a => ({ title: a.title, url: a.url, source: a.source, time: '' }))
-          });
-        });
-      });
-      res.json({ stories: stories.slice(0, 20), source: 'daily_fallback' });
-    } catch (e2) {
-      res.status(502).json({ error: 'Google Trends is temporarily unavailable from this server. Try searching a specific topic instead.' });
-    }
+    res.status(502).json({ error: 'Trending topics unavailable. Try a specific search below.' });
   }
 });
 
-// Daily trending searches
+// "Daily trending" — also deprecated by Google.
+// Repurposed to use relatedQueries (top ranked) for most-popular related searches.
 router.get('/trends/daily', async (req, res) => {
   try {
-    const { geo } = req.query;
-    const results = await googleTrends.dailyTrends({
-      trendDate: new Date(),
-      geo: geo || 'US'
-    });
+    const seed = req.query.seed || 'election 2026';
+    const geo = req.query.geo || 'US';
+    const results = await withRetry(() => googleTrends.relatedQueries({
+      keyword: seed,
+      startTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      geo
+    }));
     const parsed = JSON.parse(results);
-    const days = parsed.default?.trendingSearchesDays || [];
-    const searches = [];
-    days.forEach(day => {
-      (day.trendingSearches || []).forEach(s => {
-        searches.push({
-          title: s.title?.query || '',
-          traffic: s.formattedTraffic || '',
-          articles: (s.articles || []).slice(0, 2).map(a => ({
-            title: a.title,
-            url: a.url,
-            source: a.source
-          })),
-          relatedQueries: (s.relatedQueries || []).map(r => r.query).slice(0, 5)
-        });
-      });
-    });
-
-    res.json({ searches: searches.slice(0, 25) });
+    const top = parsed.default?.rankedList?.[0]?.rankedKeyword || [];
+    const searches = top.slice(0, 25).map(r => ({
+      title: r.query,
+      traffic: r.formattedValue || String(r.value || ''),
+      articles: [],
+      relatedQueries: []
+    }));
+    res.json({ searches, seed, source: 'related_top' });
   } catch (e) {
-    res.status(502).json({ error: 'Google Trends is temporarily unavailable. Try again later or search a specific topic.' });
+    res.status(502).json({ error: 'Daily topics unavailable. Try a specific search below.' });
   }
 });
 

@@ -27,7 +27,13 @@ body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFo
 </head><body>
 <div id="header">
   <h1>Block Walk Results Map</h1>
-  <a href="/app">Back to Dashboard</a>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span id="filterChip" style="display:none;background:#1e3a5f;color:#60a5fa;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600">
+      <span id="filterChipText"></span>
+      <button id="clearFiltersBtn" style="background:none;border:none;color:#60a5fa;cursor:pointer;margin-left:6px;font-size:14px;font-weight:700">&times;</button>
+    </span>
+    <a href="/app">Back to Dashboard</a>
+  </div>
 </div>
 <div style="position:relative">
   <div id="map"></div>
@@ -56,26 +62,72 @@ var byResult = {};
 var filters = {};
 
 // Read dashboard filter settings (race/universe) from localStorage to sandbox the map
-function buildMapQueryString() {
-  var parts = [];
+function getDashFilters() {
   try {
     var raw = localStorage.getItem('dashSettings');
-    if (raw) {
-      var saved = JSON.parse(raw);
-      if (saved.race) {
-        var rp = saved.race.split('|');
-        if (rp.length === 2) {
-          parts.push('race_col=' + encodeURIComponent(rp[0]));
-          parts.push('race_val=' + encodeURIComponent(rp[1]));
-        }
-      }
-      if (saved.universe) parts.push('list_id=' + encodeURIComponent(saved.universe));
+    if (!raw) return null;
+    var saved = JSON.parse(raw);
+    var out = {};
+    if (saved.race) {
+      var rp = saved.race.split('|');
+      if (rp.length === 2) { out.race_col = rp[0]; out.race_val = rp[1]; }
     }
-  } catch(e) {}
+    if (saved.universe) out.list_id = saved.universe;
+    return (out.race_col || out.list_id) ? out : null;
+  } catch(e) { return null; }
+}
+function buildMapQueryString(f) {
+  if (!f) return '';
+  var parts = [];
+  if (f.race_col) { parts.push('race_col=' + encodeURIComponent(f.race_col)); parts.push('race_val=' + encodeURIComponent(f.race_val)); }
+  if (f.list_id) parts.push('list_id=' + encodeURIComponent(f.list_id));
   return parts.length ? '?' + parts.join('&') : '';
 }
+function renderFilterChip(f) {
+  var chip = document.getElementById('filterChip');
+  var txt = document.getElementById('filterChipText');
+  if (!f) { chip.style.display = 'none'; return; }
+  var parts = [];
+  if (f.race_col) parts.push('🔒 ' + f.race_col.replace(/_/g,' ') + ': ' + f.race_val);
+  if (f.list_id) parts.push('🎯 Universe #' + f.list_id);
+  txt.textContent = parts.join('  •  ');
+  chip.style.display = '';
+}
+document.getElementById('clearFiltersBtn').addEventListener('click', function() {
+  localStorage.removeItem('dashSettings');
+  location.reload();
+});
 
-fetch('/api/walks/all-results-map' + buildMapQueryString()).then(function(r){return r.json()}).then(function(data){
+function loadMap(filters) {
+  renderFilterChip(filters);
+  return fetch('/api/walks/all-results-map' + buildMapQueryString(filters)).then(function(r){return r.json()});
+}
+
+var activeFilters = getDashFilters();
+var filtersFellBack = false;
+loadMap(activeFilters).then(function(data){
+  // If filtered query returns nothing, auto-retry without filters so the map isn't empty
+  if ((!data.addresses || data.addresses.length === 0) && activeFilters) {
+    console.warn('[map] No results with dashboard filter — falling back to unfiltered view');
+    filtersFellBack = true;
+    var staleFilters = activeFilters;
+    activeFilters = null;
+    return loadMap(null).then(function(d) {
+      // Show a notice that we fell back
+      var chip = document.getElementById('filterChip');
+      var txt = document.getElementById('filterChipText');
+      chip.style.background = '#7f1d1d';
+      chip.style.color = '#fca5a5';
+      var parts = [];
+      if (staleFilters.race_col) parts.push(staleFilters.race_col.replace(/_/g,' ') + ': ' + staleFilters.race_val);
+      if (staleFilters.list_id) parts.push('Universe #' + staleFilters.list_id);
+      txt.textContent = '⚠ Filter (' + parts.join(' / ') + ') had 0 matches — showing all';
+      chip.style.display = '';
+      return d;
+    });
+  }
+  return data;
+}).then(function(data){
   var addrs = data.addresses || [];
   var stats = data.stats || {};
   var bounds = [];
