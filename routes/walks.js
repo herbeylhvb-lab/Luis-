@@ -617,10 +617,11 @@ router.get('/walks/daily-report', (req, res) => {
   const targetDate = date || centralNow.toISOString().split('T')[0];
 
   // Optional candidate filter
+  // Include unassigned walks (NULL candidate_id) alongside the selected candidate
   const cJoin = candidate_id ? ' JOIN block_walks bw ON walk_attempts.walk_id = bw.id' : '';
-  const cWhere = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const cWhere = candidate_id ? ' AND (bw.candidate_id = ? OR bw.candidate_id IS NULL)' : '';
   const cJoinWa = candidate_id ? ' JOIN block_walks bw ON wa.walk_id = bw.id' : '';
-  const cWhereWa = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const cWhereWa = candidate_id ? ' AND (bw.candidate_id = ? OR bw.candidate_id IS NULL)' : '';
   const cParam = candidate_id ? [candidate_id] : [];
 
   // Per-walker stats for the selected day
@@ -698,7 +699,7 @@ router.get('/walks/daily-report', (req, res) => {
       (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
     LEFT JOIN block_walks bw2 ON wa.walk_id = bw2.id
-    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?${candidate_id ? ' AND bw2.candidate_id = ?' : ''}
+    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?${candidate_id ? ' AND (bw2.candidate_id = ? OR bw2.candidate_id IS NULL)' : ''}
     GROUP BY wa.walk_id
     ORDER BY doors DESC
   `).all(targetDate, ...cParam);
@@ -732,9 +733,10 @@ router.get('/walks/weekly-hours', (req, res) => {
   weekEnd.setDate(weekEnd.getDate() + 7);
   const weekEndStr = weekEnd.toISOString().split('T')[0];
 
-  // Optional candidate filter — JOIN block_walks to scope by candidate
+  // Optional candidate filter — JOIN block_walks to scope by candidate.
+  // Also include unassigned walks (NULL candidate_id) so no data is hidden.
   const candidateJoin = candidate_id ? ' JOIN block_walks bw ON wa.walk_id = bw.id' : '';
-  const candidateWhere = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const candidateWhere = candidate_id ? ' AND (bw.candidate_id = ? OR bw.candidate_id IS NULL)' : '';
   const baseParams = candidate_id ? [weekOf, weekEndStr, candidate_id] : [weekOf, weekEndStr];
 
   const rows = db.prepare(`
@@ -1038,7 +1040,7 @@ router.get('/walks/all-results-map', (req, res) => {
 
   // candidate_id is the primary scope — shows ONLY walks tagged to this candidate
   if (candidate_id) {
-    where += ' AND bw.candidate_id = ?';
+    where += ' AND (bw.candidate_id = ? OR bw.candidate_id IS NULL)';
     params.push(candidate_id);
     // Show all addresses (including unvisited) so user sees full walk coverage
     // Note: no "not_visited" filter when candidate is scoped
