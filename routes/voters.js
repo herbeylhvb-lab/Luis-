@@ -1650,23 +1650,33 @@ router.get('/analytics/precincts', (req, res) => {
     UNION
     SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
   )`;
-  // Params pushed in SQL concatenation order: raceFilter first, then listFilter
+  // Two filter tracks:
+  // 1. territoryFilter (race only) — shows ALL precincts in the district
+  // 2. engagementFilter (candidate's lists+walks) — shows only this candidate's work
+  const territoryParams = [];
+  let territoryFilter = '';
   if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
-    raceFilter += ` AND ${race_col} = ?`;
-    raceParams.push(race_val);
+    territoryFilter = ` AND ${race_col} = ?`;
+    territoryParams.push(race_val);
   }
-  // list_id > candidate_id for voter scoping (list_id is most specific)
   if (list_id) {
-    listFilter = ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
-    joinListFilter = ' AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
-    raceParams.push(list_id);
-  } else if (candidate_id) {
-    listFilter = ' AND id IN ' + _candVoterSubquery;
-    joinListFilter = ' AND v.id IN ' + _candVoterSubquery;
-    raceParams.push(candidate_id, candidate_id);
+    territoryFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    territoryParams.push(list_id);
   }
 
-  // Get all precincts with voter counts and party breakdown
+  // Engagement filter — scopes touchpoints/doors to THIS candidate only
+  let engFilter = territoryFilter; // start with race scope
+  let joinEngFilter = territoryFilter.replace(/\bid\b/g, 'v.id'); // v. alias version
+  const engParams = [...territoryParams];
+  if (candidate_id) {
+    const candScope = ` AND id IN ${_candVoterSubquery}`;
+    const candJoinScope = ` AND v.id IN ${_candVoterSubquery}`;
+    engFilter += candScope;
+    joinEngFilter += candJoinScope;
+    engParams.push(candidate_id, candidate_id);
+  }
+
+  // Precincts: ALL in territory (so user sees what's NOT been worked too)
   const precinctRows = db.prepare(`
     SELECT precinct,
       COUNT(*) as total_voters,
@@ -1675,45 +1685,56 @@ router.get('/analytics/precincts', (req, res) => {
       SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other,
       SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
       SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
-    FROM voters WHERE precinct != ''${raceFilter}${listFilter}
+    FROM voters WHERE precinct != ''${territoryFilter}
     GROUP BY precinct ORDER BY precinct
-  `).all(...raceParams);
+  `).all(...territoryParams);
 
-  // Compute touchpoints per precinct using JOINs (scalable to 300K+)
+  // Touchpoints: scoped to candidate (so each candidate sees only THEIR engagement)
   const contactsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vc.id) as c FROM voter_contacts vc
-    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != ''${raceFilter}${joinListFilter}
+    JOIN voters v ON vc.voter_id = v.id WHERE v.precinct != ''${joinEngFilter}
     GROUP BY v.precinct
-  `).all(...raceParams);
+  `).all(...engParams);
   const contactMap = {};
   for (const r of contactsByPct) contactMap[r.precinct] = r.c;
 
   const checkinsByPct = db.prepare(`
     SELECT v.precinct, COUNT(vck.id) as c FROM voter_checkins vck
-    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != ''${raceFilter}${joinListFilter}
+    JOIN voters v ON vck.voter_id = v.id WHERE v.precinct != ''${joinEngFilter}
     GROUP BY v.precinct
-  `).all(...raceParams);
+  `).all(...engParams);
   const checkinMap = {};
   for (const r of checkinsByPct) checkinMap[r.precinct] = r.c;
 
   const captainByPct = db.prepare(`
     SELECT v.precinct, COUNT(clv.id) as c FROM captain_list_voters clv
-    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != ''${raceFilter}${joinListFilter}
+    JOIN voters v ON clv.voter_id = v.id WHERE v.precinct != ''${joinEngFilter}
     GROUP BY v.precinct
-  `).all(...raceParams);
+  `).all(...engParams);
   const captainMap = {};
   for (const r of captainByPct) captainMap[r.precinct] = r.c;
 
-  // Walk universe progress by precinct — count unique houses (address+unit), not voter rows
+  // Doors: scoped to candidate's walks specifically
+  let doorsFilter = "v.precinct != ''";
+  const doorsParams = [];
+  if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
+    doorsFilter += ` AND v.${race_col} = ?`;
+    doorsParams.push(race_val);
+  }
+  if (candidate_id) {
+    doorsFilter += ' AND bw.candidate_id = ?';
+    doorsParams.push(candidate_id);
+  }
   const doorsByPct = db.prepare(`
     SELECT v.precinct,
       COUNT(DISTINCT LOWER(TRIM(wa.address)) || '||' || LOWER(TRIM(COALESCE(wa.unit, ''))) || '||' || wa.walk_id) as total_doors,
       COUNT(DISTINCT CASE WHEN wa.result != 'not_visited' THEN LOWER(TRIM(wa.address)) || '||' || LOWER(TRIM(COALESCE(wa.unit, ''))) || '||' || wa.walk_id END) as knocked_doors
     FROM walk_addresses wa
     JOIN voters v ON wa.voter_id = v.id
-    WHERE v.precinct != ''${raceFilter}${joinListFilter}
+    JOIN block_walks bw ON wa.walk_id = bw.id
+    WHERE ${doorsFilter}
     GROUP BY v.precinct
-  `).all(...raceParams);
+  `).all(...doorsParams);
   const doorsMap = {};
   for (const r of doorsByPct) doorsMap[r.precinct] = r;
 
