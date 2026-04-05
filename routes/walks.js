@@ -610,31 +610,39 @@ function buildVotingHistorySQL(filters, params) {
 // ===================== DAILY REPORT (must be before /walks/:id) =====================
 router.get('/walks/daily-report', (req, res) => {
   const date = req.query.date; // YYYY-MM-DD, defaults to today
+  const candidate_id = req.query.candidate_id || null;
   // Default to today in Central Time (UTC-6), not UTC
   const now = new Date();
   const centralNow = new Date(now.getTime() - 6 * 60 * 60 * 1000);
   const targetDate = date || centralNow.toISOString().split('T')[0];
 
+  // Optional candidate filter
+  const cJoin = candidate_id ? ' JOIN block_walks bw ON walk_attempts.walk_id = bw.id' : '';
+  const cWhere = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const cJoinWa = candidate_id ? ' JOIN block_walks bw ON wa.walk_id = bw.id' : '';
+  const cWhereWa = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const cParam = candidate_id ? [candidate_id] : [];
+
   // Per-walker stats for the selected day
   const walkers = db.prepare(`
     SELECT
-      walker_name as name,
+      walk_attempts.walker_name as name,
       COUNT(*) as doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
-      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
-      SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as undecided,
-      SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as oppose,
-      SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as lean_oppose,
-      SUM(CASE WHEN result = 'refused' THEN 1 ELSE 0 END) as refused,
-      SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as not_home,
-      MIN(attempted_at) as first_knock,
-      MAX(attempted_at) as last_knock,
-      COUNT(DISTINCT walk_id) as walks_worked
-    FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ?
-    GROUP BY walker_name
+      SUM(CASE WHEN walk_attempts.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN walk_attempts.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
+      SUM(CASE WHEN walk_attempts.result = 'undecided' THEN 1 ELSE 0 END) as undecided,
+      SUM(CASE WHEN walk_attempts.result = 'oppose' THEN 1 ELSE 0 END) as oppose,
+      SUM(CASE WHEN walk_attempts.result = 'lean_oppose' THEN 1 ELSE 0 END) as lean_oppose,
+      SUM(CASE WHEN walk_attempts.result = 'refused' THEN 1 ELSE 0 END) as refused,
+      SUM(CASE WHEN walk_attempts.result = 'not_home' THEN 1 ELSE 0 END) as not_home,
+      MIN(walk_attempts.attempted_at) as first_knock,
+      MAX(walk_attempts.attempted_at) as last_knock,
+      COUNT(DISTINCT walk_attempts.walk_id) as walks_worked
+    FROM walk_attempts${cJoin}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') = ?${cWhere}
+    GROUP BY walk_attempts.walker_name
     ORDER BY doors DESC
-  `).all(targetDate);
+  `).all(targetDate, ...cParam);
 
   for (const w of walkers) {
     w.contact_rate = w.doors > 0 ? Math.round(w.contacts / w.doors * 100) : 0;
@@ -650,59 +658,59 @@ router.get('/walks/daily-report', (req, res) => {
   const totals = db.prepare(`
     SELECT
       COUNT(*) as total_doors,
-      COUNT(DISTINCT address_id) as unique_addresses,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as total_contacts,
-      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
-      SUM(CASE WHEN result = 'undecided' THEN 1 ELSE 0 END) as total_undecided,
-      SUM(CASE WHEN result = 'oppose' THEN 1 ELSE 0 END) as total_oppose,
-      SUM(CASE WHEN result = 'lean_oppose' THEN 1 ELSE 0 END) as total_lean_oppose,
-      SUM(CASE WHEN result = 'not_home' THEN 1 ELSE 0 END) as total_not_home,
-      COUNT(DISTINCT walker_name) as total_walkers,
-      COUNT(DISTINCT walk_id) as total_walks
-    FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ?
-  `).get(targetDate);
+      COUNT(DISTINCT walk_attempts.address_id) as unique_addresses,
+      SUM(CASE WHEN walk_attempts.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as total_contacts,
+      SUM(CASE WHEN walk_attempts.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as total_supporters,
+      SUM(CASE WHEN walk_attempts.result = 'undecided' THEN 1 ELSE 0 END) as total_undecided,
+      SUM(CASE WHEN walk_attempts.result = 'oppose' THEN 1 ELSE 0 END) as total_oppose,
+      SUM(CASE WHEN walk_attempts.result = 'lean_oppose' THEN 1 ELSE 0 END) as total_lean_oppose,
+      SUM(CASE WHEN walk_attempts.result = 'not_home' THEN 1 ELSE 0 END) as total_not_home,
+      COUNT(DISTINCT walk_attempts.walker_name) as total_walkers,
+      COUNT(DISTINCT walk_attempts.walk_id) as total_walks
+    FROM walk_attempts${cJoin}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') = ?${cWhere}
+  `).get(targetDate, ...cParam);
   totals.contact_rate = totals.total_doors > 0 ? Math.round(totals.total_contacts / totals.total_doors * 100) : 0;
 
   // Day-over-day history (last 30 days with activity)
   const history = db.prepare(`
     SELECT
-      date(attempted_at, '-6 hours') as day,
+      date(walk_attempts.attempted_at, '-6 hours') as day,
       COUNT(*) as doors,
-      SUM(CASE WHEN result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
-      SUM(CASE WHEN result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
-      COUNT(DISTINCT walker_name) as walkers
-    FROM walk_attempts
-    WHERE walker_name != ''
-    GROUP BY date(attempted_at, '-6 hours')
+      SUM(CASE WHEN walk_attempts.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
+      SUM(CASE WHEN walk_attempts.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
+      COUNT(DISTINCT walk_attempts.walker_name) as walkers
+    FROM walk_attempts${cJoin}
+    WHERE walk_attempts.walker_name != ''${cWhere}
+    GROUP BY date(walk_attempts.attempted_at, '-6 hours')
     ORDER BY day DESC
     LIMIT 30
-  `).all();
+  `).all(...cParam);
 
   // Per-walk breakdown for the day
   const walkBreakdown = db.prepare(`
     SELECT
       wa.walk_id,
-      bw.name as walk_name,
+      bw2.name as walk_name,
       COUNT(*) as doors,
       SUM(CASE WHEN wa.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN wa.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
-    LEFT JOIN block_walks bw ON wa.walk_id = bw.id
-    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?
+    LEFT JOIN block_walks bw2 ON wa.walk_id = bw2.id
+    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?${candidate_id ? ' AND bw2.candidate_id = ?' : ''}
     GROUP BY wa.walk_id
     ORDER BY doors DESC
-  `).all(targetDate);
+  `).all(targetDate, ...cParam);
 
   // Available dates (days with any activity)
   const activeDays = db.prepare(`
-    SELECT DISTINCT date(attempted_at, '-6 hours') as day
-    FROM walk_attempts
-    WHERE walker_name != ''
+    SELECT DISTINCT date(walk_attempts.attempted_at, '-6 hours') as day
+    FROM walk_attempts${cJoin}
+    WHERE walk_attempts.walker_name != ''${cWhere}
     ORDER BY day DESC
     LIMIT 90
-  `).all().map(r => r.day);
+  `).all(...cParam).map(r => r.day);
 
   res.json({ date: targetDate, walkers, totals, history: history.reverse(), walkBreakdown, activeDays });
 });
@@ -717,26 +725,31 @@ router.get('/walks/weekly-hours', (req, res) => {
   const defaultMonday = new Date(central);
   defaultMonday.setDate(central.getDate() + diffToMon);
   const weekOf = req.query.week_of || defaultMonday.toISOString().split('T')[0];
+  const candidate_id = req.query.candidate_id || null;
 
   // Get all knocks for the 7-day window (Mon-Sun), excluding knocks after 20:30 Central
-  // Central Time = UTC-6, so 20:30 Central = time(attempted_at, '-6 hours') <= '20:30'
   const weekEnd = new Date(weekOf);
   weekEnd.setDate(weekEnd.getDate() + 7);
   const weekEndStr = weekEnd.toISOString().split('T')[0];
 
+  // Optional candidate filter — JOIN block_walks to scope by candidate
+  const candidateJoin = candidate_id ? ' JOIN block_walks bw ON wa.walk_id = bw.id' : '';
+  const candidateWhere = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const baseParams = candidate_id ? [weekOf, weekEndStr, candidate_id] : [weekOf, weekEndStr];
+
   const rows = db.prepare(`
     SELECT
-      walker_name,
-      date(attempted_at, '-6 hours') as knock_date,
-      time(attempted_at, '-6 hours') as knock_time,
-      attempted_at
-    FROM walk_attempts
-    WHERE walker_name != ''
-      AND date(attempted_at, '-6 hours') >= ?
-      AND date(attempted_at, '-6 hours') < ?
-      AND time(attempted_at, '-6 hours') <= '20:30:00'
-    ORDER BY walker_name, attempted_at
-  `).all(weekOf, weekEndStr);
+      wa.walker_name,
+      date(wa.attempted_at, '-6 hours') as knock_date,
+      time(wa.attempted_at, '-6 hours') as knock_time,
+      wa.attempted_at
+    FROM walk_attempts wa${candidateJoin}
+    WHERE wa.walker_name != ''
+      AND date(wa.attempted_at, '-6 hours') >= ?
+      AND date(wa.attempted_at, '-6 hours') < ?
+      AND time(wa.attempted_at, '-6 hours') <= '20:30:00'${candidateWhere}
+    ORDER BY wa.walker_name, wa.attempted_at
+  `).all(...baseParams);
 
   // Group by walker + day, find first/last knock per day
   const walkerDays = {}; // { walkerName: { 'YYYY-MM-DD': { first, last } } }

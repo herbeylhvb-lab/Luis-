@@ -1138,7 +1138,8 @@ tr:hover td{background:#1e293b80}
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
             <h3 style="margin-bottom:0">Daily Block Walk Report</h3>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="dailyReportCampaign" onchange="loadDailyReport()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px"><option value="">All Campaigns</option></select>
               <button class="btn btn-xs btn-secondary" onclick="shiftDailyDate(-1)">&larr; Prev Day</button>
               <input type="date" id="dailyReportDate" onchange="loadDailyReport()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px">
               <button class="btn btn-xs btn-secondary" onclick="shiftDailyDate(1)">Next Day &rarr;</button>
@@ -1198,7 +1199,8 @@ tr:hover td{background:#1e293b80}
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
             <h3 style="margin-bottom:0">Weekly Walker Hours</h3>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="weeklyHoursCampaign" onchange="loadWeeklyHours()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px"><option value="">All Campaigns</option></select>
               <button class="btn btn-xs btn-secondary" onclick="shiftWeek(-1)">&larr; Prev Week</button>
               <select id="weeklyWeekSelect" onchange="loadWeeklyHours()" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px"></select>
               <button class="btn btn-xs btn-secondary" onclick="shiftWeek(1)">Next Week &rarr;</button>
@@ -6090,10 +6092,21 @@ document.querySelectorAll('#walkSubTabs .sub-tab').forEach(function(tab) {
 
 // ===================== WEEKLY HOURS =====================
 var _weeklyWeeksLoaded = false;
+var _weeklyCampaignLoaded = false;
 async function loadWeeklyHours() {
+  // Populate campaign dropdown once
+  if (!_weeklyCampaignLoaded) {
+    populateCandidateDropdown('weeklyHoursCampaign', null, 'All Campaigns');
+    _weeklyCampaignLoaded = true;
+  }
   var sel = document.getElementById('weeklyWeekSelect');
   var weekOf = sel.value || '';
-  var url = '/api/walks/weekly-hours' + (weekOf ? '?week_of=' + weekOf : '');
+  var candSel = document.getElementById('weeklyHoursCampaign');
+  var candId = candSel && candSel.value ? candSel.value : '';
+  var params = [];
+  if (weekOf) params.push('week_of=' + weekOf);
+  if (candId) params.push('candidate_id=' + encodeURIComponent(candId));
+  var url = '/api/walks/weekly-hours' + (params.length ? '?' + params.join('&') : '');
   try {
     var data = await api(url);
     // Populate week selector on first load
@@ -6659,14 +6672,23 @@ function shiftDailyDate(delta) {
   loadDailyReport();
 }
 
+var _dailyCampaignLoaded = false;
 async function loadDailyReport() {
+  if (!_dailyCampaignLoaded) {
+    populateCandidateDropdown('dailyReportCampaign', null, 'All Campaigns');
+    _dailyCampaignLoaded = true;
+  }
   var date = document.getElementById('dailyReportDate').value;
   if (!date) return;
   var label = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   document.getElementById('dailyDateLabel').textContent = label;
   document.getElementById('dailyDateLabel2').textContent = label;
+  var candSel = document.getElementById('dailyReportCampaign');
+  var candId = candSel && candSel.value ? candSel.value : '';
+  var params = ['date=' + date];
+  if (candId) params.push('candidate_id=' + encodeURIComponent(candId));
   try {
-    var data = await api('/api/walks/daily-report?date=' + date);
+    var data = await api('/api/walks/daily-report?' + params.join('&'));
     var t = data.totals || {};
     // Day totals cards
     document.getElementById('dailyTotals').innerHTML =
