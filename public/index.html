@@ -15726,12 +15726,24 @@ async function loadLeaderboard() {
 // PRECINCT RACE FILTER — populate dropdown from race-precincts API
 // ═══════════════════════════════════════════════════════════
 
-async function loadDashFilters() {
-  // Populate Campaign dropdown from active candidates
+// Clear all options from a <select> except the first placeholder (keeps "All Voters"/"All Walks"/"All Campaigns")
+function _clearDashDropdown(sel) {
+  if (!sel) return;
+  while (sel.options.length > 1) sel.remove(1);
+}
+
+// Guard so we don't refetch candidates/races/universes on every filter change —
+// only rebuild when explicitly requested or if dropdown is empty.
+var _dashFiltersLoaded = false;
+async function loadDashFilters(force) {
+  if (_dashFiltersLoaded && !force) return;
+  // Populate Campaign dropdown from active candidates (dedupe by id just in case)
   try {
     var cData = await api('/api/candidates');
     var cSel = document.getElementById('dashCandidateFilter');
-    (cData && cData.candidates || []).filter(function(c) { return c.is_active; }).forEach(function(c) {
+    _clearDashDropdown(cSel);
+    var seen = {};
+    (cData && cData.candidates || []).filter(function(c) { return c.is_active && !seen[c.id] && (seen[c.id] = true); }).forEach(function(c) {
       var opt = document.createElement('option');
       opt.value = c.id;
       var raceLabel = c.race_type && c.race_value ? ' (' + c.race_type.replace(/_/g,' ') + ':' + c.race_value + ')' : '';
@@ -15739,30 +15751,38 @@ async function loadDashFilters() {
       cSel.appendChild(opt);
     });
   } catch (e) {}
-  // Populate race/district dropdown
+  // Populate race/district dropdown (dedupe by value)
   try {
     var data = await api('/api/voters/race-precincts');
     var sel = document.getElementById('dashRaceFilter');
+    _clearDashDropdown(sel);
+    var seenRaces = {};
     (data.races || []).filter(function(r) { return r.precincts && r.precincts.length > 0; }).forEach(function(r) {
+      var v = r.type + '|' + r.district;
+      if (seenRaces[v]) return;
+      seenRaces[v] = true;
       var opt = document.createElement('option');
-      opt.value = r.type + '|' + r.district;
+      opt.value = v;
       opt.textContent = r.race;
       sel.appendChild(opt);
     });
   } catch (e) {}
-  // Populate universe dropdown from My Universes (admin_lists with list_type=universe)
+  // Populate universe dropdown from My Universes (dedupe by id)
   try {
     var uData = await api('/api/admin-lists');
     var uSel = document.getElementById('dashUniverseFilter');
+    _clearDashDropdown(uSel);
     var universes = (uData.lists || []).filter(function(l) { return l.list_type === 'universe'; });
     if (universes.length === 0) universes = uData.lists || []; // fallback to all lists
-    universes.forEach(function(u) {
+    var seenU = {};
+    universes.filter(function(u) { return !seenU[u.id] && (seenU[u.id] = true); }).forEach(function(u) {
       var opt = document.createElement('option');
       opt.value = u.id;
-      opt.textContent = u.name + ' (' + u.voterCount + ' voters)';
+      opt.textContent = u.name + ' (' + (u.voterCount || 0) + ' voters)';
       uSel.appendChild(opt);
     });
   } catch (e) {}
+  _dashFiltersLoaded = true;
   // Restore saved dashboard settings
   restoreDashLock();
 }
