@@ -11626,13 +11626,27 @@ async function saveCandidateDefaultList() {
   } catch (e) { alert('Error saving default universe: ' + (e.message || e)); }
 }
 // Populate any <select> with active candidates (used by walk forms, dashboard, etc.)
+// Cache candidates list so multiple dropdowns don't each fire their own fetch
+var _candidateListCache = null;
+var _candidateListCacheAt = 0;
+async function _getCandidateList() {
+  // Cache for 30 seconds to avoid duplicate fetches
+  if (_candidateListCache && Date.now() - _candidateListCacheAt < 30000) return _candidateListCache;
+  var data = await api('/api/candidates');
+  _candidateListCache = (data && data.candidates || []).filter(function(c) { return c.is_active; });
+  _candidateListCacheAt = Date.now();
+  return _candidateListCache;
+}
 async function populateCandidateDropdown(selectId, selectedId, placeholderLabel) {
   var sel = document.getElementById(selectId);
   if (!sel) return;
   sel.innerHTML = '<option value="">' + (placeholderLabel || 'Unassigned') + '</option>';
   try {
-    var data = await api('/api/candidates');
-    (data && data.candidates || []).filter(function(c) { return c.is_active; }).forEach(function(c) {
+    var candidates = await _getCandidateList();
+    var seen = {};
+    candidates.forEach(function(c) {
+      if (seen[c.id]) return;
+      seen[c.id] = true;
       var opt = document.createElement('option');
       opt.value = c.id;
       var raceLabel = c.race_type && c.race_value ? ' (' + c.race_type.replace(/_/g,' ') + ':' + c.race_value + ')' : '';
