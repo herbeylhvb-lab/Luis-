@@ -129,10 +129,14 @@ router.get('/gotv/stats', (req, res) => {
 
   let raceFilter = '';
   const raceParams = [];
-  // candidate_id = primary scope to candidate's voters
+  // candidate_id = primary scope to candidate's voters (from lists + walks)
   if (candidate_id) {
-    raceFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
-    raceParams.push(candidate_id);
+    raceFilter += ` AND id IN (
+      SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+      UNION
+      SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+    )`;
+    raceParams.push(candidate_id, candidate_id);
   }
   if (race_col && validCols.includes(race_col) && race_val) {
     raceFilter += ` AND ${race_col} = ?`;
