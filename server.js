@@ -380,13 +380,18 @@ app.get('/api/stats', (req, res) => {
     voterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     vParams.push(list_id);
   }
-  // Supporter scoping: list_id (specific universe) > candidate's all lists > no filter
+  // Supporter scoping: list_id (specific universe) > candidate's lists+walks > no filter
   if (list_id) {
     supporterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     sParams.push(list_id);
   } else if (candidate_id) {
-    supporterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
-    sParams.push(candidate_id);
+    // Include voters from candidate's admin_lists AND voters touched by candidate's walks
+    supporterFilter += ` AND id IN (
+      SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+      UNION
+      SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+    )`;
+    sParams.push(candidate_id, candidate_id);
   }
 
   const stats = _statsQueryDefault.get();
