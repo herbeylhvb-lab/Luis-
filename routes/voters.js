@@ -1676,18 +1676,33 @@ router.get('/analytics/precincts', (req, res) => {
     engParams.push(candidate_id, candidate_id);
   }
 
-  // Precincts: ALL in territory (so user sees what's NOT been worked too)
+  // Precincts: ALL in territory (voter counts, party from whole district)
   const precinctRows = db.prepare(`
     SELECT precinct,
       COUNT(*) as total_voters,
       SUM(CASE WHEN party = 'D' THEN 1 ELSE 0 END) as dem,
       SUM(CASE WHEN party = 'R' THEN 1 ELSE 0 END) as rep,
-      SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other,
-      SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
-      SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
+      SUM(CASE WHEN party NOT IN ('D','R') OR party = '' THEN 1 ELSE 0 END) as other
     FROM voters WHERE precinct != ''${territoryFilter}
     GROUP BY precinct ORDER BY precinct
   `).all(...territoryParams);
+  // Set default values
+  for (const p of precinctRows) { p.supporters = 0; p.undecided = 0; }
+
+  // Supporters/undecided: scoped to candidate's voters (no cross-contamination)
+  const supportByPct = db.prepare(`
+    SELECT precinct,
+      SUM(CASE WHEN support_level IN ('strong_support','lean_support') THEN 1 ELSE 0 END) as supporters,
+      SUM(CASE WHEN support_level = 'undecided' THEN 1 ELSE 0 END) as undecided
+    FROM voters WHERE precinct != ''${engFilter}
+    GROUP BY precinct
+  `).all(...engParams);
+  const supportMap = {};
+  for (const r of supportByPct) supportMap[r.precinct] = r;
+  for (const p of precinctRows) {
+    const s = supportMap[p.precinct];
+    if (s) { p.supporters = s.supporters; p.undecided = s.undecided; }
+  }
 
   // Touchpoints: scoped to candidate (so each candidate sees only THEIR engagement)
   const contactsByPct = db.prepare(`
