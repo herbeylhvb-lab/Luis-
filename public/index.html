@@ -4354,7 +4354,9 @@ async function loadDashboard() {
 var _liveWalkerInterval = null;
 async function loadLiveWalkers() {
   try {
-    var data = await api('/api/stats/live-walkers');
+    var candSel = document.getElementById('dashCandidateFilter');
+    var candParam = candSel && candSel.value ? '?candidate_id=' + encodeURIComponent(candSel.value) : '';
+    var data = await api('/api/stats/live-walkers' + candParam);
     var dot = document.getElementById('liveWalkerDot');
     var summary = document.getElementById('liveWalkerSummary');
     var content = document.getElementById('liveWalkersContent');

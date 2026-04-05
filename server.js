@@ -443,8 +443,12 @@ app.get('/api/stats/sentiment', (req, res) => {
 
 // --- Live walkers across all walks (aggregated per walker) ---
 app.get('/api/stats/live-walkers', (req, res) => {
-  // Get all walks that have group members
-  const walks = db.prepare("SELECT id, name, status FROM block_walks WHERE id IN (SELECT DISTINCT walk_id FROM walk_group_members)").all();
+  const { candidate_id } = req.query;
+  // Get walks that have group members (filtered by candidate if set)
+  const walkSql = candidate_id
+    ? "SELECT id, name, status FROM block_walks WHERE candidate_id = ? AND id IN (SELECT DISTINCT walk_id FROM walk_group_members)"
+    : "SELECT id, name, status FROM block_walks WHERE id IN (SELECT DISTINCT walk_id FROM walk_group_members)";
+  const walks = candidate_id ? db.prepare(walkSql).all(candidate_id) : db.prepare(walkSql).all();
   const walkMap = {};
   for (const w of walks) walkMap[w.id] = w;
 
@@ -512,12 +516,15 @@ app.get('/api/stats/live-walkers', (req, res) => {
   const now = new Date();
   const central = new Date(now.getTime() - 6 * 60 * 60 * 1000);
   const todayStr = central.toISOString().split('T')[0];
+  const cJoin = candidate_id ? ' JOIN block_walks bw ON walk_attempts.walk_id = bw.id' : '';
+  const cWhere = candidate_id ? ' AND bw.candidate_id = ?' : '';
+  const cP = candidate_id ? [candidate_id] : [];
   const todayRows = db.prepare(`
-    SELECT walker_name, MIN(attempted_at) as first_knock, MAX(attempted_at) as last_knock, COUNT(*) as doors
-    FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at, '-6 hours') = ? AND time(attempted_at, '-6 hours') <= '20:30:00'
-    GROUP BY walker_name
-  `).all(todayStr);
+    SELECT walk_attempts.walker_name, MIN(walk_attempts.attempted_at) as first_knock, MAX(walk_attempts.attempted_at) as last_knock, COUNT(*) as doors
+    FROM walk_attempts${cJoin}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') = ? AND time(walk_attempts.attempted_at, '-6 hours') <= '20:30:00'${cWhere}
+    GROUP BY walk_attempts.walker_name
+  `).all(todayStr, ...cP);
   const todayMap = {};
   for (const r of todayRows) {
     let hrs = 0;
@@ -538,13 +545,13 @@ app.get('/api/stats/live-walkers', (req, res) => {
   const sundayStr = sunday.toISOString().split('T')[0];
 
   const weekRows = db.prepare(`
-    SELECT walker_name, date(attempted_at, '-6 hours') as knock_date,
-           MIN(attempted_at) as first_knock, MAX(attempted_at) as last_knock
-    FROM walk_attempts
-    WHERE walker_name != '' AND date(attempted_at, '-6 hours') >= ? AND date(attempted_at, '-6 hours') < ?
-      AND time(attempted_at, '-6 hours') <= '20:30:00'
-    GROUP BY walker_name, date(attempted_at, '-6 hours')
-  `).all(mondayStr, sundayStr);
+    SELECT walk_attempts.walker_name, date(walk_attempts.attempted_at, '-6 hours') as knock_date,
+           MIN(walk_attempts.attempted_at) as first_knock, MAX(walk_attempts.attempted_at) as last_knock
+    FROM walk_attempts${cJoin}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') >= ? AND date(walk_attempts.attempted_at, '-6 hours') < ?
+      AND time(walk_attempts.attempted_at, '-6 hours') <= '20:30:00'${cWhere}
+    GROUP BY walk_attempts.walker_name, date(walk_attempts.attempted_at, '-6 hours')
+  `).all(mondayStr, sundayStr, ...cP);
   const weekMap = {};
   for (const r of weekRows) {
     if (!weekMap[r.walker_name]) weekMap[r.walker_name] = 0;
@@ -572,6 +579,12 @@ app.get('/api/stats/live-walkers', (req, res) => {
 
   const walkers = Object.values(walkerAgg)
     .filter(w => w.walks_count > 0)
+    .map(w => {
+      // Tag with weekly activity so we can filter below
+      w._hasWeekActivity = !!(weekMap[w.walker_name] || todayMap[w.walker_name]);
+      return w;
+    })
+    .filter(w => w._hasWeekActivity || w.is_live) // Only show walkers active this week or currently live
     .map(w => {
       const rawToday = todayMap[w.walker_name]?.hours || 0;
       const rawWeek = weekMap[w.walker_name] || 0;
