@@ -15868,6 +15868,10 @@ function updateDashLockBtn(isSet) {
 
 function getDashFilterParams() {
   var params = [];
+  // candidate_id is the PRIMARY filter — if set, backend scopes to that candidate's data
+  var candSel = document.getElementById('dashCandidateFilter');
+  if (candSel && candSel.value) params.push('candidate_id=' + encodeURIComponent(candSel.value));
+  // race + universe are SECONDARY overrides (still useful if no candidate selected)
   var raceVal = document.getElementById('dashRaceFilter').value;
   if (raceVal) {
     var parts = raceVal.split('|');

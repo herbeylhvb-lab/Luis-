@@ -72,6 +72,7 @@ function getDashFilters() {
       var rp = saved.race.split('|');
       if (rp.length === 2) { out.race_col = rp[0]; out.race_val = rp[1]; }
     }
+    if (saved.candidate_id) out.candidate_id = saved.candidate_id;
     if (saved.universe) out.list_id = saved.universe;
     return (out.race_col || out.list_id) ? out : null;
   } catch(e) { return null; }
@@ -79,6 +80,7 @@ function getDashFilters() {
 function buildMapQueryString(f) {
   if (!f) return '';
   var parts = [];
+  if (f.candidate_id) parts.push('candidate_id=' + encodeURIComponent(f.candidate_id));
   if (f.race_col) { parts.push('race_col=' + encodeURIComponent(f.race_col)); parts.push('race_val=' + encodeURIComponent(f.race_val)); }
   if (f.list_id) parts.push('list_id=' + encodeURIComponent(f.list_id));
   return parts.length ? '?' + parts.join('&') : '';

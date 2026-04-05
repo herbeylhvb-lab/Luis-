@@ -124,13 +124,18 @@ router.get('/broadcast/campaigns', (req, res) => {
 
 // GOTV Dashboard stats
 router.get('/gotv/stats', (req, res) => {
-  const { race_col, race_val } = req.query;
-  const validCols = ['navigation_port','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace'];
+  const { race_col, race_val, candidate_id } = req.query;
+  const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
 
   let raceFilter = '';
   const raceParams = [];
+  // candidate_id = primary scope to candidate's voters
+  if (candidate_id) {
+    raceFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
+    raceParams.push(candidate_id);
+  }
   if (race_col && validCols.includes(race_col) && race_val) {
-    raceFilter = ` AND ${race_col} = ?`;
+    raceFilter += ` AND ${race_col} = ?`;
     raceParams.push(race_val);
   }
 

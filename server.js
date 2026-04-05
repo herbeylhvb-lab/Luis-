@@ -354,32 +354,37 @@ const _statsQueryDefault = db.prepare(`
     (SELECT COUNT(*) FROM voters WHERE support_level = 'undecided') as undecided
 `);
 app.get('/api/stats', (req, res) => {
-  const { race_col, race_val, list_id } = req.query;
+  const { race_col, race_val, list_id, candidate_id } = req.query;
   const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
 
-  // If no filters, use fast prepared statement
-  if (!race_col && !list_id) return res.json(_statsQueryDefault.get());
+  // If no filters at all, use fast prepared statement
+  if (!race_col && !list_id && !candidate_id) return res.json(_statsQueryDefault.get());
 
   let voterFilter = '';
   const vParams = [];
 
+  // candidate_id is the primary filter — scopes to voters in that candidate's admin_lists
+  if (candidate_id) {
+    voterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
+    vParams.push(candidate_id);
+  }
   if (race_col && validCols.includes(race_col) && race_val) {
     voterFilter += ` AND ${race_col} = ?`;
     vParams.push(race_val);
   }
-  // Filter voters by admin_list membership (My Universes)
   if (list_id) {
     voterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     vParams.push(list_id);
   }
 
   const stats = _statsQueryDefault.get(); // base stats (messages, events, etc. aren't filtered)
-  // Override voter-related stats with filtered versions
   stats.voters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${voterFilter}`).get(...vParams).c;
   stats.supporters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level IN ('strong_support','lean_support')${voterFilter}`).get(...vParams).c;
   stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${voterFilter}`).get(...vParams).c;
-  // Doors knocked for voters in this list
-  if (list_id) {
+  // Doors knocked — scope by candidate's walks if candidate_id set, else by list_id
+  if (candidate_id) {
+    stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE wa.result != 'not_visited' AND bw.candidate_id = ?`).get(candidate_id).c;
+  } else if (list_id) {
     stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses WHERE result != 'not_visited' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`).get(list_id).c;
   }
   res.json(stats);

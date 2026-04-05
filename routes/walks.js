@@ -1018,21 +1018,24 @@ router.get('/walks/civic-info', async (req, res) => {
 // ?list_id=X filters to voters in an admin_list universe (shows all addresses including unvisited)
 // Without list_id, shows only visited addresses across all walks
 router.get('/walks/all-results-map', (req, res) => {
-  const { list_id, race_col, race_val } = req.query;
+  const { list_id, race_col, race_val, candidate_id } = req.query;
   const validDistrictCols = new Set(['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district']);
   let where = 'wa.lat IS NOT NULL AND wa.lng IS NOT NULL';
   const params = [];
 
-  if (list_id) {
-    // When a universe (admin_list) is selected, show ALL addresses for voters in that list
+  // candidate_id is the primary scope — shows ONLY walks tagged to this candidate
+  if (candidate_id) {
+    where += ' AND bw.candidate_id = ?';
+    params.push(candidate_id);
+    // Show all addresses (including unvisited) so user sees full walk coverage
+    // Note: no "not_visited" filter when candidate is scoped
+  } else if (list_id) {
     where += ' AND wa.voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     params.push(list_id);
   } else {
-    // Without universe, only show visited
     where += " AND wa.result != 'not_visited'";
   }
 
-  // Race/district filter — sandbox results to voters in a specific district
   if (race_col && validDistrictCols.has(race_col) && race_val) {
     where += ` AND wa.voter_id IN (SELECT id FROM voters WHERE ${race_col} = ?)`;
     params.push(race_val);

@@ -1638,23 +1638,27 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
-  const { race_col, race_val, list_id } = req.query;
+  const { race_col, race_val, list_id, candidate_id } = req.query;
 
-  // Build optional race/district filter
+  // Build optional filters
   let raceFilter = '';
   const raceParams = [];
-  if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
-    raceFilter += ` AND ${race_col} = ?`;
-    raceParams.push(race_val);
-  }
-  // list_id filter — uses different column ref depending on context
-  // raceFilter is for standalone voter queries, joinRaceFilter is for JOINed queries with v. alias
+
+  // candidate_id is the primary scope — limits to voters in that candidate's admin_lists
   let listFilter = '';
   let joinListFilter = '';
-  if (list_id) {
+  if (candidate_id) {
+    listFilter = ' AND id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
+    joinListFilter = ' AND v.id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
+    raceParams.push(candidate_id);
+  } else if (list_id) {
     listFilter = ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     joinListFilter = ' AND v.id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     raceParams.push(list_id);
+  }
+  if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
+    raceFilter += ` AND ${race_col} = ?`;
+    raceParams.push(race_val);
   }
 
   // Get all precincts with voter counts and party breakdown
