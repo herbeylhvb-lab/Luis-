@@ -187,7 +187,6 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item active" data-page="dashboard"><span class="icon">&#128202;</span><span>Dashboard</span></div>
     <div class="nav-item" data-page="texting"><span class="icon">&#128241;</span><span>Texting</span></div>
     <div class="nav-item" data-page="contacts"><span class="icon">&#128101;</span><span>Contacts</span></div>
-    <div class="nav-item" data-page="manage-volunteers"><span class="icon">&#9997;</span><span>Volunteers</span></div>
     <div class="nav-item" data-page="inbox"><span class="icon">&#128172;</span><span>Inbox</span></div>
     <div class="sidebar-section">Field</div>
     <div class="nav-item" data-page="blockwalk"><span class="icon">&#128694;</span><span>Block Walking</span></div>
@@ -206,6 +205,7 @@ tr:hover td{background:#1e293b80}
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
+    <div class="nav-item" data-page="manage-volunteers" style="padding-left:32px;font-size:13px"><span class="icon">&#9997;</span><span>Volunteers</span></div>
   </div>
   <div id="userBar" style="padding:10px 16px;border-top:1px solid #334155;font-size:12px;display:none">
     <div style="color:#94a3b8;margin-bottom:4px" id="userDisplayName"></div>
@@ -228,6 +228,12 @@ tr:hover td{background:#1e293b80}
     <div class="page active" id="page-dashboard">
       <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:700;color:#f59e0b">Dashboard Settings</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label style="font-size:12px;color:#94a3b8">Campaign:</label>
+          <select id="dashCandidateFilter" onchange="onDashCandidatePick()" class="form-control" style="max-width:260px;padding:5px 8px;font-size:12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
+            <option value="">All Campaigns</option>
+          </select>
+        </div>
         <div style="display:flex;align-items:center;gap:8px">
           <label style="font-size:12px;color:#94a3b8">Race/District:</label>
           <select id="dashRaceFilter" onchange="applyDashSettings()" class="form-control" style="max-width:280px;padding:5px 8px;font-size:12px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px">
@@ -916,7 +922,10 @@ tr:hover td{background:#1e293b80}
             <div class="form-group"><label>Walk Name</label><input type="text" id="walkName" placeholder="Precinct 42 - Main St"></div>
             <div class="form-group"><label>Assign To</label><input type="text" id="walkAssign" placeholder="Volunteer name"></div>
           </div>
-          <div class="form-group"><label>Description</label><input type="text" id="walkDesc" placeholder="3 blocks around Main & 5th"></div>
+          <div class="form-row" style="margin-bottom:16px">
+            <div class="form-group"><label>Description</label><input type="text" id="walkDesc" placeholder="3 blocks around Main & 5th"></div>
+            <div class="form-group"><label>Campaign (sandbox)</label><select id="walkCandidate"><option value="">Unassigned</option></select></div>
+          </div>
           <button class="btn btn-primary" id="btnCreateWalk">Create Walk</button>
           <button class="btn btn-sm" id="btnCreateFromPrecinct" style="margin-left:8px;background:#7c3aed;color:#fff">&#127968; Create from Precinct</button>
         </div>
@@ -925,6 +934,7 @@ tr:hover td{background:#1e293b80}
           <h3>&#127968; Create Walk from Precinct</h3>
           <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Auto-populate a walk with all voter addresses from selected precincts. Each address links to the voter record for auto-logging contact results.</p>
           <div class="form-group"><label>Walk Name (optional)</label><input type="text" id="precinctWalkName" placeholder="Auto-generated from precinct names"></div>
+          <div class="form-group"><label>Campaign (sandbox)</label><select id="precinctWalkCandidate"><option value="">Unassigned</option></select></div>
           <div style="margin-bottom:12px"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#f59e0b"><input type="checkbox" id="precinctWalkSandbox" style="accent-color:#ef4444;width:18px;height:18px"> Sandbox Mode — External campaign, results won't update your voter data</label></div>
           <div class="form-group">
             <label style="color:#f59e0b;font-weight:700;text-transform:uppercase;font-size:13px;letter-spacing:0.5px">&#127919; Step 1: Race / District</label>
@@ -2763,6 +2773,7 @@ tr:hover td{background:#1e293b80}
           <select id="candRaceType" onchange="loadCandidateRaceValues('candRaceType','candRaceValue')" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:140px">
             <option value="">None assigned</option>
             <option value="navigation_port">Navigation Port</option>
+            <option value="navigation_district">Navigation District</option>
             <option value="port_authority">Port Authority</option>
             <option value="city_district">City District</option>
             <option value="county_commissioner">County Commissioner</option>
@@ -2777,6 +2788,14 @@ tr:hover td{background:#1e293b80}
           </select>
           <select id="candRaceValue" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:100px"><option value="">Select type first</option></select>
           <button class="btn btn-xs btn-primary" onclick="saveCandidateRace()">Save</button>
+        </div>
+
+        <!-- Default Universe assignment -->
+        <div id="candidateUniverseAssign" style="margin-bottom:16px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:#94a3b8;font-weight:600;white-space:nowrap">Default Universe:</span>
+          <select id="candDefaultList" style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:200px"><option value="">None</option></select>
+          <button class="btn btn-xs btn-primary" onclick="saveCandidateDefaultList()">Save</button>
+          <span style="font-size:11px;color:#64748b">Used by dashboard Campaign picker</span>
         </div>
 
         <!-- Captains with expandable lists -->
@@ -4889,6 +4908,8 @@ window.showWalkList = showWalkList;
 window.showWalkDetail = showWalkDetail;
 
 async function loadWalks() {
+  // Populate the campaign dropdown on the walk-creation form (once)
+  populateCandidateDropdown('walkCandidate', null);
   const data = await api('/api/walks');
   const tbody = document.getElementById('walksBody');
   if (!data.walks || data.walks.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="color:#64748b;text-align:center">No walks created yet.</td></tr>'; return; }
@@ -5084,7 +5105,9 @@ window.deleteWalk = async function(id) {
 document.getElementById('btnCreateWalk').addEventListener('click', async () => {
   const name = document.getElementById('walkName').value.trim();
   if (!name) return;
-  await apiPost('/api/walks', { name, description: document.getElementById('walkDesc').value.trim(), assigned_to: document.getElementById('walkAssign').value.trim() });
+  var walkCandSel = document.getElementById('walkCandidate');
+  var candidate_id = walkCandSel && walkCandSel.value ? parseInt(walkCandSel.value) : null;
+  await apiPost('/api/walks', { name, description: document.getElementById('walkDesc').value.trim(), assigned_to: document.getElementById('walkAssign').value.trim(), candidate_id: candidate_id });
   document.getElementById('walkName').value = ''; document.getElementById('walkDesc').value = ''; document.getElementById('walkAssign').value = '';
   loadWalks();
 });
@@ -5097,6 +5120,7 @@ document.getElementById('btnCreateFromPrecinct').addEventListener('click', async
   var card = document.getElementById('precinctWalkCard');
   card.style.display = card.style.display === 'none' ? '' : 'none';
   if (card.style.display !== 'none') {
+    populateCandidateDropdown('precinctWalkCandidate', null);
     try {
       // Load race-precincts mapping and voter counts in parallel
       var [raceData, precinctData] = await Promise.all([
@@ -5365,11 +5389,14 @@ document.getElementById('btnBuildPrecinctWalk').addEventListener('click', async 
     var mMF = document.getElementById('walkPrecinctMinMayFreq').value;
     if (mMF && parseInt(mMF) > 0) filters.min_may_frequency = parseInt(mMF);
     var isSandbox = document.getElementById('precinctWalkSandbox').checked;
+    var pwCandEl = document.getElementById('precinctWalkCandidate');
+    var pwCandId = pwCandEl && pwCandEl.value ? parseInt(pwCandEl.value) : null;
     var data = await apiPost('/api/walks/from-precinct', {
       precincts: precincts,
       name: document.getElementById('precinctWalkName').value.trim() || undefined,
       filters: Object.keys(filters).length > 0 ? filters : undefined,
-      sandbox: isSandbox ? 1 : 0
+      sandbox: isSandbox ? 1 : 0,
+      candidate_id: pwCandId
     });
     statusEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Walk created with ' + data.added + ' addresses from ' + precincts.length + ' precinct(s)!' + (data.autoAssigned ? ' Auto-assigned to ' + data.autoAssigned + ' walker(s).' : '') + '</span>';
     document.getElementById('precinctWalkName').value = '';
@@ -11578,6 +11605,46 @@ async function saveCandidateRace() {
     loadCandidates();
   } catch (e) { alert('Error saving race: ' + (e.message || e)); }
 }
+async function saveCandidateDefaultList() {
+  var listId = document.getElementById('candDefaultList').value;
+  try {
+    await apiPut('/api/candidates/' + _candidateDetailId, { default_list_id: listId ? parseInt(listId) : null });
+    loadCandidates();
+  } catch (e) { alert('Error saving default universe: ' + (e.message || e)); }
+}
+// Populate any <select> with active candidates (used by walk forms, dashboard, etc.)
+async function populateCandidateDropdown(selectId, selectedId, placeholderLabel) {
+  var sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '<option value="">' + (placeholderLabel || 'Unassigned') + '</option>';
+  try {
+    var data = await api('/api/candidates');
+    (data && data.candidates || []).filter(function(c) { return c.is_active; }).forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c.id;
+      var raceLabel = c.race_type && c.race_value ? ' (' + c.race_type.replace(/_/g,' ') + ':' + c.race_value + ')' : '';
+      opt.textContent = c.name + raceLabel;
+      if (String(c.id) === String(selectedId)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error('populate candidate dropdown failed:', e); }
+}
+
+async function populateCandidateDefaultList(candidateId, currentListId) {
+  var sel = document.getElementById('candDefaultList');
+  sel.innerHTML = '<option value="">None</option>';
+  try {
+    var data = await api('/api/admin-lists');
+    var lists = (data && data.lists) || data || [];
+    lists.filter(function(l) { return l.candidate_id == candidateId; }).forEach(function(l) {
+      var opt = document.createElement('option');
+      opt.value = l.id;
+      opt.textContent = l.name + ' (' + (l.voter_count_with_phone || 0) + ' w/ phone)';
+      if (String(l.id) === String(currentListId)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.error('populate default list failed', e); }
+}
 async function showCandidateDetail(id, name, code, raceType, raceValue) {
   _candidateDetailId = id;
   if (code !== undefined) _candidateDetailCode = code || null;
@@ -11608,6 +11675,12 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
   } else {
     document.getElementById('candRaceValue').innerHTML = '<option value="">Select type first</option>';
   }
+  // Populate default universe selector — look up this candidate from the list
+  try {
+    var allCands = await api('/api/candidates');
+    var me = (allCands && allCands.candidates || []).find(function(c) { return String(c.id) === String(id); });
+    populateCandidateDefaultList(id, me && me.default_list_id);
+  } catch(e) { populateCandidateDefaultList(id, null); }
   // On mobile, hide the candidates list card and scroll to top
   if (window.innerWidth <= 768) {
     var listCard = document.getElementById('candidateDetailCard').previousElementSibling;
@@ -15654,6 +15727,18 @@ async function loadLeaderboard() {
 // ═══════════════════════════════════════════════════════════
 
 async function loadDashFilters() {
+  // Populate Campaign dropdown from active candidates
+  try {
+    var cData = await api('/api/candidates');
+    var cSel = document.getElementById('dashCandidateFilter');
+    (cData && cData.candidates || []).filter(function(c) { return c.is_active; }).forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c.id;
+      var raceLabel = c.race_type && c.race_value ? ' (' + c.race_type.replace(/_/g,' ') + ':' + c.race_value + ')' : '';
+      opt.textContent = c.name + raceLabel;
+      cSel.appendChild(opt);
+    });
+  } catch (e) {}
   // Populate race/district dropdown
   try {
     var data = await api('/api/voters/race-precincts');
@@ -15685,7 +15770,9 @@ async function loadDashFilters() {
 function toggleDashLock() {
   var race = document.getElementById('dashRaceFilter').value;
   var univ = document.getElementById('dashUniverseFilter').value;
-  var saved = { race: race, universe: univ };
+  var candSel = document.getElementById('dashCandidateFilter');
+  var candidate_id = candSel ? candSel.value : '';
+  var saved = { race: race, universe: univ, candidate_id: candidate_id };
   localStorage.setItem('dashSettings', JSON.stringify(saved));
   // Update button appearance
   updateDashLockBtn(true);
@@ -15701,6 +15788,12 @@ function restoreDashLock() {
     var saved = JSON.parse(raw);
     var raceSel = document.getElementById('dashRaceFilter');
     var univSel = document.getElementById('dashUniverseFilter');
+    var candSel = document.getElementById('dashCandidateFilter');
+    if (saved.candidate_id && candSel) {
+      for (var c = 0; c < candSel.options.length; c++) {
+        if (String(candSel.options[c].value) === String(saved.candidate_id)) { candSel.value = String(saved.candidate_id); break; }
+      }
+    }
     if (saved.race) {
       // Check if the saved option exists in the dropdown
       for (var i = 0; i < raceSel.options.length; i++) {
@@ -15714,7 +15807,7 @@ function restoreDashLock() {
     }
     updateDashLockBtn(true);
     // Apply the restored settings
-    if (saved.race || saved.universe) applyDashSettings();
+    if (saved.race || saved.universe || saved.candidate_id) applyDashSettings();
   } catch (e) {}
 }
 
@@ -15751,6 +15844,48 @@ function getDashFilterParams() {
   var univId = document.getElementById('dashUniverseFilter').value;
   if (univId) params.push('list_id=' + encodeURIComponent(univId));
   return params.length > 0 ? '?' + params.join('&') : '';
+}
+
+// User picked a candidate on the dashboard — auto-fill race + universe filters
+async function onDashCandidatePick() {
+  var candidateId = document.getElementById('dashCandidateFilter').value;
+  if (!candidateId) {
+    // Empty selection: clear the downstream filters
+    document.getElementById('dashRaceFilter').value = '';
+    document.getElementById('dashUniverseFilter').value = '';
+    applyDashSettings();
+    return;
+  }
+  try {
+    var cData = await api('/api/candidates');
+    var cand = (cData && cData.candidates || []).find(function(c) { return String(c.id) === String(candidateId); });
+    if (cand) {
+      // Auto-fill race dropdown (format: "race_type|race_value")
+      var raceSel = document.getElementById('dashRaceFilter');
+      if (cand.race_type && cand.race_value) {
+        var target = cand.race_type + '|' + cand.race_value;
+        var found = false;
+        for (var i = 0; i < raceSel.options.length; i++) {
+          if (raceSel.options[i].value === target) { raceSel.value = target; found = true; break; }
+        }
+        if (!found) raceSel.value = '';
+      } else {
+        raceSel.value = '';
+      }
+      // Auto-fill universe dropdown
+      var uSel = document.getElementById('dashUniverseFilter');
+      if (cand.default_list_id) {
+        var foundU = false;
+        for (var j = 0; j < uSel.options.length; j++) {
+          if (String(uSel.options[j].value) === String(cand.default_list_id)) { uSel.value = String(cand.default_list_id); foundU = true; break; }
+        }
+        if (!foundU) uSel.value = '';
+      } else {
+        uSel.value = '';
+      }
+    }
+  } catch (e) { console.error('onDashCandidatePick failed:', e); }
+  applyDashSettings();
 }
 
 function applyDashSettings() {

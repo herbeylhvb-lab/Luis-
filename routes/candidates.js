@@ -118,17 +118,21 @@ router.post('/candidates', requireAuth, (req, res) => {
 
 // Update candidate
 router.put('/candidates/:id', requireAuth, (req, res) => {
-  const { name, office, phone, email, is_active, race_type, race_value } = req.body;
-  const result = db.prepare(`UPDATE candidates SET
+  const { name, office, phone, email, is_active, race_type, race_value, default_list_id } = req.body;
+  const setListId = default_list_id !== undefined;
+  const listIdVal = !setListId ? null : (default_list_id === null || default_list_id === '' || default_list_id === 0 ? null : parseInt(default_list_id));
+  const sql = `UPDATE candidates SET
     name = COALESCE(?, name),
     office = COALESCE(?, office),
     phone = COALESCE(?, phone),
     email = COALESCE(?, email),
     is_active = COALESCE(?, is_active),
     race_type = COALESCE(?, race_type),
-    race_value = COALESCE(?, race_value)
-    WHERE id = ?`
-  ).run(name, office, phone, email, is_active !== undefined ? (is_active ? 1 : 0) : null, race_type, race_value, req.params.id);
+    race_value = COALESCE(?, race_value)${setListId ? ',\n    default_list_id = ?' : ''}
+    WHERE id = ?`;
+  const baseArgs = [name, office, phone, email, is_active !== undefined ? (is_active ? 1 : 0) : null, race_type, race_value];
+  const args = setListId ? [...baseArgs, listIdVal, req.params.id] : [...baseArgs, req.params.id];
+  const result = db.prepare(sql).run(...args);
   if (result.changes === 0) return res.status(404).json({ error: 'Candidate not found.' });
   res.json({ success: true });
 });

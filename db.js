@@ -1139,6 +1139,25 @@ db.exec(`
 // Race/district assignment for candidates (e.g., race_type='navigation_port', race_value='1')
 addColumn("ALTER TABLE candidates ADD COLUMN race_type TEXT DEFAULT ''");
 addColumn("ALTER TABLE candidates ADD COLUMN race_value TEXT DEFAULT ''");
+// Default universe (admin_list) for candidate — used by dashboard candidate picker
+addColumn("ALTER TABLE candidates ADD COLUMN default_list_id INTEGER DEFAULT NULL");
+
+// --- One-time backfill: tag NULL-candidate walks with Luis / Adreste ---
+// Runs once (idempotent — only touches walks where candidate_id IS NULL).
+// Safe to redeploy: if candidates don't exist or walks are already tagged, it no-ops.
+try {
+  const luis = db.prepare("SELECT id FROM candidates WHERE LOWER(name) LIKE '%luis%' AND is_active = 1 ORDER BY id LIMIT 1").get();
+  const adreste = db.prepare("SELECT id FROM candidates WHERE LOWER(name) LIKE '%adreste%' AND is_active = 1 ORDER BY id LIMIT 1").get();
+  if (adreste) {
+    const r = db.prepare("UPDATE block_walks SET candidate_id = ? WHERE candidate_id IS NULL AND (UPPER(name) LIKE '%TSC%' OR UPPER(COALESCE(description,'')) LIKE '%TSC%')").run(adreste.id);
+    if (r.changes > 0) console.log(`[backfill] Tagged ${r.changes} TSC walk(s) to Adreste (candidate_id=${adreste.id})`);
+  }
+  if (luis) {
+    const r = db.prepare("UPDATE block_walks SET candidate_id = ? WHERE candidate_id IS NULL").run(luis.id);
+    if (r.changes > 0) console.log(`[backfill] Tagged ${r.changes} remaining walk(s) to Luis (candidate_id=${luis.id})`);
+  }
+  if (!luis && !adreste) console.log('[backfill] No Luis/Adreste candidates found — walk backfill skipped');
+} catch (e) { console.warn('[backfill] Walk tagging failed:', e.message); }
 
 // --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
 db.exec(`
