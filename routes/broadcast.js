@@ -129,8 +129,6 @@ router.get('/gotv/stats', (req, res) => {
 
   let raceFilter = '';
   const raceParams = [];
-  // Voter scoping: race is geographic, list_id narrows.
-  // candidate_id not used for voter queries — only for walks.
   const list_id = req.query.list_id;
   if (race_col && validCols.includes(race_col) && race_val) {
     raceFilter += ` AND ${race_col} = ?`;
@@ -139,6 +137,13 @@ router.get('/gotv/stats', (req, res) => {
   if (list_id) {
     raceFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     raceParams.push(list_id);
+  } else if (candidate_id) {
+    raceFilter += ` AND id IN (
+      SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+      UNION
+      SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+    )`;
+    raceParams.push(candidate_id, candidate_id);
   }
 
   const total = (db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${raceFilter}`).get(...raceParams) || { c: 0 }).c;
