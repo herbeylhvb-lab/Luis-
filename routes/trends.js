@@ -129,13 +129,48 @@ router.get('/trends/related', async (req, res) => {
   }
 });
 
-// "Trending now" — Google deprecated realTimeTrends/dailyTrends (returns 404 HTML).
-// We now derive rising topics from relatedQueries of a seed keyword.
-// The seed defaults to a campaign-relevant politics term and is configurable via ?seed=.
+// Campaign-relevant fallback topics (shown when Google blocks cloud-server IPs).
+// Ordered by regional relevance for Brownsville / Cameron County / TX politics.
+const FALLBACK_TOPICS = [
+  'early voting 2026', 'cameron county election', 'port of brownsville',
+  'texas primary 2026', 'spacex brownsville', 'immigration border',
+  'property taxes texas', 'jobs brownsville', 'water district',
+  'us congress tx-34', 'texas voter registration', 'mail in ballot texas',
+  'hidalgo county election', 'beto orourke', 'greg abbott',
+  'navigation district', 'port commissioner', 'school board texas',
+  'minimum wage texas', 'border security'
+];
+function fallbackStories() {
+  return FALLBACK_TOPICS.slice(0, 20).map((q, i) => ({
+    title: q, entityNames: [], traffic: String(100 - i * 4), articles: []
+  }));
+}
+function fallbackSearches() {
+  return FALLBACK_TOPICS.slice(0, 20).map((q, i) => ({
+    title: q, traffic: String(100 - i * 4), articles: [], relatedQueries: []
+  }));
+}
+
+// Simple in-memory cache to avoid hammering Google (15 min TTL)
+const _trendsCache = { realtime: {}, daily: {} };
+const CACHE_TTL = 15 * 60 * 1000;
+function getCached(bucket, key) {
+  const hit = bucket[key];
+  if (hit && Date.now() - hit.at < CACHE_TTL) return hit.data;
+  return null;
+}
+function setCached(bucket, key, data) { bucket[key] = { at: Date.now(), data }; }
+
+// "Trending now" — derived from relatedQueries (rising) of a seed keyword.
+// Falls back to curated campaign topics if Google blocks the cloud IP.
 router.get('/trends/realtime', async (req, res) => {
+  const seed = req.query.seed || 'election 2026';
+  const geo = req.query.geo || 'US';
+  const cacheKey = seed + '|' + geo;
+  const cached = getCached(_trendsCache.realtime, cacheKey);
+  if (cached) return res.json(cached);
+
   try {
-    const seed = req.query.seed || 'election 2026';
-    const geo = req.query.geo || 'US';
     const results = await withRetry(() => googleTrends.relatedQueries({
       keyword: seed,
       startTime: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
@@ -143,24 +178,29 @@ router.get('/trends/realtime', async (req, res) => {
     }));
     const parsed = JSON.parse(results);
     const rising = parsed.default?.rankedList?.[1]?.rankedKeyword || [];
+    if (rising.length === 0) throw new Error('no rising queries returned');
     const stories = rising.slice(0, 20).map(r => ({
-      title: r.query,
-      entityNames: [],
-      traffic: r.formattedValue || String(r.value || ''),
-      articles: []
+      title: r.query, entityNames: [],
+      traffic: r.formattedValue || String(r.value || ''), articles: []
     }));
-    res.json({ stories, seed, source: 'related_rising' });
+    const payload = { stories, seed, source: 'related_rising' };
+    setCached(_trendsCache.realtime, cacheKey, payload);
+    res.json(payload);
   } catch (e) {
-    res.status(502).json({ error: 'Trending topics unavailable. Try a specific search below.' });
+    console.warn('[trends/realtime] Google blocked — using fallback:', e.message);
+    res.json({ stories: fallbackStories(), seed, source: 'fallback_curated', warning: 'Google Trends rate-limited this server — showing curated campaign topics.' });
   }
 });
 
-// "Daily trending" — also deprecated by Google.
-// Repurposed to use relatedQueries (top ranked) for most-popular related searches.
+// "Daily trending" — uses relatedQueries (top) with fallback to curated topics.
 router.get('/trends/daily', async (req, res) => {
+  const seed = req.query.seed || 'election 2026';
+  const geo = req.query.geo || 'US';
+  const cacheKey = seed + '|' + geo;
+  const cached = getCached(_trendsCache.daily, cacheKey);
+  if (cached) return res.json(cached);
+
   try {
-    const seed = req.query.seed || 'election 2026';
-    const geo = req.query.geo || 'US';
     const results = await withRetry(() => googleTrends.relatedQueries({
       keyword: seed,
       startTime: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
@@ -168,15 +208,18 @@ router.get('/trends/daily', async (req, res) => {
     }));
     const parsed = JSON.parse(results);
     const top = parsed.default?.rankedList?.[0]?.rankedKeyword || [];
+    if (top.length === 0) throw new Error('no top queries returned');
     const searches = top.slice(0, 25).map(r => ({
       title: r.query,
       traffic: r.formattedValue || String(r.value || ''),
-      articles: [],
-      relatedQueries: []
+      articles: [], relatedQueries: []
     }));
-    res.json({ searches, seed, source: 'related_top' });
+    const payload = { searches, seed, source: 'related_top' };
+    setCached(_trendsCache.daily, cacheKey, payload);
+    res.json(payload);
   } catch (e) {
-    res.status(502).json({ error: 'Daily topics unavailable. Try a specific search below.' });
+    console.warn('[trends/daily] Google blocked — using fallback:', e.message);
+    res.json({ searches: fallbackSearches(), seed, source: 'fallback_curated', warning: 'Google Trends rate-limited this server — showing curated campaign topics.' });
   }
 });
 

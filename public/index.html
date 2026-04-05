@@ -13958,7 +13958,8 @@ async function loadTrendingNow() {
       el.innerHTML = '<span style="color:#64748b">No trending stories right now</span>';
       return;
     }
-    var html = '<div style="display:grid;gap:8px">';
+    var warnBanner = data.warning ? ('<div style="background:#422006;border:1px solid #78350f;color:#fbbf24;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:8px">\u26A0 ' + escHtml(data.warning) + '</div>') : '';
+    var html = warnBanner + '<div style="display:grid;gap:8px">';
     data.stories.slice(0, 15).forEach(function(s, i) {
       html += '<div style="background:#0f172a;padding:10px 14px;border-radius:8px;border-left:3px solid ' + (i < 3 ? '#ef4444' : i < 7 ? '#f59e0b' : '#334155') + '">' +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
@@ -13991,7 +13992,8 @@ async function loadDailyTrending() {
       el.innerHTML = '<span style="color:#64748b">No daily trending searches found</span>';
       return;
     }
-    var html = '<div style="display:grid;gap:6px">';
+    var warnBanner = data.warning ? ('<div style="background:#422006;border:1px solid #78350f;color:#fbbf24;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:8px">\u26A0 ' + escHtml(data.warning) + '</div>') : '';
+    var html = warnBanner + '<div style="display:grid;gap:6px">';
     data.searches.forEach(function(s, i) {
       html += '<div style="background:#0f172a;padding:10px 14px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById(\'trends-keyword\').value=\'' + escHtml(s.title).replace(/'/g, "\\'") + '\';searchTrends()">' +
         '<div>' +
