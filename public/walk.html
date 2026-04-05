@@ -84,12 +84,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .disp-btn:active{transform:scale(0.96)}
 .disp-btn.selected{border-color:#f59e0b;background:#422006;color:#fcd34d}
 .disp-btn.sup{border-color:#166534}.disp-btn.sup.selected{background:#052e16;border-color:#22c55e;color:#4ade80}
-.disp-btn.lean-sup{border-color:#14532d}.disp-btn.lean-sup.selected{background:#052e16;border-color:#86efac;color:#86efac}
+.disp-btn.lean-sup{border-color:#1e3a8a}.disp-btn.lean-sup.selected{background:#172554;border-color:#60a5fa;color:#60a5fa}
 .disp-btn.und{border-color:#854d0e}.disp-btn.und.selected{background:#422006;border-color:#f59e0b;color:#fcd34d}
 .disp-btn.lean-opp{border-color:#7f1d1d}.disp-btn.lean-opp.selected{background:#450a0a;border-color:#fca5a5;color:#fca5a5}
 .disp-btn.opp{border-color:#7f1d1d}.disp-btn.opp.selected{background:#450a0a;border-color:#ef4444;color:#fca5a5}
 .disp-btn.nh{border-color:#334155}.disp-btn.nh.selected{background:#1e293b;border-color:#94a3b8;color:#e2e8f0}
-.disp-btn.ref{border-color:#581c87}.disp-btn.ref.selected{background:#3b0764;border-color:#c084fc;color:#c084fc}
+.disp-btn.ref{border-color:#000000}.disp-btn.ref.selected{background:#000000;border-color:#ffffff;color:#ffffff}
 .disp-btn.mov{border-color:#78350f}.disp-btn.mov.selected{background:#451a03;border-color:#f59e0b;color:#fbbf24}
 .disp-btn.dec{border-color:#1e293b}.disp-btn.dec.selected{background:#0f172a;border-color:#64748b;color:#94a3b8}
 .disp-btn.other{border-color:#334155}.disp-btn.other.selected{background:#1e293b;border-color:#64748b;color:#94a3b8}
@@ -2501,13 +2501,13 @@ function getMarkerColor(addr, myName) {
   if (!addr.result || addr.result === 'not_visited') return '#64748b'; // Gray — unvisited
   switch (addr.result) {
     case 'support':      return '#3b82f6'; // Blue — strong support
-    case 'lean_support': return '#86efac'; // Light green — lean support
+    case 'lean_support': return '#60a5fa'; // Light blue — lean support
     case 'undecided':    return '#facc15'; // Yellow — undecided
     case 'lean_oppose':  return '#fb923c'; // Orange — lean oppose
     case 'oppose':       return '#ef4444'; // Red — oppose
     case 'not_home':     return '#22c55e'; // Green — walked, not open (got push card)
     case 'come_back':    return '#22c55e'; // Green — walked, come back (got push card)
-    case 'refused':      return '#22c55e'; // Green — walked (got push card)
+    case 'refused':      return '#000000'; // Black — refused
     case 'moved':        return '#22c55e'; // Green — walked
     case 'deceased':     return '#22c55e'; // Green — walked
     default:             return '#22c55e'; // Green — walked

@@ -5622,7 +5622,8 @@ function getAddrColor(result) {
   if (result === 'support' || result === 'lean_support') return '#3b82f6'; // Blue = supporter
   if (result === 'oppose' || result === 'lean_oppose') return '#ef4444'; // Red = oppose
   if (result === 'undecided' || result === 'come_back') return '#eab308'; // Yellow = undecided
-  return '#22c55e'; // Green = walked (not_home, refused, moved, deceased, etc.)
+  if (result === 'refused') return '#000000'; // Black = refused
+  return '#22c55e'; // Green = walked (not_home, moved, deceased, etc.)
 }
 
 function createAdminHouseIcon(color, isDone) {
