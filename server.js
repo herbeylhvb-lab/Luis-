@@ -360,24 +360,40 @@ app.get('/api/stats', (req, res) => {
   // If no filters at all, use fast prepared statement
   if (!race_col && !list_id && !candidate_id) return res.json(_statsQueryDefault.get());
 
+  // Two filter tracks:
+  // 1. voterFilter (race + list_id): for total voter count in the territory
+  // 2. supporterFilter (list_id or candidate's lists): for supporters/undecided (must be candidate-specific)
   let voterFilter = '';
   const vParams = [];
+  let supporterFilter = '';
+  const sParams = [];
 
-  // Voter scoping: race (district) is the primary geographic filter, list_id narrows further
-  // candidate_id is NOT used for voter scoping — it's only for walk-related queries
+  // Race filter applies to BOTH voter count (territory) and supporter count
   if (race_col && validCols.includes(race_col) && race_val) {
     voterFilter += ` AND ${race_col} = ?`;
     vParams.push(race_val);
+    supporterFilter += ` AND ${race_col} = ?`;
+    sParams.push(race_val);
   }
+  // list_id narrows voter count
   if (list_id) {
     voterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     vParams.push(list_id);
   }
+  // Supporter scoping: list_id (specific universe) > candidate's all lists > no filter
+  if (list_id) {
+    supporterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    sParams.push(list_id);
+  } else if (candidate_id) {
+    supporterFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?)';
+    sParams.push(candidate_id);
+  }
 
-  const stats = _statsQueryDefault.get(); // base stats (messages, events, etc. aren't filtered)
+  const stats = _statsQueryDefault.get();
   stats.voters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${voterFilter}`).get(...vParams).c;
-  stats.supporters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level IN ('strong_support','lean_support')${voterFilter}`).get(...vParams).c;
-  stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${voterFilter}`).get(...vParams).c;
+  // Supporters/undecided use the candidate-scoped filter to prevent cross-contamination
+  stats.supporters = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level IN ('strong_support','lean_support')${supporterFilter}`).get(...sParams).c;
+  stats.undecided = db.prepare(`SELECT COUNT(*) as c FROM voters WHERE support_level = 'undecided'${supporterFilter}`).get(...sParams).c;
   // Doors knocked — scope by candidate's walks if candidate_id set, else by list_id
   if (candidate_id) {
     stats.doorsKnocked = db.prepare(`SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as c FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE wa.result != 'not_visited' AND bw.candidate_id = ?`).get(candidate_id).c;
