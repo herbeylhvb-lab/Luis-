@@ -6,6 +6,13 @@ const path = require('path');
 const db = require('../db');
 const { generateAlphaCode, normalizePhone } = require('../utils');
 
+// Skip privacy-redacted or empty addresses (e.g., "*** *** Privacy *** -***")
+function isPrivacyAddress(addr) {
+  if (!addr) return true;
+  const s = addr.trim();
+  return s.length < 4 || s.includes('***') || s.toLowerCase().includes('privacy');
+}
+
 // ===================== PRECINCT BOUNDARIES =====================
 
 // Load precinct GeoJSON for point-in-polygon checks
@@ -373,7 +380,11 @@ function geocodeWalkAddresses(walkId, sourcePrecincts) {
 
   const allMissing = db.prepare(
     'SELECT id, address, city, zip FROM walk_addresses WHERE walk_id = ? AND lat IS NULL'
-  ).all(walkId);
+  ).all(walkId).filter(r => {
+    // Skip privacy-redacted addresses (e.g., "*** *** Privacy *** -***")
+    const addr = (r.address || '').trim();
+    return addr && !addr.includes('***') && !addr.toLowerCase().includes('privacy') && addr.length > 3;
+  });
 
   if (allMissing.length === 0) { delete geocodingInProgress[walkId]; return; }
 
@@ -1035,7 +1046,7 @@ router.get('/walks/civic-info', async (req, res) => {
 router.get('/walks/all-results-map', (req, res) => {
   const { list_id, race_col, race_val, candidate_id } = req.query;
   const validDistrictCols = new Set(['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district']);
-  let where = 'wa.lat IS NOT NULL AND wa.lng IS NOT NULL';
+  let where = "wa.lat IS NOT NULL AND wa.lng IS NOT NULL AND wa.address NOT LIKE '%***%' AND wa.address NOT LIKE '%Privacy%'";
   const params = [];
 
   // candidate_id is the primary scope — shows ONLY walks tagged to this candidate
@@ -1934,6 +1945,7 @@ router.post('/walks/from-precinct', (req, res) => {
   const addAll = db.transaction(() => {
     let i = 0;
     for (const v of voters) {
+      if (isPrivacyAddress(v.address)) continue;
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
       const parsed = parseAddressUnit(v.address);
       insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++);
@@ -1980,6 +1992,7 @@ router.post('/walks/from-voters', (req, res) => {
   const addAll = db.transaction(() => {
     let i = 0;
     for (const v of voters) {
+      if (isPrivacyAddress(v.address)) continue;
       const voterName = ((v.first_name || '') + ' ' + (v.last_name || '')).trim();
       const parsed = parseAddressUnit(v.address);
       insert.run(walkId, parsed.street, parsed.unit, v.city || '', v.zip || '', voterName, v.id, i++);

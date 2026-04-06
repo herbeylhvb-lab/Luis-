@@ -1159,6 +1159,12 @@ try {
   if (!luis && !adreste) console.log('[backfill] No Luis/Adreste candidates found — walk backfill skipped');
 } catch (e) { console.warn('[backfill] Walk tagging failed:', e.message); }
 
+// Remove privacy-redacted addresses from block walks entirely (no useful data)
+try {
+  const r = db.prepare("DELETE FROM walk_addresses WHERE address LIKE '%***%' OR address LIKE '%Privacy%' OR TRIM(address) = '' OR LENGTH(TRIM(address)) < 4").run();
+  if (r.changes > 0) console.log(`[cleanup] Removed ${r.changes} privacy/empty address(es) from block walks`);
+} catch (e) {}
+
 // --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS walk_scripts (
