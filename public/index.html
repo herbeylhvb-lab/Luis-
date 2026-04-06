@@ -1279,6 +1279,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab active" data-subtab="voters-tab">Voter File</div>
         <div class="sub-tab" data-subtab="lists-tab">My Lists</div>
         <div class="sub-tab" data-subtab="universes-tab">My Universes</div>
+        <div class="sub-tab" data-subtab="mailer-history-tab">📬 Mailer History</div>
         <div class="sub-tab" data-subtab="universe-tab">Universe Builder</div>
         <div class="sub-tab" data-subtab="phone-validation-tab">Phone Cleanup</div>
         <div class="sub-tab" data-subtab="contact-match-tab">Contact Match</div>
@@ -1691,12 +1692,16 @@ tr:hover td{background:#1e293b80}
         <div id="myUniversesContainer"><p style="color:#64748b;text-align:center">Loading...</p></div>
       </div>
 
-      <!-- Mailer History -->
+      </div>
+
+      <!-- SUB-TAB: MAILER HISTORY -->
+      <div class="sub-page" id="mailer-history-tab">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
           <h3 style="margin-bottom:0">📬 Mailer History</h3>
           <button class="btn btn-sm btn-secondary" onclick="loadMailerHistory()">Refresh</button>
         </div>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Track physical mailers sent to voter universes. Each logged mailer creates a touchpoint for every voter in the list, visible in engagement scores and precinct analytics.</p>
         <div id="mailerHistoryContainer"><p style="color:#64748b;text-align:center">Loading...</p></div>
       </div>
       </div>
@@ -3171,7 +3176,8 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       // Load data for sub-tabs
       const subtab = tab.dataset.subtab;
       if (subtab === 'lists-tab') loadAdminLists();
-      if (subtab === 'universes-tab') { loadMyUniverses(); loadMailerHistory(); }
+      if (subtab === 'universes-tab') { loadMyUniverses(); }
+      if (subtab === 'mailer-history-tab') { loadMailerHistory(); }
       if (subtab === 'universe-tab') loadUniverseBuilder();
       if (subtab === 'vbm-tab') { /* VBM tab ready */ }
       if (subtab === 'phone-validation-tab') loadPhoneValidationStats();
