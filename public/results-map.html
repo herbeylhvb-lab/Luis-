@@ -78,7 +78,10 @@ function renderFilterChip(candidateId) {
   var chip = document.getElementById('filterChip');
   var txt = document.getElementById('filterChipText');
   if (!candidateId) { chip.style.display = 'none'; return; }
-  txt.textContent = 'Showing walks for Campaign #' + candidateId;
+  // Show candidate name from the dropdown (populated after fetch)
+  var sel = document.getElementById('mapCandidateFilter');
+  var name = sel && sel.selectedIndex > 0 ? sel.options[sel.selectedIndex].textContent : '';
+  txt.textContent = name ? ('Showing walks for ' + name) : ('Showing walks for Campaign #' + candidateId);
   chip.style.display = '';
 }
 document.getElementById('clearFiltersBtn').addEventListener('click', function() {
@@ -98,6 +101,8 @@ fetch('/api/candidates', {credentials:'include'}).then(function(r){return r.json
     if (String(c.id) === String(_activeCandidateId)) opt.selected = true;
     sel.appendChild(opt);
   });
+  // Re-render chip now that dropdown has names
+  renderFilterChip(_activeCandidateId);
 }).catch(function(){});
 
 function onMapCandidateChange() {
