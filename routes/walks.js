@@ -1051,7 +1051,8 @@ router.get('/walks/all-results-map', (req, res) => {
     where += " AND wa.result != 'not_visited'";
   }
 
-  if (race_col && validDistrictCols.has(race_col) && race_val) {
+  // Race filter only when no candidate_id (candidate_id already scopes walks directly)
+  if (!candidate_id && race_col && validDistrictCols.has(race_col) && race_val) {
     where += ` AND wa.voter_id IN (SELECT id FROM voters WHERE ${race_col} = ?)`;
     params.push(race_val);
   }

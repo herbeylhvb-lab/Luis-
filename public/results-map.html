@@ -108,25 +108,22 @@ function loadMap(filters) {
 var activeFilters = getDashFilters();
 var filtersFellBack = false;
 loadMap(activeFilters).then(function(data){
-  // If filtered query returns nothing, auto-retry without filters so the map isn't empty
+  // If filtered query returns nothing, retry with candidate_id only (drop race/list filters)
   if ((!data.addresses || data.addresses.length === 0) && activeFilters) {
-    console.warn('[map] No results with dashboard filter — falling back to unfiltered view');
+    // If we have candidate_id, retry with JUST that (most reliable filter for walks)
+    if (activeFilters.candidate_id) {
+      console.warn('[map] Race/list filter returned 0 — retrying with candidate_id only');
+      var candOnlyFilter = { candidate_id: activeFilters.candidate_id };
+      return loadMap(candOnlyFilter).then(function(d) {
+        renderFilterChip(candOnlyFilter);
+        return d;
+      });
+    }
+    // No candidate_id — show all as last resort
+    console.warn('[map] No results with filter — showing all');
     filtersFellBack = true;
-    var staleFilters = activeFilters;
     activeFilters = null;
-    return loadMap(null).then(function(d) {
-      // Show a notice that we fell back
-      var chip = document.getElementById('filterChip');
-      var txt = document.getElementById('filterChipText');
-      chip.style.background = '#7f1d1d';
-      chip.style.color = '#fca5a5';
-      var parts = [];
-      if (staleFilters.race_col) parts.push(staleFilters.race_col.replace(/_/g,' ') + ': ' + staleFilters.race_val);
-      if (staleFilters.list_id) parts.push('Universe #' + staleFilters.list_id);
-      txt.textContent = '⚠ Filter (' + parts.join(' / ') + ') had 0 matches — showing all';
-      chip.style.display = '';
-      return d;
-    });
+    return loadMap(null);
   }
   return data;
 }).then(function(data){
