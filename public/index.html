@@ -1664,6 +1664,7 @@ tr:hover td{background:#1e293b80}
           <h4 style="margin:0">Voters in List <span class="badge badge-green" id="adminListVoterCount">0</span></h4>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
+            <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="logMailerSent()">📬 Log Mailer Sent</button>
             <button class="btn btn-sm" style="background:#f59e0b;border-color:#d97706;color:#000" onclick="exportRumbleUpCSV()">📱 Export for RumbleUp</button>
             <button class="btn btn-sm" style="background:#1877f2;border-color:#1564bf" onclick="exportFacebookCSV()">📘 Facebook Audience</button>
             <button class="btn btn-sm" style="background:#ff6b35;border-color:#e55a2b" onclick="exportOTTCSV()">📺 OTT / CTV Export</button>
@@ -14050,6 +14051,21 @@ function showCaptainUploadModal(captain) {
   };
 }
 
+window.logMailerSent = async function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  var mailerName = prompt('Mailer name (e.g., "GOTV Postcard #1", "Intro Mailer"):');
+  if (!mailerName || !mailerName.trim()) return;
+  // Get candidate from dashboard filter
+  var candSel = document.getElementById('dashCandidateFilter');
+  var candidateId = candSel && candSel.value ? candSel.value : null;
+  var voterCount = document.getElementById('adminListVoterCount').textContent || '?';
+  if (!confirm('Log mailer "' + mailerName.trim() + '" as sent to ' + voterCount + ' voters in this list?')) return;
+  try {
+    var data = await apiPost('/api/admin-lists/' + listId + '/log-mailer', { mailer_name: mailerName.trim(), candidate_id: candidateId });
+    alert('Logged "' + data.mailer_name + '" for ' + data.logged + ' voters in "' + data.list_name + '"');
+  } catch (e) { alert('Error: ' + (e.message || e)); }
+};
 window.exportMailerCSV = function() {
   var listId = state.currentAdminListId;
   if (!listId) return;

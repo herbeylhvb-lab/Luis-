@@ -669,4 +669,57 @@ router.get('/admin-lists/:id/export-ott', (req, res) => {
   res.send(csv);
 });
 
+// Log a mailer sent to all voters in a list
+// Creates a voter_contact touchpoint (type: Mailer) for each voter
+router.post('/admin-lists/:id/log-mailer', (req, res) => {
+  const { mailer_name, candidate_id } = req.body;
+  if (!mailer_name) return res.status(400).json({ error: 'Mailer name is required.' });
+
+  const list = db.prepare('SELECT id, name FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // Get all voter_ids in this list
+  const voters = db.prepare('SELECT voter_id FROM admin_list_voters WHERE list_id = ?').all(req.params.id);
+  if (voters.length === 0) return res.status(400).json({ error: 'List has no voters.' });
+
+  const now = new Date().toISOString();
+  const insert = db.prepare(
+    "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Mailer', 'sent', ?, ?, ?)"
+  );
+  const contactedBy = candidate_id ? 'Candidate #' + candidate_id : 'Admin';
+  const logAll = db.transaction(() => {
+    let count = 0;
+    for (const v of voters) {
+      insert.run(v.voter_id, mailer_name, contactedBy, now);
+      count++;
+    }
+    return count;
+  });
+  const logged = logAll();
+
+  // Log activity
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Mailer "' + mailer_name + '" logged for ' + logged + ' voters from list "' + list.name + '"'
+  );
+
+  res.json({ success: true, logged, list_name: list.name, mailer_name });
+});
+
+// Get mailer history for a list (or all lists for a candidate)
+router.get('/mailer-history', (req, res) => {
+  const { candidate_id } = req.query;
+  let sql = `
+    SELECT notes as mailer_name, contacted_by, contacted_at, COUNT(*) as voter_count
+    FROM voter_contacts WHERE contact_type = 'Mailer'
+  `;
+  const params = [];
+  if (candidate_id) {
+    sql += " AND contacted_by = ?";
+    params.push('Candidate #' + candidate_id);
+  }
+  sql += ' GROUP BY notes, contacted_at ORDER BY contacted_at DESC';
+  const mailers = db.prepare(sql).all(...params);
+  res.json({ mailers });
+});
+
 module.exports = router;

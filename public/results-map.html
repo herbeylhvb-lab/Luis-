@@ -27,7 +27,10 @@ body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFo
 </head><body>
 <div id="header">
   <h1>Block Walk Results Map</h1>
-  <div style="display:flex;align-items:center;gap:12px">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <select id="mapCandidateFilter" onchange="onMapCandidateChange()" style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:5px 10px;color:#e2e8f0;font-size:13px">
+      <option value="">All Campaigns</option>
+    </select>
     <span id="filterChip" style="display:none;background:#1e3a5f;color:#60a5fa;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600">
       <span id="filterChipText"></span>
       <button id="clearFiltersBtn" style="background:none;border:none;color:#60a5fa;cursor:pointer;margin-left:6px;font-size:14px;font-weight:700">&times;</button>
@@ -78,13 +81,38 @@ function renderFilterChip(candidateId) {
   chip.style.display = '';
 }
 document.getElementById('clearFiltersBtn').addEventListener('click', function() {
+  document.getElementById('mapCandidateFilter').value = '';
   localStorage.removeItem('dashSettings');
   location.reload();
 });
 
-var candidateId = getDashCandidateId();
-renderFilterChip(candidateId);
-var mapUrl = '/api/walks/all-results-map' + (candidateId ? '?candidate_id=' + encodeURIComponent(candidateId) : '');
+// Populate candidate dropdown + select the locked candidate
+var _activeCandidateId = getDashCandidateId();
+fetch('/api/candidates', {credentials:'include'}).then(function(r){return r.json()}).then(function(d) {
+  var sel = document.getElementById('mapCandidateFilter');
+  (d.candidates || []).filter(function(c) { return c.is_active; }).forEach(function(c) {
+    var opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name;
+    if (String(c.id) === String(_activeCandidateId)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}).catch(function(){});
+
+function onMapCandidateChange() {
+  var val = document.getElementById('mapCandidateFilter').value;
+  // Save to localStorage so it persists
+  try {
+    var raw = localStorage.getItem('dashSettings');
+    var saved = raw ? JSON.parse(raw) : {};
+    saved.candidate_id = val || '';
+    localStorage.setItem('dashSettings', JSON.stringify(saved));
+  } catch(e) {}
+  location.reload();
+}
+
+renderFilterChip(_activeCandidateId);
+var mapUrl = '/api/walks/all-results-map' + (_activeCandidateId ? '?candidate_id=' + encodeURIComponent(_activeCandidateId) : '');
 fetch(mapUrl).then(function(r){return r.json()}).then(function(data){
   var addrs = data.addresses || [];
   var stats = data.stats || {};
