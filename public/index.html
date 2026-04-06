@@ -259,6 +259,7 @@ tr:hover td{background:#1e293b80}
         <div class="stat-card"><div class="label">Events</div><div class="value" id="statEvents">0</div><div class="sub">Upcoming</div></div>
         <div class="stat-card"><div class="label">Sentiment</div><div class="value" style="font-size:16px" id="statSentiment">--</div><div class="sub">Response mood</div></div>
         <div class="stat-card"><div class="label">Early Voted</div><div class="value" style="color:#22c55e" id="statEarlyVoted">0</div><div class="sub" id="statEarlyVotedSub">0% of voter file</div></div>
+        <div class="stat-card"><div class="label">Mailers Sent</div><div class="value" style="color:#7c3aed" id="statMailers">0</div><div class="sub" id="statMailersSub">0 campaigns</div></div>
       </div>
       <div class="card" id="liveWalkersCard">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -4366,6 +4367,16 @@ async function loadDashboard() {
     document.getElementById('statEarlyVoted').textContent = evData.earlyVoted || 0;
     var evPct = evData.total > 0 ? Math.round(evData.earlyVoted / evData.total * 100) : 0;
     document.getElementById('statEarlyVotedSub').textContent = evPct + '% of voter file';
+  } catch (e) {}
+  // Mailer stats
+  try {
+    var candSel = document.getElementById('dashCandidateFilter');
+    var mailerCandParam = candSel && candSel.value ? '?candidate_id=' + encodeURIComponent(candSel.value) : '';
+    var mailerData = await api('/api/mailer-history' + mailerCandParam);
+    var mailers = mailerData.mailers || [];
+    var totalVotersSent = mailers.reduce(function(sum, m) { return sum + (m.voter_count || 0); }, 0);
+    document.getElementById('statMailers').textContent = totalVotersSent.toLocaleString();
+    document.getElementById('statMailersSub').textContent = mailers.length + ' campaign' + (mailers.length !== 1 ? 's' : '');
   } catch (e) {}
 }
 
