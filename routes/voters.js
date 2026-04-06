@@ -1650,14 +1650,25 @@ router.get('/analytics/precincts', (req, res) => {
     UNION
     SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
   )`;
+  // Resolve race from candidate if not explicitly provided
+  let effectiveRaceCol = race_col;
+  let effectiveRaceVal = race_val;
+  if (!effectiveRaceCol && candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidate_id);
+    if (cand && cand.race_type && cand.race_value && DISTRICT_COLS_SET.has(cand.race_type)) {
+      effectiveRaceCol = cand.race_type;
+      effectiveRaceVal = cand.race_value;
+    }
+  }
+
   // Two filter tracks:
   // 1. territoryFilter (race only) — shows ALL precincts in the district
   // 2. engagementFilter (candidate's lists+walks) — shows only this candidate's work
   const territoryParams = [];
   let territoryFilter = '';
-  if (race_col && DISTRICT_COLS_SET.has(race_col) && race_val) {
-    territoryFilter = ` AND ${race_col} = ?`;
-    territoryParams.push(race_val);
+  if (effectiveRaceCol && DISTRICT_COLS_SET.has(effectiveRaceCol) && effectiveRaceVal) {
+    territoryFilter = ` AND ${effectiveRaceCol} = ?`;
+    territoryParams.push(effectiveRaceVal);
   }
   if (list_id) {
     territoryFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';

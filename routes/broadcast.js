@@ -130,9 +130,19 @@ router.get('/gotv/stats', (req, res) => {
   let raceFilter = '';
   const raceParams = [];
   const list_id = req.query.list_id;
-  if (race_col && validCols.includes(race_col) && race_val) {
-    raceFilter += ` AND ${race_col} = ?`;
-    raceParams.push(race_val);
+  // Resolve race from candidate if not sent by frontend
+  let effectiveRaceCol = race_col;
+  let effectiveRaceVal = race_val;
+  if (!effectiveRaceCol && candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidate_id);
+    if (cand && cand.race_type && cand.race_value && validCols.includes(cand.race_type)) {
+      effectiveRaceCol = cand.race_type;
+      effectiveRaceVal = cand.race_value;
+    }
+  }
+  if (effectiveRaceCol && validCols.includes(effectiveRaceCol) && effectiveRaceVal) {
+    raceFilter += ` AND ${effectiveRaceCol} = ?`;
+    raceParams.push(effectiveRaceVal);
   }
   if (list_id) {
     raceFilter += ' AND id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';

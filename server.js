@@ -360,20 +360,27 @@ app.get('/api/stats', (req, res) => {
   // If no filters at all, use fast prepared statement
   if (!race_col && !list_id && !candidate_id) return res.json(_statsQueryDefault.get());
 
-  // Two filter tracks:
-  // 1. voterFilter (race + list_id): for total voter count in the territory
-  // 2. supporterFilter (list_id or candidate's lists): for supporters/undecided (must be candidate-specific)
+  // Resolve race from candidate if frontend didn't send it
+  let effectiveRaceCol = race_col;
+  let effectiveRaceVal = race_val;
+  if (!effectiveRaceCol && candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidate_id);
+    if (cand && cand.race_type && cand.race_value && validCols.includes(cand.race_type)) {
+      effectiveRaceCol = cand.race_type;
+      effectiveRaceVal = cand.race_value;
+    }
+  }
+
   let voterFilter = '';
   const vParams = [];
   let supporterFilter = '';
   const sParams = [];
 
-  // Race filter applies to BOTH voter count (territory) and supporter count
-  if (race_col && validCols.includes(race_col) && race_val) {
-    voterFilter += ` AND ${race_col} = ?`;
-    vParams.push(race_val);
-    supporterFilter += ` AND ${race_col} = ?`;
-    sParams.push(race_val);
+  if (effectiveRaceCol && validCols.includes(effectiveRaceCol) && effectiveRaceVal) {
+    voterFilter += ` AND ${effectiveRaceCol} = ?`;
+    vParams.push(effectiveRaceVal);
+    supporterFilter += ` AND ${effectiveRaceCol} = ?`;
+    sParams.push(effectiveRaceVal);
   }
   // list_id narrows voter count
   if (list_id) {
