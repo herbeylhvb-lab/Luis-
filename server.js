@@ -354,7 +354,8 @@ const _statsQueryDefault = db.prepare(`
     (SELECT COUNT(*) FROM voters WHERE support_level = 'undecided') as undecided
 `);
 app.get('/api/stats', (req, res) => {
-  const { race_col, race_val, list_id, candidate_id } = req.query;
+  const { race_col, race_val, list_id } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
 
   // If no filters at all, use fast prepared statement
@@ -443,7 +444,7 @@ const _sentimentQuery = db.prepare(`
   FROM messages
 `);
 app.get('/api/stats/sentiment', (req, res) => {
-  const { candidate_id } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   // Sentiment from messages linked to voters in candidate's walks/lists
   if (candidate_id) {
     const stats = db.prepare(`
@@ -466,7 +467,7 @@ app.get('/api/stats/sentiment', (req, res) => {
 
 // --- Live walkers across all walks (aggregated per walker) ---
 app.get('/api/stats/live-walkers', (req, res) => {
-  const { candidate_id } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   // Get walks that have group members (filtered by candidate if set)
   const walkSql = candidate_id
     ? "SELECT id, name, status FROM block_walks WHERE candidate_id = ? AND id IN (SELECT DISTINCT walk_id FROM walk_group_members)"

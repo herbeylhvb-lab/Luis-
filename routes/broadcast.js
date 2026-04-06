@@ -124,7 +124,8 @@ router.get('/broadcast/campaigns', (req, res) => {
 
 // GOTV Dashboard stats
 router.get('/gotv/stats', (req, res) => {
-  const { race_col, race_val, candidate_id } = req.query;
+  const { race_col, race_val } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
 
   let raceFilter = '';

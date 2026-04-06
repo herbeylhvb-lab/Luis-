@@ -621,7 +621,7 @@ function buildVotingHistorySQL(filters, params) {
 // ===================== DAILY REPORT (must be before /walks/:id) =====================
 router.get('/walks/daily-report', (req, res) => {
   const date = req.query.date; // YYYY-MM-DD, defaults to today
-  const candidate_id = req.query.candidate_id || null;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   // Default to today in Central Time (UTC-6), not UTC
   const now = new Date();
   const centralNow = new Date(now.getTime() - 6 * 60 * 60 * 1000);
@@ -737,7 +737,7 @@ router.get('/walks/weekly-hours', (req, res) => {
   const defaultMonday = new Date(central);
   defaultMonday.setDate(central.getDate() + diffToMon);
   const weekOf = req.query.week_of || defaultMonday.toISOString().split('T')[0];
-  const candidate_id = req.query.candidate_id || null;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
 
   // Get all knocks for the 7-day window (Mon-Sun), excluding knocks after 20:30 Central
   const weekEnd = new Date(weekOf);
@@ -1044,7 +1044,8 @@ router.get('/walks/civic-info', async (req, res) => {
 // ?list_id=X filters to voters in an admin_list universe (shows all addresses including unvisited)
 // Without list_id, shows only visited addresses across all walks
 router.get('/walks/all-results-map', (req, res) => {
-  const { list_id, race_col, race_val, candidate_id } = req.query;
+  const { list_id, race_col, race_val } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   const validDistrictCols = new Set(['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district']);
   let where = "wa.lat IS NOT NULL AND wa.lng IS NOT NULL AND wa.address NOT LIKE '%***%' AND wa.address NOT LIKE '%Privacy%'";
   const params = [];

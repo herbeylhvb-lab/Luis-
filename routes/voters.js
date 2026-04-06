@@ -1615,7 +1615,7 @@ const _touchpointStatsQuery = db.prepare(`
     (SELECT COUNT(*) FROM email_campaigns) as emailCampaigns
 `);
 router.get('/voters-touchpoints/stats', (req, res) => {
-  const { candidate_id } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   if (candidate_id) {
     // Scope touchpoints to candidate's voters (lists + walks)
     const candVoters = `(
@@ -1656,7 +1656,8 @@ router.get('/voters-cities', (req, res) => {
 
 // --- Precinct analytics (engagement rollup by precinct) ---
 router.get('/analytics/precincts', (req, res) => {
-  const { race_col, race_val, list_id, candidate_id } = req.query;
+  const { race_col, race_val, list_id } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
 
   // Build filters — params MUST be pushed in SQL order: raceFilter first, then listFilter
   let raceFilter = '';
@@ -1800,7 +1801,7 @@ router.get('/analytics/precincts', (req, res) => {
 
 // Get early voting stats
 router.get('/early-voting/stats', (req, res) => {
-  const { candidate_id } = req.query;
+  const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   // Build candidate voter scope (race from candidate + candidate's lists/walks)
   let candFilter = '';
   const candParams = [];
