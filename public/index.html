@@ -1690,6 +1690,15 @@ tr:hover td{background:#1e293b80}
         <p style="color:#94a3b8;font-size:13px;margin-bottom:16px">Universes you've built with the Universe Builder. You can view, rename, or delete them here.</p>
         <div id="myUniversesContainer"><p style="color:#64748b;text-align:center">Loading...</p></div>
       </div>
+
+      <!-- Mailer History -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin-bottom:0">📬 Mailer History</h3>
+          <button class="btn btn-sm btn-secondary" onclick="loadMailerHistory()">Refresh</button>
+        </div>
+        <div id="mailerHistoryContainer"><p style="color:#64748b;text-align:center">Loading...</p></div>
+      </div>
       </div>
 
       <!-- SUB-TAB: UNIVERSE BUILDER -->
@@ -3162,7 +3171,7 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       // Load data for sub-tabs
       const subtab = tab.dataset.subtab;
       if (subtab === 'lists-tab') loadAdminLists();
-      if (subtab === 'universes-tab') loadMyUniverses();
+      if (subtab === 'universes-tab') { loadMyUniverses(); loadMailerHistory(); }
       if (subtab === 'universe-tab') loadUniverseBuilder();
       if (subtab === 'vbm-tab') { /* VBM tab ready */ }
       if (subtab === 'phone-validation-tab') loadPhoneValidationStats();
@@ -13477,6 +13486,85 @@ async function loadAdminLists() {
   });
 }
 // ---- My Universes Management ----
+async function loadMailerHistory() {
+  var el = document.getElementById('mailerHistoryContainer');
+  try {
+    var data = await api('/api/mailer-history');
+    var mailers = data.mailers || [];
+    if (mailers.length === 0) {
+      el.textContent = '';
+      var msg = document.createElement('p');
+      msg.style.cssText = 'color:#64748b;text-align:center;padding:12px 0';
+      msg.textContent = 'No mailers logged yet. Use the "Log Mailer" button on a universe.';
+      el.appendChild(msg);
+      return;
+    }
+    el.textContent = '';
+    mailers.forEach(function(m) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;flex-wrap:wrap;gap:8px';
+      var left = document.createElement('div');
+      var title = document.createElement('strong');
+      title.style.color = '#e2e8f0';
+      title.textContent = m.mailer_name;
+      left.appendChild(title);
+      var count = document.createElement('span');
+      count.className = 'badge badge-green';
+      count.style.marginLeft = '8px';
+      count.textContent = m.voter_count + ' voters';
+      left.appendChild(count);
+      var tag = document.createElement('span');
+      tag.style.cssText = 'margin-left:8px;font-size:12px;padding:2px 8px;border-radius:10px;font-weight:600;' + (m.contacted_by === 'Admin' ? 'background:#7f1d1d;color:#fca5a5' : 'background:#1e3a5f;color:#60a5fa');
+      tag.textContent = m.contacted_by;
+      left.appendChild(tag);
+      var dt = document.createElement('div');
+      dt.style.cssText = 'font-size:11px;color:#475569;margin-top:4px';
+      dt.textContent = new Date(m.contacted_at).toLocaleDateString();
+      left.appendChild(dt);
+      row.appendChild(left);
+      var right = document.createElement('div');
+      right.style.cssText = 'display:flex;gap:6px';
+      // Retag button
+      var retagBtn = document.createElement('button');
+      retagBtn.className = 'btn btn-sm btn-primary';
+      retagBtn.textContent = 'Retag';
+      (function(mailerName, timestamp) {
+        retagBtn.addEventListener('click', async function() {
+          var cands = [];
+          try { var cd = await api('/api/candidates'); cands = (cd.candidates || []).filter(function(c) { return c.is_active; }); } catch(e) {}
+          var choices = cands.map(function(c) { return c.id + ' = ' + c.name; }).join('\n');
+          var input = prompt('Retag mailer to which candidate?\n\n' + choices + '\n\nEnter number:');
+          if (!input) return;
+          var candId = parseInt(input);
+          await api('/api/mailer-history/' + encodeURIComponent(timestamp) + '/retag', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mailer_name: mailerName, candidate_id: candId }) });
+          loadMailerHistory();
+        });
+      })(m.mailer_name, m.contacted_at);
+      right.appendChild(retagBtn);
+      // Delete button
+      var delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-sm btn-danger';
+      delBtn.textContent = 'Delete';
+      (function(mailerName, timestamp, voterCount) {
+        delBtn.addEventListener('click', async function() {
+          if (!confirm('Delete mailer "' + mailerName + '" (' + voterCount + ' touchpoints)?')) return;
+          await apiDelete('/api/mailer-history/' + encodeURIComponent(timestamp) + '?mailer_name=' + encodeURIComponent(mailerName));
+          loadMailerHistory();
+        });
+      })(m.mailer_name, m.contacted_at, m.voter_count);
+      right.appendChild(delBtn);
+      row.appendChild(right);
+      el.appendChild(row);
+    });
+  } catch(e) {
+    el.textContent = '';
+    var err = document.createElement('p');
+    err.style.cssText = 'color:#ef4444;text-align:center';
+    err.textContent = 'Failed to load mailer history.';
+    el.appendChild(err);
+  }
+}
+
 async function loadMyUniverses() {
   var el = document.getElementById('myUniversesContainer');
   try {

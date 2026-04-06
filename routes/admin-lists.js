@@ -722,4 +722,21 @@ router.get('/mailer-history', (req, res) => {
   res.json({ mailers });
 });
 
+// Delete a logged mailer (removes all voter_contacts with that mailer name + timestamp)
+router.delete('/mailer-history/:timestamp', (req, res) => {
+  const { mailer_name } = req.query;
+  if (!mailer_name) return res.status(400).json({ error: 'mailer_name required.' });
+  const result = db.prepare("DELETE FROM voter_contacts WHERE contact_type = 'Mailer' AND notes = ? AND contacted_at = ?").run(mailer_name, req.params.timestamp);
+  res.json({ success: true, deleted: result.changes });
+});
+
+// Retag a mailer to a different candidate
+router.put('/mailer-history/:timestamp/retag', (req, res) => {
+  const { mailer_name, candidate_id } = req.body;
+  if (!mailer_name) return res.status(400).json({ error: 'mailer_name required.' });
+  const newTag = candidate_id ? 'Candidate #' + candidate_id : 'Admin';
+  const result = db.prepare("UPDATE voter_contacts SET contacted_by = ? WHERE contact_type = 'Mailer' AND notes = ? AND contacted_at = ?").run(newTag, mailer_name, req.params.timestamp);
+  res.json({ success: true, updated: result.changes });
+});
+
 module.exports = router;
