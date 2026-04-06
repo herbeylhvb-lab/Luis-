@@ -61,39 +61,20 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/Worl
 var byResult = {};
 var filters = {};
 
-// Read dashboard filter settings (race/universe) from localStorage to sandbox the map
-function getDashFilters() {
+// Read candidate_id from dashboard lock — that's all the map needs
+function getDashCandidateId() {
   try {
     var raw = localStorage.getItem('dashSettings');
     if (!raw) return null;
     var saved = JSON.parse(raw);
-    var out = {};
-    if (saved.race) {
-      var rp = saved.race.split('|');
-      if (rp.length === 2) { out.race_col = rp[0]; out.race_val = rp[1]; }
-    }
-    if (saved.candidate_id) out.candidate_id = saved.candidate_id;
-    if (saved.universe) out.list_id = saved.universe;
-    return (out.race_col || out.list_id || out.candidate_id) ? out : null;
+    return saved.candidate_id || null;
   } catch(e) { return null; }
 }
-function buildMapQueryString(f) {
-  if (!f) return '';
-  var parts = [];
-  if (f.candidate_id) parts.push('candidate_id=' + encodeURIComponent(f.candidate_id));
-  if (f.race_col) { parts.push('race_col=' + encodeURIComponent(f.race_col)); parts.push('race_val=' + encodeURIComponent(f.race_val)); }
-  if (f.list_id) parts.push('list_id=' + encodeURIComponent(f.list_id));
-  return parts.length ? '?' + parts.join('&') : '';
-}
-function renderFilterChip(f) {
+function renderFilterChip(candidateId) {
   var chip = document.getElementById('filterChip');
   var txt = document.getElementById('filterChipText');
-  if (!f) { chip.style.display = 'none'; return; }
-  var parts = [];
-  if (f.candidate_id) parts.push('🎯 Campaign #' + f.candidate_id);
-  if (f.race_col) parts.push('🔒 ' + f.race_col.replace(/_/g,' ') + ': ' + f.race_val);
-  if (f.list_id) parts.push('📋 Universe #' + f.list_id);
-  txt.textContent = parts.join('  •  ');
+  if (!candidateId) { chip.style.display = 'none'; return; }
+  txt.textContent = 'Showing walks for Campaign #' + candidateId;
   chip.style.display = '';
 }
 document.getElementById('clearFiltersBtn').addEventListener('click', function() {
@@ -101,33 +82,10 @@ document.getElementById('clearFiltersBtn').addEventListener('click', function() 
   location.reload();
 });
 
-function loadMap(filters) {
-  renderFilterChip(filters);
-  return fetch('/api/walks/all-results-map' + buildMapQueryString(filters)).then(function(r){return r.json()});
-}
-
-var activeFilters = getDashFilters();
-var filtersFellBack = false;
-loadMap(activeFilters).then(function(data){
-  // If filtered query returns nothing, retry with candidate_id only (drop race/list filters)
-  if ((!data.addresses || data.addresses.length === 0) && activeFilters) {
-    // If we have candidate_id, retry with JUST that (most reliable filter for walks)
-    if (activeFilters.candidate_id) {
-      console.warn('[map] Race/list filter returned 0 — retrying with candidate_id only');
-      var candOnlyFilter = { candidate_id: activeFilters.candidate_id };
-      return loadMap(candOnlyFilter).then(function(d) {
-        renderFilterChip(candOnlyFilter);
-        return d;
-      });
-    }
-    // No candidate_id — show all as last resort
-    console.warn('[map] No results with filter — showing all');
-    filtersFellBack = true;
-    activeFilters = null;
-    return loadMap(null);
-  }
-  return data;
-}).then(function(data){
+var candidateId = getDashCandidateId();
+renderFilterChip(candidateId);
+var mapUrl = '/api/walks/all-results-map' + (candidateId ? '?candidate_id=' + encodeURIComponent(candidateId) : '');
+fetch(mapUrl).then(function(r){return r.json()}).then(function(data){
   var addrs = data.addresses || [];
   var stats = data.stats || {};
   var bounds = [];
