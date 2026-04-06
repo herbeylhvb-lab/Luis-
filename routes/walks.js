@@ -1096,19 +1096,25 @@ router.get('/walks/all-results-map', (req, res) => {
   }
 
   const stats = {};
-  // Build stats query — count unique houses (address+unit), not individual voter rows
-  let statsWhere = 'lat IS NOT NULL AND lng IS NOT NULL';
-  if (list_id) {
-    statsWhere += ' AND voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+  // Stats query uses its OWN params (not the addresses query params)
+  let statsWhere = 'wa2.lat IS NOT NULL AND wa2.lng IS NOT NULL';
+  const statsParams = [];
+  if (candidate_id) {
+    statsWhere += ' AND bw2.candidate_id = ?';
+    statsParams.push(candidate_id);
+  } else if (list_id) {
+    statsWhere += ' AND wa2.voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
+    statsParams.push(list_id);
   } else {
-    statsWhere += " AND result != 'not_visited'";
+    statsWhere += " AND wa2.result != 'not_visited'";
   }
   db.prepare(`
-    SELECT result, COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) as count
-    FROM walk_addresses
+    SELECT wa2.result, COUNT(DISTINCT LOWER(TRIM(wa2.address)) || '||' || LOWER(TRIM(COALESCE(wa2.unit, ''))) || '||' || wa2.walk_id) as count
+    FROM walk_addresses wa2
+    JOIN block_walks bw2 ON wa2.walk_id = bw2.id
     WHERE ${statsWhere}
-    GROUP BY result
-  `).all(...params).forEach(r => { stats[r.result] = r.count; });
+    GROUP BY wa2.result
+  `).all(...statsParams).forEach(r => { stats[r.result] = r.count; });
 
   // Include debug counts so frontend knows if geocoding is needed
   const totalKnocked = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited'").get() || {}).c || 0;
