@@ -1142,21 +1142,33 @@ addColumn("ALTER TABLE candidates ADD COLUMN race_value TEXT DEFAULT ''");
 // Default universe (admin_list) for candidate — used by dashboard candidate picker
 addColumn("ALTER TABLE candidates ADD COLUMN default_list_id INTEGER DEFAULT NULL");
 
-// --- One-time backfill: tag NULL-candidate walks with Luis / Adreste ---
-// Runs once (idempotent — only touches walks where candidate_id IS NULL).
-// Safe to redeploy: if candidates don't exist or walks are already tagged, it no-ops.
+// --- Backfill: tag NULL-candidate walks ---
+// Runs every startup (idempotent — only touches walks where candidate_id IS NULL).
 try {
-  const luis = db.prepare("SELECT id FROM candidates WHERE LOWER(name) LIKE '%luis%' AND is_active = 1 ORDER BY id LIMIT 1").get();
-  const adreste = db.prepare("SELECT id FROM candidates WHERE LOWER(name) LIKE '%adreste%' AND is_active = 1 ORDER BY id LIMIT 1").get();
-  if (adreste) {
-    const r = db.prepare("UPDATE block_walks SET candidate_id = ? WHERE candidate_id IS NULL AND (UPPER(name) LIKE '%TSC%' OR UPPER(COALESCE(description,'')) LIKE '%TSC%')").run(adreste.id);
-    if (r.changes > 0) console.log(`[backfill] Tagged ${r.changes} TSC walk(s) to Adreste (candidate_id=${adreste.id})`);
+  const nullWalks = db.prepare("SELECT COUNT(*) as c FROM block_walks WHERE candidate_id IS NULL").get().c;
+  if (nullWalks > 0) {
+    // Log all candidate names so we can debug matching
+    const allCands = db.prepare("SELECT id, name, is_active FROM candidates").all();
+    console.log(`[backfill] ${nullWalks} unassigned walk(s). Candidates: ${allCands.map(c => `#${c.id} "${c.name}" (active=${c.is_active})`).join(', ')}`);
+
+    // Try multiple name patterns for Luis (the primary/default candidate)
+    const luis = db.prepare("SELECT id, name FROM candidates WHERE is_active = 1 AND (LOWER(name) LIKE '%luis%' OR LOWER(name) LIKE '%villarreal%') ORDER BY id LIMIT 1").get();
+    // Try multiple patterns for Adreste
+    const adreste = db.prepare("SELECT id, name FROM candidates WHERE is_active = 1 AND (LOWER(name) LIKE '%adre%' OR LOWER(name) LIKE '%tsc%') ORDER BY id LIMIT 1").get();
+
+    if (adreste) {
+      const r = db.prepare("UPDATE block_walks SET candidate_id = ? WHERE candidate_id IS NULL AND (UPPER(name) LIKE '%TSC%' OR UPPER(COALESCE(description,'')) LIKE '%TSC%')").run(adreste.id);
+      if (r.changes > 0) console.log(`[backfill] Tagged ${r.changes} TSC walk(s) → "${adreste.name}" (#${adreste.id})`);
+    }
+    if (luis) {
+      const r = db.prepare("UPDATE block_walks SET candidate_id = ? WHERE candidate_id IS NULL").run(luis.id);
+      if (r.changes > 0) console.log(`[backfill] Tagged ${r.changes} remaining walk(s) → "${luis.name}" (#${luis.id})`);
+    }
+    if (!luis && !adreste) console.log('[backfill] Could not match any candidate names — walks still unassigned. Use "Tag Unassigned Walks" button on Block Walking page.');
+
+    const stillNull = db.prepare("SELECT COUNT(*) as c FROM block_walks WHERE candidate_id IS NULL").get().c;
+    if (stillNull > 0) console.log(`[backfill] WARNING: ${stillNull} walk(s) still unassigned after backfill`);
   }
-  if (luis) {
-    const r = db.prepare("UPDATE block_walks SET candidate_id = ? WHERE candidate_id IS NULL").run(luis.id);
-    if (r.changes > 0) console.log(`[backfill] Tagged ${r.changes} remaining walk(s) to Luis (candidate_id=${luis.id})`);
-  }
-  if (!luis && !adreste) console.log('[backfill] No Luis/Adreste candidates found — walk backfill skipped');
 } catch (e) { console.warn('[backfill] Walk tagging failed:', e.message); }
 
 // Remove privacy-redacted addresses from block walks entirely (no useful data)

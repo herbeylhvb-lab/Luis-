@@ -13552,15 +13552,21 @@ async function loadMyUniverses() {
     mailerBtn.style.cssText = 'background:#059669;border-color:#047857';
     mailerBtn.textContent = '📬 Log Mailer';
     (function(listId, listName, voterCount) {
-      mailerBtn.addEventListener('click', function() {
+      mailerBtn.addEventListener('click', async function() {
         var mailerName = prompt('Mailer name (e.g., "GOTV Postcard #1", "Intro Mailer"):');
         if (!mailerName || !mailerName.trim()) return;
-        var candSel = document.getElementById('dashCandidateFilter');
-        var candidateId = candSel && candSel.value ? candSel.value : null;
-        if (!confirm('Log mailer "' + mailerName.trim() + '" as sent to ' + voterCount + ' voters in "' + listName + '"?')) return;
-        apiPost('/api/admin-lists/' + listId + '/log-mailer', { mailer_name: mailerName.trim(), candidate_id: candidateId }).then(function(data) {
-          alert('Logged "' + data.mailer_name + '" for ' + data.logged + ' voters');
-        }).catch(function(e) { alert('Error: ' + (e.message || e)); });
+        // Ask which candidate this mailer is for
+        var cands = [];
+        try { var cd = await api('/api/candidates'); cands = (cd.candidates || []).filter(function(c) { return c.is_active; }); } catch(e) {}
+        var candChoices = cands.map(function(c) { return c.id + ' = ' + c.name; }).join('\n');
+        var candInput = prompt('Which candidate is this mailer for?\n\n' + candChoices + '\n\nEnter the number (or leave blank for no candidate):');
+        var candidateId = candInput ? parseInt(candInput) : null;
+        var candName = candidateId ? (cands.find(function(c) { return c.id === candidateId; }) || {}).name || '#' + candidateId : 'No candidate';
+        if (!confirm('Log mailer "' + mailerName.trim() + '" for ' + candName + '\nSent to ' + voterCount + ' voters in "' + listName + '"?')) return;
+        try {
+          var data = await apiPost('/api/admin-lists/' + listId + '/log-mailer', { mailer_name: mailerName.trim(), candidate_id: candidateId });
+          alert('Logged "' + data.mailer_name + '" for ' + data.logged + ' voters (' + candName + ')');
+        } catch(e) { alert('Error: ' + (e.message || e)); }
       });
     })(l.id, l.name, l.voterCount);
     right.appendChild(mailerBtn);
