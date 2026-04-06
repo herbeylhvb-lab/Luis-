@@ -1615,6 +1615,24 @@ const _touchpointStatsQuery = db.prepare(`
     (SELECT COUNT(*) FROM email_campaigns) as emailCampaigns
 `);
 router.get('/voters-touchpoints/stats', (req, res) => {
+  const { candidate_id } = req.query;
+  if (candidate_id) {
+    // Scope touchpoints to candidate's voters (lists + walks)
+    const candVoters = `(
+      SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+      UNION
+      SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+    )`;
+    return res.json(db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM messages WHERE voter_id IN ${candVoters}) as texts,
+        (SELECT COUNT(*) FROM voter_contacts WHERE voter_id IN ${candVoters} AND contact_type = 'Door-knock') as doorKnocks,
+        (SELECT COUNT(*) FROM voter_checkins WHERE voter_id IN ${candVoters}) as events,
+        (SELECT COUNT(*) FROM voter_contacts WHERE voter_id IN ${candVoters} AND contact_type = 'Phone Call') as calls,
+        (SELECT COUNT(*) FROM voter_contacts WHERE voter_id IN ${candVoters} AND contact_type = 'Mailer') as mailers,
+        (SELECT COUNT(*) FROM email_campaigns) as emailCampaigns
+    `).get(candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id));
+  }
   res.json(_touchpointStatsQuery.get());
 });
 
@@ -1782,30 +1800,41 @@ router.get('/analytics/precincts', (req, res) => {
 
 // Get early voting stats
 router.get('/early-voting/stats', (req, res) => {
-  const total = (db.prepare('SELECT COUNT(*) as c FROM voters').get() || { c: 0 }).c;
-  const earlyVoted = (db.prepare('SELECT COUNT(*) as c FROM voters WHERE early_voted = 1').get() || { c: 0 }).c;
+  const { candidate_id } = req.query;
+  // Build candidate voter scope (race from candidate + candidate's lists/walks)
+  let candFilter = '';
+  const candParams = [];
+  if (candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidate_id);
+    if (cand && cand.race_type && cand.race_value && DISTRICT_COLS_SET.has(cand.race_type)) {
+      candFilter += ` AND ${cand.race_type} = ?`;
+      candParams.push(cand.race_value);
+    }
+  }
+  const total = (db.prepare(`SELECT COUNT(*) as c FROM voters WHERE 1=1${candFilter}`).get(...candParams) || { c: 0 }).c;
+  const earlyVoted = (db.prepare(`SELECT COUNT(*) as c FROM voters WHERE early_voted = 1${candFilter}`).get(...candParams) || { c: 0 }).c;
   const remaining = total - earlyVoted;
   const byDate = db.prepare(`
     SELECT early_voted_date as date, COUNT(*) as count
-    FROM voters WHERE early_voted = 1 AND early_voted_date IS NOT NULL
+    FROM voters WHERE early_voted = 1 AND early_voted_date IS NOT NULL${candFilter}
     GROUP BY early_voted_date ORDER BY early_voted_date DESC
-  `).all();
+  `).all(...candParams);
   const byMethod = db.prepare(`
     SELECT COALESCE(early_voted_method, 'unknown') as method, COUNT(*) as count
-    FROM voters WHERE early_voted = 1
+    FROM voters WHERE early_voted = 1${candFilter}
     GROUP BY early_voted_method ORDER BY count DESC
-  `).all();
+  `).all(...candParams);
   const byPrecinct = db.prepare(`
     SELECT precinct, COUNT(*) as total,
       SUM(CASE WHEN early_voted = 1 THEN 1 ELSE 0 END) as voted
-    FROM voters WHERE precinct != ''
+    FROM voters WHERE precinct != ''${candFilter}
     GROUP BY precinct ORDER BY precinct
-  `).all();
+  `).all(...candParams);
   const byBallot = db.prepare(`
     SELECT COALESCE(early_voted_ballot, 'Unknown') as ballot, COUNT(*) as count
-    FROM voters WHERE early_voted = 1
+    FROM voters WHERE early_voted = 1${candFilter}
     GROUP BY early_voted_ballot ORDER BY count DESC
-  `).all();
+  `).all(...candParams);
   res.json({ total, earlyVoted, remaining, byDate, byMethod, byPrecinct, byBallot });
 });
 

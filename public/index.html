@@ -4344,7 +4344,9 @@ async function loadDashboard() {
   try { loadDashFilters(); } catch(e) { console.error('DashFilters error:', e); }
   // Early voting dashboard stat
   try {
-    var evData = await api('/api/early-voting/stats');
+    var evCandParam = (typeof getDashFilterParams === 'function') ? getDashFilterParams().replace('?', '?') : '';
+    var evUrl = '/api/early-voting/stats' + evCandParam;
+    var evData = await api(evUrl);
     document.getElementById('statEarlyVoted').textContent = evData.earlyVoted || 0;
     var evPct = evData.total > 0 ? Math.round(evData.earlyVoted / evData.total * 100) : 0;
     document.getElementById('statEarlyVotedSub').textContent = evPct + '% of voter file';
@@ -8903,7 +8905,8 @@ window.printQr = function() {
 // ===================== SENTIMENT DASHBOARD =====================
 async function loadSentimentStats() {
   try {
-    const data = await api('/api/stats/sentiment');
+    var sentCandParam = (typeof getDashFilterParams === 'function') ? getDashFilterParams() : '';
+    const data = await api('/api/stats/sentiment' + sentCandParam);
     const total = (data.positive || 0) + (data.negative || 0) + (data.neutral || 0);
     if (total === 0) { document.getElementById('statSentiment').textContent = 'No data'; return; }
     document.getElementById('statSentiment').innerHTML =

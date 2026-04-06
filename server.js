@@ -443,6 +443,22 @@ const _sentimentQuery = db.prepare(`
   FROM messages
 `);
 app.get('/api/stats/sentiment', (req, res) => {
+  const { candidate_id } = req.query;
+  // Sentiment from messages linked to voters in candidate's walks/lists
+  if (candidate_id) {
+    const stats = db.prepare(`
+      SELECT
+        SUM(CASE WHEN sentiment = 'positive' THEN 1 ELSE 0 END) as positive,
+        SUM(CASE WHEN sentiment = 'negative' THEN 1 ELSE 0 END) as negative,
+        SUM(CASE WHEN sentiment = 'neutral' THEN 1 ELSE 0 END) as neutral
+      FROM messages WHERE voter_id IN (
+        SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+        UNION
+        SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+      )
+    `).get(candidate_id, candidate_id);
+    return res.json({ positive: stats?.positive || 0, negative: stats?.negative || 0, neutral: stats?.neutral || 0 });
+  }
   const stats = _sentimentQuery.get();
   res.json({ positive: stats.positive || 0, negative: stats.negative || 0, neutral: stats.neutral || 0 });
 });
@@ -459,13 +475,19 @@ app.get('/api/stats/live-walkers', (req, res) => {
   const walkMap = {};
   for (const w of walks) walkMap[w.id] = w;
 
-  // Get all group memberships with activity, aggregate per unique walker
-  const allMembers = db.prepare(`
-    SELECT wgm.walker_name, wgm.walk_id, wgm.doors_knocked, wgm.contacts_made,
-           wgm.first_knock_at, wgm.last_knock_at, wgm.joined_at
-    FROM walk_group_members wgm
-    ORDER BY wgm.last_knock_at DESC NULLS LAST
-  `).all();
+  // Get group memberships — scoped to candidate's walks if filtered
+  const memberSql = candidate_id
+    ? `SELECT wgm.walker_name, wgm.walk_id, wgm.doors_knocked, wgm.contacts_made,
+             wgm.first_knock_at, wgm.last_knock_at, wgm.joined_at
+       FROM walk_group_members wgm
+       JOIN block_walks bw ON wgm.walk_id = bw.id
+       WHERE bw.candidate_id = ?
+       ORDER BY wgm.last_knock_at DESC NULLS LAST`
+    : `SELECT wgm.walker_name, wgm.walk_id, wgm.doors_knocked, wgm.contacts_made,
+             wgm.first_knock_at, wgm.last_knock_at, wgm.joined_at
+       FROM walk_group_members wgm
+       ORDER BY wgm.last_knock_at DESC NULLS LAST`;
+  const allMembers = candidate_id ? db.prepare(memberSql).all(candidate_id) : db.prepare(memberSql).all();
 
   const walkerAgg = {};
   for (const m of allMembers) {
