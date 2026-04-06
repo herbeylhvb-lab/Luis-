@@ -74,7 +74,7 @@ function getDashFilters() {
     }
     if (saved.candidate_id) out.candidate_id = saved.candidate_id;
     if (saved.universe) out.list_id = saved.universe;
-    return (out.race_col || out.list_id) ? out : null;
+    return (out.race_col || out.list_id || out.candidate_id) ? out : null;
   } catch(e) { return null; }
 }
 function buildMapQueryString(f) {
@@ -90,8 +90,9 @@ function renderFilterChip(f) {
   var txt = document.getElementById('filterChipText');
   if (!f) { chip.style.display = 'none'; return; }
   var parts = [];
+  if (f.candidate_id) parts.push('🎯 Campaign #' + f.candidate_id);
   if (f.race_col) parts.push('🔒 ' + f.race_col.replace(/_/g,' ') + ': ' + f.race_val);
-  if (f.list_id) parts.push('🎯 Universe #' + f.list_id);
+  if (f.list_id) parts.push('📋 Universe #' + f.list_id);
   txt.textContent = parts.join('  •  ');
   chip.style.display = '';
 }
