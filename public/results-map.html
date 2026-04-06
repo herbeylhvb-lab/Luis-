@@ -217,7 +217,23 @@ fetch(mapUrl).then(function(r){return r.json()}).then(function(data){
     lg.appendChild(item);
   }
 
-  document.getElementById('loading').style.display = 'none';
+  // Show diagnostic if 0 addresses
+  if (addrs.length === 0 && data.debug) {
+    var d = data.debug;
+    var msg = 'No walk addresses to display.';
+    if (d.walkTagging) {
+      var tags = Object.entries(d.walkTagging).map(function(e) { return e[0] + ': ' + e[1] + ' walks'; }).join(', ');
+      msg += '\n\nWalk tagging: ' + tags;
+      if (d.walkTagging.unassigned > 0) msg += '\n\nTip: Go to Block Walking page and use "Tag Unassigned Walks" to assign walks to candidates.';
+    }
+    msg += '\nFilter: candidate_id=' + d.candidateFilter;
+    document.getElementById('loading').textContent = msg;
+    document.getElementById('loading').style.whiteSpace = 'pre-wrap';
+    document.getElementById('loading').style.fontSize = '13px';
+    document.getElementById('loading').style.color = '#f59e0b';
+  } else {
+    document.getElementById('loading').style.display = 'none';
+  }
 }).catch(function(e){
   document.getElementById('loading').textContent = 'Error: ' + e.message;
 });

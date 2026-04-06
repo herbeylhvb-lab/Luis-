@@ -1113,7 +1113,16 @@ router.get('/walks/all-results-map', (req, res) => {
   const totalKnocked = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited'").get() || {}).c || 0;
   const withCoords = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND lat IS NOT NULL AND lng IS NOT NULL").get() || {}).c || 0;
 
-  res.json({ addresses, stats, debug: { totalKnocked, withCoords, needsGeocoding: totalKnocked - withCoords } });
+  // Walk tagging diagnostics
+  const walkTagCounts = db.prepare(`
+    SELECT COALESCE(bw.candidate_id, 0) as cid, c.name as cand_name, COUNT(DISTINCT bw.id) as walk_count
+    FROM block_walks bw LEFT JOIN candidates c ON bw.candidate_id = c.id
+    GROUP BY bw.candidate_id
+  `).all();
+  const tagging = {};
+  for (const r of walkTagCounts) tagging[r.cid === 0 ? 'unassigned' : (r.cand_name || '#' + r.cid)] = r.walk_count;
+
+  res.json({ addresses, stats, debug: { totalKnocked, withCoords, needsGeocoding: totalKnocked - withCoords, walkTagging: tagging, candidateFilter: candidate_id || 'none' } });
 });
 
 // List all block walks with stats (single query instead of N+1)
