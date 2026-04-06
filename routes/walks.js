@@ -1052,10 +1052,8 @@ router.get('/walks/all-results-map', (req, res) => {
 
   // candidate_id is the primary scope — shows ONLY walks tagged to this candidate
   if (candidate_id) {
-    where += ' AND bw.candidate_id = ?';
+    where += " AND bw.candidate_id = ? AND wa.result != 'not_visited'";
     params.push(candidate_id);
-    // Show all addresses (including unvisited) so user sees full walk coverage
-    // Note: no "not_visited" filter when candidate is scoped
   } else if (list_id) {
     where += ' AND wa.voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)';
     params.push(list_id);
