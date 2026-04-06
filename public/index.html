@@ -13547,6 +13547,23 @@ async function loadMyUniverses() {
       }
     });
     right.appendChild(renameBtn);
+    var mailerBtn = document.createElement('button');
+    mailerBtn.className = 'btn btn-sm';
+    mailerBtn.style.cssText = 'background:#059669;border-color:#047857';
+    mailerBtn.textContent = '📬 Log Mailer';
+    (function(listId, listName, voterCount) {
+      mailerBtn.addEventListener('click', function() {
+        var mailerName = prompt('Mailer name (e.g., "GOTV Postcard #1", "Intro Mailer"):');
+        if (!mailerName || !mailerName.trim()) return;
+        var candSel = document.getElementById('dashCandidateFilter');
+        var candidateId = candSel && candSel.value ? candSel.value : null;
+        if (!confirm('Log mailer "' + mailerName.trim() + '" as sent to ' + voterCount + ' voters in "' + listName + '"?')) return;
+        apiPost('/api/admin-lists/' + listId + '/log-mailer', { mailer_name: mailerName.trim(), candidate_id: candidateId }).then(function(data) {
+          alert('Logged "' + data.mailer_name + '" for ' + data.logged + ' voters');
+        }).catch(function(e) { alert('Error: ' + (e.message || e)); });
+      });
+    })(l.id, l.name, l.voterCount);
+    right.appendChild(mailerBtn);
     var delBtn = document.createElement('button');
     delBtn.className = 'btn btn-sm btn-danger';
     delBtn.textContent = 'Delete';
