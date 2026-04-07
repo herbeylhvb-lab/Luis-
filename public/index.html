@@ -11081,9 +11081,9 @@ window.applyRacePrecincts = function() {
   });
   // Auto-check the district filter to exclude voters from other districts in shared precincts
   // e.g., picking "Port of Brownsville" also checks navigation_port="Port of Brownsville"
+  // Map race column → checkbox class (must match classes in checkboxes() calls)
   var distFilterMap = {
     navigation_port: 'filter-navport-cb',
-    navigation_district: 'filter-navdistrict-cb',
     port_authority: 'filter-portauth-cb',
     city_district: 'filter-city-cb',
     school_district: 'filter-school-cb',
@@ -11091,9 +11091,9 @@ window.applyRacePrecincts = function() {
     state_rep: 'filter-staterep-cb',
     state_senate: 'filter-statesenate-cb',
     us_congress: 'filter-uscongress-cb',
-    county_commissioner: 'filter-commissioner-cb',
+    county_commissioner: 'filter-countycomm-cb',
     justice_of_peace: 'filter-jp-cb',
-    state_board_ed: 'filter-sboe-cb',
+    state_board_ed: 'filter-stateboarded-cb',
     hospital_district: 'filter-hospital-cb'
   };
   var cbClass = distFilterMap[race.type];
