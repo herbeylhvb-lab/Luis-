@@ -1067,6 +1067,33 @@ router.get('/voters/all-districts', (req, res) => {
   res.json({ districts });
 });
 
+// Diagnostic: show navigation/port district data by precinct
+router.get('/voters/district-audit', requireAuth, (req, res) => {
+  const navPortByPrecinct = db.prepare(`
+    SELECT precinct, navigation_port, COUNT(*) as count
+    FROM voters WHERE precinct != '' AND navigation_port != '' AND navigation_port IS NOT NULL
+    GROUP BY precinct, navigation_port ORDER BY CAST(precinct AS INTEGER)
+  `).all();
+  const navDistByPrecinct = db.prepare(`
+    SELECT precinct, navigation_district, COUNT(*) as count
+    FROM voters WHERE precinct != '' AND navigation_district != '' AND navigation_district IS NOT NULL
+    GROUP BY precinct, navigation_district ORDER BY CAST(precinct AS INTEGER)
+  `).all();
+  const portAuthByPrecinct = db.prepare(`
+    SELECT precinct, port_authority, COUNT(*) as count
+    FROM voters WHERE precinct != '' AND port_authority != '' AND port_authority IS NOT NULL
+    GROUP BY precinct, port_authority ORDER BY CAST(precinct AS INTEGER)
+  `).all();
+  const totals = {
+    total_voters: db.prepare('SELECT COUNT(*) as c FROM voters').get().c,
+    with_nav_port: db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_port != '' AND navigation_port IS NOT NULL").get().c,
+    with_nav_district: db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_district != '' AND navigation_district IS NOT NULL").get().c,
+    with_port_authority: db.prepare("SELECT COUNT(*) as c FROM voters WHERE port_authority != '' AND port_authority IS NOT NULL").get().c,
+    without_any_nav: db.prepare("SELECT COUNT(*) as c FROM voters WHERE (navigation_port = '' OR navigation_port IS NULL) AND (navigation_district = '' OR navigation_district IS NULL) AND (port_authority = '' OR port_authority IS NULL)").get().c
+  };
+  res.json({ totals, navigation_port: navPortByPrecinct, navigation_district: navDistByPrecinct, port_authority: portAuthByPrecinct });
+});
+
 // Precinct voter counts with full filter support
 router.get('/voters/precinct-counts', (req, res) => {
   const { race_col, race_val, election, party, party_score, support_level, voted_in, did_not_vote, min_elections, exclude_contacted, has_voted, min_age, max_age, exclude_early_voted } = req.query;
