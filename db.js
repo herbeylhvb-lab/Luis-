@@ -1171,6 +1171,18 @@ try {
   }
 } catch (e) { console.warn('[backfill] Walk tagging failed:', e.message); }
 
+// Clean incorrect navigation_port tags — official BND precincts from Cameron County Elections
+// Source: https://www.cameroncountytx.gov/elections/wp-content/uploads/2024/05/Brownsville-Navigation-District-Precinct-by-Precinct.pdf
+const BND_PRECINCTS = new Set(['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','37','38','45','46','47','48','49','52','53','54','60','61','62','63','65','66','68','69','70','71','72','73','74','75','76','77','82','86','88','89','90','91','94','95','97','98','99','100']);
+try {
+  // Find voters with navigation_port set but in precincts NOT in the BND
+  const badRows = db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + [...BND_PRECINCTS].map(() => '?').join(',') + ")").get(...BND_PRECINCTS);
+  if (badRows.c > 0) {
+    const r = db.prepare("UPDATE voters SET navigation_port = '' WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + [...BND_PRECINCTS].map(() => '?').join(',') + ")").run(...BND_PRECINCTS);
+    console.log(`[cleanup] Cleared navigation_port for ${r.changes} voter(s) in non-BND precincts (e.g., Pct 36)`);
+  }
+} catch (e) { console.warn('[cleanup] BND precinct cleanup failed:', e.message); }
+
 // Remove privacy-redacted addresses from block walks entirely (no useful data)
 try {
   const r = db.prepare("DELETE FROM walk_addresses WHERE address LIKE '%***%' OR address LIKE '%Privacy%' OR TRIM(address) = '' OR LENGTH(TRIM(address)) < 4").run();
