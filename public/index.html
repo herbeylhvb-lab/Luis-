@@ -11079,7 +11079,32 @@ window.applyRacePrecincts = function() {
     var cb = document.querySelector('.univ-precinct-cb[value="' + p + '"]');
     if (cb) { cb.checked = true; matched++; }
   });
-  info.textContent = matched + ' precincts selected for ' + race.race;
+  // Auto-check the district filter to exclude voters from other districts in shared precincts
+  // e.g., picking "Port of Brownsville" also checks navigation_port="Port of Brownsville"
+  var distFilterMap = {
+    navigation_port: 'filter-navport-cb',
+    navigation_district: 'filter-navdistrict-cb',
+    port_authority: 'filter-portauth-cb',
+    city_district: 'filter-city-cb',
+    school_district: 'filter-school-cb',
+    college_district: 'filter-college-cb',
+    state_rep: 'filter-staterep-cb',
+    state_senate: 'filter-statesenate-cb',
+    us_congress: 'filter-uscongress-cb',
+    county_commissioner: 'filter-commissioner-cb',
+    justice_of_peace: 'filter-jp-cb',
+    state_board_ed: 'filter-sboe-cb',
+    hospital_district: 'filter-hospital-cb'
+  };
+  var cbClass = distFilterMap[race.type];
+  if (cbClass) {
+    // Uncheck all in this district category first
+    document.querySelectorAll('.' + cbClass).forEach(function(cb) { cb.checked = false; });
+    // Check only the matching value
+    var distCb = document.querySelector('.' + cbClass + '[value="' + race.district + '"]');
+    if (distCb) distCb.checked = true;
+  }
+  info.textContent = matched + ' precincts selected for ' + race.race + (cbClass ? ' (district filter applied)' : '');
   info.style.color = '#22c55e';
 };
 
