@@ -1173,7 +1173,8 @@ try {
 
 // Clean incorrect navigation_port tags — official BND precincts from Cameron County Elections
 // Source: https://www.cameroncountytx.gov/elections/wp-content/uploads/2024/05/Brownsville-Navigation-District-Precinct-by-Precinct.pdf
-const BND_PRECINCTS = new Set(['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','37','38','45','46','47','48','49','52','53','54','60','61','62','63','65','66','68','69','70','71','72','73','74','75','76','77','82','86','88','89','90','91','94','95','97','98','99','100']);
+// Pct 52 removed — had 0 BND voters per audit (all 2,339 are Port Isabel)
+const BND_PRECINCTS = new Set(['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','37','38','45','46','47','48','49','53','54','60','61','62','63','65','66','68','69','70','71','72','73','74','75','76','77','82','86','88','89','90','91','94','95','97','98','99','100']);
 try {
   // Find voters with navigation_port set but in precincts NOT in the BND
   const badRows = db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + [...BND_PRECINCTS].map(() => '?').join(',') + ")").get(...BND_PRECINCTS);
