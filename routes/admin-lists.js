@@ -234,6 +234,37 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
   res.send(csv);
 });
 
+// Export for SimpleTexting (mass texting platform) — phone, first_name, last_name, city
+router.get('/admin-lists/:id/export-simpletext', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const voters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.precinct
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+  // Phone as digits only (SimpleTexting expects clean numbers)
+  const cleanPhone = (p) => (p || '').replace(/\D/g, '');
+
+  const header = 'phone,first_name,last_name,city,zip,precinct';
+  const rows = voters.map(v =>
+    [cleanPhone(v.phone), v.first_name, v.last_name, v.city, v.zip, v.precinct].map(csvEscape).join(',')
+  );
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = (list.name || 'list').replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_simpletext.csv"');
+  res.send(csv);
+});
+
 // Export mailing list CSV — one row per household (dedup by address)
 router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
   try {

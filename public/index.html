@@ -1667,6 +1667,7 @@ tr:hover td{background:#1e293b80}
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="logMailerSent()">📬 Log Mailer Sent</button>
+            <button class="btn btn-sm" style="background:#2563eb;border-color:#1d4ed8" onclick="exportSimpleTextCSV()">📱 Export for SimpleTexting</button>
             <button class="btn btn-sm" style="background:#f59e0b;border-color:#d97706;color:#000" onclick="exportRumbleUpCSV()">📱 Export for RumbleUp</button>
             <button class="btn btn-sm" style="background:#1877f2;border-color:#1564bf" onclick="exportFacebookCSV()">📘 Facebook Audience</button>
             <button class="btn btn-sm" style="background:#ff6b35;border-color:#e55a2b" onclick="exportOTTCSV()">📺 OTT / CTV Export</button>
@@ -13688,6 +13689,19 @@ async function loadMyUniverses() {
       }
     });
     right.appendChild(renameBtn);
+    var stBtn = document.createElement('button');
+    stBtn.className = 'btn btn-sm';
+    stBtn.style.cssText = 'background:#2563eb;border-color:#1d4ed8';
+    stBtn.textContent = '📱 SimpleTexting';
+    (function(listId) {
+      stBtn.addEventListener('click', function() {
+        var link = document.createElement('a');
+        link.href = '/api/admin-lists/' + listId + '/export-simpletext';
+        link.download = 'simpletext_contacts.csv';
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      });
+    })(l.id);
+    right.appendChild(stBtn);
     var mailerBtn = document.createElement('button');
     mailerBtn.className = 'btn btn-sm';
     mailerBtn.style.cssText = 'background:#059669;border-color:#047857';
@@ -14246,6 +14260,14 @@ function csvEsc(val) {
     ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
+window.exportSimpleTextCSV = function() {
+  var listId = state.currentAdminListId;
+  if (!listId) return;
+  var link = document.createElement('a');
+  link.href = '/api/admin-lists/' + listId + '/export-simpletext';
+  link.download = 'simpletext_contacts.csv';
+  document.body.appendChild(link); link.click(); document.body.removeChild(link);
+};
 window.exportRumbleUpCSV = function() {
   var listId = state.currentAdminListId;
   if (!listId) return;
