@@ -1067,24 +1067,28 @@ router.get('/walks/all-results-map', (req, res) => {
     params.push(race_val);
   }
 
-  // Deduplicate in SQL — one row per house, with household count and most recent knock
-  const addresses = db.prepare(`
-    SELECT
-      MIN(wa.id) as id,
-      wa.address, wa.unit, wa.city,
-      MAX(wa.result) as result,
-      wa.lat, wa.lng,
-      MAX(wa.knocked_at) as knocked_at,
-      GROUP_CONCAT(DISTINCT wa.voter_name) as voter_name,
-      wa.walk_id,
-      bw.name as walk_name,
-      COUNT(*) as household_count
+  // Fetch raw addresses then deduplicate with O(n) Map
+  const rawAddresses = db.prepare(`
+    SELECT wa.id, wa.address, wa.unit, wa.city, wa.result, wa.lat, wa.lng, wa.knocked_at,
+           wa.voter_name, wa.walk_id, bw.name as walk_name
     FROM walk_addresses wa
     JOIN block_walks bw ON wa.walk_id = bw.id
     WHERE ${where}
-    GROUP BY LOWER(TRIM(wa.address)), LOWER(TRIM(COALESCE(wa.unit, ''))), wa.walk_id
     ORDER BY wa.knocked_at DESC
   `).all(...params);
+
+  // O(n) dedup using Map (not O(n²) .filter)
+  const houseMap = new Map();
+  for (const a of rawAddresses) {
+    const key = (a.address || '').toLowerCase().trim() + '||' + (a.unit || '').toLowerCase().trim() + '||' + a.walk_id;
+    if (!houseMap.has(key)) {
+      a.household_count = 1;
+      houseMap.set(key, a);
+    } else {
+      houseMap.get(key).household_count++;
+    }
+  }
+  const addresses = Array.from(houseMap.values());
 
   const stats = {};
   // Stats query uses its OWN params (not the addresses query params)
