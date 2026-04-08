@@ -4,7 +4,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Block Walk Results Map</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
@@ -124,39 +127,47 @@ fetch(mapUrl).then(function(r){return r.json()}).then(function(data){
   var stats = data.stats || {};
   var bounds = [];
 
+  // Use marker clustering for performance — groups nearby dots at low zoom
+  var clusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 40,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    disableClusteringAtZoom: 17,
+    iconCreateFunction: function(cluster) {
+      var n = cluster.getChildCount();
+      var size = n > 100 ? 44 : n > 30 ? 36 : 28;
+      return L.divIcon({
+        html: '<div style="background:#334155;color:#e2e8f0;border:2px solid #60a5fa;border-radius:50%;width:'+size+'px;height:'+size+'px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.4)">' + n + '</div>',
+        className: '', iconSize: [size, size]
+      });
+    }
+  });
+
   for (var i = 0; i < addrs.length; i++) {
     var a = addrs[i];
     if (!a.lat || !a.lng) continue;
     var color = RC[a.result] || '#22c55e';
-    var done = a.result && a.result !== 'not_visited';
-    var ds = done ? 14 : 20;
-    var ts = 44;
-    var o = (ts - ds) / 2;
+    var ds = 12;
 
     var icon = L.divIcon({
       className: '',
-      html: '<div style="width:'+ts+'px;height:'+ts+'px;position:relative;cursor:pointer"><div style="position:absolute;top:'+o+'px;left:'+o+'px;width:'+ds+'px;height:'+ds+'px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);opacity:'+(done?'0.8':'1')+'"></div></div>',
-      iconSize: [ts, ts], iconAnchor: [ts/2, ts/2], popupAnchor: [0, -ts/2]
+      html: '<div style="width:'+ds+'px;height:'+ds+'px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>',
+      iconSize: [ds, ds], iconAnchor: [ds/2, ds/2], popupAnchor: [0, -ds/2]
     });
 
-    var pop = document.createElement('div');
-    var b = document.createElement('b');
-    b.textContent = a.address + (a.unit ? ' ' + a.unit : '');
-    pop.appendChild(b);
-    var rd = document.createElement('div');
-    rd.style.cssText = 'color:'+color+';font-weight:700';
-    rd.textContent = fmtResult(a.result);
-    pop.appendChild(rd);
-    if (a.voter_name) { var vn = document.createElement('div'); vn.textContent = a.voter_name; pop.appendChild(vn); }
-    if (a.walk_name) { var wn = document.createElement('div'); wn.style.cssText = 'font-size:11px;color:#94a3b8'; wn.textContent = 'Walk: ' + a.walk_name; pop.appendChild(wn); }
+    var popContent = '<b>' + escHtml(a.address + (a.unit ? ' ' + a.unit : '')) + '</b>'
+      + '<div style="color:'+color+';font-weight:700">' + fmtResult(a.result) + '</div>'
+      + (a.voter_name ? '<div>' + escHtml(a.voter_name) + '</div>' : '')
+      + (a.walk_name ? '<div style="font-size:11px;color:#94a3b8">Walk: ' + escHtml(a.walk_name) + '</div>' : '');
 
-    var marker = L.marker([a.lat, a.lng], {icon: icon, zIndexOffset: 1000}).bindPopup(pop);
-    marker.addTo(map);
+    var marker = L.marker([a.lat, a.lng], {icon: icon}).bindPopup(popContent);
+    clusterGroup.addLayer(marker);
     if (!byResult[a.result]) byResult[a.result] = [];
     byResult[a.result].push(marker);
     bounds.push([a.lat, a.lng]);
   }
 
+  map.addLayer(clusterGroup);
   if (bounds.length > 0) map.fitBounds(bounds, {padding:[30,30], maxZoom:16});
 
   // Build stats
@@ -209,27 +220,16 @@ fetch(mapUrl).then(function(r){return r.json()}).then(function(data){
         el.className = filters[res] ? 'leg-item' : 'leg-item off';
         var ms = byResult[res] || [];
         for (var m = 0; m < ms.length; m++) {
-          if (filters[res]) { if (!map.hasLayer(ms[m])) ms[m].addTo(map); }
-          else { map.removeLayer(ms[m]); }
+          if (filters[res]) { if (!clusterGroup.hasLayer(ms[m])) clusterGroup.addLayer(ms[m]); }
+          else { clusterGroup.removeLayer(ms[m]); }
         }
       });
     })(r, item);
     lg.appendChild(item);
   }
 
-  // Show diagnostic if 0 addresses
-  if (addrs.length === 0 && data.debug) {
-    var d = data.debug;
-    var msg = 'No walk addresses to display.';
-    if (d.walkTagging) {
-      var tags = Object.entries(d.walkTagging).map(function(e) { return e[0] + ': ' + e[1] + ' walks'; }).join(', ');
-      msg += '\n\nWalk tagging: ' + tags;
-      if (d.walkTagging.unassigned > 0) msg += '\n\nTip: Go to Block Walking page and use "Tag Unassigned Walks" to assign walks to candidates.';
-    }
-    msg += '\nFilter: candidate_id=' + d.candidateFilter;
-    document.getElementById('loading').textContent = msg;
-    document.getElementById('loading').style.whiteSpace = 'pre-wrap';
-    document.getElementById('loading').style.fontSize = '13px';
+  if (addrs.length === 0) {
+    document.getElementById('loading').textContent = 'No walk addresses to display.' + (_activeCandidateId ? ' Check that walks are tagged to this candidate.' : '');
     document.getElementById('loading').style.color = '#f59e0b';
   } else {
     document.getElementById('loading').style.display = 'none';

@@ -1067,31 +1067,24 @@ router.get('/walks/all-results-map', (req, res) => {
     params.push(race_val);
   }
 
-  // Deduplicate by address — show 1 dot per house, not per household member
-  const rawAddresses = db.prepare(`
-    SELECT wa.id, wa.address, wa.unit, wa.city, wa.result, wa.lat, wa.lng, wa.knocked_at,
-           wa.voter_name, wa.voter_id, wa.walk_id, bw.name as walk_name
+  // Deduplicate in SQL — one row per house, with household count and most recent knock
+  const addresses = db.prepare(`
+    SELECT
+      MIN(wa.id) as id,
+      wa.address, wa.unit, wa.city,
+      MAX(wa.result) as result,
+      wa.lat, wa.lng,
+      MAX(wa.knocked_at) as knocked_at,
+      GROUP_CONCAT(DISTINCT wa.voter_name) as voter_name,
+      wa.walk_id,
+      bw.name as walk_name,
+      COUNT(*) as household_count
     FROM walk_addresses wa
     JOIN block_walks bw ON wa.walk_id = bw.id
     WHERE ${where}
+    GROUP BY LOWER(TRIM(wa.address)), LOWER(TRIM(COALESCE(wa.unit, ''))), wa.walk_id
     ORDER BY wa.knocked_at DESC
   `).all(...params);
-  // Deduplicate: one entry per unique address+unit (keep first = most recent knock)
-  const seen = new Set();
-  const addresses = [];
-  for (const a of rawAddresses) {
-    const key = (a.address || '').toLowerCase().trim() + '||' + (a.unit || '').toLowerCase().trim() + '||' + a.walk_id;
-    if (!seen.has(key)) {
-      seen.add(key);
-      // Count unique voters at this address
-      a.household_count = rawAddresses.filter(r =>
-        (r.address || '').toLowerCase().trim() === (a.address || '').toLowerCase().trim() &&
-        (r.unit || '').toLowerCase().trim() === (a.unit || '').toLowerCase().trim() &&
-        r.walk_id === a.walk_id
-      ).length;
-      addresses.push(a);
-    }
-  }
 
   const stats = {};
   // Stats query uses its OWN params (not the addresses query params)
@@ -1114,20 +1107,7 @@ router.get('/walks/all-results-map', (req, res) => {
     GROUP BY wa2.result
   `).all(...statsParams).forEach(r => { stats[r.result] = r.count; });
 
-  // Include debug counts so frontend knows if geocoding is needed
-  const totalKnocked = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited'").get() || {}).c || 0;
-  const withCoords = (db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited' AND lat IS NOT NULL AND lng IS NOT NULL").get() || {}).c || 0;
-
-  // Walk tagging diagnostics
-  const walkTagCounts = db.prepare(`
-    SELECT COALESCE(bw.candidate_id, 0) as cid, c.name as cand_name, COUNT(DISTINCT bw.id) as walk_count
-    FROM block_walks bw LEFT JOIN candidates c ON bw.candidate_id = c.id
-    GROUP BY bw.candidate_id
-  `).all();
-  const tagging = {};
-  for (const r of walkTagCounts) tagging[r.cid === 0 ? 'unassigned' : (r.cand_name || '#' + r.cid)] = r.walk_count;
-
-  res.json({ addresses, stats, debug: { totalKnocked, withCoords, needsGeocoding: totalKnocked - withCoords, walkTagging: tagging, candidateFilter: candidate_id || 'none' } });
+  res.json({ addresses, stats });
 });
 
 // List all block walks with stats (single query instead of N+1)
