@@ -2757,12 +2757,14 @@ async function submitAddVoter(voterId) {
     showToast('All selected voters are already on this list.', 'warn');
   }
 
+  // Reset search FIRST so results clear immediately
+  resetSearch();
+
   // On mobile, switch to My List tab so user sees the voter they just added
   if (window.innerWidth <= 900) switchMobileTab('list');
 
-  await loadListVoters();
-  refreshSidebar();
-  resetSearch();
+  try { await loadListVoters(); } catch(e) {}
+  try { refreshSidebar(); } catch(e) {}
 }
 
 function showToast(msg, type) {
