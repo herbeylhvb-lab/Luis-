@@ -1132,13 +1132,19 @@ router.get('/walkers/:id/dashboard', (req, res) => {
     ORDER BY total_doors DESC
   `).all(walker.candidate_id);
 
-  // Auto-assign walker to active walks for their candidate only
-  const unassigned = db.prepare(`
-    SELECT bw.id FROM block_walks bw
-    WHERE bw.status != 'completed'
-      AND (bw.candidate_id IS NULL OR bw.candidate_id = ?)
-      AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)
-  `).all(walker.candidate_id, walker.id);
+  // Auto-assign walker to active walks for their candidate
+  // If walker has no candidate_id, assign to ALL active walks (backward compat)
+  const unassignedSql = walker.candidate_id
+    ? `SELECT bw.id FROM block_walks bw
+       WHERE bw.status != 'completed'
+         AND (bw.candidate_id IS NULL OR bw.candidate_id = ?)
+         AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`
+    : `SELECT bw.id FROM block_walks bw
+       WHERE bw.status != 'completed'
+         AND bw.id NOT IN (SELECT walk_id FROM walk_group_members WHERE walker_id = ?)`;
+  const unassigned = walker.candidate_id
+    ? db.prepare(unassignedSql).all(walker.candidate_id, walker.id)
+    : db.prepare(unassignedSql).all(walker.id);
   if (unassigned.length > 0) {
     const ins = db.prepare('INSERT OR IGNORE INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)');
     for (const w of unassigned) {
