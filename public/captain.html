@@ -256,8 +256,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
     <!-- CENTER: Search -->
     <div class="center-panel">
-      <div class="search-bar">
-        <input type="text" id="voterSearch" placeholder="Search by name..." oninput="debouncedSearch()">
+      <div class="search-bar" style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="voterSearch" placeholder="Search by name..." oninput="debouncedSearch()" style="flex:1">
+        <button type="button" onclick="resetSearch()" style="background:#334155;border:1px solid #475569;color:#94a3b8;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap">Clear</button>
         <span class="hint">min 2 chars</span>
       </div>
       <div style="margin-bottom:12px">
