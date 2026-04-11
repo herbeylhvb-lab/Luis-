@@ -1184,6 +1184,30 @@ try {
   }
 } catch (e) { console.warn('[cleanup] BND precinct cleanup failed:', e.message); }
 
+// Auto-mark stuck inbound messages as replied if there's evidence of a reply.
+// Evidence = any outbound for the same normalized phone in the last 60 days.
+// Inserts a placeholder outbound so Needs Response drops the thread naturally.
+try {
+  const stuck = db.prepare(`
+    SELECT DISTINCT m.phone, m.id FROM messages m
+    WHERE m.direction = 'inbound'
+      AND m.timestamp > datetime('now', '-60 days')
+      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE m2.phone = m.phone)
+      AND EXISTS (
+        SELECT 1 FROM messages out_msg
+        WHERE out_msg.direction = 'outbound'
+          AND out_msg.timestamp > datetime('now', '-60 days')
+          AND SUBSTR(REPLACE(REPLACE(REPLACE(out_msg.phone, '+', ''), '-', ''), ' ', ''), -10)
+            = SUBSTR(REPLACE(REPLACE(REPLACE(m.phone, '+', ''), '-', ''), ' ', ''), -10)
+      )
+  `).all();
+  if (stuck.length > 0) {
+    const insert = db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, '[Auto-marked replied: outbound exists for this contact]', 'outbound', 'neutral', 'sms')");
+    for (const s of stuck) insert.run(s.phone);
+    console.log(`[cleanup] Auto-marked ${stuck.length} stuck messages as replied (found matching outbounds)`);
+  }
+} catch (e) { console.warn('[cleanup] Auto-mark replied failed:', e.message); }
+
 // Remove privacy-redacted addresses from block walks entirely (no useful data)
 try {
   const r = db.prepare("DELETE FROM walk_addresses WHERE address LIKE '%***%' OR address LIKE '%Privacy%' OR TRIM(address) = '' OR LENGTH(TRIM(address)) < 4").run();

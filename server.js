@@ -995,6 +995,10 @@ app.get('/api/messages/pending', (req, res) => {
   const normOut = NORM.replace(/\$p/g, 'out_msg.phone');
   const normOpt = NORM.replace(/\$p/g, 'o.phone');
 
+  // Pending = the LATEST message for this phone (any direction) is an inbound.
+  // If the user replied (outbound with higher id), the latest message becomes that outbound
+  // and this inbound drops off automatically. Simpler than NOT EXISTS and more robust
+  // to phone format drift — we just check "is the most recent message an inbound?"
   const pending = db.prepare(`
     SELECT m.*,
       COALESCE(
@@ -1003,11 +1007,7 @@ app.get('/api/messages/pending', (req, res) => {
       ) as contact_name
     FROM messages m
     WHERE m.direction = 'inbound'
-      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE ${normM2} = ${normM} AND m2.direction = 'inbound')
-      AND NOT EXISTS (
-        SELECT 1 FROM messages out_msg
-        WHERE ${normOut} = ${normM} AND out_msg.direction = 'outbound' AND out_msg.id > m.id
-      )
+      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE ${normM2} = ${normM})
       AND NOT EXISTS (SELECT 1 FROM opt_outs o WHERE ${normOpt} = ${normM})
       ${volPhoneFilter}
     ORDER BY m.id DESC LIMIT 100
