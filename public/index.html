@@ -3956,10 +3956,36 @@ function buildMsgItem(m, opts) {
     var replyPhone = (m.phone || '').replace(/'/g, '');
     btn.addEventListener('click', function() { sendReply(replyPhone); });
     replyDiv.appendChild(btn);
+    // Mark Replied button — for messages already handled outside the app
+    var markBtn = document.createElement('button');
+    markBtn.className = 'btn btn-secondary btn-sm';
+    markBtn.textContent = '\u2713 Mark Replied';
+    markBtn.title = 'Remove from Needs Response (for messages you replied to elsewhere)';
+    (function(messageId, capturedPhone) {
+      markBtn.addEventListener('click', function() { markAsReplied(messageId, capturedPhone, item); });
+    })(m.id, m.phone);
+    replyDiv.appendChild(markBtn);
     item.appendChild(replyDiv);
   }
   return item;
 }
+
+window.markAsReplied = async function(messageId, phone, itemEl) {
+  if (!confirm('Mark this message as replied? It will disappear from Needs Response.')) return;
+  try {
+    await apiPost('/api/messages/mark-replied', { message_id: messageId, phone: phone });
+    // Fade the item out of the list
+    if (itemEl) {
+      itemEl.style.transition = 'opacity 0.3s';
+      itemEl.style.opacity = '0.3';
+      setTimeout(function() { if (itemEl.parentNode) itemEl.parentNode.removeChild(itemEl); }, 300);
+    }
+    // Refresh the pending count badge
+    try { loadPendingCount(); } catch(e) {}
+  } catch(e) {
+    alert('Failed to mark as replied: ' + (e.message || e));
+  }
+};
 
 function renderInboxMessages(messages) {
   var el = document.getElementById('inboxMessages');

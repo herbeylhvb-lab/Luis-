@@ -915,6 +915,42 @@ app.post('/incoming', webhookLimiter, async (req, res) => {
 });
 
 // --- Messages & opt-outs ---
+
+// Mark an inbound message as replied — inserts a placeholder outbound
+// so the existing Needs Response query (NOT EXISTS later outbound) drops it.
+// Uses the EXACT phone value from the stuck message so it matches even if
+// historical data has inconsistent phone formats (+1 prefix drift, etc.)
+app.post('/api/messages/mark-replied', (req, res) => {
+  if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Authentication required.' });
+  const { phone, message_id } = req.body;
+  if (!phone && !message_id) return res.status(400).json({ error: 'phone or message_id required.' });
+
+  // If message_id provided, use its exact phone value (most reliable)
+  let targetPhone = phone;
+  if (message_id) {
+    const msg = db.prepare('SELECT phone FROM messages WHERE id = ?').get(message_id);
+    if (!msg) return res.status(404).json({ error: 'Message not found.' });
+    targetPhone = msg.phone;
+  }
+
+  // Insert placeholder outbound — the "NOT EXISTS later outbound" check in
+  // /api/messages/pending will now return false, dropping this phone from the queue
+  db.prepare(
+    "INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, '[Manually marked as replied]', 'outbound', 'neutral', 'sms')"
+  ).run(targetPhone);
+
+  // Also normalize: insert for the digits-only version if different, so both formats are covered
+  const digits = phoneDigits(targetPhone);
+  if (digits && digits !== targetPhone) {
+    db.prepare(
+      "INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, '[Manually marked as replied]', 'outbound', 'neutral', 'sms')"
+    ).run(digits);
+  }
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run('Marked message as replied: ' + targetPhone);
+  res.json({ success: true, phone: targetPhone });
+});
+
 // Pending messages: last inbound per phone with no outbound reply after it
 // Accessible by admin (session) or volunteers (X-Volunteer-Id header)
 app.get('/api/messages/pending', (req, res) => {
