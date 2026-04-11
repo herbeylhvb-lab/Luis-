@@ -987,20 +987,28 @@ app.get('/api/messages/pending', (req, res) => {
     volPhoneParams = phonesArr;
   }
 
+  // Phone normalization helper for SQL — strips non-digits and leading "1" so
+  // "+19565551234", "9565551234", "(956) 555-1234" all compare as "9565551234"
+  const NORM = "SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE($p, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10)";
+  const normM = NORM.replace(/\$p/g, 'm.phone');
+  const normM2 = NORM.replace(/\$p/g, 'm2.phone');
+  const normOut = NORM.replace(/\$p/g, 'out_msg.phone');
+  const normOpt = NORM.replace(/\$p/g, 'o.phone');
+
   const pending = db.prepare(`
     SELECT m.*,
       COALESCE(
-        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE v.phone = m.phone AND v.phone != '' LIMIT 1),
-        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE c.phone = m.phone AND c.phone != '' LIMIT 1)
+        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE ${NORM.replace(/\$p/g, 'v.phone')} = ${normM} AND v.phone != '' LIMIT 1),
+        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE ${NORM.replace(/\$p/g, 'c.phone')} = ${normM} AND c.phone != '' LIMIT 1)
       ) as contact_name
     FROM messages m
     WHERE m.direction = 'inbound'
-      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE m2.phone = m.phone AND m2.direction = 'inbound')
+      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE ${normM2} = ${normM} AND m2.direction = 'inbound')
       AND NOT EXISTS (
         SELECT 1 FROM messages out_msg
-        WHERE out_msg.phone = m.phone AND out_msg.direction = 'outbound' AND out_msg.id > m.id
+        WHERE ${normOut} = ${normM} AND out_msg.direction = 'outbound' AND out_msg.id > m.id
       )
-      AND m.phone NOT IN (SELECT phone FROM opt_outs)
+      AND NOT EXISTS (SELECT 1 FROM opt_outs o WHERE ${normOpt} = ${normM})
       ${volPhoneFilter}
     ORDER BY m.id DESC LIMIT 100
   `).all(...volPhoneParams);
