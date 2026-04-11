@@ -1264,6 +1264,14 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
       .all().forEach(r => { if (r.phone && phoneSet.size < 100) phoneSet.add(phoneDigits(r.phone)); });
   }
 
+  // PRIORITY 4: Phones with recent INBOUND messages — catches conversations where
+  // replies were sent from RumbleUp's interface (no local outbound exists). Essential
+  // for syncing outbound records back so Needs Response drops already-replied threads.
+  if (phoneSet.size < 150) {
+    db.prepare(`SELECT DISTINCT phone FROM messages WHERE direction = 'inbound' AND timestamp > datetime('now', '-30 days')`)
+      .all().forEach(r => { if (r.phone && phoneSet.size < 150) phoneSet.add(phoneDigits(r.phone)); });
+  }
+
   const sentPhones = Array.from(phoneSet).filter(p => p && p.length >= 10);
 
   console.log('[sync-inbound] Phones to check:', sentPhones.length, '| P2P:', phoneSet.size, '| Sample:', sentPhones.slice(0, 3));
