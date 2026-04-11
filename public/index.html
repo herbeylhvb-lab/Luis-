@@ -452,10 +452,11 @@ tr:hover td{background:#1e293b80}
 
     <!-- Inbox sub-tab: Needs Response -->
     <div class="page inbox-subpage" id="inbox-needs-response" data-inbox="needs-response" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-sm btn-secondary" onclick="loadPendingMessages()">Refresh</button>
           <button class="btn btn-sm" style="background:#059669;border-color:#047857" id="btnSyncInbound" onclick="syncInboundMessages()">Sync from RumbleUp</button>
+          <button class="btn btn-sm" style="background:#1e3a5f;border-color:#2563eb;color:#60a5fa" onclick="markAllAsReplied()">\u2713 Mark All as Replied</button>
           <span id="syncStatus" style="font-size:12px;color:#64748b"></span>
         </div>
       </div>
@@ -3908,6 +3909,8 @@ function buildMsgItem(m, opts) {
   var item = document.createElement('div');
   item.className = 'msg-item';
   item.dataset.sentiment = m.sentiment || 'neutral';
+  if (m.id) item.dataset.messageId = m.id;
+  if (m.phone) item.dataset.phone = m.phone;
   // Phone / name row
   var phoneDiv = document.createElement('div');
   phoneDiv.className = 'phone';
@@ -3969,6 +3972,27 @@ function buildMsgItem(m, opts) {
   }
   return item;
 }
+
+window.markAllAsReplied = async function() {
+  var items = document.querySelectorAll('#pendingMessages .msg-item');
+  if (items.length === 0) return alert('No messages in Needs Response to mark.');
+  if (!confirm('Mark ALL ' + items.length + ' messages in Needs Response as replied? They will be removed from the queue.')) return;
+  var ok = 0, fail = 0;
+  for (var i = 0; i < items.length; i++) {
+    var el = items[i];
+    var mid = el.dataset.messageId;
+    var mphone = el.dataset.phone;
+    if (!mid && !mphone) continue;
+    try {
+      await apiPost('/api/messages/mark-replied', { message_id: mid ? parseInt(mid) : undefined, phone: mphone });
+      ok++;
+      el.style.transition = 'opacity 0.3s';
+      el.style.opacity = '0.3';
+    } catch(e) { fail++; }
+  }
+  setTimeout(function() { loadPendingMessages(); }, 400);
+  alert('Marked ' + ok + ' as replied' + (fail > 0 ? ' (' + fail + ' failed)' : ''));
+};
 
 window.markAsReplied = async function(messageId, phone, itemEl) {
   if (!confirm('Mark this message as replied? It will disappear from Needs Response.')) return;
