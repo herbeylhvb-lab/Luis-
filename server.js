@@ -1341,19 +1341,38 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         }
 
       for (const msg of messages) {
-        // Only import inbound messages (sender === phone means incoming)
         const isInbound = msg.status === 'received' || msg.sender === msg.phone || msg.sender === phone || msg.direction === 'inbound';
         // DEBUG: Log message direction detection
         if (i === 0 && phone === batch[0]) {
           console.log('[sync-inbound] Msg:', { status: msg.status, sender: msg.sender, phone: msg.phone, direction: msg.direction, isInbound, body: (msg.text || msg.body || msg.message || '').substring(0, 50) });
         }
-        if (!isInbound) continue;
 
         const msgPhone = phoneDigits(msg.phone || msg.from || phone);
         const msgBody = msg.text || msg.body || msg.message || '';
         const msgTime = msg.timestamp || msg.created || msg.date || msg.sent_time || msg.update_time || null;
 
         if (!msgBody.trim()) continue;
+
+        // Import OUTBOUND messages too (replies sent from RumbleUp's interface)
+        // so Needs Response correctly drops already-replied threads.
+        if (!isInbound) {
+          // Dedup: check if this outbound already exists in our DB
+          let existingOut;
+          if (msgTime) {
+            existingOut = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'outbound' AND timestamp = ? LIMIT 1").get(msgPhone, msgBody, msgTime);
+            if (!existingOut) {
+              existingOut = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'outbound' AND timestamp > datetime('now', '-5 minutes') LIMIT 1").get(msgPhone, msgBody);
+            }
+          } else {
+            existingOut = db.prepare("SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'outbound' AND timestamp > datetime('now', '-1 day') LIMIT 1").get(msgPhone, msgBody);
+          }
+          if (!existingOut) {
+            db.prepare("INSERT INTO messages (phone, body, direction, channel, timestamp) VALUES (?, ?, 'outbound', 'sms', COALESCE(?, datetime('now')))")
+              .run(msgPhone, msgBody, msgTime);
+            totalSynced++;
+          }
+          continue;
+        }
 
         // Check for duplicate — use timestamp when available, otherwise check recent (last 24h) only
         // This prevents dropping repeated common messages like "Yes", "Ok", "Thanks"
