@@ -1045,47 +1045,40 @@ router.get('/voters/race-precincts', (req, res) => {
     }));
   };
 
-  // Merge port-related columns (navigation_port, navigation_district, port_authority)
-  // These are the same jurisdiction stored redundantly in the county file.
-  // Combine all three into one "Port/Navigation District" group, deduped by district name keywords.
-  const PORT_COLS = new Set(['navigation_port', 'navigation_district', 'port_authority']);
-  const nonPortColumns = DISTRICT_COLUMNS.filter(d => !PORT_COLS.has(d.col));
-  const portColumns = DISTRICT_COLUMNS.filter(d => PORT_COLS.has(d.col));
+  const allRaces = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
 
-  // Build port entries: merge all three columns, dedup by normalized name
-  const portEntries = new Map(); // normalized key -> { race, district, type, precincts }
-  for (const d of portColumns) {
-    const rows = db.prepare(`SELECT ${d.col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
-      FROM voters WHERE ${d.col} != '' AND ${d.col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
-      GROUP BY ${d.col} ORDER BY ${d.col}`).all();
-    for (const r of rows) {
-      // Normalize: extract the geographic name (BROWNSVILLE, PORT ISABEL, SAN BENITO, etc.)
-      const norm = r.district.toUpperCase()
-        .replace(/NAVIGATION DISTRICT|NAVIGATION|PORT OF|PORT AUTHORITY|DISTRICT|OF/g, '')
-        .replace(/\s+/g, ' ').trim();
-      const key = norm || r.district.toUpperCase();
-      const precincts = (r.precincts || '').split(',').filter(Boolean);
-      if (portEntries.has(key)) {
-        // Merge precincts from this column into existing entry
-        const existing = portEntries.get(key);
-        const merged = new Set([...existing.precincts, ...precincts]);
-        existing.precincts = Array.from(merged);
-      } else {
-        portEntries.set(key, {
-          race: 'Port/Navigation: ' + r.district,
-          district: r.district,
-          type: 'navigation_port', // use navigation_port as the canonical type for filter mapping
-          precincts: precincts
-        });
+  // Deduplicate by precinct overlap: if two entries share >70% of precincts, merge them
+  // This catches BND/Port of Brownsville (same 53 precincts) and PIS/Port of San Benito/Port Isabel
+  const merged = [];
+  const used = new Set();
+  // Sort by precinct count descending so the largest entry is the "primary"
+  allRaces.sort((a, b) => b.precincts.length - a.precincts.length);
+
+  for (let i = 0; i < allRaces.length; i++) {
+    if (used.has(i)) continue;
+    const primary = allRaces[i];
+    const pSet = new Set(primary.precincts);
+
+    // Find all other entries that overlap significantly with this one
+    for (let j = i + 1; j < allRaces.length; j++) {
+      if (used.has(j)) continue;
+      const other = allRaces[j];
+      // Count how many of other's precincts are in primary
+      const overlap = other.precincts.filter(p => pSet.has(p)).length;
+      const overlapPct = other.precincts.length > 0 ? overlap / other.precincts.length : 0;
+      if (overlapPct >= 0.7) {
+        // Merge: add any extra precincts from other into primary
+        for (const p of other.precincts) pSet.add(p);
+        used.add(j);
       }
     }
+
+    primary.precincts = Array.from(pSet);
+    merged.push(primary);
+    used.add(i);
   }
 
-  // Non-port races: normal per-column mapping
-  const nonPortRaces = nonPortColumns.flatMap(d => mapCol(d.col, d.label));
-
-  // Combine: port entries first, then everything else
-  const races = [...portEntries.values(), ...nonPortRaces];
+  const races = merged;
 
   res.json({ races });
 });
