@@ -610,13 +610,21 @@ addColumn("ALTER TABLE voters ADD COLUMN unit TEXT DEFAULT ''");
 // One-time cleanup: remove voters not in the county file (never updated by Cameron County import)
 // Voters updated by the import have voter_status = 'ACTIVE' or 'SUSPENSE'
 // Voters NOT updated still have voter_status = '' — they're no longer registered
+// Guarded with idempotency flag to prevent re-running on every startup
 try {
-  const notUpdated = db.prepare("SELECT COUNT(*) as c FROM voters WHERE voter_status = '' AND registration_number != '' AND registration_number IS NOT NULL").get();
-  if (notUpdated.c > 0 && notUpdated.c < 100000) {
-    const result = db.prepare("DELETE FROM voters WHERE voter_status = '' AND registration_number != '' AND registration_number IS NOT NULL").run();
-    console.log('[cleanup] Removed', result.changes, 'voters not in county file (no voter_status after import)');
-  } else if (notUpdated.c >= 100000) {
-    console.log('[cleanup] Skipped — too many voters without status (' + notUpdated.c + '), import may not have completed');
+  const cleanupDone = db.prepare("SELECT value FROM settings WHERE key = 'voter_cleanup_done'").get();
+  if (!cleanupDone) {
+    const notUpdated = db.prepare("SELECT COUNT(*) as c FROM voters WHERE voter_status = '' AND registration_number != '' AND registration_number IS NOT NULL").get();
+    if (notUpdated.c > 0 && notUpdated.c < 100000) {
+      const result = db.prepare("DELETE FROM voters WHERE voter_status = '' AND registration_number != '' AND registration_number IS NOT NULL").run();
+      console.log('[cleanup] Removed', result.changes, 'voters not in county file (no voter_status after import)');
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('voter_cleanup_done', '1')").run();
+    } else if (notUpdated.c >= 100000) {
+      console.log('[cleanup] Skipped — too many voters without status (' + notUpdated.c + '), import may not have completed');
+    } else {
+      // All clean — mark as done
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('voter_cleanup_done', '1')").run();
+    }
   }
 } catch (e) { /* ignore */ }
 

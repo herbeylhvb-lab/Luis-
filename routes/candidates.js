@@ -641,7 +641,7 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
     conditions.push("address LIKE ? ESCAPE '\\'"); params.push('%' + addrEsc + '%');
   }
   if (party) {
-    conditions.push("party_score = ?"); params.push(party);
+    conditions.push("party = ?"); params.push(party);
   }
   if (support) {
     conditions.push("support_level = ?"); params.push(support);

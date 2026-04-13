@@ -9,6 +9,8 @@ const SqliteStore = require('better-sqlite3-session-store')(session);
 const db      = require('./db');
 const { getProvider, getProviderByName, getActiveProviderName, setActiveProvider, listProviders } = require('./providers');
 
+const { getCentralNow, getCentralOffsetSql } = require('./utils');
+
 const app = express();
 
 // Security headers
@@ -544,15 +546,16 @@ app.get('/api/stats/live-walkers', (req, res) => {
 
   // Get today's hours per walker (first knock to last knock, excluding after 8:30 PM Central)
   const now = new Date();
-  const central = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const central = getCentralNow();
   const todayStr = central.toISOString().split('T')[0];
+  const tzSql = getCentralOffsetSql();
   const cJoin = candidate_id ? ' JOIN block_walks bw ON walk_attempts.walk_id = bw.id' : '';
   const cWhere = candidate_id ? ' AND bw.candidate_id = ?' : '';
   const cP = candidate_id ? [candidate_id] : [];
   const todayRows = db.prepare(`
     SELECT walk_attempts.walker_name, MIN(walk_attempts.attempted_at) as first_knock, MAX(walk_attempts.attempted_at) as last_knock, COUNT(*) as doors
     FROM walk_attempts${cJoin}
-    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') = ? AND time(walk_attempts.attempted_at, '-6 hours') <= '20:30:00'${cWhere}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '${tzSql}') = ? AND time(walk_attempts.attempted_at, '${tzSql}') <= '20:30:00'${cWhere}
     GROUP BY walk_attempts.walker_name
   `).all(todayStr, ...cP);
   const todayMap = {};
@@ -578,9 +581,9 @@ app.get('/api/stats/live-walkers', (req, res) => {
     SELECT walk_attempts.walker_name, date(walk_attempts.attempted_at, '-6 hours') as knock_date,
            MIN(walk_attempts.attempted_at) as first_knock, MAX(walk_attempts.attempted_at) as last_knock
     FROM walk_attempts${cJoin}
-    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') >= ? AND date(walk_attempts.attempted_at, '-6 hours') < ?
-      AND time(walk_attempts.attempted_at, '-6 hours') <= '20:30:00'${cWhere}
-    GROUP BY walk_attempts.walker_name, date(walk_attempts.attempted_at, '-6 hours')
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '${tzSql}') >= ? AND date(walk_attempts.attempted_at, '${tzSql}') < ?
+      AND time(walk_attempts.attempted_at, '${tzSql}') <= '20:30:00'${cWhere}
+    GROUP BY walk_attempts.walker_name, date(walk_attempts.attempted_at, '${tzSql}')
   `).all(mondayStr, sundayStr, ...cP);
   const weekMap = {};
   for (const r of weekRows) {
@@ -1420,7 +1423,7 @@ app.post('/api/sync-inbound', asyncHandler(async (req, res) => {
         // Fire-and-forget AI sentiment upgrade (same as webhook path)
         analyzeSentimentAI(msgBody).then(aiSentiment => {
           if (aiSentiment !== sentiment) {
-            try { db.prepare("UPDATE messages SET sentiment = ? WHERE phone = ? AND body = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1").run(aiSentiment, msgPhone, msgBody); } catch(e) {}
+            try { db.prepare("UPDATE messages SET sentiment = ? WHERE id = (SELECT id FROM messages WHERE phone = ? AND body = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1)").run(aiSentiment, msgPhone, msgBody); } catch(e) {}
           }
         }).catch(err => { console.error('AI sentiment error:', err.message); });
 

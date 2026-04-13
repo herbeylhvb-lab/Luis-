@@ -86,6 +86,26 @@ function personalizeTemplate(template, contact, options) {
   return (template || '').replace(/\{firstName\}|\{lastName\}|\{city\}|\{checkin_link\}/g, (tag) => map[tag] || '');
 }
 
+// Central Time offset: -6 during CST (Nov-Mar), -5 during CDT (Mar-Nov)
+function getCentralOffsetHours() {
+  try {
+    const now = new Date();
+    const centralStr = now.toLocaleString('en-US', { timeZone: 'America/Chicago' });
+    const centralDate = new Date(centralStr);
+    const diffMs = now.getTime() - centralDate.getTime();
+    return Math.round(diffMs / 3600000);
+  } catch (e) {
+    return 6; // safe fallback: CST
+  }
+}
+function getCentralNow() {
+  const offset = getCentralOffsetHours();
+  return new Date(Date.now() - offset * 60 * 60 * 1000);
+}
+function getCentralOffsetSql() {
+  return '-' + getCentralOffsetHours() + ' hours';
+}
+
 module.exports = {
   phoneDigits,
   normalizePhone,
@@ -94,4 +114,7 @@ module.exports = {
   generateAlphaCode,
   asyncHandler,
   personalizeTemplate,
+  getCentralOffsetHours,
+  getCentralNow,
+  getCentralOffsetSql,
 };

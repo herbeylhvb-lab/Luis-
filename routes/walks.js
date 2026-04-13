@@ -4,7 +4,7 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
-const { generateAlphaCode, normalizePhone } = require('../utils');
+const { generateAlphaCode, normalizePhone, getCentralNow, getCentralOffsetSql } = require('../utils');
 
 // Skip privacy-redacted or empty addresses (e.g., "*** *** Privacy *** -***")
 function isPrivacyAddress(addr) {
@@ -63,6 +63,24 @@ function pointInPrecincts(lat, lng, precinctIds) {
     }
   }
   return false;
+}
+
+// ===================== HELPERS =====================
+
+// Fetch election votes in chunks of 500 to stay under SQLite's 999-variable limit
+function fetchElectionVotes(voterIds) {
+  const evMap = {};
+  for (let i = 0; i < voterIds.length; i += 500) {
+    const chunk = voterIds.slice(i, i + 500);
+    const rows = db.prepare(
+      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + chunk.map(() => '?').join(',') + ') ORDER BY election_date DESC'
+    ).all(...chunk);
+    for (const r of rows) {
+      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
+      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
+    }
+  }
+  return evMap;
 }
 
 // ===================== DOOR COUNTING =====================
@@ -622,10 +640,10 @@ function buildVotingHistorySQL(filters, params) {
 router.get('/walks/daily-report', (req, res) => {
   const date = req.query.date; // YYYY-MM-DD, defaults to today
   const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
-  // Default to today in Central Time (UTC-6), not UTC
-  const now = new Date();
-  const centralNow = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  // Default to today in Central Time (CDT/CST aware)
+  const centralNow = getCentralNow();
   const targetDate = date || centralNow.toISOString().split('T')[0];
+  const tzSql = getCentralOffsetSql();
 
   // Optional candidate filter
   // Include unassigned walks (NULL candidate_id) alongside the selected candidate
@@ -651,7 +669,7 @@ router.get('/walks/daily-report', (req, res) => {
       MAX(walk_attempts.attempted_at) as last_knock,
       COUNT(DISTINCT walk_attempts.walk_id) as walks_worked
     FROM walk_attempts${cJoin}
-    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') = ?${cWhere}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '${tzSql}') = ?${cWhere}
     GROUP BY walk_attempts.walker_name
     ORDER BY doors DESC
   `).all(targetDate, ...cParam);
@@ -680,21 +698,21 @@ router.get('/walks/daily-report', (req, res) => {
       COUNT(DISTINCT walk_attempts.walker_name) as total_walkers,
       COUNT(DISTINCT walk_attempts.walk_id) as total_walks
     FROM walk_attempts${cJoin}
-    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '-6 hours') = ?${cWhere}
+    WHERE walk_attempts.walker_name != '' AND date(walk_attempts.attempted_at, '${tzSql}') = ?${cWhere}
   `).get(targetDate, ...cParam);
   totals.contact_rate = totals.total_doors > 0 ? Math.round(totals.total_contacts / totals.total_doors * 100) : 0;
 
   // Day-over-day history (last 30 days with activity)
   const history = db.prepare(`
     SELECT
-      date(walk_attempts.attempted_at, '-6 hours') as day,
+      date(walk_attempts.attempted_at, '${tzSql}') as day,
       COUNT(*) as doors,
       SUM(CASE WHEN walk_attempts.result NOT IN ('not_home', 'moved', 'deceased', 'refused', 'come_back') THEN 1 ELSE 0 END) as contacts,
       SUM(CASE WHEN walk_attempts.result IN ('support', 'lean_support') THEN 1 ELSE 0 END) as supporters,
       COUNT(DISTINCT walk_attempts.walker_name) as walkers
     FROM walk_attempts${cJoin}
     WHERE walk_attempts.walker_name != ''${cWhere}
-    GROUP BY date(walk_attempts.attempted_at, '-6 hours')
+    GROUP BY date(walk_attempts.attempted_at, '${tzSql}')
     ORDER BY day DESC
     LIMIT 30
   `).all(...cParam);
@@ -710,14 +728,14 @@ router.get('/walks/daily-report', (req, res) => {
       (SELECT COUNT(DISTINCT LOWER(address) || '||' || LOWER(COALESCE(unit, ''))) FROM walk_addresses WHERE walk_id = wa.walk_id) as total_addresses
     FROM walk_attempts wa
     LEFT JOIN block_walks bw2 ON wa.walk_id = bw2.id
-    WHERE wa.walker_name != '' AND date(wa.attempted_at, '-6 hours') = ?${candidate_id ? ' AND bw2.candidate_id = ?' : ''}
+    WHERE wa.walker_name != '' AND date(wa.attempted_at, '${tzSql}') = ?${candidate_id ? ' AND bw2.candidate_id = ?' : ''}
     GROUP BY wa.walk_id
     ORDER BY doors DESC
   `).all(targetDate, ...cParam);
 
   // Available dates (days with any activity)
   const activeDays = db.prepare(`
-    SELECT DISTINCT date(walk_attempts.attempted_at, '-6 hours') as day
+    SELECT DISTINCT date(walk_attempts.attempted_at, '${tzSql}') as day
     FROM walk_attempts${cJoin}
     WHERE walk_attempts.walker_name != ''${cWhere}
     ORDER BY day DESC
@@ -730,8 +748,8 @@ router.get('/walks/daily-report', (req, res) => {
 // ===================== WEEKLY HOURS (must be before /walks/:id) =====================
 router.get('/walks/weekly-hours', (req, res) => {
   // week_of = Monday date (YYYY-MM-DD). Default to current week's Monday in Central Time.
-  const now = new Date();
-  const central = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const central = getCentralNow();
+  const tzSql = getCentralOffsetSql();
   const day = central.getDay(); // 0=Sun
   const diffToMon = day === 0 ? -6 : 1 - day;
   const defaultMonday = new Date(central);
@@ -753,14 +771,14 @@ router.get('/walks/weekly-hours', (req, res) => {
   const rows = db.prepare(`
     SELECT
       wa.walker_name,
-      date(wa.attempted_at, '-6 hours') as knock_date,
-      time(wa.attempted_at, '-6 hours') as knock_time,
+      date(wa.attempted_at, '${tzSql}') as knock_date,
+      time(wa.attempted_at, '${tzSql}') as knock_time,
       wa.attempted_at
     FROM walk_attempts wa${candidateJoin}
     WHERE wa.walker_name != ''
-      AND date(wa.attempted_at, '-6 hours') >= ?
-      AND date(wa.attempted_at, '-6 hours') < ?
-      AND time(wa.attempted_at, '-6 hours') <= '20:30:00'${candidateWhere}
+      AND date(wa.attempted_at, '${tzSql}') >= ?
+      AND date(wa.attempted_at, '${tzSql}') < ?
+      AND time(wa.attempted_at, '${tzSql}') <= '20:30:00'${candidateWhere}
     ORDER BY wa.walker_name, wa.attempted_at
   `).all(...baseParams);
 
@@ -854,7 +872,7 @@ router.get('/walks/weekly-hours', (req, res) => {
 
   // Available weeks (weeks that have any activity)
   const activeWeeks = db.prepare(`
-    SELECT DISTINCT date(attempted_at, '-6 hours', 'weekday 1', '-7 days') as monday
+    SELECT DISTINCT date(attempted_at, '${tzSql}', 'weekday 1', '-7 days') as monday
     FROM walk_attempts
     WHERE walker_name != ''
     ORDER BY monday DESC
@@ -871,8 +889,8 @@ router.post('/walks/time-gaps/scan', (req, res) => {
   const GAP_THRESHOLD = 15; // minutes
 
   // Get date range to scan (default: last 7 days)
-  const now = new Date();
-  const central = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  const central = getCentralNow();
+  const tzSql = getCentralOffsetSql();
   const daysBack = parseInt(req.query.days) || 7;
   const startDate = new Date(central);
   startDate.setDate(central.getDate() - daysBack);
@@ -880,11 +898,11 @@ router.post('/walks/time-gaps/scan', (req, res) => {
 
   // Get all knocks ordered by walker + time
   const rows = db.prepare(`
-    SELECT walker_name, attempted_at, date(attempted_at, '-6 hours') as knock_date
+    SELECT walker_name, attempted_at, date(attempted_at, '${tzSql}') as knock_date
     FROM walk_attempts
     WHERE walker_name != ''
-      AND date(attempted_at, '-6 hours') >= ?
-      AND time(attempted_at, '-6 hours') <= '20:30:00'
+      AND date(attempted_at, '${tzSql}') >= ?
+      AND time(attempted_at, '${tzSql}') <= '20:30:00'
     ORDER BY walker_name, attempted_at
   `).all(startStr);
 
@@ -997,6 +1015,7 @@ router.get('/walks/time-gaps/deductions', (req, res) => {
 // Google Civic Info — polling locations for a voter's address
 // Uses the same GOOGLE_GEOCODE_KEY (enable Civic Information API in Google Cloud Console)
 const civicInfoCache = {};
+const CIVIC_CACHE_MAX = 2000; // evict oldest entries when cache exceeds this size
 router.get('/walks/civic-info', async (req, res) => {
   const { address } = req.query;
   if (!address) return res.status(400).json({ error: 'Address required.' });
@@ -1033,6 +1052,12 @@ router.get('/walks/civic-info', async (req, res) => {
       }))
     };
 
+    // Evict oldest entries when cache is full (simple LRU by dropping half)
+    const keys = Object.keys(civicInfoCache);
+    if (keys.length >= CIVIC_CACHE_MAX) {
+      const toRemove = keys.slice(0, Math.floor(CIVIC_CACHE_MAX / 2));
+      for (const k of toRemove) delete civicInfoCache[k];
+    }
     civicInfoCache[cacheKey] = result;
     res.json(result);
   } catch (e) {
@@ -1346,17 +1371,10 @@ router.get('/walks/:id/volunteer', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
-  // Attach election votes FIRST so household members get the data
+  // Attach election votes FIRST so household members get the data (chunked to avoid >999 variable limit)
   const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
-    const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
-    ).all(...voterIds);
-    const evMap = {};
-    for (const r of evRows) {
-      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
-    }
+    const evMap = fetchElectionVotes(voterIds);
     for (const a of walk.addresses) {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
     }
@@ -1773,14 +1791,7 @@ router.get('/walks/:id/walker/:name', (req, res) => {
   // Attach election votes FIRST so household members get the data
   const voterIds = allAddresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
-    const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
-    ).all(...voterIds);
-    const evMap = {};
-    for (const r of evRows) {
-      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
-    }
+    const evMap = fetchElectionVotes(voterIds);
     for (const a of allAddresses) {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
     }
@@ -2631,7 +2642,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
   const votingParams = [];
   let votingSql = buildVotingHistorySQL(filters, votingParams);
   if (votingSql) {
-    sql += votingSql.replace(/voters\.id/g, 'v.id').replace(/voters\.voter_score/g, 'v.voter_score');
+    sql += votingSql.replace(/voters\./g, 'v.');
     params.push(...votingParams);
   }
 
@@ -2726,8 +2737,10 @@ router.post('/walks/:id/refresh', (req, res) => {
   }
   // Voting history filters
   sql += buildVotingHistorySQL(filters, params);
-  // Also exclude early voted
-  sql += ' AND early_voted = 0';
+  // Match the original walk creation: only exclude early voted if the filter was set
+  if (filters.exclude_early_voted) {
+    sql += " AND (early_voted IS NULL OR early_voted = 0 OR early_voted = '')";
+  }
   sql += ' ORDER BY address, last_name';
 
   const freshVoters = db.prepare(sql).all(...params);
@@ -2999,17 +3012,10 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
     addr.knocked_by_me = myKnocks.has(addr.id);
   }
 
-  // Attach election votes FIRST so household members get the data
+  // Attach election votes FIRST so household members get the data (chunked to avoid >999 variable limit)
   const voterIds = addresses.map(a => a.voter_id).filter(Boolean);
   if (voterIds.length > 0) {
-    const evRows = db.prepare(
-      'SELECT voter_id, election_name, election_type, party_voted, vote_method FROM election_votes WHERE voter_id IN (' + voterIds.map(() => '?').join(',') + ') ORDER BY election_date DESC'
-    ).all(...voterIds);
-    const evMap = {};
-    for (const r of evRows) {
-      if (!evMap[r.voter_id]) evMap[r.voter_id] = [];
-      evMap[r.voter_id].push({ name: r.election_name, type: r.election_type, party: r.party_voted || '', method: r.vote_method || '' });
-    }
+    const evMap = fetchElectionVotes(voterIds);
     for (const a of addresses) {
       if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
     }
