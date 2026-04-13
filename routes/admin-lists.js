@@ -208,7 +208,8 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
   const mobileOnly = req.query.mobile === '1';
   const phoneFilter = mobileOnly
     ? "AND v.phone_type = 'mobile'"
-    : "AND v.phone != '' AND v.phone IS NOT NULL";
+    : "AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')";
+  // Primary phones
   const voters = db.prepare(`
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email, v.phone_type
     FROM admin_list_voters alv
@@ -216,6 +217,17 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
     WHERE alv.list_id = ? ${phoneFilter}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
+  // Secondary phones — person appears twice with both numbers
+  if (!mobileOnly) {
+    const secVoters = db.prepare(`
+      SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.email, v.secondary_phone_type as phone_type
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+      ORDER BY v.last_name, v.first_name
+    `).all(req.params.id);
+    voters.push(...secVoters);
+  }
 
   // Build CSV
   const header = 'first_name,last_name,phone,city,zip,email';
