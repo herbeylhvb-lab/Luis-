@@ -1044,7 +1044,20 @@ router.get('/voters/race-precincts', (req, res) => {
       precincts: (r.precincts || '').split(',').filter(Boolean)
     }));
   };
-  const races = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
+  const allRaces = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
+
+  // Deduplicate: if two entries have the exact same set of precincts, keep the one with more info
+  // This prevents navigation_port, navigation_district, port_authority from showing 3x for the same race
+  const seen = new Map(); // precinct signature -> best entry
+  for (const r of allRaces) {
+    const sig = r.precincts.slice().sort().join(',');
+    const existing = seen.get(sig);
+    if (!existing || r.precincts.length > existing.precincts.length) {
+      seen.set(sig, r);
+    }
+  }
+  const races = Array.from(seen.values());
+
   res.json({ races });
 });
 
