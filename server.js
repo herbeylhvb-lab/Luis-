@@ -263,6 +263,8 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//)) {
     return next();
   }
+  // Allow birthday import (bulk data push from local machine)
+  if (req.path === '/api/voters/import-birthdays-json') return next();
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check
