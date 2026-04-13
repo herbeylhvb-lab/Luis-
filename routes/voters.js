@@ -1044,19 +1044,48 @@ router.get('/voters/race-precincts', (req, res) => {
       precincts: (r.precincts || '').split(',').filter(Boolean)
     }));
   };
-  const allRaces = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
 
-  // Deduplicate: if two entries have the exact same set of precincts, keep the one with more info
-  // This prevents navigation_port, navigation_district, port_authority from showing 3x for the same race
-  const seen = new Map(); // precinct signature -> best entry
-  for (const r of allRaces) {
-    const sig = r.precincts.slice().sort().join(',');
-    const existing = seen.get(sig);
-    if (!existing || r.precincts.length > existing.precincts.length) {
-      seen.set(sig, r);
+  // Merge port-related columns (navigation_port, navigation_district, port_authority)
+  // These are the same jurisdiction stored redundantly in the county file.
+  // Combine all three into one "Port/Navigation District" group, deduped by district name keywords.
+  const PORT_COLS = new Set(['navigation_port', 'navigation_district', 'port_authority']);
+  const nonPortColumns = DISTRICT_COLUMNS.filter(d => !PORT_COLS.has(d.col));
+  const portColumns = DISTRICT_COLUMNS.filter(d => PORT_COLS.has(d.col));
+
+  // Build port entries: merge all three columns, dedup by normalized name
+  const portEntries = new Map(); // normalized key -> { race, district, type, precincts }
+  for (const d of portColumns) {
+    const rows = db.prepare(`SELECT ${d.col} as district, GROUP_CONCAT(DISTINCT precinct) as precincts
+      FROM voters WHERE ${d.col} != '' AND ${d.col} IS NOT NULL AND precinct != '' AND precinct IS NOT NULL
+      GROUP BY ${d.col} ORDER BY ${d.col}`).all();
+    for (const r of rows) {
+      // Normalize: extract the geographic name (BROWNSVILLE, PORT ISABEL, SAN BENITO, etc.)
+      const norm = r.district.toUpperCase()
+        .replace(/NAVIGATION DISTRICT|NAVIGATION|PORT OF|PORT AUTHORITY|DISTRICT|OF/g, '')
+        .replace(/\s+/g, ' ').trim();
+      const key = norm || r.district.toUpperCase();
+      const precincts = (r.precincts || '').split(',').filter(Boolean);
+      if (portEntries.has(key)) {
+        // Merge precincts from this column into existing entry
+        const existing = portEntries.get(key);
+        const merged = new Set([...existing.precincts, ...precincts]);
+        existing.precincts = Array.from(merged);
+      } else {
+        portEntries.set(key, {
+          race: 'Port/Navigation: ' + r.district,
+          district: r.district,
+          type: 'navigation_port', // use navigation_port as the canonical type for filter mapping
+          precincts: precincts
+        });
+      }
     }
   }
-  const races = Array.from(seen.values());
+
+  // Non-port races: normal per-column mapping
+  const nonPortRaces = nonPortColumns.flatMap(d => mapCol(d.col, d.label));
+
+  // Combine: port entries first, then everything else
+  const races = [...portEntries.values(), ...nonPortRaces];
 
   res.json({ races });
 });
