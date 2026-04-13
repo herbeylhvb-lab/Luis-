@@ -1041,57 +1041,24 @@ router.get('/voters/race-precincts', (req, res) => {
       race: label + ': ' + r.district,
       district: r.district,
       type: col,
+      // filterCol + filterVal: which column and value the Step 1b checkbox should auto-check
+      filterCol: col,
+      filterVal: r.district,
       precincts: (r.precincts || '').split(',').filter(Boolean)
     }));
   };
+  const allRaces = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
 
-  // Port columns are the same jurisdiction stored redundantly — merge them separately
-  const PORT_COLS = new Set(['navigation_port', 'navigation_district', 'port_authority']);
-  const portRaces = [];
-  const otherRaces = [];
-  for (const d of DISTRICT_COLUMNS) {
-    const entries = mapCol(d.col, d.label);
-    if (PORT_COLS.has(d.col)) portRaces.push(...entries);
-    else otherRaces.push(...entries);
-  }
-
-  // Merge port entries: if >50% of entry A's precincts exist in entry B, they're the same district
-  // Sort largest first — the biggest entry absorbs smaller subsets
-  portRaces.sort((a, b) => b.precincts.length - a.precincts.length);
-  const portGroups = []; // each group = { primary entry, combined precincts }
-  const usedPort = new Set();
-  for (let i = 0; i < portRaces.length; i++) {
-    if (usedPort.has(i)) continue;
-    const group = portRaces[i];
-    const pSet = new Set(group.precincts);
-    // Absorb smaller entries that are subsets of this one
-    for (let j = i + 1; j < portRaces.length; j++) {
-      if (usedPort.has(j)) continue;
-      const other = portRaces[j];
-      const overlap = other.precincts.filter(p => pSet.has(p)).length;
-      if (other.precincts.length > 0 && overlap / other.precincts.length >= 0.5) {
-        // Other is mostly a subset — absorb its precincts
-        for (const p of other.precincts) pSet.add(p);
-        usedPort.add(j);
-      }
-    }
-    group.precincts = Array.from(pSet);
-    portGroups.push(group);
-    usedPort.add(i);
-  }
-
-  // Dedup non-port races: exact precinct signature match only
+  // Dedup: exact precinct signature = same race (e.g., BND in navigation_port and navigation_district)
   const seen = new Map();
-  const dedupedOther = [];
-  for (const r of otherRaces) {
+  const races = [];
+  for (const r of allRaces) {
     const sig = r.precincts.slice().sort((a, b) => parseInt(a) - parseInt(b)).join(',');
     if (!seen.has(sig)) {
       seen.set(sig, r);
-      dedupedOther.push(r);
+      races.push(r);
     }
   }
-
-  const races = [...portGroups, ...dedupedOther];
 
   res.json({ races });
 });

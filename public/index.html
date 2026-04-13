@@ -11212,12 +11212,13 @@ window.applyRacePrecincts = function() {
     var cb = document.querySelector('.univ-precinct-cb[value="' + p + '"]');
     if (cb) { cb.checked = true; matched++; }
   });
-  // Auto-check the district filter to exclude voters from other districts in shared precincts
-  // e.g., picking "Port of Brownsville" also checks navigation_port="Port of Brownsville"
-  // Map race column → checkbox class (must match classes in checkboxes() calls)
-  var distFilterMap = {
+
+  // Auto-check the district filter to exclude voters from OTHER districts in shared precincts
+  // The race entry now includes filterCol (which DB column) and filterVal (which value to check)
+  // This ensures we filter by the VOTER's district, not just the precinct
+  var colToCheckbox = {
     navigation_port: 'filter-navport-cb',
-    navigation_district: 'filter-navport-cb', // same filter — navigation_district maps to same nav port checkboxes
+    navigation_district: 'filter-navport-cb',
     port_authority: 'filter-portauth-cb',
     city_district: 'filter-city-cb',
     school_district: 'filter-school-cb',
@@ -11230,16 +11231,45 @@ window.applyRacePrecincts = function() {
     state_board_ed: 'filter-stateboarded-cb',
     hospital_district: 'filter-hospital-cb'
   };
-  var cbClass = distFilterMap[race.type];
+
+  // Use filterCol/filterVal from the race entry (set by server) for accurate matching
+  var filterCol = race.filterCol || race.type;
+  var filterVal = race.filterVal || race.district;
+  var cbClass = colToCheckbox[filterCol];
+  var filterApplied = false;
+
   if (cbClass) {
     // Uncheck all in this district category first
     document.querySelectorAll('.' + cbClass).forEach(function(cb) { cb.checked = false; });
-    // Check only the matching value
-    var distCb = document.querySelector('.' + cbClass + '[value="' + race.district + '"]');
-    if (distCb) distCb.checked = true;
+    // Check the matching value
+    var distCb = document.querySelector('.' + cbClass + '[value="' + filterVal + '"]');
+    if (distCb) { distCb.checked = true; filterApplied = true; }
+    else {
+      // Fallback: if navigation_district value doesn't match navigation_port checkboxes,
+      // try checking the navigation_port value that covers the same precincts
+      // (handles BND→Port of Brownsville, PIS→Port Isabel-San Benito mapping)
+      var allCbs = document.querySelectorAll('.' + cbClass);
+      allCbs.forEach(function(cb) {
+        var val = cb.value.toUpperCase();
+        var dist = filterVal.toUpperCase();
+        // Match by keyword: BND↔BROWNSVILLE, PIS↔ISABEL, SAN/HARLINGEN↔HARLINGEN
+        if (dist === 'BND' && val.indexOf('BROWNSVILLE') !== -1) { cb.checked = true; filterApplied = true; }
+        else if (dist === 'PIS' && (val.indexOf('ISABEL') !== -1 || val.indexOf('PIS') !== -1)) { cb.checked = true; filterApplied = true; }
+        else if ((dist === 'SAN' || dist.indexOf('HARLINGEN') !== -1) && val.indexOf('HARLINGEN') !== -1) { cb.checked = true; filterApplied = true; }
+      });
+      // Also try port_authority checkboxes for port-related entries
+      if (!filterApplied && (filterCol === 'navigation_district' || filterCol === 'navigation_port')) {
+        document.querySelectorAll('.filter-portauth-cb').forEach(function(cb) {
+          var val = cb.value.toUpperCase();
+          var dist = filterVal.toUpperCase();
+          if (dist === 'SAN' && val.indexOf('HARLINGEN') !== -1) { cb.checked = true; filterApplied = true; }
+        });
+      }
+    }
   }
-  info.textContent = matched + ' precincts selected for ' + race.race + (cbClass ? ' (district filter applied)' : '');
-  info.style.color = '#22c55e';
+
+  info.textContent = matched + ' precincts selected for ' + race.race + (filterApplied ? ' (district filter applied)' : ' ⚠️ no district filter — shared precincts may include other districts');
+  info.style.color = filterApplied ? '#22c55e' : '#f59e0b';
 };
 
 function getSelectedFilters() {
