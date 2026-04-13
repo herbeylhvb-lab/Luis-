@@ -451,15 +451,19 @@ app.get('/api/stats/sentiment', (req, res) => {
   const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   // Sentiment from messages linked to voters in candidate's walks/lists
   if (candidate_id) {
+    // Messages table has phone, not voter_id — join through voter phone numbers
     const stats = db.prepare(`
       SELECT
-        SUM(CASE WHEN sentiment = 'positive' THEN 1 ELSE 0 END) as positive,
-        SUM(CASE WHEN sentiment = 'negative' THEN 1 ELSE 0 END) as negative,
-        SUM(CASE WHEN sentiment = 'neutral' THEN 1 ELSE 0 END) as neutral
-      FROM messages WHERE voter_id IN (
-        SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
-        UNION
-        SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+        SUM(CASE WHEN m.sentiment = 'positive' THEN 1 ELSE 0 END) as positive,
+        SUM(CASE WHEN m.sentiment = 'negative' THEN 1 ELSE 0 END) as negative,
+        SUM(CASE WHEN m.sentiment = 'neutral' THEN 1 ELSE 0 END) as neutral
+      FROM messages m WHERE SUBSTR(REPLACE(REPLACE(REPLACE(m.phone, '+', ''), '-', ''), ' ', ''), -10) IN (
+        SELECT SUBSTR(REPLACE(REPLACE(REPLACE(v.phone, '+', ''), '-', ''), ' ', ''), -10) FROM voters v
+        WHERE v.phone IS NOT NULL AND v.phone != '' AND v.id IN (
+          SELECT voter_id FROM admin_list_voters alv JOIN admin_lists al ON alv.list_id = al.id WHERE al.candidate_id = ?
+          UNION
+          SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
+        )
       )
     `).get(candidate_id, candidate_id);
     return res.json({ positive: stats?.positive || 0, negative: stats?.negative || 0, neutral: stats?.neutral || 0 });
