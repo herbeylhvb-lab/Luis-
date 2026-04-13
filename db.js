@@ -1180,40 +1180,51 @@ try {
   }
 } catch (e) { console.warn('[backfill] Walk tagging failed:', e.message); }
 
-// Tag voters with correct port/navigation district based on Cameron County VR-HIST-03262026.xlsx
-// 3 port districts in Cameron County (confirmed via TX Comptroller directory):
-//   BND = Brownsville Navigation District (53 precincts) — NAVIGATION DISTRICT column
-//   PIS = Port Isabel-San Benito Navigation District (30 precincts) — NAVIGATION DISTRICT column
-//   SAN = Port of Harlingen Authority (35 precincts) — PORT AUTHORITY column (NOT Port of San Benito!)
+// Port district tagging — Cameron County VR-HIST-03262026.xlsx + TX Comptroller
+// 3 port districts: BND (53 pct), PIS (30 pct), Port of Harlingen (35 pct)
+// 18 precincts are SHARED between districts — the county file has per-voter tags
+// so we ONLY tag voters in non-shared precincts. Shared precinct voters get
+// their tag from the county file import (NAVIGATION DISTRICT / PORT AUTHORITY columns).
 const BND_PRECINCTS = new Set(['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','37','38','45','46','47','48','49','53','54','60','61','62','63','65','66','68','69','70','71','72','73','74','75','76','77','82','86','88','89','90','91','94','95','97','98','99','100']);
 const PIS_PRECINCTS = new Set(['1','2','3','14','17','18','19','21','22','23','24','25','40','43','49','50','51','52','57','59','65','66','67','79','81','83','94','99','101','102']);
 const HARLINGEN_PRECINCTS = new Set(['2','20','23','26','27','28','29','30','31','32','33','34','35','36','39','41','42','43','44','49','50','55','56','58','64','78','79','80','81','84','85','87','92','93','96']);
+// Precincts that belong to ONLY one district (safe to tag by precinct)
+const BND_ONLY = [...BND_PRECINCTS].filter(p => !PIS_PRECINCTS.has(p) && !HARLINGEN_PRECINCTS.has(p));
+const PIS_ONLY = [...PIS_PRECINCTS].filter(p => !BND_PRECINCTS.has(p) && !HARLINGEN_PRECINCTS.has(p));
+const HAR_ONLY = [...HARLINGEN_PRECINCTS].filter(p => !BND_PRECINCTS.has(p) && !PIS_PRECINCTS.has(p));
 try {
-  const bndPh = [...BND_PRECINCTS].map(() => '?').join(',');
-  const pisPh = [...PIS_PRECINCTS].map(() => '?').join(',');
-  const harPh = [...HARLINGEN_PRECINCTS].map(() => '?').join(',');
+  // Tag voters in NON-SHARED precincts only (safe — one district per precinct)
+  if (BND_ONLY.length > 0) {
+    const ph = BND_ONLY.map(() => '?').join(',');
+    const r1 = db.prepare("UPDATE voters SET navigation_district = 'BND' WHERE precinct IN (" + ph + ") AND (navigation_district IS NULL OR navigation_district = '')").run(...BND_ONLY);
+    const r2 = db.prepare("UPDATE voters SET navigation_port = 'Port of Brownsville' WHERE precinct IN (" + ph + ") AND (navigation_port IS NULL OR navigation_port = '')").run(...BND_ONLY);
+    if (r1.changes > 0 || r2.changes > 0) console.log(`[port-tag] BND (non-shared): ${r1.changes} nav_district + ${r2.changes} nav_port`);
+  }
+  if (PIS_ONLY.length > 0) {
+    const ph = PIS_ONLY.map(() => '?').join(',');
+    const r1 = db.prepare("UPDATE voters SET navigation_district = 'PIS' WHERE precinct IN (" + ph + ") AND (navigation_district IS NULL OR navigation_district = '')").run(...PIS_ONLY);
+    const r2 = db.prepare("UPDATE voters SET navigation_port = 'Port Isabel-San Benito' WHERE precinct IN (" + ph + ") AND (navigation_port IS NULL OR navigation_port = '')").run(...PIS_ONLY);
+    if (r1.changes > 0 || r2.changes > 0) console.log(`[port-tag] PIS (non-shared): ${r1.changes} nav_district + ${r2.changes} nav_port`);
+  }
+  if (HAR_ONLY.length > 0) {
+    const ph = HAR_ONLY.map(() => '?').join(',');
+    const r1 = db.prepare("UPDATE voters SET port_authority = 'Port of Harlingen' WHERE precinct IN (" + ph + ") AND (port_authority IS NULL OR port_authority = '')").run(...HAR_ONLY);
+    if (r1.changes > 0) console.log(`[port-tag] Harlingen (non-shared): ${r1.changes} port_authority`);
+  }
 
-  // Tag BND voters
-  const bnd1 = db.prepare("UPDATE voters SET navigation_district = 'BND' WHERE precinct IN (" + bndPh + ") AND (navigation_district IS NULL OR navigation_district = '')").run(...BND_PRECINCTS);
-  const bnd2 = db.prepare("UPDATE voters SET navigation_port = 'Port of Brownsville' WHERE precinct IN (" + bndPh + ") AND (navigation_port IS NULL OR navigation_port = '')").run(...BND_PRECINCTS);
-  if (bnd1.changes > 0 || bnd2.changes > 0) console.log(`[port-tag] BND: ${bnd1.changes} navigation_district + ${bnd2.changes} navigation_port tagged`);
+  // For SHARED precincts: only tag if voter already has navigation_district set (from county import)
+  // Sync navigation_port from navigation_district for consistency
+  const syncBnd = db.prepare("UPDATE voters SET navigation_port = 'Port of Brownsville' WHERE navigation_district = 'BND' AND (navigation_port IS NULL OR navigation_port = '')").run();
+  const syncPis = db.prepare("UPDATE voters SET navigation_port = 'Port Isabel-San Benito' WHERE navigation_district = 'PIS' AND (navigation_port IS NULL OR navigation_port = '')").run();
+  if (syncBnd.changes > 0) console.log(`[port-tag] Synced navigation_port for ${syncBnd.changes} BND voter(s)`);
+  if (syncPis.changes > 0) console.log(`[port-tag] Synced navigation_port for ${syncPis.changes} PIS voter(s)`);
 
-  // Tag PIS voters
-  const pis1 = db.prepare("UPDATE voters SET navigation_district = 'PIS' WHERE precinct IN (" + pisPh + ") AND (navigation_district IS NULL OR navigation_district = '')").run(...PIS_PRECINCTS);
-  const pis2 = db.prepare("UPDATE voters SET navigation_port = 'Port Isabel-San Benito' WHERE precinct IN (" + pisPh + ") AND (navigation_port IS NULL OR navigation_port = '')").run(...PIS_PRECINCTS);
-  if (pis1.changes > 0 || pis2.changes > 0) console.log(`[port-tag] PIS: ${pis1.changes} navigation_district + ${pis2.changes} navigation_port tagged`);
-
-  // Tag Port of Harlingen voters (PORT AUTHORITY column, value "SAN" in county file)
-  const har1 = db.prepare("UPDATE voters SET port_authority = 'Port of Harlingen' WHERE precinct IN (" + harPh + ") AND (port_authority IS NULL OR port_authority = '')").run(...HARLINGEN_PRECINCTS);
-  if (har1.changes > 0) console.log(`[port-tag] Port of Harlingen: ${har1.changes} port_authority tagged`);
-
-  // Clean: remove wrong navigation_port tags for voters not in BND or PIS
-  const navPortPrecincts = new Set([...BND_PRECINCTS, ...PIS_PRECINCTS]);
-  const navPh = [...navPortPrecincts].map(() => '?').join(',');
-  const bad = db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + navPh + ")").get(...navPortPrecincts);
-  if (bad.c > 0) {
-    const r = db.prepare("UPDATE voters SET navigation_port = '' WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + navPh + ")").run(...navPortPrecincts);
-    console.log(`[port-tag] Cleared wrong navigation_port for ${r.changes} voter(s)`);
+  // Log how many voters in shared precincts still have no district tag
+  const sharedPrecincts = [...BND_PRECINCTS].filter(p => PIS_PRECINCTS.has(p) || HARLINGEN_PRECINCTS.has(p));
+  if (sharedPrecincts.length > 0) {
+    const shPh = sharedPrecincts.map(() => '?').join(',');
+    const untagged = db.prepare("SELECT COUNT(*) as c FROM voters WHERE precinct IN (" + shPh + ") AND (navigation_district IS NULL OR navigation_district = '') AND (port_authority IS NULL OR port_authority = '')").get(...sharedPrecincts);
+    if (untagged.c > 0) console.log(`[port-tag] WARNING: ${untagged.c} voter(s) in shared precincts have no district tag — re-import county file to fix`);
   }
 } catch (e) { console.warn('[port-tag] Port district tagging failed:', e.message); }
 
