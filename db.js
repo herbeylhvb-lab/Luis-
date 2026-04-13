@@ -764,9 +764,11 @@ addColumn("ALTER TABLE voters ADD COLUMN unit_type TEXT DEFAULT ''");
 const districtRenames = [
   // Navigation districts
   ['navigation_port', 'BND', 'Port of Brownsville'],
-  ['navigation_port', 'PIS', 'Port Isabel Navigation District'],
+  ['navigation_port', 'PIS', 'Port Isabel-San Benito'],
+  ['navigation_port', 'Port Isabel Navigation District', 'Port Isabel-San Benito'], // fix old rename
   // Port authorities
   ['port_authority', 'SAN', 'Port of Harlingen'],
+  ['port_authority', 'Port of San Benito', 'Port of Harlingen'], // fix old rename
   // School districts — abbreviations to full names
   ['school_district', 'IBR', 'Brownsville ISD'],
   ['school_district', 'IHG', 'Harlingen ISD'],
@@ -1215,6 +1217,8 @@ try {
   // For SHARED precincts: only tag if voter already has navigation_district set (from county import)
   // Sync navigation_port from navigation_district for consistency
   const syncBnd = db.prepare("UPDATE voters SET navigation_port = 'Port of Brownsville' WHERE navigation_district = 'BND' AND (navigation_port IS NULL OR navigation_port = '')").run();
+  // Also overwrite old "Port Isabel Navigation District" value from previous rename
+  db.prepare("UPDATE voters SET navigation_port = 'Port Isabel-San Benito' WHERE navigation_port = 'Port Isabel Navigation District'").run();
   const syncPis = db.prepare("UPDATE voters SET navigation_port = 'Port Isabel-San Benito' WHERE navigation_district = 'PIS' AND (navigation_port IS NULL OR navigation_port = '')").run();
   if (syncBnd.changes > 0) console.log(`[port-tag] Synced navigation_port for ${syncBnd.changes} BND voter(s)`);
   if (syncPis.changes > 0) console.log(`[port-tag] Synced navigation_port for ${syncPis.changes} PIS voter(s)`);
