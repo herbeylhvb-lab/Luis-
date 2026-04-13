@@ -3366,4 +3366,110 @@ router.get('/voters/birthdays', (req, res) => {
   res.json({ voters, todayCount, range: { start: startMD, end: endMD } });
 });
 
+// Compare a phone list against the voter database — find matches, misses, and enrichment opportunities
+router.post('/voters/compare-phones', (req, res) => {
+  const { people } = req.body; // [{first, last, phone, address}]
+  if (!people || !Array.isArray(people)) return res.status(400).json({ error: 'people array required' });
+
+  const phoneMatched = [];
+  const nameMatchedNoPhone = []; // voters in DB without phone — we can ADD this phone
+  const nameMatchedHasPhone = []; // voters in DB who already have a DIFFERENT phone
+  const notFound = [];
+
+  for (const p of people) {
+    const phone10 = (p.phone || '').replace(/\D/g, '').slice(-10);
+    const first = (p.first || '').trim();
+    const last = (p.last || '').trim();
+
+    // 1. Try phone match (most reliable)
+    let voter = null;
+    if (phone10.length === 10) {
+      voter = db.prepare(
+        "SELECT id, first_name, last_name, phone, address, city, precinct, support_level FROM voters WHERE SUBSTR(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), -10) = ? LIMIT 1"
+      ).get(phone10);
+    }
+
+    if (voter) {
+      phoneMatched.push({
+        list_name: first + ' ' + last,
+        list_phone: p.phone,
+        list_address: p.address || '',
+        db_id: voter.id,
+        db_name: (voter.first_name || '') + ' ' + (voter.last_name || ''),
+        db_phone: voter.phone,
+        db_address: voter.address,
+        db_city: voter.city,
+        db_precinct: voter.precinct,
+        db_support: voter.support_level
+      });
+      continue;
+    }
+
+    // 2. Try name match (first+last, case-insensitive)
+    if (first && last) {
+      voter = db.prepare(
+        "SELECT id, first_name, last_name, phone, address, city, precinct, support_level FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) LIMIT 1"
+      ).get(first, last);
+
+      // Also try reversed (some entries have first/last swapped)
+      if (!voter) {
+        voter = db.prepare(
+          "SELECT id, first_name, last_name, phone, address, city, precinct, support_level FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) LIMIT 1"
+        ).get(last, first);
+      }
+    }
+
+    if (voter) {
+      const dbPhone = (voter.phone || '').replace(/\D/g, '').slice(-10);
+      const entry = {
+        list_name: first + ' ' + last,
+        list_phone: p.phone,
+        list_address: p.address || '',
+        db_id: voter.id,
+        db_name: (voter.first_name || '') + ' ' + (voter.last_name || ''),
+        db_phone: voter.phone,
+        db_address: voter.address,
+        db_city: voter.city,
+        db_precinct: voter.precinct,
+        db_support: voter.support_level
+      };
+      if (!dbPhone || dbPhone.length < 10) {
+        nameMatchedNoPhone.push(entry); // CAN ADD phone
+      } else {
+        nameMatchedHasPhone.push(entry);
+      }
+    } else {
+      notFound.push({ name: first + ' ' + last, phone: p.phone, address: p.address || '' });
+    }
+  }
+
+  res.json({
+    total: people.length,
+    phoneMatched: phoneMatched.length,
+    nameMatchedCanAdd: nameMatchedNoPhone.length,
+    nameMatchedHasPhone: nameMatchedHasPhone.length,
+    notFound: notFound.length,
+    details: { phoneMatched, nameMatchedNoPhone, nameMatchedHasPhone, notFound }
+  });
+});
+
+// Enrich voters with phone numbers from a phone list
+router.post('/voters/enrich-phones', (req, res) => {
+  const { updates } = req.body; // [{voter_id, phone}]
+  if (!updates || !Array.isArray(updates)) return res.status(400).json({ error: 'updates array required' });
+
+  const stmt = db.prepare("UPDATE voters SET phone = ? WHERE id = ? AND (phone IS NULL OR phone = '' OR LENGTH(REPLACE(REPLACE(phone, '-', ''), ' ', '')) < 10)");
+  let updated = 0;
+  const tx = db.transaction(() => {
+    for (const u of updates) {
+      if (u.voter_id && u.phone) {
+        const r = stmt.run(u.phone, u.voter_id);
+        if (r.changes > 0) updated++;
+      }
+    }
+  });
+  tx();
+  res.json({ success: true, updated, total: updates.length });
+});
+
 module.exports = router;
