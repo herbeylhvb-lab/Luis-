@@ -3473,19 +3473,36 @@ router.post('/voters/enrich-phones', (req, res) => {
 });
 
 // Fast bulk phone enrichment by registration_number (Voters_StateVoterID)
-// Skips name matching — direct ID match only, much faster for large imports
+// Smart priority: cell > voip > unknown > landline > invalid
+// When importing a higher-priority number, the old number moves to secondary_phone
 router.post('/voters/bulk-enrich-phones', (req, res) => {
-  const { records } = req.body; // [{reg_num, phone}]
+  const { records, phone_type: importPhoneType } = req.body; // [{reg_num, phone}], phone_type defaults to 'mobile'
   if (!records || !Array.isArray(records)) return res.status(400).json({ error: 'records array required' });
 
-  const updatePhone = db.prepare(
-    "UPDATE voters SET phone = ? WHERE registration_number = ? AND (phone IS NULL OR phone = '' OR LENGTH(REPLACE(REPLACE(phone, '-', ''), ' ', '')) < 10)"
-  );
+  // Priority: higher = better for texting
+  const PHONE_PRIORITY = { 'mobile': 5, 'voip': 4, 'unknown': 3, '': 3, 'landline': 1, 'invalid': 0 };
+  function getPriority(type) { return PHONE_PRIORITY[type || ''] ?? 3; }
+
+  const incomingType = importPhoneType || 'mobile'; // CSV cell phones default to mobile
+  const incomingPriority = getPriority(incomingType);
+
   const checkExisting = db.prepare(
-    "SELECT id, phone FROM voters WHERE registration_number = ?"
+    "SELECT id, phone, phone_type, secondary_phone, secondary_phone_type FROM voters WHERE registration_number = ?"
+  );
+  // Set primary phone
+  const setPrimary = db.prepare(
+    "UPDATE voters SET phone = ?, phone_type = ? WHERE id = ?"
+  );
+  // Demote current primary to secondary, set new primary
+  const promoteNew = db.prepare(
+    "UPDATE voters SET secondary_phone = phone, secondary_phone_type = phone_type, phone = ?, phone_type = ? WHERE id = ?"
+  );
+  // Set secondary phone (when primary is better, store new as secondary)
+  const setSecondary = db.prepare(
+    "UPDATE voters SET secondary_phone = ?, secondary_phone_type = ? WHERE id = ? AND (secondary_phone IS NULL OR secondary_phone = '')"
   );
 
-  let updated = 0, alreadyHasPhone = 0, noMatch = 0;
+  let added = 0, promoted = 0, storedAsSecondary = 0, samePhone = 0, noMatch = 0;
 
   for (let i = 0; i < records.length; i += 1000) {
     const chunk = records.slice(i, i + 1000);
@@ -3494,17 +3511,48 @@ router.post('/voters/bulk-enrich-phones', (req, res) => {
         if (!rec.reg_num || !rec.phone) { noMatch++; continue; }
         const voter = checkExisting.get(rec.reg_num);
         if (!voter) { noMatch++; continue; }
+
         const existingPhone = (voter.phone || '').replace(/\D/g, '');
-        if (existingPhone.length >= 10) { alreadyHasPhone++; continue; }
-        updatePhone.run(rec.phone, rec.reg_num);
-        updated++;
+        const newPhone = rec.phone.replace(/\D/g, '').slice(-10);
+
+        // No existing phone — just set it
+        if (existingPhone.length < 10) {
+          setPrimary.run(newPhone, incomingType, voter.id);
+          added++;
+          continue;
+        }
+
+        // Same phone already on file
+        if (existingPhone.slice(-10) === newPhone) {
+          samePhone++;
+          continue;
+        }
+
+        // Different phone — compare priority
+        const existingPriority = getPriority(voter.phone_type);
+
+        if (incomingPriority > existingPriority) {
+          // New number is better (e.g., cell replacing landline)
+          // Demote old to secondary, promote new to primary
+          promoteNew.run(newPhone, incomingType, voter.id);
+          promoted++;
+        } else {
+          // Existing is same or better priority — store new as secondary if empty
+          setSecondary.run(newPhone, incomingType, voter.id);
+          storedAsSecondary++;
+        }
       }
     });
     tx();
   }
 
-  console.log(`[bulk-enrich] ${records.length} records: ${updated} updated, ${alreadyHasPhone} already had phone, ${noMatch} no match`);
-  res.json({ success: true, total: records.length, updated, alreadyHasPhone, noMatch });
+  const total = added + promoted + storedAsSecondary + samePhone + noMatch;
+  console.log(`[bulk-enrich] ${records.length} records: ${added} added, ${promoted} promoted (old→secondary), ${storedAsSecondary} stored as secondary, ${samePhone} same phone, ${noMatch} no match`);
+  res.json({
+    success: true, total: records.length,
+    added, promoted, storedAsSecondary, samePhone, noMatch,
+    message: `${added} added, ${promoted} promoted to primary (old moved to secondary), ${storedAsSecondary} stored as secondary, ${samePhone} already had same number`
+  });
 });
 
 // Bulk phone lookup by registration_number — returns DB phone for each reg_num
