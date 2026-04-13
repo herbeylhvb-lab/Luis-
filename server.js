@@ -264,7 +264,7 @@ app.use((req, res, next) => {
     return next();
   }
   // Temporary: phone lookup for comparison
-  if (req.path === '/api/voters/phone-lookup') return next();
+  if (req.path === '/api/voters/phone-lookup' || req.originalUrl === '/api/voters/phone-lookup') return next();
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check
