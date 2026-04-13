@@ -185,8 +185,7 @@ router.post('/rumbleup/launch-campaign', asyncHandler(async (req, res) => {
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
-      AND (v.phone_type = '' OR v.phone_type IS NULL OR v.phone_type = 'mobile' OR v.phone_type = 'unknown')
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
   // Secondary phones — add as separate rows
@@ -194,8 +193,7 @@ router.post('/rumbleup/launch-campaign', asyncHandler(async (req, res) => {
     SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.email
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL
-      AND (v.secondary_phone_type = '' OR v.secondary_phone_type IS NULL OR v.secondary_phone_type = 'mobile' OR v.secondary_phone_type = 'unknown')
+    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
   voters.push(...secVoters);
