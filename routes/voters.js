@@ -3143,6 +3143,10 @@ router.post('/voters/import-birthdays', (req, res) => {
   const fs = require('fs');
   let totalRows = 0, matched = 0, updated = 0, skipped = 0, noMatch = 0;
 
+  // CountyFileID = registration_number in our DB (primary match key)
+  const updateByRegNum = db.prepare(
+    "UPDATE voters SET birth_date = ?, age = ? WHERE registration_number = ? AND (birth_date IS NULL OR birth_date = '')"
+  );
   const updateByCounty = db.prepare(
     "UPDATE voters SET birth_date = ?, age = ? WHERE county_file_id = ? AND (birth_date IS NULL OR birth_date = '')"
   );
@@ -3210,7 +3214,11 @@ router.post('/voters/import-birthdays', (req, res) => {
           const vanid = vanidIdx !== undefined ? (cols[vanidIdx] || '').trim() : '';
 
           let result = { changes: 0 };
+          // Try registration_number first (CountyFileID = registration_number), then county_file_id, then vanid
           if (countyId) {
+            result = updateByRegNum.run(birthDate, age, countyId);
+          }
+          if (result.changes === 0 && countyId) {
             result = updateByCounty.run(birthDate, age, countyId);
           }
           if (result.changes === 0 && vanid) {
@@ -3227,6 +3235,66 @@ router.post('/voters/import-birthdays', (req, res) => {
 
   console.log(`[birthday-import] Processed ${totalRows} rows: ${updated} updated, ${noMatch} no match, ${skipped} skipped`);
   res.json({ success: true, totalRows, matched, updated, skipped, noMatch });
+});
+
+// Bulk JSON birthday import — accepts array of {county_id, vanid, dob} objects
+// Used for pushing data from local machine to production server
+router.post('/voters/import-birthdays-json', (req, res) => {
+  const { records } = req.body;
+  if (!records || !Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ error: 'records array required [{county_id, vanid, dob}]' });
+  }
+
+  function parseDob(dob) {
+    if (!dob) return null;
+    const m = dob.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return m[3] + '-' + m[1] + '-' + m[2];
+  }
+  function calcAge(birthDateStr) {
+    if (!birthDateStr) return null;
+    const today = new Date();
+    const parts = birthDateStr.split('-');
+    let age = today.getFullYear() - parseInt(parts[0]);
+    const m = today.getMonth() - (parseInt(parts[1]) - 1);
+    if (m < 0 || (m === 0 && today.getDate() < parseInt(parts[2]))) age--;
+    return age > 0 && age < 150 ? age : null;
+  }
+
+  const updateByRegNum = db.prepare(
+    "UPDATE voters SET birth_date = ?, age = ? WHERE registration_number = ? AND (birth_date IS NULL OR birth_date = '')"
+  );
+  const updateByCounty = db.prepare(
+    "UPDATE voters SET birth_date = ?, age = ? WHERE county_file_id = ? AND (birth_date IS NULL OR birth_date = '')"
+  );
+  const updateByVanid = db.prepare(
+    "UPDATE voters SET birth_date = ?, age = ? WHERE vanid = ? AND (birth_date IS NULL OR birth_date = '')"
+  );
+
+  let updated = 0, noMatch = 0, skipped = 0;
+
+  for (let batch = 0; batch < records.length; batch += 1000) {
+    const chunk = records.slice(batch, batch + 1000);
+    const importBatch = db.transaction(() => {
+      for (const rec of chunk) {
+        const birthDate = parseDob(rec.dob);
+        if (!birthDate) { skipped++; continue; }
+        const age = calcAge(birthDate);
+
+        let result = { changes: 0 };
+        if (rec.county_id) result = updateByRegNum.run(birthDate, age, rec.county_id);
+        if (result.changes === 0 && rec.county_id) result = updateByCounty.run(birthDate, age, rec.county_id);
+        if (result.changes === 0 && rec.vanid) result = updateByVanid.run(birthDate, age, rec.vanid);
+
+        if (result.changes > 0) updated++;
+        else noMatch++;
+      }
+    });
+    importBatch();
+  }
+
+  console.log(`[birthday-json] Batch: ${records.length} records, ${updated} updated, ${noMatch} no match, ${skipped} skipped`);
+  res.json({ success: true, total: records.length, updated, noMatch, skipped });
 });
 
 // Get voters with birthdays in a date range (month-day matching, ignores year)
