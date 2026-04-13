@@ -1302,6 +1302,18 @@ router.post('/walks/:id/addresses', (req, res) => {
 // Update address result
 router.put('/walks/:walkId/addresses/:addrId', (req, res) => {
   const { result, notes } = req.body;
+
+  // Prevention guard: refuse to reset a knocked address to 'not_visited' if walk_attempts exist for it
+  if (result === 'not_visited') {
+    const hasAttempts = db.prepare(
+      'SELECT COUNT(*) as c FROM walk_attempts WHERE address_id = ? AND walk_id = ?'
+    ).get(req.params.addrId, req.params.walkId);
+    if (hasAttempts && hasAttempts.c > 0) {
+      console.warn(`[guard] Blocked reset of walk_address ${req.params.addrId} to 'not_visited' (has ${hasAttempts.c} knock attempts)`);
+      return res.status(400).json({ error: 'Cannot reset a knocked address. Clear attempt history first.' });
+    }
+  }
+
   const knocked_at = result && result !== 'not_visited' ? new Date().toISOString() : null;
   const r = db.prepare(
     'UPDATE walk_addresses SET result = COALESCE(?, result), notes = COALESCE(?, notes), knocked_at = COALESCE(?, knocked_at) WHERE id = ? AND walk_id = ?'
@@ -3061,6 +3073,75 @@ router.post('/repopulate-walks', (req, res) => {
 
   console.log('[repopulate] Repopulated', totalRepopulated, 'walks with', totalAddresses, 'addresses');
   res.json({ repopulated: totalRepopulated, addresses: totalAddresses, debug: debug.slice(0, 20) });
+});
+
+// ===================== RECOVER LOST KNOCKS =====================
+
+// Admin endpoint: manually trigger knock recovery (also runs on startup via db.js)
+router.post('/walks/recover-lost-knocks', (req, res) => {
+  const { recoverLostKnocks } = require('../db');
+  const result = recoverLostKnocks();
+  const total = result.directRecovered + result.siblingRecovered;
+  res.json({
+    success: true,
+    recovered: total,
+    directRecovered: result.directRecovered,
+    siblingRecovered: result.siblingRecovered,
+    message: total > 0
+      ? `Recovered ${result.directRecovered} lost knocks from attempt history + ${result.siblingRecovered} from sibling propagation`
+      : 'No lost knocks found — all walk data is consistent'
+  });
+});
+
+// Diagnostics: show walk_addresses that look like they should be knocked but aren't
+router.get('/walks/diagnostics/walk-integrity', (req, res) => {
+  // Addresses that are 'not_visited' but have walk_attempts → should have been recovered
+  const directMismatch = db.prepare(`
+    SELECT wa.id, wa.walk_id, wa.address, wa.unit, wa.voter_name,
+           at.result as attempt_result, at.attempted_at, bw.name as walk_name
+    FROM walk_addresses wa
+    JOIN walk_attempts at ON at.address_id = wa.id AND at.walk_id = wa.walk_id
+    JOIN block_walks bw ON bw.id = wa.walk_id
+    WHERE wa.result = 'not_visited'
+    ORDER BY at.attempted_at DESC
+    LIMIT 100
+  `).all();
+
+  // Addresses that are 'not_visited' but a sibling at the same address was knocked
+  const siblingMismatch = db.prepare(`
+    SELECT unvisited.id, unvisited.walk_id, unvisited.address, unvisited.unit, unvisited.voter_name,
+           knocked.result as sibling_result, knocked.knocked_at, bw.name as walk_name
+    FROM walk_addresses unvisited
+    JOIN walk_addresses knocked
+      ON knocked.walk_id = unvisited.walk_id
+      AND knocked.id != unvisited.id
+      AND knocked.result != 'not_visited'
+      AND LOWER(TRIM(knocked.address)) = LOWER(TRIM(unvisited.address))
+      AND LOWER(TRIM(COALESCE(knocked.unit, ''))) = LOWER(TRIM(COALESCE(unvisited.unit, '')))
+    JOIN block_walks bw ON bw.id = unvisited.walk_id
+    WHERE unvisited.result = 'not_visited'
+    LIMIT 100
+  `).all();
+
+  // Overall stats
+  const totalAddresses = db.prepare('SELECT COUNT(*) as c FROM walk_addresses').get().c;
+  const totalKnocked = db.prepare("SELECT COUNT(*) as c FROM walk_addresses WHERE result != 'not_visited'").get().c;
+  const totalAttempts = db.prepare('SELECT COUNT(*) as c FROM walk_attempts').get().c;
+  const uniqueAttemptAddrs = db.prepare('SELECT COUNT(DISTINCT address_id) as c FROM walk_attempts').get().c;
+
+  res.json({
+    overview: {
+      totalAddresses,
+      totalKnocked,
+      totalNotVisited: totalAddresses - totalKnocked,
+      totalAttempts,
+      uniqueAttemptAddrs,
+      directMismatchCount: directMismatch.length,
+      siblingMismatchCount: siblingMismatch.length
+    },
+    directMismatches: directMismatch.slice(0, 20),
+    siblingMismatches: siblingMismatch.slice(0, 20)
+  });
 });
 
 module.exports = router;

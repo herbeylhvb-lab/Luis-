@@ -1214,6 +1214,98 @@ try {
   if (r.changes > 0) console.log(`[cleanup] Removed ${r.changes} privacy/empty address(es) from block walks`);
 } catch (e) {}
 
+// ===================== RECOVER LOST KNOCKS =====================
+// Defense-in-depth: walk_attempts is the append-only truth for every knock.
+// walk_addresses.result is a cached current-state that can drift.
+// This recovery backfills walk_addresses.result from walk_attempts for any
+// address that shows 'not_visited' despite having knock history.
+function recoverLostKnocks() {
+  let directRecovered = 0;
+  let siblingRecovered = 0;
+
+  try {
+    // Step 1: Direct recovery — walk_address has result='not_visited' but walk_attempts has a knock for it
+    const directMismatch = db.prepare(`
+      SELECT wa.id, wa.walk_id, wa.address, wa.unit,
+             at.result as attempt_result, at.notes as attempt_notes, at.attempted_at,
+             at.gps_lat, at.gps_lng, at.gps_accuracy, at.gps_verified
+      FROM walk_addresses wa
+      JOIN walk_attempts at ON at.address_id = wa.id AND at.walk_id = wa.walk_id
+      WHERE wa.result = 'not_visited'
+      ORDER BY at.attempted_at DESC
+    `).all();
+
+    if (directMismatch.length > 0) {
+      const updateDirect = db.prepare(`
+        UPDATE walk_addresses SET
+          result = ?, notes = COALESCE(?, notes), knocked_at = ?,
+          gps_lat = COALESCE(?, gps_lat), gps_lng = COALESCE(?, gps_lng),
+          gps_accuracy = COALESCE(?, gps_accuracy), gps_verified = COALESCE(?, gps_verified)
+        WHERE id = ? AND result = 'not_visited'
+      `);
+
+      const seen = new Set();
+      const recoverTx = db.transaction(() => {
+        for (const row of directMismatch) {
+          if (seen.has(row.id)) continue; // latest-wins: first row per address_id is most recent
+          seen.add(row.id);
+          updateDirect.run(
+            row.attempt_result, row.attempt_notes, row.attempted_at,
+            row.gps_lat, row.gps_lng, row.gps_accuracy, row.gps_verified,
+            row.id
+          );
+          directRecovered++;
+        }
+      });
+      recoverTx();
+    }
+
+    // Step 2: Sibling recovery — walk_address is 'not_visited' but another walk_address
+    // at the same address+unit in the same walk was knocked (the knock endpoint
+    // logs walk_attempts only for the primary row, siblings just get walk_addresses.result updated)
+    const siblingMismatch = db.prepare(`
+      SELECT unvisited.id, unvisited.walk_id,
+             knocked.result as sibling_result, knocked.knocked_at as sibling_knocked_at,
+             knocked.gps_verified as sibling_gps_verified
+      FROM walk_addresses unvisited
+      JOIN walk_addresses knocked
+        ON knocked.walk_id = unvisited.walk_id
+        AND knocked.id != unvisited.id
+        AND knocked.result != 'not_visited'
+        AND LOWER(TRIM(knocked.address)) = LOWER(TRIM(unvisited.address))
+        AND LOWER(TRIM(COALESCE(knocked.unit, ''))) = LOWER(TRIM(COALESCE(unvisited.unit, '')))
+      WHERE unvisited.result = 'not_visited'
+    `).all();
+
+    if (siblingMismatch.length > 0) {
+      const updateSibling = db.prepare(`
+        UPDATE walk_addresses SET result = ?, knocked_at = ?, gps_verified = ?
+        WHERE id = ? AND result = 'not_visited'
+      `);
+      const seen2 = new Set();
+      const sibTx = db.transaction(() => {
+        for (const row of siblingMismatch) {
+          if (seen2.has(row.id)) continue;
+          seen2.add(row.id);
+          updateSibling.run(row.sibling_result, row.sibling_knocked_at, row.sibling_gps_verified, row.id);
+          siblingRecovered++;
+        }
+      });
+      sibTx();
+    }
+
+    if (directRecovered > 0 || siblingRecovered > 0) {
+      console.log(`[recover] Recovered ${directRecovered} lost knocks from attempt history + ${siblingRecovered} from sibling propagation`);
+    }
+  } catch (e) {
+    console.warn('[recover] Lost knock recovery failed:', e.message);
+  }
+  return { directRecovered, siblingRecovered };
+}
+
+// Run on startup (idempotent, self-healing)
+recoverLostKnocks();
+
 // --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS walk_scripts (
@@ -1791,3 +1883,4 @@ module.exports = db;
 module.exports.generateQrToken = generateQrToken;
 module.exports.computePartyScores = computePartyScores;
 module.exports.computeVoteFrequency = computeVoteFrequency;
+module.exports.recoverLostKnocks = recoverLostKnocks;

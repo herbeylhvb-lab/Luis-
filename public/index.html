@@ -931,6 +931,7 @@ tr:hover td{background:#1e293b80}
           <button class="btn btn-primary" id="btnCreateWalk">Create Walk</button>
           <button class="btn btn-sm" id="btnCreateFromPrecinct" style="margin-left:8px;background:#7c3aed;color:#fff">&#127968; Create from Precinct</button>
           <button class="btn btn-sm" id="btnBulkAssignWalks" style="margin-left:8px;background:#f59e0b;color:#0f172a;display:none" onclick="bulkAssignUnassignedWalks()">Tag Unassigned Walks</button>
+          <button class="btn btn-sm" id="btnRecoverKnocks" style="margin-left:8px;background:#22c55e;color:#fff" onclick="recoverLostKnocks()" title="Recover walked houses that show as unwalked by rebuilding from knock history">&#128260; Recover Lost Knocks</button>
         </div>
         <!-- Create from Precinct panel -->
         <div class="card" id="precinctWalkCard" style="display:none">
@@ -5024,6 +5025,23 @@ function showWalkDetail(id) { state.currentWalkId = id; document.getElementById(
 window.showWalkList = showWalkList;
 window.showWalkDetail = showWalkDetail;
 
+window.recoverLostKnocks = async function() {
+  var btn = document.getElementById('btnRecoverKnocks');
+  if (btn) { btn.disabled = true; btn.textContent = 'Recovering...'; }
+  try {
+    var data = await apiPost('/api/walks/recover-lost-knocks', {});
+    var total = (data.directRecovered || 0) + (data.siblingRecovered || 0);
+    if (total > 0) {
+      alert('Recovered ' + data.directRecovered + ' knocks from attempt history + ' + data.siblingRecovered + ' from sibling propagation.\n\nRefreshing walk list...');
+      loadWalks();
+    } else {
+      alert('All walk data is consistent. No lost knocks found.');
+    }
+  } catch (e) {
+    alert('Recovery failed: ' + (e.message || e));
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD04 Recover Lost Knocks'; }
+};
 window.bulkAssignUnassignedWalks = async function() {
   var candSel = document.getElementById('walkCandidate');
   var candId = candSel && candSel.value ? candSel.value : '';
