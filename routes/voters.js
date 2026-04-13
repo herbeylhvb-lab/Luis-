@@ -3568,4 +3568,34 @@ router.post('/voters/phone-lookup', (req, res) => {
   res.json({ results });
 });
 
+// Temporary: phone type breakdown for primary + secondary
+router.get('/voters/phone-type-breakdown', (req, res) => {
+  const primary = db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      COUNT(CASE WHEN phone != '' AND phone IS NOT NULL THEN 1 END) as has_phone,
+      COUNT(CASE WHEN phone_type = 'mobile' THEN 1 END) as mobile,
+      COUNT(CASE WHEN phone_type = 'landline' THEN 1 END) as landline,
+      COUNT(CASE WHEN phone_type = 'voip' THEN 1 END) as voip,
+      COUNT(CASE WHEN phone_type = 'invalid' THEN 1 END) as invalid,
+      COUNT(CASE WHEN phone_type = 'unknown' THEN 1 END) as unknown_type,
+      COUNT(CASE WHEN phone != '' AND (phone_type = '' OR phone_type IS NULL) THEN 1 END) as unvalidated
+    FROM voters
+  `).get();
+
+  const secondary = db.prepare(`
+    SELECT
+      COUNT(CASE WHEN secondary_phone != '' AND secondary_phone IS NOT NULL THEN 1 END) as has_secondary,
+      COUNT(CASE WHEN secondary_phone_type = 'mobile' THEN 1 END) as sec_mobile,
+      COUNT(CASE WHEN secondary_phone_type = 'landline' THEN 1 END) as sec_landline,
+      COUNT(CASE WHEN secondary_phone_type = 'voip' THEN 1 END) as sec_voip,
+      COUNT(CASE WHEN secondary_phone_type = 'invalid' THEN 1 END) as sec_invalid,
+      COUNT(CASE WHEN secondary_phone_type = 'unknown' THEN 1 END) as sec_unknown,
+      COUNT(CASE WHEN secondary_phone != '' AND (secondary_phone_type = '' OR secondary_phone_type IS NULL) THEN 1 END) as sec_unvalidated
+    FROM voters
+  `).get();
+
+  res.json({ primary, secondary });
+});
+
 module.exports = router;

@@ -191,6 +191,7 @@ const publicApiPaths = [
   '/api/auth/',
   '/api/voters/qr/',
   '/api/voters/checkins/today-events',
+  '/api/voters/phone-type-breakdown', // temporary
 ];
 
 app.use((req, res, next) => {
