@@ -14522,14 +14522,6 @@ window.exportSimpleTextCSV = function() {
   link.download = 'phone_list.csv';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
-window.exportRumbleUpCSV = function() {
-  var listId = state.currentAdminListId;
-  if (!listId) return;
-  var link = document.createElement('a');
-  link.href = '/api/admin-lists/' + listId + '/export-rumbleup';
-  link.download = 'rumbleup_contacts.csv';
-  document.body.appendChild(link); link.click(); document.body.removeChild(link);
-};
 
 window.exportFacebookCSV = function() {
   var listId = state.currentAdminListId;
