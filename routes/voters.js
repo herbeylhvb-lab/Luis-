@@ -1045,40 +1045,48 @@ router.get('/voters/race-precincts', (req, res) => {
     }));
   };
 
-  const allRaces = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
+  // Group port-related columns together so they dedup against each other but not against other districts
+  const PORT_COLS = new Set(['navigation_port', 'navigation_district', 'port_authority']);
 
-  // Deduplicate by precinct overlap: if two entries share >70% of precincts, merge them
-  // This catches BND/Port of Brownsville (same 53 precincts) and PIS/Port of San Benito/Port Isabel
-  const merged = [];
-  const used = new Set();
-  // Sort by precinct count descending so the largest entry is the "primary"
-  allRaces.sort((a, b) => b.precincts.length - a.precincts.length);
+  const portRaces = [];
+  const otherRaces = [];
+  for (const d of DISTRICT_COLUMNS) {
+    const entries = mapCol(d.col, d.label);
+    if (PORT_COLS.has(d.col)) portRaces.push(...entries);
+    else otherRaces.push(...entries);
+  }
 
-  for (let i = 0; i < allRaces.length; i++) {
-    if (used.has(i)) continue;
-    const primary = allRaces[i];
+  // Dedup port entries only: merge entries with >90% precinct overlap
+  // This merges BND + Port of Brownsville (same 53 precincts) but NOT BND + PIS (different precincts)
+  const mergedPort = [];
+  const usedPort = new Set();
+  portRaces.sort((a, b) => b.precincts.length - a.precincts.length);
+
+  for (let i = 0; i < portRaces.length; i++) {
+    if (usedPort.has(i)) continue;
+    const primary = portRaces[i];
     const pSet = new Set(primary.precincts);
 
-    // Find all other entries that overlap significantly with this one
-    for (let j = i + 1; j < allRaces.length; j++) {
-      if (used.has(j)) continue;
-      const other = allRaces[j];
-      // Count how many of other's precincts are in primary
+    for (let j = i + 1; j < portRaces.length; j++) {
+      if (usedPort.has(j)) continue;
+      const other = portRaces[j];
       const overlap = other.precincts.filter(p => pSet.has(p)).length;
-      const overlapPct = other.precincts.length > 0 ? overlap / other.precincts.length : 0;
-      if (overlapPct >= 0.7) {
-        // Merge: add any extra precincts from other into primary
+      // Both directions: other's precincts in primary AND primary's precincts in other
+      const overlapA = other.precincts.length > 0 ? overlap / other.precincts.length : 0;
+      const overlapB = primary.precincts.length > 0 ? overlap / primary.precincts.length : 0;
+      // Only merge if BOTH sides have >90% overlap (prevents cascading)
+      if (overlapA >= 0.9 && overlapB >= 0.5) {
         for (const p of other.precincts) pSet.add(p);
-        used.add(j);
+        usedPort.add(j);
       }
     }
 
     primary.precincts = Array.from(pSet);
-    merged.push(primary);
-    used.add(i);
+    mergedPort.push(primary);
+    usedPort.add(i);
   }
 
-  const races = merged;
+  const races = [...mergedPort, ...otherRaces];
 
   res.json({ races });
 });
