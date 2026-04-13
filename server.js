@@ -47,7 +47,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { err
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
 // Bulk import paths get a higher body limit (50mb); all others get 2mb
-const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events', '/api/voters/import-birthdays-json'];
+const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events', '/api/voters/import-birthdays-json', '/api/voters/bulk-enrich-phones'];
 const bulkJsonParserEarly = express.json({ limit: '50mb' });
 const defaultJsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
@@ -264,7 +264,7 @@ app.use((req, res, next) => {
     return next();
   }
   // Temporary: phone comparison + enrichment endpoints
-  if (req.path === '/api/voters/compare-phones' || req.path === '/api/voters/enrich-phones') return next();
+  if (req.path === '/api/voters/compare-phones' || req.path === '/api/voters/enrich-phones' || req.path === '/api/voters/bulk-enrich-phones') return next();
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check

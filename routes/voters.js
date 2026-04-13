@@ -3472,4 +3472,39 @@ router.post('/voters/enrich-phones', (req, res) => {
   res.json({ success: true, updated, total: updates.length });
 });
 
+// Fast bulk phone enrichment by registration_number (Voters_StateVoterID)
+// Skips name matching — direct ID match only, much faster for large imports
+router.post('/voters/bulk-enrich-phones', (req, res) => {
+  const { records } = req.body; // [{reg_num, phone}]
+  if (!records || !Array.isArray(records)) return res.status(400).json({ error: 'records array required' });
+
+  const updatePhone = db.prepare(
+    "UPDATE voters SET phone = ? WHERE registration_number = ? AND (phone IS NULL OR phone = '' OR LENGTH(REPLACE(REPLACE(phone, '-', ''), ' ', '')) < 10)"
+  );
+  const checkExisting = db.prepare(
+    "SELECT id, phone FROM voters WHERE registration_number = ?"
+  );
+
+  let updated = 0, alreadyHasPhone = 0, noMatch = 0;
+
+  for (let i = 0; i < records.length; i += 1000) {
+    const chunk = records.slice(i, i + 1000);
+    const tx = db.transaction(() => {
+      for (const rec of chunk) {
+        if (!rec.reg_num || !rec.phone) { noMatch++; continue; }
+        const voter = checkExisting.get(rec.reg_num);
+        if (!voter) { noMatch++; continue; }
+        const existingPhone = (voter.phone || '').replace(/\D/g, '');
+        if (existingPhone.length >= 10) { alreadyHasPhone++; continue; }
+        updatePhone.run(rec.phone, rec.reg_num);
+        updated++;
+      }
+    });
+    tx();
+  }
+
+  console.log(`[bulk-enrich] ${records.length} records: ${updated} updated, ${alreadyHasPhone} already had phone, ${noMatch} no match`);
+  res.json({ success: true, total: records.length, updated, alreadyHasPhone, noMatch });
+});
+
 module.exports = router;
