@@ -1670,8 +1670,7 @@ tr:hover td{background:#1e293b80}
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="logMailerSent()">📬 Log Mailer Sent</button>
-            <button class="btn btn-sm" style="background:#2563eb;border-color:#1d4ed8" onclick="exportSimpleTextCSV()">📱 Export for SimpleTexting</button>
-            <button class="btn btn-sm" style="background:#f59e0b;border-color:#d97706;color:#000" onclick="exportRumbleUpCSV()">📱 Export for RumbleUp</button>
+            <button class="btn btn-sm" style="background:#2563eb;border-color:#1d4ed8" onclick="exportSimpleTextCSV()">📱 Phone List</button>
             <button class="btn btn-sm" style="background:#1877f2;border-color:#1564bf" onclick="exportFacebookCSV()">📘 Facebook Audience</button>
             <button class="btn btn-sm" style="background:#ff6b35;border-color:#e55a2b" onclick="exportOTTCSV()">📺 OTT / CTV Export</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="createWalkFromList()">🚶 Create Walk List</button>
@@ -13955,12 +13954,12 @@ async function loadMyUniverses() {
     var stBtn = document.createElement('button');
     stBtn.className = 'btn btn-sm';
     stBtn.style.cssText = 'background:#2563eb;border-color:#1d4ed8';
-    stBtn.textContent = '📱 SimpleTexting';
+    stBtn.textContent = '📱 Phone List';
     (function(listId) {
       stBtn.addEventListener('click', function() {
         var link = document.createElement('a');
         link.href = '/api/admin-lists/' + listId + '/export-simpletext';
-        link.download = 'simpletext_contacts.csv';
+        link.download = 'phone_list.csv';
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
       });
     })(l.id);
@@ -14005,14 +14004,6 @@ async function loadMyUniverses() {
       window.open('/api/admin-lists/' + l.id + '/download', '_blank');
     });
     right.appendChild(dlBtn);
-    var ruBtn = document.createElement('button');
-    ruBtn.className = 'btn btn-sm btn-secondary';
-    ruBtn.textContent = '📱 RumbleUp';
-    ruBtn.style.background = '#7c3aed';
-    ruBtn.addEventListener('click', function() {
-      window.open('/api/admin-lists/' + l.id + '/export-rumbleup?mobile=1', '_blank');
-    });
-    right.appendChild(ruBtn);
     var l2Btn = document.createElement('button');
     l2Btn.className = 'btn btn-sm btn-secondary';
     l2Btn.textContent = '📊 L2 Export';
@@ -14528,7 +14519,7 @@ window.exportSimpleTextCSV = function() {
   if (!listId) return;
   var link = document.createElement('a');
   link.href = '/api/admin-lists/' + listId + '/export-simpletext';
-  link.download = 'simpletext_contacts.csv';
+  link.download = 'phone_list.csv';
   document.body.appendChild(link); link.click(); document.body.removeChild(link);
 };
 window.exportRumbleUpCSV = function() {
