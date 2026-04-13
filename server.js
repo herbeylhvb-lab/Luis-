@@ -191,6 +191,7 @@ const publicApiPaths = [
   '/api/auth/',
   '/api/voters/qr/',
   '/api/voters/checkins/today-events',
+  '/api/voters/phone-lookup', // temporary: phone comparison
 ];
 
 app.use((req, res, next) => {
@@ -263,8 +264,6 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//)) {
     return next();
   }
-  // Temporary: phone lookup for comparison
-  if (req.path === '/api/voters/phone-lookup' || req.originalUrl === '/api/voters/phone-lookup') return next();
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check
