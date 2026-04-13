@@ -1180,18 +1180,47 @@ try {
   }
 } catch (e) { console.warn('[backfill] Walk tagging failed:', e.message); }
 
-// Clean incorrect navigation_port tags — official BND precincts from Cameron County Elections
-// Source: https://www.cameroncountytx.gov/elections/wp-content/uploads/2024/05/Brownsville-Navigation-District-Precinct-by-Precinct.pdf
-// Pct 52 removed — had 0 BND voters per audit (all 2,339 are Port Isabel)
+// Tag voters with correct port/navigation district based on Cameron County VR-HIST file
+// Source: VR-HIST-03262026.xlsx — NAVIGATION DISTRICT and PORT AUTHORITY columns
+// BND = Brownsville Navigation District, PIS = Port Isabel-San Benito, SAN = Port of San Benito (same as PIS)
 const BND_PRECINCTS = new Set(['2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','37','38','45','46','47','48','49','53','54','60','61','62','63','65','66','68','69','70','71','72','73','74','75','76','77','82','86','88','89','90','91','94','95','97','98','99','100']);
+const PIS_PRECINCTS = new Set(['1','2','3','14','17','18','19','21','22','23','24','25','40','43','49','50','51','52','57','59','65','66','67','79','81','83','94','99','101','102']);
+const SAN_PRECINCTS = new Set(['2','20','23','26','27','28','29','30','31','32','33','34','35','36','39','41','42','43','44','49','50','55','56','58','64','78','79','80','81','84','85','87','92','93','96']);
 try {
-  // Find voters with navigation_port set but in precincts NOT in the BND
-  const badRows = db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + [...BND_PRECINCTS].map(() => '?').join(',') + ")").get(...BND_PRECINCTS);
+  // Tag BND voters: set navigation_district for voters in BND precincts who don't have it
+  const bndPlaceholders = [...BND_PRECINCTS].map(() => '?').join(',');
+  const bndTagged = db.prepare(
+    "UPDATE voters SET navigation_district = 'BND' WHERE precinct IN (" + bndPlaceholders + ") AND (navigation_district IS NULL OR navigation_district = '')"
+  ).run(...BND_PRECINCTS);
+  if (bndTagged.changes > 0) console.log(`[port-tag] Tagged ${bndTagged.changes} voter(s) as BND`);
+
+  // Tag PIS voters
+  const pisPlaceholders = [...PIS_PRECINCTS].map(() => '?').join(',');
+  const pisTagged = db.prepare(
+    "UPDATE voters SET navigation_district = 'PIS' WHERE precinct IN (" + pisPlaceholders + ") AND (navigation_district IS NULL OR navigation_district = '') AND precinct NOT IN (" + bndPlaceholders + ")"
+  ).run(...PIS_PRECINCTS, ...BND_PRECINCTS);
+  if (pisTagged.changes > 0) console.log(`[port-tag] Tagged ${pisTagged.changes} voter(s) as PIS`);
+
+  // Tag SAN (port_authority) voters
+  const sanPlaceholders = [...SAN_PRECINCTS].map(() => '?').join(',');
+  const sanTagged = db.prepare(
+    "UPDATE voters SET port_authority = 'Port of San Benito' WHERE precinct IN (" + sanPlaceholders + ") AND (port_authority IS NULL OR port_authority = '')"
+  ).run(...SAN_PRECINCTS);
+  if (sanTagged.changes > 0) console.log(`[port-tag] Tagged ${sanTagged.changes} voter(s) as Port of San Benito`);
+
+  // Also set navigation_port for BND voters (the column the race selector uses for auto-filter)
+  const bndPortTagged = db.prepare(
+    "UPDATE voters SET navigation_port = 'Port of Brownsville' WHERE precinct IN (" + bndPlaceholders + ") AND (navigation_port IS NULL OR navigation_port = '')"
+  ).run(...BND_PRECINCTS);
+  if (bndPortTagged.changes > 0) console.log(`[port-tag] Set navigation_port for ${bndPortTagged.changes} BND voter(s)`);
+
+  // Clean: remove navigation_port for voters NOT in BND precincts (prevents wrong tagging)
+  const badRows = db.prepare("SELECT COUNT(*) as c FROM voters WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + bndPlaceholders + ")").get(...BND_PRECINCTS);
   if (badRows.c > 0) {
-    const r = db.prepare("UPDATE voters SET navigation_port = '' WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + [...BND_PRECINCTS].map(() => '?').join(',') + ")").run(...BND_PRECINCTS);
-    console.log(`[cleanup] Cleared navigation_port for ${r.changes} voter(s) in non-BND precincts (e.g., Pct 36)`);
+    const r = db.prepare("UPDATE voters SET navigation_port = '' WHERE navigation_port != '' AND navigation_port IS NOT NULL AND precinct != '' AND precinct NOT IN (" + bndPlaceholders + ")").run(...BND_PRECINCTS);
+    console.log(`[port-tag] Cleared wrong navigation_port for ${r.changes} non-BND voter(s)`);
   }
-} catch (e) { console.warn('[cleanup] BND precinct cleanup failed:', e.message); }
+} catch (e) { console.warn('[port-tag] Port district tagging failed:', e.message); }
 
 // Auto-mark stuck inbound messages as replied if there's evidence of a reply.
 // Evidence = any outbound for the same normalized phone in the last 60 days.
