@@ -263,6 +263,8 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/walks\/\d+\/walker-by-id\//)) {
     return next();
   }
+  // Temporary: phone lookup for comparison
+  if (req.path === '/api/voters/phone-lookup') return next();
   // Allow messaging provider webhook
   if (req.path === '/incoming') return next();
   // Allow health check

@@ -3507,4 +3507,17 @@ router.post('/voters/bulk-enrich-phones', (req, res) => {
   res.json({ success: true, total: records.length, updated, alreadyHasPhone, noMatch });
 });
 
+// Bulk phone lookup by registration_number — returns DB phone for each reg_num
+router.post('/voters/phone-lookup', (req, res) => {
+  const { reg_nums } = req.body;
+  if (!reg_nums || !Array.isArray(reg_nums)) return res.status(400).json({ error: 'reg_nums array required' });
+  const stmt = db.prepare("SELECT registration_number, phone FROM voters WHERE registration_number = ?");
+  const results = {};
+  for (const rn of reg_nums) {
+    const v = stmt.get(rn);
+    if (v) results[rn] = (v.phone || '').replace(/\D/g, '').slice(-10);
+  }
+  res.json({ results });
+});
+
 module.exports = router;
