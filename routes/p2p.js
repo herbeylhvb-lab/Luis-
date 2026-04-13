@@ -138,7 +138,7 @@ router.post('/p2p/sessions', (req, res) => {
       SELECT v.id as voter_id, v.phone, v.first_name, v.last_name, v.city, v.email
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? AND v.phone != ''
+      WHERE alv.list_id = ? AND v.phone != '' AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     `;
     const listParams = [list_id];
     if (precinct_filter && precinct_filter.length > 0) {

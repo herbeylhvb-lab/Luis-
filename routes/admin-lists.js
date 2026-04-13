@@ -242,7 +242,7 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.precinct
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
 

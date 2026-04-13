@@ -24,7 +24,7 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
       SELECT v.id as voter_id, v.phone, v.first_name, v.last_name, v.city
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+      WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     `;
     const params = [list_id];
     if (precinct_filter && precinct_filter.length > 0) {
@@ -33,8 +33,8 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
     }
     recipients = db.prepare(sql).all(...params);
   } else {
-    // All contacts with phone numbers
-    const voters = db.prepare("SELECT id as voter_id, phone, first_name, last_name, city FROM voters WHERE phone != '' AND phone IS NOT NULL").all();
+    // All contacts with phone numbers (exclude landlines/invalid)
+    const voters = db.prepare("SELECT id as voter_id, phone, first_name, last_name, city FROM voters WHERE phone != '' AND phone IS NOT NULL AND COALESCE(phone_type,'') NOT IN ('landline','invalid')").all();
     const contacts = db.prepare("SELECT id, phone, first_name, last_name, city FROM contacts WHERE phone != '' AND phone IS NOT NULL").all();
     // Deduplicate by normalized phone digits
     const seen = new Set();
@@ -205,7 +205,7 @@ router.get('/gotv/chase', (req, res) => {
     params.push(precinct);
   }
   if (has_phone === '1') {
-    sql += " AND phone != '' AND phone IS NOT NULL";
+    sql += " AND phone != '' AND phone IS NOT NULL AND COALESCE(phone_type,'') NOT IN ('landline','invalid')";
   }
 
   sql += ' ORDER BY support_level, last_name, first_name';

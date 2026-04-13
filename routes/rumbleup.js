@@ -120,11 +120,11 @@ router.post('/rumbleup/contacts/import', asyncHandler(async (req, res) => {
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
 
-  if (voters.length === 0) return res.status(400).json({ error: 'No voters with phone numbers on this list.' });
+  if (voters.length === 0) return res.status(400).json({ error: 'No voters with textable phone numbers on this list (landlines/invalid excluded).' });
 
   // Build CSV with lowercase headers (RumbleUp requirement)
   const csvEscape = (val) => {

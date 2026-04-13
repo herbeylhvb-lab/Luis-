@@ -1512,7 +1512,7 @@ app.post('/api/events/:id/invite', (req, res) => {
       SELECT v.id, v.phone, v.first_name, v.last_name
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? AND v.phone != ''
+      WHERE alv.list_id = ? AND v.phone != '' AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     `;
     const listParams = [list_id];
     if (precinct_filter && precinct_filter.length > 0) {
