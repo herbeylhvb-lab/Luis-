@@ -1045,48 +1045,20 @@ router.get('/voters/race-precincts', (req, res) => {
     }));
   };
 
-  // Group port-related columns together so they dedup against each other but not against other districts
-  const PORT_COLS = new Set(['navigation_port', 'navigation_district', 'port_authority']);
+  const allRaces = DISTRICT_COLUMNS.flatMap(d => mapCol(d.col, d.label));
 
-  const portRaces = [];
-  const otherRaces = [];
-  for (const d of DISTRICT_COLUMNS) {
-    const entries = mapCol(d.col, d.label);
-    if (PORT_COLS.has(d.col)) portRaces.push(...entries);
-    else otherRaces.push(...entries);
-  }
-
-  // Dedup port entries only: merge entries with >90% precinct overlap
-  // This merges BND + Port of Brownsville (same 53 precincts) but NOT BND + PIS (different precincts)
-  const mergedPort = [];
-  const usedPort = new Set();
-  portRaces.sort((a, b) => b.precincts.length - a.precincts.length);
-
-  for (let i = 0; i < portRaces.length; i++) {
-    if (usedPort.has(i)) continue;
-    const primary = portRaces[i];
-    const pSet = new Set(primary.precincts);
-
-    for (let j = i + 1; j < portRaces.length; j++) {
-      if (usedPort.has(j)) continue;
-      const other = portRaces[j];
-      const overlap = other.precincts.filter(p => pSet.has(p)).length;
-      // Both directions: other's precincts in primary AND primary's precincts in other
-      const overlapA = other.precincts.length > 0 ? overlap / other.precincts.length : 0;
-      const overlapB = primary.precincts.length > 0 ? overlap / primary.precincts.length : 0;
-      // Only merge if BOTH sides have >90% overlap (prevents cascading)
-      if (overlapA >= 0.9 && overlapB >= 0.5) {
-        for (const p of other.precincts) pSet.add(p);
-        usedPort.add(j);
-      }
+  // Deduplicate: entries with the EXACT same precinct set are the same race
+  // (e.g., "Port of Brownsville" and "BND" both cover the same 53 precincts)
+  // Keep the first one found (preserves the original type/district for auto-filter)
+  const seen = new Map(); // sorted precinct signature -> race entry
+  const races = [];
+  for (const r of allRaces) {
+    const sig = r.precincts.slice().sort((a, b) => parseInt(a) - parseInt(b)).join(',');
+    if (!seen.has(sig)) {
+      seen.set(sig, r);
+      races.push(r);
     }
-
-    primary.precincts = Array.from(pSet);
-    mergedPort.push(primary);
-    usedPort.add(i);
   }
-
-  const races = [...mergedPort, ...otherRaces];
 
   res.json({ races });
 });
