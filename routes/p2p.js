@@ -134,6 +134,7 @@ router.post('/p2p/sessions', (req, res) => {
     }
 
     // Get voters from admin list, auto-create contacts if needed
+    // Include both primary and secondary phones — voter appears twice so both numbers get texted
     let listSql = `
       SELECT v.id as voter_id, v.phone, v.first_name, v.last_name, v.city, v.email
       FROM admin_list_voters alv
@@ -146,6 +147,19 @@ router.post('/p2p/sessions', (req, res) => {
       listParams.push(...precinct_filter);
     }
     const listVoters = db.prepare(listSql).all(...listParams);
+    // Add secondary phone entries
+    let secSql = `
+      SELECT v.id as voter_id, v.secondary_phone as phone, v.first_name, v.last_name, v.city, v.email
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+    `;
+    const secParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      secSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      secParams.push(...precinct_filter);
+    }
+    listVoters.push(...db.prepare(secSql).all(...secParams));
 
     skippedNoPhone = listTotal - listVoters.length;
 

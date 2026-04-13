@@ -238,6 +238,7 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
 router.get('/admin-lists/:id/export-simpletext', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  // Primary phones
   const voters = db.prepare(`
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.precinct
     FROM admin_list_voters alv
@@ -245,6 +246,15 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
     WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
+  // Secondary phones — person appears twice with both numbers
+  const secVoters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.precinct
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+  voters.push(...secVoters);
 
   const csvEscape = (val) => {
     const s = (val || '').toString().replace(/"/g, '""');

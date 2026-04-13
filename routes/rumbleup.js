@@ -116,6 +116,7 @@ router.post('/rumbleup/contacts/import', asyncHandler(async (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(list_id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
 
+  // Primary phones
   const voters = db.prepare(`
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
     FROM admin_list_voters alv
@@ -123,6 +124,15 @@ router.post('/rumbleup/contacts/import', asyncHandler(async (req, res) => {
     WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
+  // Secondary phones — add as separate rows so both numbers get texted
+  const secVoters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.email
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+    ORDER BY v.last_name, v.first_name
+  `).all(list_id);
+  voters.push(...secVoters);
 
   if (voters.length === 0) return res.status(400).json({ error: 'No voters with textable phone numbers on this list (landlines/invalid excluded).' });
 
@@ -170,6 +180,7 @@ router.post('/rumbleup/launch-campaign', asyncHandler(async (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(list_id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
 
+  // Primary phones
   const voters = db.prepare(`
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email
     FROM admin_list_voters alv
@@ -178,6 +189,16 @@ router.post('/rumbleup/launch-campaign', asyncHandler(async (req, res) => {
       AND (v.phone_type = '' OR v.phone_type IS NULL OR v.phone_type = 'mobile' OR v.phone_type = 'unknown')
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
+  // Secondary phones — add as separate rows
+  const secVoters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.email
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL
+      AND (v.secondary_phone_type = '' OR v.secondary_phone_type IS NULL OR v.secondary_phone_type = 'mobile' OR v.secondary_phone_type = 'unknown')
+    ORDER BY v.last_name, v.first_name
+  `).all(list_id);
+  voters.push(...secVoters);
 
   if (voters.length === 0) return res.status(400).json({ error: 'No voters with valid phone numbers in this list.' });
 

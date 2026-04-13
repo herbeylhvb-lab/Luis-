@@ -17,7 +17,7 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
   const provider = getProvider();
   if (!provider.hasCredentials()) return res.status(400).json({ error: 'Messaging credentials not configured.' });
 
-  // Gather recipients
+  // Gather recipients — include secondary_phone as a separate entry so both numbers get texted
   let recipients = [];
   if (list_id) {
     let sql = `
@@ -32,13 +32,30 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
       params.push(...precinct_filter);
     }
     recipients = db.prepare(sql).all(...params);
+    // Add secondary phone entries
+    let secSql = `
+      SELECT v.id as voter_id, v.secondary_phone as phone, v.first_name, v.last_name, v.city
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+    `;
+    const secParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      secSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      secParams.push(...precinct_filter);
+    }
+    const secRecipients = db.prepare(secSql).all(...secParams);
+    recipients.push(...secRecipients);
   } else {
-    // All contacts with phone numbers (exclude landlines/invalid)
+    // All contacts with phone numbers
     const voters = db.prepare("SELECT id as voter_id, phone, first_name, last_name, city FROM voters WHERE phone != '' AND phone IS NOT NULL AND COALESCE(phone_type,'') NOT IN ('landline','invalid')").all();
+    // Also grab secondary phones
+    const secVoters = db.prepare("SELECT id as voter_id, secondary_phone as phone, first_name, last_name, city FROM voters WHERE secondary_phone != '' AND secondary_phone IS NOT NULL AND COALESCE(secondary_phone_type,'') NOT IN ('landline','invalid')").all();
     const contacts = db.prepare("SELECT id, phone, first_name, last_name, city FROM contacts WHERE phone != '' AND phone IS NOT NULL").all();
     // Deduplicate by normalized phone digits
     const seen = new Set();
     for (const v of voters) { const d = phoneDigits(v.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(v); } }
+    for (const v of secVoters) { const d = phoneDigits(v.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(v); } }
     for (const c of contacts) { const d = phoneDigits(c.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(c); } }
   }
 

@@ -1520,6 +1520,19 @@ app.post('/api/events/:id/invite', (req, res) => {
       listParams.push(...precinct_filter);
     }
     contacts = db.prepare(listSql).all(...listParams);
+    // Add secondary phone entries so both numbers get synced
+    let secSql = `
+      SELECT v.id, v.secondary_phone as phone, v.first_name, v.last_name
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+    `;
+    const secParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      secSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      secParams.push(...precinct_filter);
+    }
+    contacts.push(...db.prepare(secSql).all(...secParams));
   } else if (contactIds && contactIds.length > 0) {
     // Batch fetch contacts instead of N+1
     for (let i = 0; i < contactIds.length; i += 900) {
