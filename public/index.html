@@ -1287,6 +1287,7 @@ tr:hover td{background:#1e293b80}
         <div class="sub-tab" data-subtab="phone-validation-tab">Phone Cleanup</div>
         <div class="sub-tab" data-subtab="contact-match-tab">Contact Match</div>
         <div class="sub-tab" data-subtab="vbm-tab">Vote by Mail</div>
+        <div class="sub-tab" data-subtab="birthdays-tab">&#127874; Birthdays</div>
       </div>
       <!-- SUB-TAB: VOTERS -->
       <div class="sub-page active" id="voters-tab">
@@ -2099,6 +2100,48 @@ tr:hover td{background:#1e293b80}
           </div>
         </div>
       </div><!-- end vbm-tab sub-page -->
+
+      <!-- SUB-TAB: BIRTHDAYS -->
+      <div class="sub-page" id="birthdays-tab">
+        <div class="card">
+          <h3>&#127874; Birthday Outreach</h3>
+          <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">Send birthday messages to voters. Build goodwill with a personal touch.</p>
+          <div class="form-row" style="margin-bottom:16px;align-items:flex-end">
+            <div class="form-group" style="flex:0 0 auto">
+              <label>View</label>
+              <select id="birthdayRange" onchange="loadBirthdays()" style="min-width:140px">
+                <option value="today">Today</option>
+                <option value="week" selected>This Week</option>
+                <option value="month">This Month</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </div>
+            <div class="form-group" id="birthdayCustomRange" style="display:none;flex:0 0 auto">
+              <label>Date Range (MM-DD)</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="text" id="birthdayStart" placeholder="04-01" style="width:80px" maxlength="5">
+                <span style="color:#64748b">to</span>
+                <input type="text" id="birthdayEnd" placeholder="04-30" style="width:80px" maxlength="5">
+                <button class="btn btn-sm btn-primary" onclick="loadBirthdays()">Go</button>
+              </div>
+            </div>
+            <div style="flex:1"></div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-sm" style="background:#22c55e;color:#fff" onclick="exportBirthdayCSV()">&#128229; Export CSV</button>
+              <button class="btn btn-sm" style="background:#f59e0b;color:#0f172a" onclick="importBirthdayFiles()">&#128228; Import Birthdays</button>
+            </div>
+          </div>
+          <div id="birthdayStats" style="margin-bottom:12px;font-size:14px;color:#94a3b8"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Name</th><th>Birthday</th><th>Turning</th><th>Phone</th><th>City</th><th>Precinct</th><th>Support</th>
+              </tr></thead>
+              <tbody id="birthdayBody"><tr><td colspan="7" style="color:#64748b;text-align:center">Select a range above</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- end birthdays-tab sub-page -->
 
     </div>
 
@@ -3184,6 +3227,7 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       if (subtab === 'mailer-history-tab') { loadMailerHistory(); }
       if (subtab === 'universe-tab') loadUniverseBuilder();
       if (subtab === 'vbm-tab') { /* VBM tab ready */ }
+      if (subtab === 'birthdays-tab') loadBirthdays();
       if (subtab === 'phone-validation-tab') loadPhoneValidationStats();
       if (subtab === 'checkins-tab') loadCheckinPage();
       if (subtab === 'voters-tab') { showVoterList(); searchVoters(); }
@@ -13628,6 +13672,106 @@ async function loadAdminLists() {
   });
 }
 // ---- My Universes Management ----
+// ===================== BIRTHDAY TAB =====================
+
+var _birthdayData = [];
+
+document.getElementById('birthdayRange').addEventListener('change', function() {
+  document.getElementById('birthdayCustomRange').style.display = this.value === 'custom' ? 'flex' : 'none';
+});
+
+async function loadBirthdays() {
+  var range = document.getElementById('birthdayRange').value;
+  var params = 'range=' + range;
+  if (range === 'custom') {
+    var s = document.getElementById('birthdayStart').value.trim();
+    var e = document.getElementById('birthdayEnd').value.trim();
+    if (!s || !e) return;
+    params = 'range=custom&start=' + encodeURIComponent(s) + '&end=' + encodeURIComponent(e);
+  }
+  // Add candidate scoping from dashboard picker
+  var cand = localStorage.getItem('selectedCandidateId');
+  if (cand) {
+    var cObj = JSON.parse(localStorage.getItem('selectedCandidateData') || '{}');
+    if (cObj.race_type && cObj.race_value) {
+      params += '&race_col=' + encodeURIComponent(cObj.race_type) + '&race_val=' + encodeURIComponent(cObj.race_value);
+    }
+  }
+
+  try {
+    var data = await api('/api/voters/birthdays?' + params);
+    _birthdayData = data.voters || [];
+    var statsEl = document.getElementById('birthdayStats');
+    statsEl.innerHTML = '<strong style="color:#f59e0b">' + (data.todayCount || 0) + '</strong> birthdays today &nbsp;|&nbsp; Showing <strong>' + _birthdayData.length + '</strong> voters (' + data.range.start + ' to ' + data.range.end + ')';
+
+    var tbody = document.getElementById('birthdayBody');
+    if (_birthdayData.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center">No birthdays in this range</td></tr>';
+      return;
+    }
+    var html = '';
+    var today = new Date();
+    var todayMD = String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    for (var i = 0; i < _birthdayData.length; i++) {
+      var v = _birthdayData[i];
+      var md = (v.birth_date || '').substring(5, 10);
+      var isToday = md === todayMD;
+      var rowStyle = isToday ? 'background:#422006' : '';
+      var badge = isToday ? ' <span style="background:#f59e0b;color:#0f172a;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700">TODAY</span>' : '';
+      var dobDisplay = v.birth_date ? v.birth_date.substring(5) + '-' + v.birth_date.substring(0,4) : '';
+      html += '<tr style="' + rowStyle + '">';
+      html += '<td>' + escHtml((v.first_name || '') + ' ' + (v.last_name || '')) + badge + '</td>';
+      html += '<td>' + escHtml(dobDisplay) + '</td>';
+      html += '<td style="text-align:center;font-weight:700;color:#f59e0b">' + (v.turning_age || v.age || '') + '</td>';
+      html += '<td>' + (v.phone ? '<a href="tel:' + escHtml(v.phone) + '" style="color:#60a5fa">' + escHtml(v.phone) + '</a>' : '<span style="color:#64748b">-</span>') + '</td>';
+      html += '<td>' + escHtml(v.city || '') + '</td>';
+      html += '<td>' + escHtml(v.precinct || '') + '</td>';
+      html += '<td>' + escHtml(v.support_level || '') + '</td>';
+      html += '</tr>';
+    }
+    tbody.innerHTML = html;
+  } catch (e) {
+    document.getElementById('birthdayBody').innerHTML = '<tr><td colspan="7" style="color:#ef4444">' + escHtml(e.message || 'Failed to load') + '</td></tr>';
+  }
+}
+
+function exportBirthdayCSV() {
+  if (!_birthdayData || !_birthdayData.length) return alert('No birthday data to export. Load a range first.');
+  var rows = ['first_name,last_name,phone,birthday,turning_age,city,precinct,address'];
+  for (var i = 0; i < _birthdayData.length; i++) {
+    var v = _birthdayData[i];
+    rows.push([
+      '"' + (v.first_name || '').replace(/"/g, '""') + '"',
+      '"' + (v.last_name || '').replace(/"/g, '""') + '"',
+      '"' + (v.phone || '') + '"',
+      '"' + (v.birth_date || '') + '"',
+      v.turning_age || v.age || '',
+      '"' + (v.city || '') + '"',
+      '"' + (v.precinct || '') + '"',
+      '"' + (v.address || '').replace(/"/g, '""') + '"'
+    ].join(','));
+  }
+  var blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'birthdays-' + document.getElementById('birthdayRange').value + '.csv';
+  a.click();
+}
+
+async function importBirthdayFiles() {
+  var paths = prompt('Enter file paths (comma-separated):\n\nExample: /path/to/file1.xls, /path/to/file2.xls');
+  if (!paths) return;
+  var filePaths = paths.split(',').map(function(p) { return p.trim(); }).filter(Boolean);
+  if (filePaths.length === 0) return;
+  try {
+    var data = await apiPost('/api/voters/import-birthdays', { filePaths: filePaths });
+    alert('Import complete!\n\nTotal rows: ' + data.totalRows + '\nMatched & updated: ' + data.updated + '\nNo match: ' + data.noMatch + '\nSkipped: ' + data.skipped);
+    loadBirthdays();
+  } catch (e) {
+    alert('Import failed: ' + (e.message || e));
+  }
+}
+
 async function loadMailerHistory() {
   var el = document.getElementById('mailerHistoryContainer');
   try {

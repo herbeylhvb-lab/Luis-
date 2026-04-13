@@ -3130,4 +3130,172 @@ router.get('/admin-lists/:id/download', requireAuth, (req, res) => {
   res.send(csvRows.join('\n'));
 });
 
+// ===================== BIRTHDAY IMPORT + QUERY =====================
+
+// Import birthdays from Cameron County export files (UTF-16 TSV with .xls extension)
+// Matches by county_file_id (primary) or vanid (secondary)
+router.post('/voters/import-birthdays', (req, res) => {
+  const { filePaths } = req.body;
+  if (!filePaths || !Array.isArray(filePaths) || filePaths.length === 0) {
+    return res.status(400).json({ error: 'filePaths array required' });
+  }
+
+  const fs = require('fs');
+  let totalRows = 0, matched = 0, updated = 0, skipped = 0, noMatch = 0;
+
+  const updateByCounty = db.prepare(
+    "UPDATE voters SET birth_date = ?, age = ? WHERE county_file_id = ? AND (birth_date IS NULL OR birth_date = '')"
+  );
+  const updateByVanid = db.prepare(
+    "UPDATE voters SET birth_date = ?, age = ? WHERE vanid = ? AND (birth_date IS NULL OR birth_date = '')"
+  );
+
+  function parseDob(dob) {
+    // Convert MM/DD/YYYY → YYYY-MM-DD
+    if (!dob) return null;
+    const m = dob.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return m[3] + '-' + m[1] + '-' + m[2];
+  }
+  function calcAge(birthDateStr) {
+    if (!birthDateStr) return null;
+    const today = new Date();
+    const parts = birthDateStr.split('-');
+    const birthYear = parseInt(parts[0]);
+    const birthMonth = parseInt(parts[1]) - 1;
+    const birthDay = parseInt(parts[2]);
+    let age = today.getFullYear() - birthYear;
+    const m = today.getMonth() - birthMonth;
+    if (m < 0 || (m === 0 && today.getDate() < birthDay)) age--;
+    return age > 0 && age < 150 ? age : null;
+  }
+
+  for (const filePath of filePaths) {
+    if (!fs.existsSync(filePath)) { skipped++; continue; }
+
+    const raw = fs.readFileSync(filePath, 'utf-16le');
+    // Remove BOM if present
+    const content = raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
+    const lines = content.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) continue;
+
+    // Parse header
+    const headers = lines[0].split('\t').map(h => h.trim());
+    const colIdx = {};
+    for (let i = 0; i < headers.length; i++) colIdx[headers[i]] = i;
+
+    const countyIdx = colIdx['CountyFileID'];
+    const vanidIdx = colIdx['Voter File VANID'];
+    const dobIdx = colIdx['DOB'];
+
+    if (dobIdx === undefined) { skipped++; continue; }
+
+    // Batch import in transaction chunks of 1000
+    const rows = lines.slice(1);
+    totalRows += rows.length;
+
+    for (let batch = 0; batch < rows.length; batch += 1000) {
+      const chunk = rows.slice(batch, batch + 1000);
+      const importBatch = db.transaction(() => {
+        for (const line of chunk) {
+          const cols = line.split('\t');
+          const dob = cols[dobIdx] ? cols[dobIdx].trim() : '';
+          if (!dob) { skipped++; continue; }
+
+          const birthDate = parseDob(dob);
+          if (!birthDate) { skipped++; continue; }
+          const age = calcAge(birthDate);
+
+          const countyId = countyIdx !== undefined ? (cols[countyIdx] || '').trim() : '';
+          const vanid = vanidIdx !== undefined ? (cols[vanidIdx] || '').trim() : '';
+
+          let result = { changes: 0 };
+          if (countyId) {
+            result = updateByCounty.run(birthDate, age, countyId);
+          }
+          if (result.changes === 0 && vanid) {
+            result = updateByVanid.run(birthDate, age, vanid);
+          }
+
+          if (result.changes > 0) { matched++; updated++; }
+          else { noMatch++; }
+        }
+      });
+      importBatch();
+    }
+  }
+
+  console.log(`[birthday-import] Processed ${totalRows} rows: ${updated} updated, ${noMatch} no match, ${skipped} skipped`);
+  res.json({ success: true, totalRows, matched, updated, skipped, noMatch });
+});
+
+// Get voters with birthdays in a date range (month-day matching, ignores year)
+router.get('/voters/birthdays', (req, res) => {
+  const { range, start, end, candidate_id, race_col, race_val } = req.query;
+  const { getCentralNow } = require('../utils');
+  const today = getCentralNow();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  const todayMD = mm + '-' + dd;
+
+  let startMD, endMD;
+  if (range === 'today') {
+    startMD = todayMD;
+    endMD = todayMD;
+  } else if (range === 'week') {
+    startMD = todayMD;
+    const weekLater = new Date(today);
+    weekLater.setDate(weekLater.getDate() + 7);
+    endMD = String(weekLater.getMonth() + 1).padStart(2, '0') + '-' + String(weekLater.getDate()).padStart(2, '0');
+  } else if (range === 'month') {
+    startMD = mm + '-01';
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    endMD = mm + '-' + String(lastDay).padStart(2, '0');
+  } else if (start && end) {
+    startMD = start;
+    endMD = end;
+  } else {
+    startMD = todayMD;
+    endMD = todayMD;
+  }
+
+  let where = "birth_date IS NOT NULL AND birth_date != '' AND LENGTH(birth_date) >= 10";
+  const params = [];
+
+  // Month-day range comparison (handles year-end wrap-around)
+  if (startMD <= endMD) {
+    where += " AND substr(birth_date, 6, 5) >= ? AND substr(birth_date, 6, 5) <= ?";
+    params.push(startMD, endMD);
+  } else {
+    // Wraps around year end (e.g., Dec 28 to Jan 3)
+    where += " AND (substr(birth_date, 6, 5) >= ? OR substr(birth_date, 6, 5) <= ?)";
+    params.push(startMD, endMD);
+  }
+
+  // Candidate/race scoping
+  const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
+  if (race_col && validCols.includes(race_col) && race_val) {
+    where += ` AND ${race_col} = ?`;
+    params.push(race_val);
+  }
+
+  const voters = db.prepare(`
+    SELECT id, first_name, last_name, birth_date, age, phone, city, zip, precinct,
+           support_level, party, address,
+           (CAST(strftime('%Y', 'now') AS INTEGER) - CAST(substr(birth_date, 1, 4) AS INTEGER)) as turning_age
+    FROM voters
+    WHERE ${where}
+    ORDER BY substr(birth_date, 6, 5), last_name
+    LIMIT 1000
+  `).all(...params);
+
+  // Stats
+  const todayCount = db.prepare(`
+    SELECT COUNT(*) as c FROM voters WHERE birth_date IS NOT NULL AND birth_date != '' AND LENGTH(birth_date) >= 10
+    AND substr(birth_date, 6, 5) = ?
+  `).get(todayMD).c;
+
+  res.json({ voters, todayCount, range: { start: startMD, end: endMD } });
+});
+
 module.exports = router;
