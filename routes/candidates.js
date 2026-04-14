@@ -1105,7 +1105,7 @@ router.post('/walkers/login', walkerLoginLimiter, (req, res) => {
 router.get('/walkers/:id/dashboard', (req, res) => {
   const walker = db.prepare(`
     SELECT w.*, c.name as candidate_name, c.office as candidate_office
-    FROM walkers w JOIN candidates c ON w.candidate_id = c.id
+    FROM walkers w LEFT JOIN candidates c ON w.candidate_id = c.id
     WHERE w.id = ?
   `).get(req.params.id);
   if (!walker) return res.status(404).json({ error: 'Walker not found.' });
