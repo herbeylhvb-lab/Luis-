@@ -769,6 +769,16 @@ const districtRenames = [
   // Port authorities
   ['port_authority', 'SAN', 'Port of Harlingen'],
   ['port_authority', 'Port of San Benito', 'Port of Harlingen'], // fix old rename
+  // City council districts (single member)
+  ['single_member_city', 'B01', 'Brownsville District 1'],
+  ['single_member_city', 'B02', 'Brownsville District 2'],
+  ['single_member_city', 'B03', 'Brownsville District 3'],
+  ['single_member_city', 'B04', 'Brownsville District 4'],
+  ['single_member_city', 'H01', 'Harlingen District 1'],
+  ['single_member_city', 'H02', 'Harlingen District 2'],
+  ['single_member_city', 'H03', 'Harlingen District 3'],
+  ['single_member_city', 'H04', 'Harlingen District 4'],
+  ['single_member_city', 'H05', 'Harlingen District 5'],
   // School districts — abbreviations to full names
   ['school_district', 'IBR', 'Brownsville ISD'],
   ['school_district', 'IHG', 'Harlingen ISD'],

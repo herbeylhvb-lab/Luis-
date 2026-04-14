@@ -1834,6 +1834,12 @@ tr:hover td{background:#1e293b80}
             <div><label style="font-size:12px;color:#94a3b8;font-weight:600">Hospital District</label>
             <div id="filterHospital" style="margin-top:4px"></div></div>
           </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <!-- City Council District (Single Member) -->
+            <div><label style="font-size:12px;color:#94a3b8;font-weight:600">City Council District</label>
+            <div id="filterSMCity" style="max-height:120px;overflow-y:auto;margin-top:4px"></div></div>
+          </div>
         </div>
 
         <!-- Elections Summary -->
@@ -11186,6 +11192,7 @@ function renderFilterOptions() {
   checkboxes('filterStateBoardEd', fo.state_board_eds || [], 'filter-stateboarded-cb');
   checkboxes('filterUSCongress', fo.us_congress || [], 'filter-uscongress-cb');
   checkboxes('filterHospital', fo.hospital_districts || [], 'filter-hospital-cb');
+  checkboxes('filterSMCity', fo.single_member_cities || [], 'filter-smcity-cb');
   // Vote method with nice labels
   var vmEl = document.getElementById('filterVoteMethod');
   vmEl.innerHTML = [
@@ -11228,7 +11235,8 @@ window.applyRacePrecincts = function() {
     county_commissioner: 'filter-countycomm-cb',
     justice_of_peace: 'filter-jp-cb',
     state_board_ed: 'filter-stateboarded-cb',
-    hospital_district: 'filter-hospital-cb'
+    hospital_district: 'filter-hospital-cb',
+    single_member_city: 'filter-smcity-cb'
   };
 
   // Use filterCol/filterVal from the race entry (set by server) for accurate matching
@@ -11292,6 +11300,7 @@ function getSelectedFilters() {
     state_board_ed: checked('filter-stateboarded-cb'),
     us_congress: checked('filter-uscongress-cb'),
     hospital_districts: checked('filter-hospital-cb'),
+    single_member_cities: checked('filter-smcity-cb'),
     vote_methods: checked('filter-votemethod-cb'),
     age_min: ageMin ? parseInt(ageMin) : null,
     age_max: ageMax ? parseInt(ageMax) : null,
@@ -11466,6 +11475,7 @@ function buildUniversePayload() {
   if (filters.state_senate && filters.state_senate.length) payload.state_senate = filters.state_senate;
   if (filters.state_board_ed && filters.state_board_ed.length) payload.state_board_ed = filters.state_board_ed;
   if (filters.hospital_districts && filters.hospital_districts.length) payload.hospital_districts = filters.hospital_districts;
+  if (filters.single_member_cities && filters.single_member_cities.length) payload.single_member_cities = filters.single_member_cities;
   if (filters.vote_methods && filters.vote_methods.length) payload.vote_methods = filters.vote_methods;
   if (filters.min_vote_frequency) payload.min_vote_frequency = filters.min_vote_frequency;
   if (filters.max_vote_frequency != null && filters.max_vote_frequency < 100) payload.max_vote_frequency = filters.max_vote_frequency;

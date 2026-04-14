@@ -36,6 +36,7 @@ const DISTRICT_COLUMNS = [
   { col: 'state_senate', label: 'State Senate' },
   { col: 'us_congress', label: 'US Congress' },
   { col: 'city_district', label: 'City' },
+  { col: 'single_member_city', label: 'City Council District' },
   { col: 'school_district', label: 'School District' },
   { col: 'college_district', label: 'College District' },
   { col: 'hospital_district', label: 'Hospital District' }
@@ -2647,6 +2648,10 @@ function buildStep1Filter(filters) {
   if (hospital_districts && hospital_districts.length > 0) {
     clauses.push('hospital_district IN (' + hospital_districts.map(() => '?').join(',') + ')');
     params.push(...hospital_districts);
+  }
+  if (single_member_cities && single_member_cities.length > 0) {
+    clauses.push('single_member_city IN (' + single_member_cities.map(() => '?').join(',') + ')');
+    params.push(...single_member_cities);
   }
   if (voter_statuses && voter_statuses.length > 0) {
     clauses.push('voter_status IN (' + voter_statuses.map(() => '?').join(',') + ')');
