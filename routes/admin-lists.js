@@ -305,6 +305,7 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
         TRIM(v.zip) as res_zip,
         v.precinct,
         GROUP_CONCAT(v.first_name || ' ' || v.last_name, ', ') as members,
+        GROUP_CONCAT(COALESCE(v.registration_number, ''), '; ') as reg_numbers,
         MIN(v.last_name) as last_name,
         COUNT(*) as household_size
       FROM admin_list_voters alv
@@ -334,7 +335,7 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
       return c;
     }
 
-    const header = 'Name,Address,Unit,City,State,Zip,Precinct,Household Size';
+    const header = 'Name,Address,Unit,City,State,Zip,Precinct,Household Size,Registration Numbers';
     const rows = households.map(h => {
       const name = h.household_size > 1 ? 'The ' + h.last_name + ' Family' : h.members;
       // Use mailing address if different from residential, otherwise residential
@@ -342,7 +343,9 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
       const addr = clean(useMailAddr ? h.mail_addr : h.res_addr);
       const city = (useMailAddr && h.mail_city) ? h.mail_city : h.res_city;
       const zip = (useMailAddr && h.mail_zip) ? h.mail_zip : h.res_zip;
-      return [name, addr, h.unit, city, h.state, zip, h.precinct, h.household_size].map(esc).join(',');
+      // Clean reg numbers: drop empty entries from the GROUP_CONCAT
+      const regNums = (h.reg_numbers || '').split(';').map(s => s.trim()).filter(Boolean).join('; ');
+      return [name, addr, h.unit, city, h.state, zip, h.precinct, h.household_size, regNums].map(esc).join(',');
     });
 
     const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
