@@ -1956,6 +1956,8 @@ function toggleMoreFilters() {
 }
 
 function resetSearch() {
+  // Cancel any pending debounced search FIRST to prevent it from re-firing after we clear
+  clearTimeout(captainState.searchTimeout);
   document.getElementById('voterSearch').value = '';
   var filters = ['capPhoneFilter', 'capVanidFilter', 'capZipFilter', 'capPrecinctFilter', 'capAddressFilter'];
   for (var i = 0; i < filters.length; i++) {
@@ -3270,7 +3272,7 @@ function buildResultsStep(data) {
         info.textContent = c.first_name + ' ' + c.last_name +
           (c.phone ? ' \u2022 ' + c.phone : '') +
           (c.address ? ' \u2022 ' + c.address : '') +
-          (c.party_score ? ' (' + c.party_score + ')' : '');
+          (c.party ? ' (' + c.party + ')' : '');
         label.appendChild(info);
         card.appendChild(label);
       });
@@ -3407,11 +3409,14 @@ async function addTeamMember() {
   var name = prompt('Enter team member name:');
   if (!name || !name.trim()) return;
 
-  var data = await api('/api/captains/' + captainState.captain.id + '/team', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name.trim() })
-  });
+  var data;
+  try {
+    data = await api('/api/captains/' + captainState.captain.id + '/team', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() })
+    });
+  } catch (e) { showToast('Failed to add team member: ' + (e.message || 'Unknown error'), 'warn'); return; }
   if (data.success) {
     // Refresh captain data to get updated team members (without consuming login rate limit)
     var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
@@ -3670,18 +3675,19 @@ async function dropVoterOnList(voterId, voterName, listInfo) {
 
 async function removeTeamMember(memberId, name) {
   if (!confirm('Remove ' + name + ' from your team? Their captain code will be deactivated.')) return;
-  var data = await api('/api/captains/' + captainState.captain.id + '/team/' + memberId, { method: 'DELETE' });
-  if (data.success) {
-    // Refresh captain data (without consuming login rate limit)
-    var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
-    if (refreshData.captain) {
-      captainState.captain = refreshData.captain;
+  try {
+    var data = await api('/api/captains/' + captainState.captain.id + '/team/' + memberId, { method: 'DELETE' });
+    if (data.success) {
+      var refreshData = await api('/api/captains/' + captainState.captain.id + '/refresh');
+      if (refreshData.captain) {
+        captainState.captain = refreshData.captain;
+      }
+      captainState.expandedTeamMember = null;
+      refreshSidebar();
+    } else {
+      showToast('Failed to remove team member: ' + (data.error || 'Unknown error'), 'warn');
     }
-    captainState.expandedTeamMember = null;
-    refreshSidebar();
-  } else {
-    alert('Failed to remove team member: ' + (data.error || 'Unknown error'));
-  }
+  } catch (e) { showToast('Failed to remove team member: ' + (e.message || 'Unknown error'), 'warn'); }
 }
 </script>
 </body>
