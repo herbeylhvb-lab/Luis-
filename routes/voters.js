@@ -3680,4 +3680,63 @@ router.post('/voters/check-phones-exist', (req, res) => {
   });
 });
 
+// Bulk name-based voter lookup — given {first, last, phone} records, return
+// unique matches (1 voter only) and ambiguous matches (2+ voters) separately.
+// Used to identify voters behind phone numbers that didn't match directly.
+router.post('/voters/match-by-name', (req, res) => {
+  const { people } = req.body;
+  if (!people || !Array.isArray(people)) return res.status(400).json({ error: 'people array required' });
+
+  const lookup = db.prepare(`
+    SELECT id, first_name, last_name, phone, secondary_phone, city, precinct, support_level, registration_number
+    FROM voters
+    WHERE LOWER(TRIM(first_name)) = LOWER(TRIM(?))
+      AND LOWER(TRIM(last_name)) = LOWER(TRIM(?))
+  `);
+
+  const unique = [];      // exactly 1 match → confident
+  const ambiguous = [];   // 2+ matches → needs manual review
+  const notFound = [];    // 0 matches
+
+  for (const p of people) {
+    const first = (p.first || '').trim();
+    const last = (p.last || '').trim();
+    if (!first || !last) { notFound.push(p); continue; }
+
+    const matches = lookup.all(first, last);
+    if (matches.length === 0) {
+      notFound.push({ first, last, phone: p.phone });
+    } else if (matches.length === 1) {
+      const m = matches[0];
+      unique.push({
+        first, last, prism_phone: p.phone,
+        voter_id: m.id,
+        reg_num: m.registration_number,
+        db_phone: m.phone || '',
+        db_secondary_phone: m.secondary_phone || '',
+        city: m.city, precinct: m.precinct, support_level: m.support_level
+      });
+    } else {
+      ambiguous.push({
+        first, last, prism_phone: p.phone,
+        candidates: matches.map(m => ({
+          voter_id: m.id, reg_num: m.registration_number,
+          city: m.city, precinct: m.precinct,
+          db_phone: m.phone || '', db_secondary: m.secondary_phone || ''
+        }))
+      });
+    }
+  }
+
+  res.json({
+    total_submitted: people.length,
+    unique_match: unique.length,
+    ambiguous_match: ambiguous.length,
+    not_found: notFound.length,
+    sample_unique: unique.slice(0, 20),
+    sample_ambiguous: ambiguous.slice(0, 10),
+    sample_not_found: notFound.slice(0, 10)
+  });
+});
+
 module.exports = router;
