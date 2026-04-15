@@ -3739,4 +3739,58 @@ router.post('/voters/match-by-name', (req, res) => {
   });
 });
 
+// Given records {first, last, phone}: for each, find the voter whose phone matches,
+// then compare the voter's name to the submitted name. Used for verifying who owns
+// phones in a third-party list.
+router.post('/voters/verify-phone-owners', (req, res) => {
+  const { people } = req.body;
+  if (!people || !Array.isArray(people)) return res.status(400).json({ error: 'people array required' });
+
+  const findByPhone = db.prepare(`
+    SELECT id, first_name, last_name, city, precinct, registration_number,
+           phone, secondary_phone
+    FROM voters
+    WHERE SUBSTR(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), -10) = ?
+       OR SUBSTR(REPLACE(REPLACE(REPLACE(secondary_phone, '+', ''), '-', ''), ' ', ''), -10) = ?
+    LIMIT 1
+  `);
+
+  const verified = [];    // same name → confident Prism data is right
+  const mismatch = [];    // voter exists but different name → household/shared phone
+  const noPhoneMatch = [];// phone not in DB at all
+
+  function norm(s) { return (s || '').toLowerCase().replace(/[^a-z]/g, ''); }
+
+  for (const p of people) {
+    const phone = (String(p.phone || '').match(/\d/g) || []).join('').slice(-10);
+    if (phone.length !== 10) { noPhoneMatch.push(p); continue; }
+
+    const voter = findByPhone.get(phone, phone);
+    if (!voter) { noPhoneMatch.push({ first: p.first, last: p.last, phone }); continue; }
+
+    const sameFirst = norm(voter.first_name).startsWith(norm(p.first)) || norm(p.first).startsWith(norm(voter.first_name));
+    const sameLast = norm(voter.last_name) === norm(p.last);
+
+    const entry = {
+      prism_first: p.first, prism_last: p.last, phone,
+      voter_id: voter.id,
+      db_first: voter.first_name, db_last: voter.last_name,
+      reg_num: voter.registration_number,
+      city: voter.city, precinct: voter.precinct
+    };
+    if (sameFirst && sameLast) verified.push(entry);
+    else mismatch.push(entry);
+  }
+
+  res.json({
+    total: people.length,
+    verified: verified.length,
+    mismatch: mismatch.length,
+    no_phone_match: noPhoneMatch.length,
+    sample_verified: verified.slice(0, 15),
+    sample_mismatch: mismatch.slice(0, 15),
+    sample_no_match: noPhoneMatch.slice(0, 10)
+  });
+});
+
 module.exports = router;

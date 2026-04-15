@@ -47,7 +47,7 @@ const webhookLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { err
 const joinLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'Too many join attempts.' } });
 
 // Bulk import paths get a higher body limit (50mb); all others get 2mb
-const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events', '/api/voters/import-birthdays-json', '/api/voters/bulk-enrich-phones', '/api/voters/check-phones-exist', '/api/voters/match-by-name'];
+const BULK_PATHS = ['/api/voters/import', '/api/voters/import-canvass', '/api/voters/import-voter-file', '/api/voters/import-county-file', '/api/voters/import-county-batch', '/api/election-votes/import', '/api/election-votes/import-turnout', '/api/early-voting/import', '/api/voters/enrich', '/api/events', '/api/voters/import-birthdays-json', '/api/voters/bulk-enrich-phones', '/api/voters/check-phones-exist', '/api/voters/match-by-name', '/api/voters/verify-phone-owners'];
 const bulkJsonParserEarly = express.json({ limit: '50mb' });
 const defaultJsonParser = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
@@ -193,6 +193,7 @@ const publicApiPaths = [
   '/api/voters/checkins/today-events',
   '/api/voters/phone-type-breakdown', // temporary
   '/api/voters/match-by-name', // temporary: name-based voter match
+  '/api/voters/verify-phone-owners', // temporary: verify names match phones
 ];
 
 app.use((req, res, next) => {
