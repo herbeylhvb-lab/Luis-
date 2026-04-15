@@ -3616,4 +3616,68 @@ router.post('/voters/phone-lookup', (req, res) => {
   res.json({ results });
 });
 
+// Bulk phone existence check — given a list of 10-digit phones, report which ones
+// already exist in the voters table (checks both phone and secondary_phone columns)
+router.post('/voters/check-phones-exist', (req, res) => {
+  const { phones } = req.body;
+  if (!phones || !Array.isArray(phones)) return res.status(400).json({ error: 'phones array required' });
+
+  // Normalize every input phone to 10 digits, dedupe, keep track of original order
+  const seen = new Set();
+  const normalized = [];
+  for (const p of phones) {
+    const digits = (String(p || '').match(/\d/g) || []).join('').slice(-10);
+    if (digits.length === 10 && !seen.has(digits)) {
+      seen.add(digits);
+      normalized.push(digits);
+    }
+  }
+
+  // Query in chunks to avoid SQLite's 999-variable limit
+  // For each batch, find voters whose normalized primary or secondary phone matches
+  const matchedSet = new Set();
+  const matchDetails = []; // [{phone, column, voter_id, name}]
+  const CHUNK = 500;
+  for (let i = 0; i < normalized.length; i += CHUNK) {
+    const chunk = normalized.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => '?').join(',');
+    // Primary phone match
+    const primary = db.prepare(
+      `SELECT id, first_name, last_name, SUBSTR(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), -10) AS p10
+       FROM voters
+       WHERE SUBSTR(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), -10) IN (${placeholders})`
+    ).all(...chunk);
+    for (const v of primary) {
+      if (v.p10 && !matchedSet.has(v.p10)) {
+        matchedSet.add(v.p10);
+        matchDetails.push({ phone: v.p10, column: 'phone', voter_id: v.id, name: (v.first_name || '') + ' ' + (v.last_name || '') });
+      }
+    }
+    // Secondary phone match (only for phones not already matched on primary)
+    const secondary = db.prepare(
+      `SELECT id, first_name, last_name, SUBSTR(REPLACE(REPLACE(REPLACE(secondary_phone, '+', ''), '-', ''), ' ', ''), -10) AS p10
+       FROM voters
+       WHERE secondary_phone IS NOT NULL AND secondary_phone != ''
+         AND SUBSTR(REPLACE(REPLACE(REPLACE(secondary_phone, '+', ''), '-', ''), ' ', ''), -10) IN (${placeholders})`
+    ).all(...chunk);
+    for (const v of secondary) {
+      if (v.p10 && !matchedSet.has(v.p10)) {
+        matchedSet.add(v.p10);
+        matchDetails.push({ phone: v.p10, column: 'secondary_phone', voter_id: v.id, name: (v.first_name || '') + ' ' + (v.last_name || '') });
+      }
+    }
+  }
+
+  const notFound = normalized.filter(p => !matchedSet.has(p));
+  res.json({
+    total_submitted: phones.length,
+    valid_unique: normalized.length,
+    matched: matchedSet.size,
+    not_found: notFound.length,
+    // Sample of details (first 20) so the response stays small
+    sample_matches: matchDetails.slice(0, 20),
+    sample_not_found: notFound.slice(0, 20)
+  });
+});
+
 module.exports = router;
