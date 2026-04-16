@@ -3808,6 +3808,7 @@ router.post('/voters/verify-by-regnum', (req, res) => {
   let regMatched = 0, regNotFound = 0;
   let nameMatch = 0, nameMismatch = 0;
   let phoneMatch = 0, phoneDiff = 0, phoneNone = 0;
+  let diffHasSecondary = 0, diffNoSecondary = 0;
   let fullMatch = 0; // name AND phone both match
 
   for (const r of records) {
@@ -3828,8 +3829,14 @@ router.post('/voters/verify-by-regnum', (req, res) => {
     const prismPhone = normPhone(r.phone);
     const dbPhone = normPhone(voter.phone);
     const dbSec = normPhone(voter.secondary_phone);
+    const hasSec = dbSec && dbSec.length >= 10;
+
     if (prismPhone && (dbPhone === prismPhone || dbSec === prismPhone)) phoneMatch++;
-    else if (prismPhone && dbPhone) phoneDiff++;
+    else if (prismPhone && dbPhone) {
+      phoneDiff++;
+      if (hasSec) diffHasSecondary++;
+      else diffNoSecondary++;
+    }
     else phoneNone++;
 
     // Both match
@@ -3844,6 +3851,8 @@ router.post('/voters/verify-by-regnum', (req, res) => {
     name_mismatch: nameMismatch,
     phone_match: phoneMatch,
     phone_different: phoneDiff,
+    phone_diff_has_secondary: diffHasSecondary,
+    phone_diff_no_secondary: diffNoSecondary,
     phone_none_in_db: phoneNone,
     full_match_name_and_phone: fullMatch
   });
