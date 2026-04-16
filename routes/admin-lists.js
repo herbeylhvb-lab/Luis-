@@ -261,7 +261,7 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
   if (!list) return res.status(404).json({ error: 'List not found.' });
   // Primary phones
   const voters = db.prepare(`
-    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.precinct
+    SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.precinct, v.registration_number
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
@@ -269,7 +269,7 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
   `).all(req.params.id);
   // Secondary phones — person appears twice with both numbers
   const secVoters = db.prepare(`
-    SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.precinct
+    SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.precinct, v.registration_number
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
@@ -278,7 +278,7 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
   voters.push(...secVoters);
   // Tertiary phones — person appears again with third number
   const terVoters = db.prepare(`
-    SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.precinct
+    SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.precinct, v.registration_number
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
@@ -293,9 +293,9 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
   // Phone as digits only (SimpleTexting expects clean numbers)
   const cleanPhone = (p) => (p || '').replace(/\D/g, '');
 
-  const header = 'phone,first_name,last_name,city,zip,precinct';
+  const header = 'phone,first_name,last_name,city,zip,precinct,registration_number';
   const rows = voters.map(v =>
-    [cleanPhone(v.phone), v.first_name, v.last_name, v.city, v.zip, v.precinct].map(csvEscape).join(',')
+    [cleanPhone(v.phone), v.first_name, v.last_name, v.city, v.zip, v.precinct, v.registration_number || ''].map(csvEscape).join(',')
   );
   const csv = header + '\n' + rows.join('\n');
 
