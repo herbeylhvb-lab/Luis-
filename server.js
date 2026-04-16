@@ -193,6 +193,7 @@ const publicApiPaths = [
   '/api/voters/checkins/today-events',
   '/api/voters/phone-type-breakdown', // temporary
   '/api/voters/verify-by-regnum', // temporary
+  '/api/voters/remove-bad-phones', // temporary
 ];
 
 app.use((req, res, next) => {

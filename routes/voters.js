@@ -3920,4 +3920,44 @@ router.post('/voters/import-prism-phones', (req, res) => {
   });
 });
 
+// Remove specific phone numbers from voters by registration_number
+// Used to clean up wrong-person phones from Prism data
+router.post('/voters/remove-bad-phones', (req, res) => {
+  const { records } = req.body; // [{voter_id, phone}]
+  if (!records || !Array.isArray(records)) return res.status(400).json({ error: 'records array required' });
+
+  const lookup = db.prepare("SELECT id, phone, secondary_phone, tertiary_phone FROM voters WHERE registration_number = ?");
+  const clearPrimary = db.prepare("UPDATE voters SET phone = '', phone_type = '' WHERE id = ?");
+  const clearSecondary = db.prepare("UPDATE voters SET secondary_phone = '', secondary_phone_type = '' WHERE id = ?");
+  const clearTertiary = db.prepare("UPDATE voters SET tertiary_phone = '', tertiary_phone_type = '' WHERE id = ?");
+
+  function normPhone(p) { return (String(p || '').match(/\d/g) || []).join('').slice(-10); }
+
+  let removed = 0, notFound = 0, phoneNotOnVoter = 0;
+
+  const tx = db.transaction(() => {
+    for (const r of records) {
+      const regNum = (r.voter_id || '').trim();
+      const badPhone = normPhone(r.phone);
+      if (!regNum || badPhone.length !== 10) { notFound++; continue; }
+
+      const voter = lookup.get(regNum);
+      if (!voter) { notFound++; continue; }
+
+      const pri = normPhone(voter.phone);
+      const sec = normPhone(voter.secondary_phone);
+      const ter = normPhone(voter.tertiary_phone);
+
+      if (pri === badPhone) { clearPrimary.run(voter.id); removed++; }
+      else if (sec === badPhone) { clearSecondary.run(voter.id); removed++; }
+      else if (ter === badPhone) { clearTertiary.run(voter.id); removed++; }
+      else { phoneNotOnVoter++; }
+    }
+  });
+  tx();
+
+  console.log(`[remove-bad] ${records.length} records: ${removed} removed, ${notFound} not found, ${phoneNotOnVoter} phone not on voter`);
+  res.json({ success: true, total: records.length, removed, notFound, phoneNotOnVoter });
+});
+
 module.exports = router;
