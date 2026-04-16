@@ -3793,4 +3793,60 @@ router.post('/voters/verify-phone-owners', (req, res) => {
   });
 });
 
+// Full Prism verification: match by VOTER_ID=registration_number, then check name + phone
+router.post('/voters/verify-by-regnum', (req, res) => {
+  const { records } = req.body; // [{voter_id, phone, first, last}]
+  if (!records || !Array.isArray(records)) return res.status(400).json({ error: 'records array required' });
+
+  const lookup = db.prepare(
+    "SELECT id, first_name, last_name, phone, secondary_phone, city, precinct, registration_number FROM voters WHERE registration_number = ?"
+  );
+
+  function norm(s) { return (s || '').toLowerCase().replace(/[^a-z]/g, ''); }
+  function normPhone(p) { return (String(p || '').match(/\d/g) || []).join('').slice(-10); }
+
+  let regMatched = 0, regNotFound = 0;
+  let nameMatch = 0, nameMismatch = 0;
+  let phoneMatch = 0, phoneDiff = 0, phoneNone = 0;
+  let fullMatch = 0; // name AND phone both match
+
+  for (const r of records) {
+    const regNum = (r.voter_id || '').trim();
+    if (!regNum) { regNotFound++; continue; }
+
+    const voter = lookup.get(regNum);
+    if (!voter) { regNotFound++; continue; }
+    regMatched++;
+
+    // Name check
+    const sameFirst = norm(voter.first_name).startsWith(norm(r.first)) || norm(r.first).startsWith(norm(voter.first_name));
+    const sameLast = norm(voter.last_name) === norm(r.last);
+    if (sameFirst && sameLast) nameMatch++;
+    else nameMismatch++;
+
+    // Phone check
+    const prismPhone = normPhone(r.phone);
+    const dbPhone = normPhone(voter.phone);
+    const dbSec = normPhone(voter.secondary_phone);
+    if (prismPhone && (dbPhone === prismPhone || dbSec === prismPhone)) phoneMatch++;
+    else if (prismPhone && dbPhone) phoneDiff++;
+    else phoneNone++;
+
+    // Both match
+    if ((sameFirst && sameLast) && (dbPhone === prismPhone || dbSec === prismPhone)) fullMatch++;
+  }
+
+  res.json({
+    total: records.length,
+    reg_matched: regMatched,
+    reg_not_found: regNotFound,
+    name_match: nameMatch,
+    name_mismatch: nameMismatch,
+    phone_match: phoneMatch,
+    phone_different: phoneDiff,
+    phone_none_in_db: phoneNone,
+    full_match_name_and_phone: fullMatch
+  });
+});
+
 module.exports = router;
