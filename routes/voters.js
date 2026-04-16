@@ -1255,7 +1255,11 @@ router.get('/voters/phone-cleanup-stats', requireAuth, (req, res) => {
       COUNT(CASE WHEN v.phone_type = 'voip' THEN 1 END) as voip,
       COUNT(CASE WHEN v.phone_type = 'invalid' THEN 1 END) as invalid,
       COUNT(CASE WHEN v.phone_type = 'unknown' THEN 1 END) as unknown_type,
-      COUNT(CASE WHEN v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL) THEN 1 END) as not_checked
+      COUNT(CASE WHEN v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL) THEN 1 END) as not_checked,
+      COUNT(CASE WHEN v.secondary_phone != '' AND v.secondary_phone IS NOT NULL THEN 1 END) as secondary_total,
+      COUNT(CASE WHEN v.secondary_phone != '' AND (v.secondary_phone_validated_at = '' OR v.secondary_phone_validated_at IS NULL) THEN 1 END) as secondary_not_checked,
+      COUNT(CASE WHEN v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL THEN 1 END) as tertiary_total,
+      COUNT(CASE WHEN v.tertiary_phone != '' AND (v.tertiary_phone_type = '' OR v.tertiary_phone_type IS NULL) THEN 1 END) as tertiary_not_checked
     ${fromClause}
   `).get(...params);
   res.json({ ...stats, progress: phoneCleanupProgress });
@@ -1289,32 +1293,64 @@ router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
     const client = getTwilioClient();
     if (!client) return res.status(400).json({ error: 'Twilio credentials not configured.' });
     const listId = req.body ? req.body.listId : null;
-    let voters;
+
+    // Collect all unvalidated phones across primary, secondary, and tertiary columns
+    // Each entry has { id, phone, slot } so we know which column to update
+    let entries = [];
     if (listId) {
-      voters = db.prepare(`SELECT v.id, v.phone FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ? AND v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL)`).all(listId);
+      const pri = db.prepare(`SELECT v.id, v.phone FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ? AND v.phone != '' AND (v.phone_validated_at = '' OR v.phone_validated_at IS NULL)`).all(listId);
+      const sec = db.prepare(`SELECT v.id, v.secondary_phone as phone FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND (v.secondary_phone_validated_at = '' OR v.secondary_phone_validated_at IS NULL)`).all(listId);
+      const ter = db.prepare(`SELECT v.id, v.tertiary_phone as phone FROM voters v JOIN admin_list_voters alv ON alv.voter_id = v.id WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND (v.tertiary_phone_type = '' OR v.tertiary_phone_type IS NULL)`).all(listId);
+      for (const v of pri) entries.push({ ...v, slot: 'primary' });
+      for (const v of sec) entries.push({ ...v, slot: 'secondary' });
+      for (const v of ter) entries.push({ ...v, slot: 'tertiary' });
     } else {
-      voters = db.prepare("SELECT id, phone FROM voters WHERE phone != '' AND (phone_validated_at = '' OR phone_validated_at IS NULL)").all();
+      const pri = db.prepare("SELECT id, phone FROM voters WHERE phone != '' AND (phone_validated_at = '' OR phone_validated_at IS NULL)").all();
+      const sec = db.prepare("SELECT id, secondary_phone as phone FROM voters WHERE secondary_phone != '' AND secondary_phone IS NOT NULL AND (secondary_phone_validated_at = '' OR secondary_phone_validated_at IS NULL)").all();
+      const ter = db.prepare("SELECT id, tertiary_phone as phone FROM voters WHERE tertiary_phone != '' AND tertiary_phone IS NOT NULL AND (tertiary_phone_type = '' OR tertiary_phone_type IS NULL)").all();
+      for (const v of pri) entries.push({ ...v, slot: 'primary' });
+      for (const v of sec) entries.push({ ...v, slot: 'secondary' });
+      for (const v of ter) entries.push({ ...v, slot: 'tertiary' });
     }
-    if (voters.length === 0) return res.json({ message: 'All phone numbers already validated', progress: phoneCleanupProgress });
-    phoneCleanupProgress = { running: true, total: voters.length, done: 0, results: { mobile: 0, landline: 0, voip: 0, invalid: 0, unknown: 0, error: 0 } };
-    res.json({ message: 'Cleanup started for ' + voters.length + ' numbers', progress: phoneCleanupProgress });
+
+    if (entries.length === 0) return res.json({ message: 'All phone numbers already validated', progress: phoneCleanupProgress });
+    phoneCleanupProgress = { running: true, total: entries.length, done: 0, results: { mobile: 0, landline: 0, voip: 0, invalid: 0, unknown: 0, error: 0 } };
+    res.json({ message: 'Cleanup started for ' + entries.length + ' numbers (primary + secondary + tertiary)', progress: phoneCleanupProgress });
+
+    const updatePrimary = db.prepare("UPDATE voters SET phone_type = ?, phone_carrier = ?, phone_validated_at = datetime('now') WHERE id = ?");
+    const updateSecondary = db.prepare("UPDATE voters SET secondary_phone_type = ?, secondary_phone_carrier = ?, secondary_phone_validated_at = datetime('now') WHERE id = ?");
+    const updateTertiary = db.prepare("UPDATE voters SET tertiary_phone_type = ? WHERE id = ?");
+
     (async () => {
       try {
-        const update = db.prepare("UPDATE voters SET phone_type = ?, phone_carrier = ?, phone_validated_at = datetime('now') WHERE id = ?");
         const batchSize = 30;
-        for (let i = 0; i < voters.length; i += batchSize) {
-          const batch = voters.slice(i, i + batchSize);
+        for (let i = 0; i < entries.length; i += batchSize) {
+          const batch = entries.slice(i, i + batchSize);
           await Promise.all(batch.map(async (v) => {
             const e164 = toE164(v.phone);
-            if (!e164.startsWith('+1') || e164.length !== 12) { update.run('invalid', '', v.id); phoneCleanupProgress.results.invalid++; phoneCleanupProgress.done++; return; }
+            if (!e164.startsWith('+1') || e164.length !== 12) {
+              if (v.slot === 'primary') updatePrimary.run('invalid', '', v.id);
+              else if (v.slot === 'secondary') updateSecondary.run('invalid', '', v.id);
+              else updateTertiary.run('invalid', v.id);
+              phoneCleanupProgress.results.invalid++;
+              phoneCleanupProgress.done++;
+              return;
+            }
             try {
               const result = await client.lookups.v2.phoneNumbers(e164).fetch({ fields: 'line_type_intelligence' });
               const lt = result.lineTypeIntelligence?.type || 'unknown';
               const carrier = result.lineTypeIntelligence?.carrier_name || '';
               const pt = !result.valid ? 'invalid' : (lt === 'mobile' ? 'mobile' : lt === 'landline' ? 'landline' : lt === 'voip' || lt === 'nonFixedVoip' ? 'voip' : 'unknown');
-              update.run(pt, carrier, v.id);
+              if (v.slot === 'primary') updatePrimary.run(pt, carrier, v.id);
+              else if (v.slot === 'secondary') updateSecondary.run(pt, carrier, v.id);
+              else updateTertiary.run(pt, v.id);
               phoneCleanupProgress.results[pt] = (phoneCleanupProgress.results[pt] || 0) + 1;
-            } catch (err) { update.run('unknown', 'error', v.id); phoneCleanupProgress.results.error = (phoneCleanupProgress.results.error || 0) + 1; }
+            } catch (err) {
+              if (v.slot === 'primary') updatePrimary.run('unknown', 'error', v.id);
+              else if (v.slot === 'secondary') updateSecondary.run('unknown', 'error', v.id);
+              else updateTertiary.run('unknown', v.id);
+              phoneCleanupProgress.results.error = (phoneCleanupProgress.results.error || 0) + 1;
+            }
             phoneCleanupProgress.done++;
           }));
           await new Promise(r => setTimeout(r, 1000));
@@ -1329,9 +1365,11 @@ router.post('/voters/phone-cleanup', requireAuth, async (req, res) => {
 });
 
 router.post('/voters/phone-remove-bad', requireAuth, (req, res) => {
-  const result = db.prepare("UPDATE voters SET phone = '', phone_type = '', phone_carrier = '', phone_validated_at = '' WHERE phone_type = 'invalid'").run();
+  const r1 = db.prepare("UPDATE voters SET phone = '', phone_type = '', phone_carrier = '', phone_validated_at = '' WHERE phone_type = 'invalid'").run();
+  const r2 = db.prepare("UPDATE voters SET secondary_phone = '', secondary_phone_type = '', secondary_phone_carrier = '', secondary_phone_validated_at = '' WHERE secondary_phone_type = 'invalid'").run();
+  const r3 = db.prepare("UPDATE voters SET tertiary_phone = '', tertiary_phone_type = '' WHERE tertiary_phone_type = 'invalid'").run();
   triggerSync(req);
-  res.json({ removed: result.changes });
+  res.json({ removed: r1.changes + r2.changes + r3.changes, primary: r1.changes, secondary: r2.changes, tertiary: r3.changes });
 });
 
 // Cross-reference a list of names against the voter database
