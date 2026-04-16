@@ -726,12 +726,8 @@ try {
     for (const e of emptyElecs) del.run(e.election_name);
     console.log('[migrate] Removed', emptyElecs.length, 'empty election definitions');
   }
-  // Remove election_votes with 0 voters (orphans)
-  const orphanElecs = db.prepare(`
-    SELECT DISTINCT election_name FROM election_votes
-    GROUP BY election_name HAVING COUNT(*) = 0
-  `).all();
-  for (const e of orphanElecs) db.prepare('DELETE FROM election_votes WHERE election_name = ?').run(e.election_name);
+  // Remove election records that have no matching election_votes (orphan elections table entries)
+  db.prepare("DELETE FROM elections WHERE election_name NOT IN (SELECT DISTINCT election_name FROM election_votes)").run();
   console.log('[migrate] Election cleanup complete');
 
   // Check for empty columns
@@ -1260,6 +1256,11 @@ try {
           AND SUBSTR(REPLACE(REPLACE(REPLACE(out_msg.phone, '+', ''), '-', ''), ' ', ''), -10)
             = SUBSTR(REPLACE(REPLACE(REPLACE(m.phone, '+', ''), '-', ''), ' ', ''), -10)
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM messages auto_msg
+        WHERE auto_msg.phone = m.phone AND auto_msg.body LIKE '[Auto-marked replied%'
+          AND auto_msg.timestamp > datetime('now', '-7 days')
+      )
   `).all();
   if (stuck.length > 0) {
     const insert = db.prepare("INSERT INTO messages (phone, body, direction, sentiment, channel) VALUES (?, '[Auto-marked replied: outbound exists for this contact]', 'outbound', 'neutral', 'sms')");
@@ -1270,7 +1271,7 @@ try {
 
 // Remove privacy-redacted addresses from block walks entirely (no useful data)
 try {
-  const r = db.prepare("DELETE FROM walk_addresses WHERE address LIKE '%***%' OR address LIKE '%Privacy%' OR TRIM(address) = '' OR LENGTH(TRIM(address)) < 4").run();
+  const r = db.prepare("DELETE FROM walk_addresses WHERE address LIKE '%***%' OR address LIKE '%Privacy%' OR TRIM(address) = ''").run();
   if (r.changes > 0) console.log(`[cleanup] Removed ${r.changes} privacy/empty address(es) from block walks`);
 } catch (e) {}
 

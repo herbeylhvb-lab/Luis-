@@ -597,7 +597,7 @@ router.post('/p2p/send', sendLimiter, asyncHandler(async (req, res) => {
         db.prepare("UPDATE p2p_assignments SET status = 'in_conversation' WHERE id = ?").run(assignmentId);
       } else {
         // Initial send: mark as sent
-        db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'pending'").run(assignmentId);
+        db.prepare("UPDATE p2p_assignments SET status = 'sent', sent_at = datetime('now') WHERE id = ? AND status = 'sending'").run(assignmentId);
       }
     })();
     // Update last_active timestamp

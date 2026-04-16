@@ -2657,6 +2657,30 @@ function buildStep1Filter(filters) {
     clauses.push('voter_status IN (' + voter_statuses.map(() => '?').join(',') + ')');
     params.push(...voter_statuses);
   }
+  if (drainage_districts && drainage_districts.length > 0) {
+    clauses.push('drainage_district IN (' + drainage_districts.map(() => '?').join(',') + ')');
+    params.push(...drainage_districts);
+  }
+  if (school_boards && school_boards.length > 0) {
+    clauses.push('school_board IN (' + school_boards.map(() => '?').join(',') + ')');
+    params.push(...school_boards);
+  }
+  if (city_councils && city_councils.length > 0) {
+    clauses.push('city_council IN (' + city_councils.map(() => '?').join(',') + ')');
+    params.push(...city_councils);
+  }
+  if (constables && constables.length > 0) {
+    clauses.push('constable IN (' + constables.map(() => '?').join(',') + ')');
+    params.push(...constables);
+  }
+  if (court_of_appeals_dists && court_of_appeals_dists.length > 0) {
+    clauses.push('court_of_appeals IN (' + court_of_appeals_dists.map(() => '?').join(',') + ')');
+    params.push(...court_of_appeals_dists);
+  }
+  if (not_incorporated_areas && not_incorporated_areas.length > 0) {
+    clauses.push('not_incorporated IN (' + not_incorporated_areas.map(() => '?').join(',') + ')');
+    params.push(...not_incorporated_areas);
+  }
 
   // Vote method filter: applied in election targeting query, NOT here
   // (so it combines with selected_elections to mean "voted by mail IN that election")
@@ -3604,7 +3628,7 @@ router.post('/voters/bulk-enrich-phones', (req, res) => {
 });
 
 // Bulk phone lookup by registration_number — returns DB phone for each reg_num
-router.post('/voters/phone-lookup', (req, res) => {
+router.post('/voters/phone-lookup-by-regnum', (req, res) => {
   const { reg_nums } = req.body;
   if (!reg_nums || !Array.isArray(reg_nums)) return res.status(400).json({ error: 'reg_nums array required' });
   const stmt = db.prepare("SELECT registration_number, phone FROM voters WHERE registration_number = ?");

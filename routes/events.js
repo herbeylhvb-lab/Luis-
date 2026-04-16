@@ -86,7 +86,7 @@ router.put('/events/:id', requireAuth, (req, res) => {
       event_end_date = COALESCE(?, event_end_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      flyer_image = ?, mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
+      flyer_image = ?, mms_project_id = COALESCE(?, mms_project_id), latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_end_date, event_time, event_end_time, status, flyer_image,
       mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
@@ -98,7 +98,7 @@ router.put('/events/:id', requireAuth, (req, res) => {
       event_end_date = COALESCE(?, event_end_date),
       event_time = COALESCE(?, event_time), event_end_time = COALESCE(?, event_end_time),
       status = COALESCE(?, status),
-      mms_project_id = ?, latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
+      mms_project_id = COALESCE(?, mms_project_id), latitude = COALESCE(?, latitude), longitude = COALESCE(?, longitude), checkin_radius = COALESCE(?, checkin_radius) WHERE id = ?`
     ).run(title, description, location, event_date, event_end_date, event_time, event_end_time, status,
       mms_project_id !== undefined ? (mms_project_id || null) : null,
       latitude !== undefined ? latitude : null, longitude !== undefined ? longitude : null,
