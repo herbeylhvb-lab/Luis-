@@ -3858,4 +3858,66 @@ router.post('/voters/verify-by-regnum', (req, res) => {
   });
 });
 
+// Import Prism phones by registration_number:
+// - No phone in DB → set as primary
+// - Has primary, no secondary → set as secondary
+// - Has primary + secondary → set as tertiary
+router.post('/voters/import-prism-phones', (req, res) => {
+  const { records } = req.body; // [{voter_id, phone}]
+  if (!records || !Array.isArray(records)) return res.status(400).json({ error: 'records array required' });
+
+  const lookup = db.prepare("SELECT id, phone, secondary_phone, tertiary_phone FROM voters WHERE registration_number = ?");
+  const setPrimary = db.prepare("UPDATE voters SET phone = ?, phone_type = 'mobile' WHERE id = ?");
+  const setSecondary = db.prepare("UPDATE voters SET secondary_phone = ?, secondary_phone_type = 'mobile' WHERE id = ?");
+  const setTertiary = db.prepare("UPDATE voters SET tertiary_phone = ?, tertiary_phone_type = 'mobile' WHERE id = ?");
+
+  function normPhone(p) { return (String(p || '').match(/\d/g) || []).join('').slice(-10); }
+
+  let addedPrimary = 0, addedSecondary = 0, addedTertiary = 0, alreadyHas = 0, notFound = 0;
+
+  for (let i = 0; i < records.length; i += 1000) {
+    const chunk = records.slice(i, i + 1000);
+    const tx = db.transaction(() => {
+      for (const r of chunk) {
+        const regNum = (r.voter_id || '').trim();
+        const prismPhone = normPhone(r.phone);
+        if (!regNum || prismPhone.length !== 10) { notFound++; continue; }
+
+        const voter = lookup.get(regNum);
+        if (!voter) { notFound++; continue; }
+
+        // Check if Prism phone already exists on this voter
+        const dbPri = normPhone(voter.phone);
+        const dbSec = normPhone(voter.secondary_phone);
+        const dbTer = normPhone(voter.tertiary_phone);
+        if (dbPri === prismPhone || dbSec === prismPhone || dbTer === prismPhone) {
+          alreadyHas++;
+          continue;
+        }
+
+        // Place in first available slot
+        if (!dbPri || dbPri.length < 10) {
+          setPrimary.run(prismPhone, voter.id);
+          addedPrimary++;
+        } else if (!dbSec || dbSec.length < 10) {
+          setSecondary.run(prismPhone, voter.id);
+          addedSecondary++;
+        } else if (!dbTer || dbTer.length < 10) {
+          setTertiary.run(prismPhone, voter.id);
+          addedTertiary++;
+        } else {
+          alreadyHas++; // all 3 slots full
+        }
+      }
+    });
+    tx();
+  }
+
+  console.log(`[prism-import] ${records.length} records: ${addedPrimary} primary, ${addedSecondary} secondary, ${addedTertiary} tertiary, ${alreadyHas} already had, ${notFound} not found`);
+  res.json({
+    success: true, total: records.length,
+    addedPrimary, addedSecondary, addedTertiary, alreadyHas, notFound
+  });
+});
+
 module.exports = router;

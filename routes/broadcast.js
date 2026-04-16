@@ -46,16 +46,33 @@ router.post('/broadcast/send', broadcastLimiter, asyncHandler(async (req, res) =
     }
     const secRecipients = db.prepare(secSql).all(...secParams);
     recipients.push(...secRecipients);
+    // Add tertiary phone entries
+    let terSql = `
+      SELECT v.id as voter_id, v.tertiary_phone as phone, v.first_name, v.last_name, v.city
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    `;
+    const terParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      terSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      terParams.push(...precinct_filter);
+    }
+    const terRecipients = db.prepare(terSql).all(...terParams);
+    recipients.push(...terRecipients);
   } else {
     // All contacts with phone numbers
     const voters = db.prepare("SELECT id as voter_id, phone, first_name, last_name, city FROM voters WHERE phone != '' AND phone IS NOT NULL AND COALESCE(phone_type,'') NOT IN ('landline','invalid')").all();
     // Also grab secondary phones
     const secVoters = db.prepare("SELECT id as voter_id, secondary_phone as phone, first_name, last_name, city FROM voters WHERE secondary_phone != '' AND secondary_phone IS NOT NULL AND COALESCE(secondary_phone_type,'') NOT IN ('landline','invalid')").all();
+    // Also grab tertiary phones
+    const terVoters = db.prepare("SELECT id as voter_id, tertiary_phone as phone, first_name, last_name, city FROM voters WHERE tertiary_phone != '' AND tertiary_phone IS NOT NULL AND COALESCE(tertiary_phone_type,'') NOT IN ('landline','invalid')").all();
     const contacts = db.prepare("SELECT id, phone, first_name, last_name, city FROM contacts WHERE phone != '' AND phone IS NOT NULL").all();
     // Deduplicate by normalized phone digits
     const seen = new Set();
     for (const v of voters) { const d = phoneDigits(v.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(v); } }
     for (const v of secVoters) { const d = phoneDigits(v.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(v); } }
+    for (const v of terVoters) { const d = phoneDigits(v.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(v); } }
     for (const c of contacts) { const d = phoneDigits(c.phone); if (d && !seen.has(d)) { seen.add(d); recipients.push(c); } }
   }
 

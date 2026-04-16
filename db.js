@@ -435,6 +435,8 @@ addColumn("ALTER TABLE voters ADD COLUMN phone_validated_at TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_type TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_carrier TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_validated_at TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN tertiary_phone TEXT DEFAULT ''");
+addColumn("ALTER TABLE voters ADD COLUMN tertiary_phone_type TEXT DEFAULT ''");
 // Note: landline column exists on some DBs but is unused — phone_type = 'landline' handles this
 
 // County voter file fields (VAN exports, county file imports)

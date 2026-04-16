@@ -133,6 +133,15 @@ router.post('/rumbleup/contacts/import', asyncHandler(async (req, res) => {
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
   voters.push(...secVoters);
+  // Tertiary phones — add as separate rows so all numbers get texted
+  const terVoters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.email
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    ORDER BY v.last_name, v.first_name
+  `).all(list_id);
+  voters.push(...terVoters);
 
   if (voters.length === 0) return res.status(400).json({ error: 'No voters with textable phone numbers on this list (landlines/invalid excluded).' });
 
@@ -197,6 +206,15 @@ router.post('/rumbleup/launch-campaign', asyncHandler(async (req, res) => {
     ORDER BY v.last_name, v.first_name
   `).all(list_id);
   voters.push(...secVoters);
+  // Tertiary phones — add as separate rows
+  const terVoters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.email
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    ORDER BY v.last_name, v.first_name
+  `).all(list_id);
+  voters.push(...terVoters);
 
   if (voters.length === 0) return res.status(400).json({ error: 'No voters with valid phone numbers in this list.' });
 

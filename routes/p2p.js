@@ -160,6 +160,19 @@ router.post('/p2p/sessions', (req, res) => {
       secParams.push(...precinct_filter);
     }
     listVoters.push(...db.prepare(secSql).all(...secParams));
+    // Add tertiary phone entries
+    let terSql = `
+      SELECT v.id as voter_id, v.tertiary_phone as phone, v.first_name, v.last_name, v.city, v.email
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    `;
+    const terParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      terSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      terParams.push(...precinct_filter);
+    }
+    listVoters.push(...db.prepare(terSql).all(...terParams));
 
     skippedNoPhone = listTotal - listVoters.length;
 

@@ -227,6 +227,15 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
       ORDER BY v.last_name, v.first_name
     `).all(req.params.id);
     voters.push(...secVoters);
+    // Tertiary phones
+    const terVoters = db.prepare(`
+      SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.email, v.tertiary_phone_type as phone_type
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+      ORDER BY v.last_name, v.first_name
+    `).all(req.params.id);
+    voters.push(...terVoters);
   }
 
   // Build CSV
@@ -267,6 +276,15 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
   voters.push(...secVoters);
+  // Tertiary phones — person appears again with third number
+  const terVoters = db.prepare(`
+    SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.precinct
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    ORDER BY v.last_name, v.first_name
+  `).all(req.params.id);
+  voters.push(...terVoters);
 
   const csvEscape = (val) => {
     const s = (val || '').toString().replace(/"/g, '""');

@@ -192,6 +192,7 @@ const publicApiPaths = [
   '/api/voters/qr/',
   '/api/voters/checkins/today-events',
   '/api/voters/phone-type-breakdown', // temporary
+  '/api/voters/import-prism-phones', // temporary
 ];
 
 app.use((req, res, next) => {
@@ -1533,6 +1534,19 @@ app.post('/api/events/:id/invite', (req, res) => {
       secParams.push(...precinct_filter);
     }
     contacts.push(...db.prepare(secSql).all(...secParams));
+    // Add tertiary phone entries so all numbers get synced
+    let terSql = `
+      SELECT v.id, v.tertiary_phone as phone, v.first_name, v.last_name
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    `;
+    const terParams = [list_id];
+    if (precinct_filter && precinct_filter.length > 0) {
+      terSql += ' AND v.precinct IN (' + precinct_filter.map(() => '?').join(',') + ')';
+      terParams.push(...precinct_filter);
+    }
+    contacts.push(...db.prepare(terSql).all(...terParams));
   } else if (contactIds && contactIds.length > 0) {
     // Batch fetch contacts instead of N+1
     for (let i = 0; i < contactIds.length; i += 900) {
