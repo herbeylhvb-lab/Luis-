@@ -1732,15 +1732,19 @@ router.get('/voters-touchpoints/stats', (req, res) => {
       UNION
       SELECT voter_id FROM walk_addresses wa JOIN block_walks bw ON wa.walk_id = bw.id WHERE bw.candidate_id = ? AND wa.voter_id IS NOT NULL
     )`;
+    // Messages table has phone (no voter_id) — join through voter phones with normalization
+    const candPhones = `(
+      SELECT SUBSTR(REPLACE(REPLACE(REPLACE(v.phone, '+', ''), '-', ''), ' ', ''), -10) FROM voters v WHERE v.phone != '' AND v.id IN ${candVoters}
+    )`;
     return res.json(db.prepare(`
       SELECT
-        (SELECT COUNT(*) FROM messages WHERE voter_id IN ${candVoters}) as texts,
+        (SELECT COUNT(*) FROM messages m WHERE SUBSTR(REPLACE(REPLACE(REPLACE(m.phone, '+', ''), '-', ''), ' ', ''), -10) IN ${candPhones}) as texts,
         (SELECT COUNT(*) FROM voter_contacts WHERE voter_id IN ${candVoters} AND contact_type = 'Door-knock') as doorKnocks,
         (SELECT COUNT(*) FROM voter_checkins WHERE voter_id IN ${candVoters}) as events,
         (SELECT COUNT(*) FROM voter_contacts WHERE voter_id IN ${candVoters} AND contact_type = 'Phone Call') as calls,
         (SELECT COUNT(*) FROM voter_contacts WHERE voter_id IN ${candVoters} AND contact_type = 'Mailer') as mailers,
         (SELECT COUNT(*) FROM email_campaigns) as emailCampaigns
-    `).get(candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id));
+    `).get(candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id, candidate_id));
   }
   res.json(_touchpointStatsQuery.get());
 });

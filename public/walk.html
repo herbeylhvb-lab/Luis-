@@ -593,6 +593,11 @@ document.getElementById('walkerCodeInput').addEventListener('keydown', function(
 (function() {
   var params = new URLSearchParams(window.location.search);
   var code = params.get('code');
+  // Handle joinCode param (from group portal "Join Walk" button) — remember for post-login auto-join
+  var joinCode = params.get('joinCode');
+  if (joinCode) {
+    sessionStorage.setItem('pendingWalkJoinCode', joinCode);
+  }
   // Try URL param first, then localStorage
   if (!code) {
     code = localStorage.getItem('walkerCode');

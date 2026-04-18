@@ -1364,8 +1364,7 @@ function recoverLostKnocks() {
   return { directRecovered, siblingRecovered };
 }
 
-// Run on startup (idempotent, self-healing)
-recoverLostKnocks();
+// Note: recoverLostKnocks() is called AFTER walk_attempts table is created (see below)
 
 // --- Canvassing Scripts (VAN-style door scripts with survey questions) ---
 db.exec(`
@@ -1415,6 +1414,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_wa_walker ON walk_attempts(walk_id, walker_name);
   CREATE INDEX IF NOT EXISTS idx_wa_time ON walk_attempts(attempted_at);
 `);
+
+// Run recovery on startup (now that walk_attempts table exists)
+// Idempotent and self-healing — restores walk_addresses.result from walk_attempts history
+recoverLostKnocks();
 
 // --- Distributed Canvassing Universes ---
 db.exec(`

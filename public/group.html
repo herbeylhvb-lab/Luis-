@@ -151,7 +151,7 @@ async function loadWalks() {
       html += '<div class="walk-stat">Progress: <span>' + pct + '%</span></div>';
       html += '</div>';
       html += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
-      html += '<a href="/walk?code=' + encodeURIComponent(w.join_code) + '" class="btn btn-walk btn-sm" style="text-decoration:none">Join Walk</a>';
+      html += '<a href="/walk?joinCode=' + encodeURIComponent(w.join_code) + '" class="btn btn-walk btn-sm" style="text-decoration:none">Join Walk</a>';
       html += '</div>';
     }
     container.innerHTML = html;

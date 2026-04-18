@@ -1917,7 +1917,8 @@ router.post('/walks/:id/route/save', (req, res) => {
 
 // Auto-create a walk populated with voters from selected precincts
 router.post('/walks/from-precinct', (req, res) => {
-  const { precincts, name, description, filters, candidate_id, sandbox } = req.body;
+  const { precincts, name, description, candidate_id, sandbox } = req.body;
+  let filters = req.body.filters;
   if (!precincts || !precincts.length) return res.status(400).json({ error: 'At least one precinct is required.' });
 
   // Build voter query with optional filters

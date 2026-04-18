@@ -10064,8 +10064,12 @@ async function loadVolunteerQueue() {
   if (!p2pState.volunteerId) return;
   // Don't overwrite UI while volunteer is viewing a conversation
   if (document.getElementById('p2pReplyCard').style.display !== 'none') return;
-  // Auto-sync inbound messages from RumbleUp (runs in background, doesn't block)
-  fetch('/api/sync-inbound', { method: 'POST' }).catch(() => {});
+  // Auto-sync inbound messages from RumbleUp (throttled to once per 60s to avoid DoS)
+  var _now = Date.now();
+  if (!window._p2pSyncLast || (_now - window._p2pSyncLast) > 60000) {
+    window._p2pSyncLast = _now;
+    fetch('/api/sync-inbound', { method: 'POST' }).catch(() => {});
+  }
   try {
     const d = await api('/api/p2p/volunteers/' + p2pState.volunteerId + '/queue');
     const stats = d.stats || {};
@@ -11859,7 +11863,8 @@ async function loadCandidateRaceValues(typeSelectId, valueSelectId) {
     if (values.length === 0) {
       // Fallback: get distinct values from race-precincts
       var rp = await api('/api/voters/race-precincts');
-      values = rp.filter(function(r) { return r.type === raceType; }).map(function(r) { return r.district; });
+      var races = (rp && rp.races) || [];
+      values = races.filter(function(r) { return r.type === raceType; }).map(function(r) { return r.district; });
     }
     valSel.innerHTML = '<option value="">All / None</option>' + values.map(function(v) { return '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>'; }).join('');
   } catch (e) { valSel.innerHTML = '<option value="">Error loading</option>'; }
@@ -16650,7 +16655,7 @@ async function addMatchedToList() {
   var voterIds = _contactMatchResults.map(function(r) { return r.id; }).filter(function(id, i, arr) { return arr.indexOf(id) === i; }); // unique
   try {
     var listData = await apiPost('/api/admin-lists', { name: listName, description: 'Matched from contact list (' + voterIds.length + ' voters)', list_type: 'general' });
-    await apiPost('/api/admin-lists/' + listData.id + '/voters/bulk', { voter_ids: voterIds });
+    await apiPost('/api/admin-lists/' + listData.id + '/voters', { voterIds: voterIds });
     alert('List "' + listName + '" created with ' + voterIds.length + ' voters!');
   } catch (e) { alert('Error: ' + (e.message || e)); }
 }
