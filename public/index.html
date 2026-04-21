@@ -14193,6 +14193,17 @@ async function showUniverseDashboard(listId, listName, rowEl) {
           '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + vcat.color + ';height:100%;width:' + vcatPct + '%;border-radius:4px"></div></div>' +
           '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + vcat.count.toLocaleString() + ' (' + vcatPct + '%)</div></div>';
       }
+      // Totals row — voted & touched (first 3 categories) + voted total, so the
+      // campaign manager can answer: "of my voters, how many did we reach?"
+      var vDirect = data.voted_direct_contact || 0;
+      var vHh = data.voted_household_contact || 0;
+      var vNh = data.voted_nobody_home || 0;
+      var votedTouched = vDirect + vHh + vNh;
+      var touchedOfVotersPct = earlyVoted > 0 ? Math.round(votedTouched / earlyVoted * 100) : 0;
+      html += '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #1e3a8a;display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
+        '<div style="color:#94a3b8">💡 Voted & Touched: <strong style="color:#60a5fa">' + votedTouched.toLocaleString() + ' (' + touchedOfVotersPct + '%)</strong></div>' +
+        '<div style="color:#64748b">Total voters: <strong style="color:#e2e8f0">' + earlyVoted.toLocaleString() + '</strong></div>' +
+        '</div>';
       html += '</div>';
     }
 
