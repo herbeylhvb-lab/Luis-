@@ -14161,20 +14161,30 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + cat.count.toLocaleString() + ' (' + catPct + '%)</div></div>';
     }
 
-    // Sub-line: same 4 categories restricted to early voters
-    if (earlyVoted > 0) {
-      var vDirect = data.voted_direct_contact || 0;
-      var vHh = data.voted_household_contact || 0;
-      var vNh = data.voted_nobody_home || 0;
-      var vNw = data.voted_not_walked || 0;
-      html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #334155;font-size:11px;color:#64748b">' +
-        'Of early voters: <span style="color:#22c55e">' + vDirect.toLocaleString() + ' direct</span> · ' +
-        '<span style="color:#86efac">' + vHh.toLocaleString() + ' household</span> · ' +
-        '<span style="color:#fbbf24">' + vNh.toLocaleString() + ' no-one-home</span> · ' +
-        '<span style="color:#64748b">' + vNw.toLocaleString() + ' not walked</span>' +
-        '</div>';
-    }
     html += '</div>';
+
+    // 🎯 Same 4-category split, but restricted to people who voted early.
+    // Tells you: of my voters, how many did we actually reach by walking —
+    // and how many voted without ever being walked at all?
+    if (earlyVoted > 0) {
+      var voterWalkCats = [
+        { label: 'Voted - Direct Contact', count: data.voted_direct_contact || 0, color: '#22c55e' },
+        { label: 'Voted - Household Contacted', count: data.voted_household_contact || 0, color: '#86efac' },
+        { label: 'Voted - Nobody Home', count: data.voted_nobody_home || 0, color: '#fbbf24' },
+        { label: 'Voted - Not Walked', count: data.voted_not_walked || 0, color: '#64748b' }
+      ];
+      html += '<div style="margin-bottom:12px;padding:10px;background:#0a1625;border:1px solid #1e3a8a;border-radius:6px">';
+      html += '<h6 style="color:#60a5fa;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🎯 Voter Walk Status <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">(early voters only)</span></h6>';
+      for (var vw = 0; vw < voterWalkCats.length; vw++) {
+        var vcat = voterWalkCats[vw];
+        var vcatPct = earlyVoted > 0 ? Math.round(vcat.count / earlyVoted * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+          '<div style="width:200px;color:' + vcat.color + ';font-weight:600;font-size:12px">' + escHtml(vcat.label) + '</div>' +
+          '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + vcat.color + ';height:100%;width:' + vcatPct + '%;border-radius:4px"></div></div>' +
+          '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + vcat.count.toLocaleString() + ' (' + vcatPct + '%)</div></div>';
+      }
+      html += '</div>';
+    }
 
     // Support-level breakdown of the people who actually voted early.
     // Only counts voters whose individual support level was recorded — we
