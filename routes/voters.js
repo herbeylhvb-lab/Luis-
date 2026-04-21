@@ -1763,8 +1763,32 @@ router.get('/voters-precincts', (req, res) => {
 
 // Get distinct cities for dropdown filters
 router.get('/voters-cities', (req, res) => {
-  const rows = db.prepare("SELECT DISTINCT city FROM voters WHERE city != '' ORDER BY city").all();
-  res.json({ cities: rows.map(r => r.city) });
+  // Group by UPPER(TRIM(city)) so "BROWNSVILLE"/"Brownsville"/"brownsville " all collapse into one entry.
+  // Pick the most common casing as the display label; fall back to Title Case.
+  const rows = db.prepare(`
+    SELECT
+      UPPER(TRIM(city)) as key,
+      city as sample,
+      COUNT(*) as cnt
+    FROM voters
+    WHERE city != '' AND city IS NOT NULL
+    GROUP BY UPPER(TRIM(city)), city
+    ORDER BY UPPER(TRIM(city)), cnt DESC
+  `).all();
+  // Deduplicate by normalized key, keeping the most common original casing
+  const bestPerKey = new Map();
+  for (const r of rows) {
+    if (!r.key) continue;
+    if (!bestPerKey.has(r.key)) bestPerKey.set(r.key, r.sample);
+  }
+  // If the chosen display name is ALL CAPS or all lower, convert to Title Case for readability
+  function titleCase(s) {
+    return (s || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()).trim();
+  }
+  const cities = Array.from(bestPerKey.values())
+    .map(c => (c === c.toUpperCase() || c === c.toLowerCase()) ? titleCase(c) : c.trim())
+    .sort();
+  res.json({ cities });
 });
 
 // --- Precinct analytics (engagement rollup by precinct) ---

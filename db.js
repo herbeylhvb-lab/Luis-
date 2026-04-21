@@ -631,6 +631,35 @@ try {
   }
 } catch (e) { /* ignore */ }
 
+// One-time city name normalization — convert all city values to Title Case (e.g., "BROWNSVILLE" → "Brownsville")
+// so filters, dropdowns, and exports show one canonical casing per city.
+// Guarded with a settings flag so this only runs once per DB.
+try {
+  const cityNormDone = db.prepare("SELECT value FROM settings WHERE key = 'city_names_normalized'").get();
+  if (!cityNormDone) {
+    // Title-case each word: "BROWNSVILLE" → "Brownsville", "south padre island" → "South Padre Island"
+    // SQLite doesn't have native title-case; do it in JS and batch-update
+    const distinctCities = db.prepare("SELECT DISTINCT city FROM voters WHERE city != '' AND city IS NOT NULL").all();
+    function titleCase(s) {
+      return (s || '').trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    }
+    const updateStmt = db.prepare('UPDATE voters SET city = ? WHERE city = ?');
+    let changed = 0;
+    const tx = db.transaction(() => {
+      for (const r of distinctCities) {
+        const normalized = titleCase(r.city);
+        if (normalized && normalized !== r.city) {
+          const res = updateStmt.run(normalized, r.city);
+          changed += res.changes;
+        }
+      }
+    });
+    tx();
+    if (changed > 0) console.log(`[cleanup] Normalized city names on ${changed.toLocaleString()} voter(s)`);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('city_names_normalized', '1')").run();
+  }
+} catch (e) { console.warn('[cleanup] City name normalization failed:', e.message); }
+
 // Heavy migrations — run after server starts to avoid health check timeout
 setTimeout(() => {
   // Remove ghost voter records (empty registration_number + empty name)
