@@ -488,30 +488,56 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     GROUP BY v.support_level ORDER BY count DESC
   `).all(req.params.id);
 
-  // Block-walked count: support_level is synced ONLY from walk outcomes
-  // (walk_addresses.result / walk_attempts.result) per db.js:1719. So any non-null,
-  // non-'unknown' support_level means this voter was reached by a block walker.
-  const walkedTotal = (db.prepare(`
-    SELECT COUNT(*) as n FROM admin_list_voters alv
-    JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ?
-      AND v.support_level IS NOT NULL
-      AND v.support_level != ''
-      AND v.support_level != 'unknown'
-  `).get(req.params.id) || { n: 0 }).n;
-
-  // Early-voted voters who were ALSO block-walked (the key funnel number).
-  const earlyVotedWalked = (db.prepare(`
-    SELECT COUNT(*) as n FROM admin_list_voters alv
-    JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.early_voted = 1
-      AND v.support_level IS NOT NULL
-      AND v.support_level != ''
-      AND v.support_level != 'unknown'
-  `).get(req.params.id) || { n: 0 }).n;
+  // ADDRESS-LEVEL walk matching — counts a voter as "walked" if ANY walker
+  // visited their address, even if only one household member was logged.
+  // Walkers often only record the person who opened the door, but walking
+  // past the door means the whole household was reached.
+  //
+  // Result classifications:
+  //   status=3: contact made (support/lean_support/undecided/lean_oppose/oppose/refused)
+  //   status=2: knocked but no one home (not_home)
+  //   status=1: address dead-end (moved/deceased/come_back) — we don't count these as "walked"
+  //   status=0 or null: no walk record for this address
+  const walkFunnel = db.prepare(`
+    WITH list_voters AS (
+      SELECT
+        v.id as voter_id,
+        v.early_voted,
+        LOWER(TRIM(COALESCE(v.address, ''))) as addr,
+        LOWER(TRIM(COALESCE(v.unit, ''))) as unit
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ?
+    ),
+    walked_addrs AS (
+      SELECT
+        LOWER(TRIM(address)) as addr,
+        LOWER(TRIM(COALESCE(unit, ''))) as unit,
+        MAX(CASE
+          WHEN result IN ('support','lean_support','undecided','lean_oppose','oppose','refused') THEN 3
+          WHEN result = 'not_home' THEN 2
+          WHEN result IN ('moved','deceased','come_back') THEN 1
+          ELSE 0
+        END) as status
+      FROM walk_addresses
+      WHERE result IS NOT NULL AND result != '' AND result != 'not_visited'
+      GROUP BY LOWER(TRIM(address)), LOWER(TRIM(COALESCE(unit, '')))
+    )
+    SELECT
+      SUM(CASE WHEN wa.status >= 2 THEN 1 ELSE 0 END) as walked_total,
+      SUM(CASE WHEN wa.status = 3 THEN 1 ELSE 0 END) as walked_contact,
+      SUM(CASE WHEN wa.status = 2 THEN 1 ELSE 0 END) as walked_not_home,
+      SUM(CASE WHEN lv.early_voted = 1 AND wa.status >= 2 THEN 1 ELSE 0 END) as early_voted_walked,
+      SUM(CASE WHEN lv.early_voted = 1 AND wa.status = 3 THEN 1 ELSE 0 END) as early_voted_contact,
+      SUM(CASE WHEN lv.early_voted = 1 AND wa.status = 2 THEN 1 ELSE 0 END) as early_voted_not_home
+    FROM list_voters lv
+    LEFT JOIN walked_addrs wa ON wa.addr = lv.addr AND wa.unit = lv.unit
+  `).get(req.params.id) || {};
 
   // Support-level breakdown restricted to people who actually voted early.
-  // Answers: "of those who voted, how many were supporters vs undecided vs..."
+  // This uses individual voters.support_level (not address-level) because
+  // we can't infer Jane's support from her husband John's recorded answer.
+  // Only shows levels we explicitly know per-voter.
   const earlyVotedSupportBreakdown = db.prepare(`
     SELECT COALESCE(v.support_level, 'unknown') as level, COUNT(*) as count
     FROM admin_list_voters alv
@@ -525,8 +551,14 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     with_phone: withPhone,
     households,
     early_voted: earlyVoted,
-    walked_total: walkedTotal,
-    early_voted_walked: earlyVotedWalked,
+    // Walk counts (address-level — whole household counts if anyone at that address was logged)
+    walked_total: walkFunnel.walked_total || 0,
+    walked_contact: walkFunnel.walked_contact || 0,
+    walked_not_home: walkFunnel.walked_not_home || 0,
+    early_voted_walked: walkFunnel.early_voted_walked || 0,
+    early_voted_contact: walkFunnel.early_voted_contact || 0,
+    early_voted_not_home: walkFunnel.early_voted_not_home || 0,
+    // Breakdowns (individual voter-level)
     party_breakdown: partyBreakdown,
     support_breakdown: supportBreakdown,
     early_voted_support_breakdown: earlyVotedSupportBreakdown

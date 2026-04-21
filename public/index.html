@@ -14109,14 +14109,21 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       html += '</div></div>';
     }
 
-    // 🎯 Early Voter Analysis — who voted, how many were block-walked, and
-    // what the support-level split of voters looks like. Uses early_voted
-    // flag on voters (synced from early voter data imports) and support_level
-    // (synced exclusively from walk outcomes — see db.js:1719).
+    // 🎯 Early Voter Analysis — who voted, how many were block-walked,
+    // whether anyone was home, and the support-level split of voters.
+    // "Walked" counts are now address-level: if ANY walker visited the
+    // address, everyone at that address is counted — matches reality that
+    // walkers often only log the person who opened the door.
     var earlyVotedWalked = data.early_voted_walked || 0;
+    var earlyVotedContact = data.early_voted_contact || 0;
+    var earlyVotedNotHome = data.early_voted_not_home || 0;
     var walkedOfVotersPct = earlyVoted > 0 ? Math.round(earlyVotedWalked / earlyVoted * 100) : 0;
     var walkedTotalCount = data.walked_total || 0;
+    var walkedContactCount = data.walked_contact || 0;
+    var walkedNotHomeCount = data.walked_not_home || 0;
     var universeWalkedPct = totalVoters > 0 ? Math.round(walkedTotalCount / totalVoters * 100) : 0;
+    var contactPct = walkedTotalCount > 0 ? Math.round(walkedContactCount / walkedTotalCount * 100) : 0;
+    var notHomePct = walkedTotalCount > 0 ? Math.round(walkedNotHomeCount / walkedTotalCount * 100) : 0;
     // Re-declare color/label maps so this block works even if party_breakdown was empty
     var supColors = { strong_support: '#22c55e', lean_support: '#86efac', undecided: '#facc15', lean_oppose: '#f97316', strong_oppose: '#ef4444', refused: '#a855f7', unknown: '#64748b' };
     var supLabels = { strong_support: 'Strong Support', lean_support: 'Lean Support', undecided: 'Undecided', lean_oppose: 'Lean Oppose', strong_oppose: 'Strong Oppose', refused: 'Refused', unknown: 'Not Walked' };
@@ -14129,10 +14136,34 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Walked Total</div><div class="value" style="color:#60a5fa;font-size:18px">' + walkedTotalCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + universeWalkedPct + '% of universe</div></div>';
     html += '</div>';
 
+    // 🚪 House walked — contact vs no-one-home split.
+    // Shows the quality of the walk effort: did walkers actually make contact,
+    // or did they knock and get no answer?
+    if (walkedTotalCount > 0) {
+      html += '<div style="margin-bottom:12px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🚪 House Walked Breakdown</h6>';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+        '<div style="width:140px;color:#22c55e;font-weight:600;font-size:12px">Spoke With Someone</div>' +
+        '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:#22c55e;height:100%;width:' + contactPct + '%;border-radius:4px"></div></div>' +
+        '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + walkedContactCount.toLocaleString() + ' (' + contactPct + '%)</div></div>';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+        '<div style="width:140px;color:#fbbf24;font-weight:600;font-size:12px">Nobody Home</div>' +
+        '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:#fbbf24;height:100%;width:' + notHomePct + '%;border-radius:4px"></div></div>' +
+        '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + walkedNotHomeCount.toLocaleString() + ' (' + notHomePct + '%)</div></div>';
+
+      // Of the early voters, how many were "spoken with" vs "knocked but empty"
+      if (earlyVoted > 0 && earlyVotedWalked > 0) {
+        var evContactPct = earlyVotedWalked > 0 ? Math.round(earlyVotedContact / earlyVotedWalked * 100) : 0;
+        var evNotHomePct = earlyVotedWalked > 0 ? Math.round(earlyVotedNotHome / earlyVotedWalked * 100) : 0;
+        html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #334155;font-size:11px;color:#64748b">Of voted+walked: ' + earlyVotedContact.toLocaleString() + ' spoken with (' + evContactPct + '%), ' + earlyVotedNotHome.toLocaleString() + ' nobody home (' + evNotHomePct + '%)</div>';
+      }
+      html += '</div>';
+    }
+
     // Support-level breakdown of the people who actually voted early.
-    // Answers: "of those who voted, how many were supporters/undecided/etc."
+    // Only counts voters whose individual support level was recorded — we
+    // don't propagate one family member's support level to the rest.
     if (data.early_voted_support_breakdown && data.early_voted_support_breakdown.length > 0 && earlyVoted > 0) {
-      html += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">Support Level of Voters</h6>';
+      html += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">Support Level of Voters <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">(individual records only)</span></h6>';
       for (var ev = 0; ev < data.early_voted_support_breakdown.length; ev++) {
         var evb = data.early_voted_support_breakdown[ev];
         var evColor = supColors[evb.level] || '#64748b';
