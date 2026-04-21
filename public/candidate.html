@@ -2186,8 +2186,9 @@ async function loadListVoters(listId) {
     document.getElementById('rightSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
     // Add controls
-    var existingControls = headerArea.querySelector('.right-controls');
-    if (existingControls) existingControls.remove();
+    // Remove ALL existing controls (not just querySelector's first match) so
+    // duplicates can't linger if a previous render appended twice.
+    headerArea.querySelectorAll('.right-controls').forEach(function(el) { el.remove(); });
 
     var controls = document.createElement('div');
     controls.className = 'right-controls';
@@ -2477,8 +2478,8 @@ async function loadCaptainListInRight(listId, captainName) {
   headerArea.style.cssText = 'padding:16px;border-bottom:1px solid #334155';
 
   // Remove old controls
-  var existingControls = headerArea.querySelector('.right-controls');
-  if (existingControls) existingControls.remove();
+  // Remove ALL existing controls (defensive — avoids duplicate filter rows)
+  headerArea.querySelectorAll('.right-controls').forEach(function(el) { el.remove(); });
 
   try {
     var data = await api('/api/candidates/' + candidateId + '/captain-lists/' + listId + '/voters');
@@ -2678,8 +2679,8 @@ async function loadMasterListInRight() {
   var headerArea = document.getElementById('rightHeaderArea');
   headerArea.style.cssText = 'padding:16px;border-bottom:1px solid #334155';
 
-  var existingControls = headerArea.querySelector('.right-controls');
-  if (existingControls) existingControls.remove();
+  // Remove ALL existing controls (defensive — avoids duplicate filter rows)
+  headerArea.querySelectorAll('.right-controls').forEach(function(el) { el.remove(); });
 
   try {
     var data = await api('/api/candidates/' + candidateId + '/master-list');
