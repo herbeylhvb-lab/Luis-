@@ -1377,7 +1377,9 @@ function renderCaptainCards(captains) {
     votedStat.className = 'captain-stat';
     var votedNum = document.createElement('div');
     votedNum.className = 'num voted-pct ' + (capVotedPct >= 60 ? 'green' : capVotedPct >= 30 ? 'yellow' : 'red');
-    votedNum.textContent = capVotedPct + '%';
+    // Show raw count + percentage, e.g. "42 (73%)". Count answers "how many
+    // of my voters voted?" while percentage gives at-a-glance performance.
+    votedNum.textContent = votedCount.toLocaleString() + ' (' + capVotedPct + '%)';
     votedStat.appendChild(votedNum);
     var votedLabelEl = document.createElement('div');
     votedLabelEl.className = 'label';
@@ -1428,7 +1430,8 @@ function renderCaptainCards(captains) {
       teamVotedStat.className = 'captain-stat';
       var teamVotedNum = document.createElement('div');
       teamVotedNum.className = 'num voted-pct ' + (teamVotedPct >= 60 ? 'green' : teamVotedPct >= 30 ? 'yellow' : 'red');
-      teamVotedNum.textContent = teamVotedPct + '%';
+      // Raw count + percentage for the full team tree
+      teamVotedNum.textContent = teamVoted.toLocaleString() + ' (' + teamVotedPct + '%)';
       teamVotedStat.appendChild(teamVotedNum);
       var teamVotedLabel = document.createElement('div');
       teamVotedLabel.className = 'label';
