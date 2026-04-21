@@ -72,7 +72,7 @@ const {
   SCHOOL_LABELS,
   NAVIGATION_PORT_LABELS: NAV_PORT_LABELS,
   PORT_AUTHORITY_LABELS: PORT_AUTH_LABELS,
-} = require('../district-codes');
+} = require('../lib/district-codes');
 
 function parseName(nameStr) {
   if (!nameStr) return { last: '', first: '', middle: '' };

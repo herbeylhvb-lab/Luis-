@@ -848,7 +848,7 @@ addColumn("ALTER TABLE voters ADD COLUMN unit_type TEXT DEFAULT ''");
 // forms (e.g., CCO + CCB for Combes) to handle the county's re-coding.
 // Also decodes any raw codes that bled into the voters.city column
 // (which is what the Block Captain dropdown reads from).
-const { buildDistrictRenames, buildCityColumnRenames } = require('./district-codes');
+const { buildDistrictRenames, buildCityColumnRenames } = require('./lib/district-codes');
 const districtRenames = [
   ...buildDistrictRenames(),
   ...buildCityColumnRenames(),  // voters.city: "CCO" → "Combes", etc.
