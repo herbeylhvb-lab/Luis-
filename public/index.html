@@ -14165,10 +14165,38 @@ async function showUniverseDashboard(listId, listName, rowEl) {
 
     html += '<div style="margin:12px 0 16px;padding:14px;background:#0b1220;border:1px solid #1e40af;border-radius:8px">';
     html += '<h5 style="color:#60a5fa;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px">🎯 Early Voter Analysis</h5>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px">';
+
+    // Split stat cards into two sub-sections: universe-scoped and race-scoped.
+    // Race numbers come from admin_lists.race_column/race_value (district-scoped
+    // via the same detected_race_column used for "Voters I Missed"). Lets you
+    // compare "votes in my target" vs "votes in the whole race" directly.
+    var districtTurnoutNum = data.district_early_voted || 0;
+    var raceTurnoutLabel = (data.detected_race_column && data.detected_race_value)
+      ? 'in ' + escHtml(data.detected_race_value)
+      : 'in whole DB (no race)';
+
+    html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">';
+
+    // Universe section
+    html += '<div style="flex:1;min-width:280px">';
+    html += '<div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">📍 Your Universe (' + totalVoters.toLocaleString() + ' voters)</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
     html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted Early</div><div class="value" style="color:#86efac;font-size:18px">' + earlyVoted.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + votedPct + '% of universe</div></div>';
-    html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted & Walked</div><div class="value" style="color:#22c55e;font-size:18px">' + earlyVotedWalked.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + walkedOfVotersPct + '% of voters</div></div>';
+    html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted &amp; Walked</div><div class="value" style="color:#22c55e;font-size:18px">' + earlyVotedWalked.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + walkedOfVotersPct + '% of voters</div></div>';
     html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Walked Total</div><div class="value" style="color:#60a5fa;font-size:18px">' + walkedTotalCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + universeWalkedPct + '% of universe</div></div>';
+    html += '</div></div>';
+
+    // Race/district section
+    var raceUniversePct = districtTurnoutNum > 0 ? Math.round(earlyVoted / districtTurnoutNum * 100) : 0;
+    var raceOutsideCount = (data.early_voted_outside || 0);
+    html += '<div style="flex:1;min-width:280px">';
+    html += '<div style="font-size:10px;color:#22d3ee;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🗳️ Whole Race · ' + raceTurnoutLabel + '</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
+    html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">Race Voted</div><div class="value" style="color:#67e8f9;font-size:18px">' + districtTurnoutNum.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">total votes in district</div></div>';
+    html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">My Share</div><div class="value" style="color:#22d3ee;font-size:18px">' + raceUniversePct + '%</div><div style="font-size:11px;color:#64748b">' + earlyVoted.toLocaleString() + ' of ' + districtTurnoutNum.toLocaleString() + '</div></div>';
+    html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">Voted Outside</div><div class="value" style="color:#a5f3fc;font-size:18px">' + raceOutsideCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">voted, not in universe</div></div>';
+    html += '</div></div>';
+
     html += '</div>';
 
     // 🎯 Same 4-category split, but restricted to people who voted early.
@@ -14289,29 +14317,9 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     }
     html += '</div>';
 
-    // 🗳️ In-Race Voters Not Targeted — the single number Luis cares about:
-    // of the people who voted in THIS race (inside the district boundaries),
-    // how many were NOT in my universe? These are the people I missed who
-    // actually cast a ballot for this election.
-    var districtEarlyVoted = data.district_early_voted || 0;
-    var outsideCount = data.early_voted_outside || 0;
-    var raceCol = data.detected_race_column;
-    var raceVal = data.detected_race_value;
-    var raceScopeLabel = (raceCol && raceVal)
-      ? escHtml(raceVal) + ' (' + raceCol.replace(/_/g, ' ') + ')'
-      : 'whole DB (race not auto-detected)';
-    var universeCoverPct = districtEarlyVoted > 0 ? Math.round(earlyVoted / districtEarlyVoted * 100) : 0;
-    html += '<div style="margin-bottom:12px;padding:10px;background:#0b1a1f;border:1px solid #0891b2;border-radius:6px">';
-    html += '<h6 style="color:#22d3ee;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🗳️ Voters I Missed <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">· ' + raceScopeLabel + '</span></h6>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">' +
-      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#67e8f9;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Race Early Voters</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + districtEarlyVoted.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">voted in this race</div></div>' +
-      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#a5f3fc;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Not In My Universe</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + outsideCount.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">voted but I didn\'t target</div></div>' +
-      '</div>';
-    html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #155e75;font-size:11px;color:#94a3b8">' +
-      '💡 Your universe covered <strong style="color:#22d3ee">' + universeCoverPct + '%</strong> of in-race early voters (' +
-      earlyVoted.toLocaleString() + ' of ' + districtEarlyVoted.toLocaleString() + ')' +
-      '</div>';
-    html += '</div>';
+    // "Voters I Missed" / District turnout block removed — these numbers
+    // (Race Voted, My Share, Voted Outside) now live in the top stat grid
+    // of the Early Voter Analysis block under the "Whole Race" column.
 
     // Support-level breakdown of the people who actually voted early.
     // Only counts voters whose individual support level was recorded — we
