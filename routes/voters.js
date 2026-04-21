@@ -2801,6 +2801,34 @@ router.post('/universe/build', (req, res) => {
   const cutoffYear = new Date().getFullYear() - (years_back || 8);
   const cutoffDate = cutoffYear + '-01-01';
 
+  // Detect the single race filter used for this universe so we can scope
+  // "voters outside my universe" to the correct electorate later. If the
+  // user filtered by multiple values (or by non-race dimensions), we save
+  // null and fall back to inference at query time.
+  // Priority order: most-specific race first.
+  const raceFilterMap = [
+    ['navigation_port', navigation_ports],
+    ['port_authority', port_authorities],
+    ['school_district', school_districts],
+    ['college_district', college_districts],
+    ['hospital_district', hospital_districts],
+    ['justice_of_peace', justice_of_peace],
+    ['county_commissioner', county_commissioners],
+    ['state_board_ed', state_board_ed],
+    ['state_rep', state_reps],
+    ['state_senate', state_senate],
+    ['us_congress', us_congress]
+  ];
+  let builderRaceCol = null;
+  let builderRaceVal = null;
+  for (const [col, vals] of raceFilterMap) {
+    if (Array.isArray(vals) && vals.length === 1 && vals[0]) {
+      builderRaceCol = col;
+      builderRaceVal = vals[0];
+      break;
+    }
+  }
+
   const step1 = buildStep1Filter({ precincts, genders, age_min, age_max, cities,
     school_districts, college_districts, navigation_ports, port_authorities,
     state_reps, us_congress, parties, min_elections, voter_statuses,
@@ -2822,11 +2850,12 @@ router.post('/universe/build', (req, res) => {
 
     // Basic mode: no election data
     if (!hasElectionData) {
-      const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)');
+      // Include race_column/race_value so universe reports scope correctly
+      const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type, race_column, race_value) VALUES (?, ?, ?, ?, ?)');
       const created = {};
       const finalName = list_name || list_name_universe;
       if (finalName) {
-        const r = insertList.run(finalName, 'All registered voters matching filters', 'universe');
+        const r = insertList.run(finalName, 'All registered voters matching filters', 'universe', builderRaceCol, builderRaceVal);
         const listId = r.lastInsertRowid;
         const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_precinct').run(listId);
         created.universe = { listId, added: added.changes };
@@ -2914,8 +2943,8 @@ router.post('/universe/build', (req, res) => {
         WHERE ev.election_name IN (${pPh})`).get(...priority_elections) || { c: 0 }).c;
     }
 
-    // Create lists
-    const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type) VALUES (?, ?, ?)');
+    // Create lists — include race_column/race_value for scoped reporting
+    const insertList = db.prepare('INSERT INTO admin_lists (name, description, list_type, race_column, race_value) VALUES (?, ?, ?, ?, ?)');
     const created = {};
     const finalName = list_name || list_name_universe;
     if (finalName) {
@@ -2923,7 +2952,7 @@ router.post('/universe/build', (req, res) => {
       if (elecNames.length > 0) {
         descParts.push('Elections: ' + elecNames.join(', '));
       }
-      const r = insertList.run(finalName, descParts.join(' — '), 'universe');
+      const r = insertList.run(finalName, descParts.join(' — '), 'universe', builderRaceCol, builderRaceVal);
       const listId = r.lastInsertRowid;
       const added = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) SELECT ?, voter_id FROM _univ_targeted').run(listId);
       created.universe = { listId, added: added.changes };

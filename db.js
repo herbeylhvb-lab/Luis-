@@ -379,6 +379,12 @@ db.exec(`
 
 // List type columns for purpose tagging (event, text, survey, block_walk, general)
 addColumn("ALTER TABLE admin_lists ADD COLUMN list_type TEXT DEFAULT 'general'");
+// Race scoping on admin_lists — when a universe is built via the Universe
+// Builder, these columns record which race/district it was filtered for.
+// Used by the stats endpoint to scope "voters outside my universe" to the
+// correct race electorate instead of the whole DB.
+addColumn("ALTER TABLE admin_lists ADD COLUMN race_column TEXT DEFAULT NULL");
+addColumn("ALTER TABLE admin_lists ADD COLUMN race_value TEXT DEFAULT NULL");
 addColumn("ALTER TABLE captain_lists ADD COLUMN list_type TEXT DEFAULT 'general'");
 
 // Admin list can be assigned to a captain — captain can then add voters to it

@@ -666,13 +666,10 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     return { name: m.display_name, households, voters };
   }).filter(r => r.voters > 0).sort((a, b) => b.voters - a.voters);
 
-  // RACE-SCOPED counterfactuals — universes are built for a specific race
-  // (navigation_port, city_district, state_rep, etc.). Compare early-voter
-  // counts against the race's full electorate, not the whole DB.
-  //
-  // Infer race column+value by testing each known race column: if 95%+ of
-  // the universe's voters share the same value, that column is the race.
-  // First match wins (ordered most specific → most general).
+  // RACE-SCOPED counterfactuals — prefer the race that was EXPLICITLY saved
+  // when the universe was built (admin_lists.race_column / race_value).
+  // Fall back to inference for older universes that were saved before race
+  // tracking existed.
   const raceColumns = [
     'navigation_port', 'port_authority', 'single_member_city', 'city_district',
     'school_district', 'hospital_district', 'college_district',
@@ -680,25 +677,41 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     'city_council', 'water_district', 'drainage_district', 'municipal_utility',
     'court_of_appeals', 'state_board_ed', 'state_rep', 'state_senate', 'us_congress'
   ];
+  const DISTRICT_COLS_SET = new Set(raceColumns);
   let detectedRaceCol = null;
   let detectedRaceVal = null;
-  for (const col of raceColumns) {
-    try {
-      const row = db.prepare(`
-        SELECT v.${col} as val, COUNT(*) as n
-        FROM admin_list_voters alv
-        JOIN voters v ON alv.voter_id = v.id
-        WHERE alv.list_id = ? AND v.${col} IS NOT NULL AND v.${col} != ''
-        GROUP BY v.${col}
-        ORDER BY n DESC
-        LIMIT 1
-      `).get(req.params.id);
-      if (row && row.n >= totalVoters * 0.95 && row.val) {
-        detectedRaceCol = col;
-        detectedRaceVal = row.val;
-        break;
-      }
-    } catch(e) { /* column doesn't exist — ignore */ }
+  // Prefer explicitly-saved race
+  if (list.race_column && list.race_value && DISTRICT_COLS_SET.has(list.race_column)) {
+    detectedRaceCol = list.race_column;
+    detectedRaceVal = list.race_value;
+  } else {
+    // Fall back to inference: if 95%+ of universe voters share one value in a
+    // race column, that's probably the race.
+    for (const col of raceColumns) {
+      try {
+        const row = db.prepare(`
+          SELECT v.${col} as val, COUNT(*) as n
+          FROM admin_list_voters alv
+          JOIN voters v ON alv.voter_id = v.id
+          WHERE alv.list_id = ? AND v.${col} IS NOT NULL AND v.${col} != ''
+          GROUP BY v.${col}
+          ORDER BY n DESC
+          LIMIT 1
+        `).get(req.params.id);
+        if (row && row.n >= totalVoters * 0.95 && row.val) {
+          detectedRaceCol = col;
+          detectedRaceVal = row.val;
+          break;
+        }
+      } catch(e) { /* column doesn't exist — ignore */ }
+    }
+    // Persist detected race so next time we skip the inference step
+    if (detectedRaceCol && detectedRaceVal) {
+      try {
+        db.prepare('UPDATE admin_lists SET race_column = ?, race_value = ? WHERE id = ?')
+          .run(detectedRaceCol, detectedRaceVal, req.params.id);
+      } catch(e) { /* ignore — columns may not exist on old DBs */ }
+    }
   }
 
   // District context: total voters, early voters, and early voters NOT in this
