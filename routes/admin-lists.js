@@ -865,18 +865,24 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     GROUP BY gender_label
   `).all(...raceScopedParams, req.params.id);
 
-  // Age buckets. Standard political-segmentation cuts:
-  //   18-24 (young), 25-34 (millennials), 35-49 (gen X), 50-64 (boomers), 65+ (seniors)
+  // Age buckets — tuned for small municipal races with the senior split
+  // (65-74 vs 75+) to distinguish active retirees from elderly voters with
+  // different turnout/outreach needs:
+  //   18-34: low-turnout, GOTV+digital focus
+  //   35-49: family-formation years, school/jobs messaging
+  //   50-64: peak swing demographic, direct mail + walking
+  //   65-74: active retirees, highest in-person turnout
+  //   75+:   reduced mobility, mail-in ballots, reach via family
   // SQL CASE-WHEN emits a sortable numeric prefix so results order correctly.
   const outsideAgeRows = db.prepare(`
     SELECT
       CASE
         WHEN v.age IS NULL OR v.age = 0 THEN '9 Unknown'
-        WHEN v.age < 25 THEN '1 18-24'
-        WHEN v.age < 35 THEN '2 25-34'
-        WHEN v.age < 50 THEN '3 35-49'
-        WHEN v.age < 65 THEN '4 50-64'
-        ELSE '5 65+'
+        WHEN v.age < 35 THEN '1 18-34'
+        WHEN v.age < 50 THEN '2 35-49'
+        WHEN v.age < 65 THEN '3 50-64'
+        WHEN v.age < 75 THEN '4 65-74'
+        ELSE '5 75+'
       END as bucket,
       COUNT(*) as count
     FROM voters v
