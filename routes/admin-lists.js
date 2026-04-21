@@ -206,6 +206,11 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
   const mobileOnly = req.query.mobile === '1';
+  // Exclude voters who already early-voted — no point texting/mailing them.
+  // Toggleable via ?exclude_voted=1 so you can choose to print the full list.
+  const excludeVoted = req.query.exclude_voted === '1'
+    ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+    : '';
   const phoneFilter = mobileOnly
     ? "AND v.phone_type = 'mobile'"
     : "AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')";
@@ -214,7 +219,7 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.email, v.phone_type
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? ${phoneFilter}
+    WHERE alv.list_id = ? ${phoneFilter}${excludeVoted}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
   // Secondary phones — person appears twice with both numbers
@@ -223,7 +228,7 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
       SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.email, v.secondary_phone_type as phone_type
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+      WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')${excludeVoted}
       ORDER BY v.last_name, v.first_name
     `).all(req.params.id);
     voters.push(...secVoters);
@@ -232,7 +237,7 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
       SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.email, v.tertiary_phone_type as phone_type
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+      WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')${excludeVoted}
       ORDER BY v.last_name, v.first_name
     `).all(req.params.id);
     voters.push(...terVoters);
@@ -259,12 +264,16 @@ router.get('/admin-lists/:id/export-rumbleup', (req, res) => {
 router.get('/admin-lists/:id/export-simpletext', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  // Exclude already-voted via ?exclude_voted=1
+  const excludeVoted = req.query.exclude_voted === '1'
+    ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+    : '';
   // Primary phones
   const voters = db.prepare(`
     SELECT v.first_name, v.last_name, v.phone, v.city, v.zip, v.precinct, v.registration_number
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')
+    WHERE alv.list_id = ? AND v.phone != '' AND v.phone IS NOT NULL AND COALESCE(v.phone_type,'') NOT IN ('landline','invalid')${excludeVoted}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
   // Secondary phones — person appears twice with both numbers
@@ -272,7 +281,7 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
     SELECT v.first_name, v.last_name, v.secondary_phone as phone, v.city, v.zip, v.precinct, v.registration_number
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')
+    WHERE alv.list_id = ? AND v.secondary_phone != '' AND v.secondary_phone IS NOT NULL AND COALESCE(v.secondary_phone_type,'') NOT IN ('landline','invalid')${excludeVoted}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
   voters.push(...secVoters);
@@ -281,7 +290,7 @@ router.get('/admin-lists/:id/export-simpletext', (req, res) => {
     SELECT v.first_name, v.last_name, v.tertiary_phone as phone, v.city, v.zip, v.precinct, v.registration_number
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')
+    WHERE alv.list_id = ? AND v.tertiary_phone != '' AND v.tertiary_phone IS NOT NULL AND COALESCE(v.tertiary_phone_type,'') NOT IN ('landline','invalid')${excludeVoted}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
   voters.push(...terVoters);
@@ -310,6 +319,12 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
   try {
     const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
     if (!list) return res.status(404).json({ error: 'List not found.' });
+    // Exclude already-voted voters via ?exclude_voted=1 — dedup happens
+    // AFTER the voter-level filter, so households where every resident
+    // already voted correctly drop out entirely.
+    const excludeVoted = req.query.exclude_voted === '1'
+      ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+      : '';
 
     const households = db.prepare(`
       SELECT
@@ -328,7 +343,7 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
         COUNT(*) as household_size
       FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
+      WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL${excludeVoted}
       GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.unit,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
       ORDER BY res_zip, res_city, res_addr, unit
     `).all(req.params.id);
@@ -380,6 +395,9 @@ router.get('/admin-lists/:id/export-mailing-csv', (req, res) => {
 router.get('/admin-lists/:id/export-l2', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  const excludeVoted = req.query.exclude_voted === '1'
+    ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+    : '';
 
   const voters = db.prepare(`
     SELECT v.registration_number, v.county_file_id, v.state_file_id, v.vanid,
@@ -389,7 +407,7 @@ router.get('/admin-lists/:id/export-l2', (req, res) => {
            v.party, v.precinct, v.phone_type
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ?
+    WHERE alv.list_id = ?${excludeVoted}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
 
@@ -849,6 +867,9 @@ router.get('/admin-lists/:id/precincts', (req, res) => {
 router.get('/admin-lists/:id/export-mailer', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  const excludeVoted = req.query.exclude_voted === '1'
+    ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+    : '';
 
   const households = db.prepare(`
     SELECT
@@ -860,7 +881,7 @@ router.get('/admin-lists/:id/export-mailer', (req, res) => {
       COUNT(*) as household_size
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ?
+    WHERE alv.list_id = ?${excludeVoted}
     GROUP BY LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))
     ORDER BY v.city, v.address
   `).all(req.params.id);
@@ -994,6 +1015,9 @@ router.post('/admin-lists/:id/create-walk', (req, res) => {
 router.get('/admin-lists/:id/export-facebook', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  const excludeVoted = req.query.exclude_voted === '1'
+    ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+    : '';
 
   // Facebook Custom Audience CSV format: email, phone, fn, ln, zip, ct, st, country
   // All values must be lowercase, trimmed. Phone must be digits with country code.
@@ -1002,7 +1026,7 @@ router.get('/admin-lists/:id/export-facebook', (req, res) => {
            v.address, v.city, COALESCE(v.state, 'TX') as state, v.zip
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ?
+    WHERE alv.list_id = ?${excludeVoted}
     ORDER BY v.last_name, v.first_name
   `).all(req.params.id);
 
@@ -1040,6 +1064,9 @@ router.get('/admin-lists/:id/export-facebook', (req, res) => {
 router.get('/admin-lists/:id/export-ott', (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  const excludeVoted = req.query.exclude_voted === '1'
+    ? " AND (v.early_voted IS NULL OR v.early_voted = 0)"
+    : '';
 
   // OTT/El Toro format: full address for IP matching
   // They need: First Name, Last Name, Full Address, City, State, Zip
@@ -1049,7 +1076,7 @@ router.get('/admin-lists/:id/export-ott', (req, res) => {
            v.precinct, v.party, v.gender, v.age
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL
+    WHERE alv.list_id = ? AND v.address != '' AND v.address IS NOT NULL${excludeVoted}
     ORDER BY v.zip, v.city, v.address
   `).all(req.params.id);
 

@@ -14032,6 +14032,19 @@ async function loadMyUniverses() {
   });
 }
 
+// Flip every export-link inside the dashboard to include (or drop) the
+// ?exclude_voted=1 query param. Wired to the toggle checkbox at the top
+// of showUniverseDashboard.
+window.toggleExcludeVoted = function(listId, checked) {
+  var dash = document.querySelector('.universe-dashboard');
+  if (!dash) return;
+  var links = dash.querySelectorAll('.export-link[data-base]');
+  for (var i = 0; i < links.length; i++) {
+    var base = links[i].getAttribute('data-base');
+    links[i].href = checked ? base + '?exclude_voted=1' : base;
+  }
+};
+
 async function showUniverseDashboard(listId, listName, rowEl) {
   // Remove any existing dashboard below this row
   var existing = rowEl.nextElementSibling;
@@ -14058,14 +14071,30 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     var notVoted = totalVoters - earlyVoted;
     var votedPct = totalVoters > 0 ? Math.round(earlyVoted / totalVoters * 100) : 0;
 
-    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+    // Download links marked with data-export so the "skip voters who already
+    // voted" toggle below can append/remove ?exclude_voted=1 from all at once.
+    var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
       '<h4 style="margin:0;color:#e2e8f0">' + escHtml(listName) + '</h4>' +
-      '<div style="display:flex;gap:6px">' +
-      '<a class="btn btn-sm btn-primary" style="text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv">Download Mailing List</a>' +
-      '<a class="btn btn-sm" style="background:#1877f2;border-color:#1564bf;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-facebook">📘 Facebook</a>' +
-      '<a class="btn btn-sm" style="background:#ff6b35;border-color:#e55a2b;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-ott">📺 OTT</a>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      '<a class="btn btn-sm btn-primary export-link" data-base="/api/admin-lists/' + listId + '/export-mailing-csv" style="text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv">Download Mailing List</a>' +
+      '<a class="btn btn-sm export-link" data-base="/api/admin-lists/' + listId + '/export-facebook" style="background:#1877f2;border-color:#1564bf;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-facebook">📘 Facebook</a>' +
+      '<a class="btn btn-sm export-link" data-base="/api/admin-lists/' + listId + '/export-ott" style="background:#ff6b35;border-color:#e55a2b;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-ott">📺 OTT</a>' +
+      '<a class="btn btn-sm export-link" data-base="/api/admin-lists/' + listId + '/export-simpletext" style="background:#10b981;border-color:#059669;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-simpletext">📱 Phone List</a>' +
       '<button class="btn btn-sm btn-secondary" onclick="document.querySelector(\'[data-subtab=lists-tab]\').click();setTimeout(function(){openAdminList(' + listId + ',\'' + escHtml(listName).replace(/'/g, "\\'") + '\')},200)">View Voters</button>' +
       '</div></div>';
+
+    // 🚫 Skip-early-voters toggle — when checked, every export link in this
+    // dashboard (Mailing List, Facebook, OTT, Phone List) appends
+    // ?exclude_voted=1 so the CSV only contains voters who haven't cast a
+    // ballot yet. Save money by not mailing/texting people who already voted.
+    var notVotedCount = totalVoters - earlyVoted;
+    html += '<div style="background:#1a0f1f;border:1px solid #7c3aed;border-radius:6px;padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-size:13px">' +
+      '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#e2e8f0;user-select:none">' +
+      '<input type="checkbox" id="excludeVoted_' + listId + '" onchange="toggleExcludeVoted(' + listId + ', this.checked)" style="width:16px;height:16px;cursor:pointer">' +
+      '<span>🚫 Skip voters who already voted</span>' +
+      '</label>' +
+      '<span style="color:#94a3b8;font-size:12px;margin-left:auto">Downloads will exclude <strong style="color:#a78bfa">' + earlyVoted.toLocaleString() + '</strong> early voters · <strong style="color:#e2e8f0">' + notVotedCount.toLocaleString() + '</strong> voters remaining to contact</span>' +
+      '</div>';
 
     html += '<div class="stats-grid" style="margin-bottom:12px">' +
       '<div class="stat-card"><div class="label">Total Voters</div><div class="value">' + totalVoters.toLocaleString() + '</div></div>' +
