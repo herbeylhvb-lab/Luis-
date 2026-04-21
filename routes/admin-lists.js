@@ -434,6 +434,60 @@ router.get('/admin-lists/:id/export-l2', (req, res) => {
   res.send(csv);
 });
 
+// ─── EXPORT "VOTED OUTSIDE MY UNIVERSE" ────────────────────────────
+// CSV of early voters who are IN the race but NOT in this universe.
+// Use case: review who turned out that you didn't target — spot patterns,
+// find voters you should add to future universes.
+// Scoped to admin_lists.race_column/race_value if set, else whole DB.
+router.get('/admin-lists/:id/export-outside-voters', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // Race-scope matches what /stats uses — prefer saved race column
+  const DISTRICT_COLS_SET = new Set([
+    'navigation_port', 'port_authority', 'single_member_city', 'city_district',
+    'school_district', 'hospital_district', 'college_district',
+    'justice_of_peace', 'county_commissioner', 'constable', 'school_board',
+    'city_council', 'water_district', 'drainage_district', 'municipal_utility',
+    'court_of_appeals', 'state_board_ed', 'state_rep', 'state_senate', 'us_congress'
+  ]);
+  let where, params;
+  if (list.race_column && list.race_value && DISTRICT_COLS_SET.has(list.race_column)) {
+    where = `v.${list.race_column} = ? AND v.early_voted = 1 AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`;
+    params = [list.race_value, req.params.id];
+  } else {
+    where = `v.early_voted = 1 AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)`;
+    params = [req.params.id];
+  }
+
+  const voters = db.prepare(`
+    SELECT v.first_name, v.middle_name, v.last_name, v.age, v.gender,
+           v.registration_number, v.address, v.city, v.zip, v.precinct,
+           v.party_score, v.phone, v.email
+    FROM voters v
+    WHERE ${where}
+    ORDER BY v.precinct, v.last_name, v.first_name
+  `).all(...params);
+
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+
+  const header = 'First Name,Middle,Last Name,Age,Gender,Reg #,Address,City,Zip,Precinct,Party,Phone,Email';
+  const rows = voters.map(v => [
+    v.first_name, v.middle_name, v.last_name, v.age || '', v.gender || '',
+    v.registration_number || '', v.address, v.city, v.zip, v.precinct,
+    v.party_score || '', v.phone || '', v.email || ''
+  ].map(csvEscape).join(','));
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_voted_outside_universe.csv"');
+  res.send(csv);
+});
+
 // Save VBM matched voters as a mail universe list
 router.post('/admin-lists/vbm-save', (req, res) => {
   const { name, voter_ids } = req.body;
@@ -786,6 +840,81 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     `).get(req.params.id) || { n: 0 }).n;
   }
 
+  // ─── DEMOGRAPHICS OF VOTERS I MISSED (outside universe, in-race) ───
+  // Paints a picture of who turned out that you didn't target:
+  // gender breakdown + age buckets. All race-scoped via the detected
+  // race column. Fallback (no race): queries against whole-DB early voters.
+  const raceScopedWhere = detectedRaceCol && detectedRaceVal
+    ? `v.${detectedRaceCol} = ? AND v.early_voted = 1`
+    : 'v.early_voted = 1';
+  const raceScopedParams = detectedRaceCol && detectedRaceVal ? [detectedRaceVal] : [];
+
+  // Gender breakdown. Normalize to M/F/Unknown since upstream data uses
+  // varying formats ('M', 'Male', 'm', '', null, etc.)
+  const outsideGenderRows = db.prepare(`
+    SELECT
+      CASE
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('M','MALE') THEN 'Male'
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('F','FEMALE') THEN 'Female'
+        ELSE 'Unknown'
+      END as gender_label,
+      COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    GROUP BY gender_label
+  `).all(...raceScopedParams, req.params.id);
+
+  // Age buckets. Standard political-segmentation cuts:
+  //   18-24 (young), 25-34 (millennials), 35-49 (gen X), 50-64 (boomers), 65+ (seniors)
+  // SQL CASE-WHEN emits a sortable numeric prefix so results order correctly.
+  const outsideAgeRows = db.prepare(`
+    SELECT
+      CASE
+        WHEN v.age IS NULL OR v.age = 0 THEN '9 Unknown'
+        WHEN v.age < 25 THEN '1 18-24'
+        WHEN v.age < 35 THEN '2 25-34'
+        WHEN v.age < 50 THEN '3 35-49'
+        WHEN v.age < 65 THEN '4 50-64'
+        ELSE '5 65+'
+      END as bucket,
+      COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    GROUP BY bucket
+    ORDER BY bucket
+  `).all(...raceScopedParams, req.params.id).map(r => ({
+    range: r.bucket.substring(2), // strip sort prefix
+    count: r.count
+  }));
+
+  // Party breakdown of outside voters — useful context on who's turning out
+  // that you missed (and what party they lean).
+  const outsidePartyRows = db.prepare(`
+    SELECT COALESCE(NULLIF(TRIM(v.party_score), ''), 'Unknown') as party, COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    GROUP BY party
+    ORDER BY count DESC
+  `).all(...raceScopedParams, req.params.id);
+
+  // ─── TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped) ───
+  // Shows where the turnout is concentrated in the district — essential for
+  // future GOTV targeting. Counts ALL early voters in the race (not just
+  // outside-universe) because you want to know which precincts ARE voting,
+  // period.
+  const topPrecincts = db.prepare(`
+    SELECT v.precinct, COUNT(*) as voted_count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND v.precinct IS NOT NULL AND TRIM(v.precinct) != ''
+    GROUP BY v.precinct
+    ORDER BY voted_count DESC
+    LIMIT 10
+  `).all(...raceScopedParams);
+
   // Support-level breakdown restricted to people who actually voted early.
   // This uses individual voters.support_level (not address-level) because
   // we can't infer Jane's support from her husband John's recorded answer.
@@ -839,6 +968,12 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     district_early_voted: districtEarlyVoted,
     // Counterfactual: early voters in this district NOT in this universe
     early_voted_outside: earlyVotedOutsideUniverse,
+    // Who are those outside voters? Gender + age + party breakdowns
+    outside_gender_breakdown: outsideGenderRows,
+    outside_age_buckets: outsideAgeRows,
+    outside_party_breakdown: outsidePartyRows,
+    // Top 10 precincts by early vote count (race-scoped)
+    top_precincts_by_vote: topPrecincts,
 
     // Voter-level breakdowns (individual records, not propagated to household)
     party_breakdown: partyBreakdown,
