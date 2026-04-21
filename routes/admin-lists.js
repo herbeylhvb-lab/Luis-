@@ -611,15 +611,65 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   // Array sorted by mailer count ascending
   const mailerBreakdown = Array.from(mailerBuckets.values()).sort((a, b) => a.count - b.count);
 
-  // Voted but NOT in this universe — early voters who weren't targeted by this
-  // list. Useful counterfactual: "how many turned out that I didn't target?"
-  // Not race-scoped (admin_lists has no race column) so this counts ALL early
-  // voters anywhere in the DB who aren't in this list.
-  const earlyVotedOutsideUniverse = (db.prepare(`
-    SELECT COUNT(*) as n FROM voters v
-    WHERE v.early_voted = 1
-      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
-  `).get(req.params.id) || { n: 0 }).n;
+  // RACE-SCOPED counterfactuals — universes are built for a specific race
+  // (navigation_port, city_district, state_rep, etc.). Compare early-voter
+  // counts against the race's full electorate, not the whole DB.
+  //
+  // Infer race column+value by testing each known race column: if 95%+ of
+  // the universe's voters share the same value, that column is the race.
+  // First match wins (ordered most specific → most general).
+  const raceColumns = [
+    'navigation_port', 'port_authority', 'single_member_city', 'city_district',
+    'school_district', 'hospital_district', 'college_district',
+    'justice_of_peace', 'county_commissioner', 'constable', 'school_board',
+    'city_council', 'water_district', 'drainage_district', 'municipal_utility',
+    'court_of_appeals', 'state_board_ed', 'state_rep', 'state_senate', 'us_congress'
+  ];
+  let detectedRaceCol = null;
+  let detectedRaceVal = null;
+  for (const col of raceColumns) {
+    try {
+      const row = db.prepare(`
+        SELECT v.${col} as val, COUNT(*) as n
+        FROM admin_list_voters alv
+        JOIN voters v ON alv.voter_id = v.id
+        WHERE alv.list_id = ? AND v.${col} IS NOT NULL AND v.${col} != ''
+        GROUP BY v.${col}
+        ORDER BY n DESC
+        LIMIT 1
+      `).get(req.params.id);
+      if (row && row.n >= totalVoters * 0.95 && row.val) {
+        detectedRaceCol = col;
+        detectedRaceVal = row.val;
+        break;
+      }
+    } catch(e) { /* column doesn't exist — ignore */ }
+  }
+
+  // District context: total voters, early voters, and early voters NOT in this
+  // universe — all scoped to the detected race. Falls back to whole-DB scope
+  // if no race was detected (e.g., a hand-built universe across races).
+  let districtTotal = 0;
+  let districtEarlyVoted = 0;
+  let earlyVotedOutsideUniverse = 0;
+  if (detectedRaceCol && detectedRaceVal) {
+    districtTotal = (db.prepare(`SELECT COUNT(*) as n FROM voters WHERE ${detectedRaceCol} = ?`).get(detectedRaceVal) || { n: 0 }).n;
+    districtEarlyVoted = (db.prepare(`SELECT COUNT(*) as n FROM voters WHERE ${detectedRaceCol} = ? AND early_voted = 1`).get(detectedRaceVal) || { n: 0 }).n;
+    earlyVotedOutsideUniverse = (db.prepare(`
+      SELECT COUNT(*) as n FROM voters v
+      WHERE v.${detectedRaceCol} = ? AND v.early_voted = 1
+        AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    `).get(detectedRaceVal, req.params.id) || { n: 0 }).n;
+  } else {
+    // No race detected — fall back to whole-DB counts
+    districtTotal = (db.prepare('SELECT COUNT(*) as n FROM voters').get() || { n: 0 }).n;
+    districtEarlyVoted = (db.prepare('SELECT COUNT(*) as n FROM voters WHERE early_voted = 1').get() || { n: 0 }).n;
+    earlyVotedOutsideUniverse = (db.prepare(`
+      SELECT COUNT(*) as n FROM voters v
+      WHERE v.early_voted = 1
+        AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    `).get(req.params.id) || { n: 0 }).n;
+  }
 
   // Support-level breakdown restricted to people who actually voted early.
   // This uses individual voters.support_level (not address-level) because
@@ -665,7 +715,12 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     // Per-household mailer-count histogram: [{count:0, voters:N, voted:N}, {count:1, ...}, ...]
     mailer_breakdown: mailerBreakdown,
 
-    // Counterfactual: early voters NOT in this universe (not race-scoped)
+    // District context (race-scoped — inferred from universe contents)
+    detected_race_column: detectedRaceCol,
+    detected_race_value: detectedRaceVal,
+    district_total: districtTotal,
+    district_early_voted: districtEarlyVoted,
+    // Counterfactual: early voters in this district NOT in this universe
     early_voted_outside: earlyVotedOutsideUniverse,
 
     // Voter-level breakdowns (individual records, not propagated to household)
