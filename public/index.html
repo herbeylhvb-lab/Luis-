@@ -14207,6 +14207,36 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       html += '</div>';
     }
 
+    // 📬 Mailer reach — address-level, so if anyone at the household got a
+    // mailer, everyone at that address counts as reached. Two numbers:
+    // total reach (% of universe) and voted+reached (% of voters).
+    var mailerSent = data.mailer_sent || 0;
+    var votedMailer = data.early_voted_mailer || 0;
+    var mailerPct = totalVoters > 0 ? Math.round(mailerSent / totalVoters * 100) : 0;
+    var votedMailerPct = earlyVoted > 0 ? Math.round(votedMailer / earlyVoted * 100) : 0;
+    html += '<div style="margin-bottom:12px;padding:10px;background:#1a0f1f;border:1px solid #7c3aed;border-radius:6px">';
+    html += '<h6 style="color:#a78bfa;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">📬 Mailer Reach <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">(household-level)</span></h6>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">' +
+      '<div style="background:#0f172a;border:1px solid #4c1d95;border-radius:4px;padding:8px 12px"><div style="color:#a78bfa;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Got Mailer</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + mailerSent.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">' + mailerPct + '% of universe</div></div>' +
+      '<div style="background:#0f172a;border:1px solid #4c1d95;border-radius:4px;padding:8px 12px"><div style="color:#c4b5fd;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Voted + Got Mailer</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + votedMailer.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">' + votedMailerPct + '% of voters</div></div>' +
+      '</div>';
+    if (mailerSent === 0) {
+      html += '<div style="color:#64748b;font-size:11px;font-style:italic;margin-top:6px">No mailers logged for any voter at these addresses yet. Use the "Log Mailer" action to track a mail drop.</div>';
+    }
+    html += '</div>';
+
+    // 🗳️ Early voters OUTSIDE this universe — counterfactual context:
+    // how many people voted early that weren't in your target list?
+    // Not race-scoped, so includes early voters from other races/elections.
+    var outsideCount = data.early_voted_outside || 0;
+    html += '<div style="margin-bottom:12px;padding:10px;background:#0b1a1f;border:1px solid #0891b2;border-radius:6px">';
+    html += '<h6 style="color:#22d3ee;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🗳️ Voted Outside This Universe</h6>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
+      '<div style="color:#94a3b8">Early voters NOT in this universe: <strong style="color:#22d3ee;font-size:16px">' + outsideCount.toLocaleString() + '</strong></div>' +
+      '<div style="color:#475569;font-size:11px;font-style:italic">context — all early voters in DB</div>' +
+      '</div>';
+    html += '</div>';
+
     // Support-level breakdown of the people who actually voted early.
     // Only counts voters whose individual support level was recorded — we
     // don't propagate one family member's support level to the rest.

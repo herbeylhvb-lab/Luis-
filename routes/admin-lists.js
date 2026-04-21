@@ -561,6 +561,46 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   const earlyVotedWalked = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0) + (walkFunnel.voted_nobody_home || 0);
   const earlyVotedContact = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0);
 
+  // Mailer reach — ADDRESS-LEVEL, just like the walk halo logic. One mailer
+  // physically arrives at a household and reaches everyone in the house, even
+  // if log-mailer only wrote voter_contacts rows for the voters that happened
+  // to be on the target list at the time. Anyone sharing that address should
+  // also count as reached.
+  //
+  // The mailedAddrs CTE dedupes to one row per address, then we join voters
+  // in the universe against it.
+  const mailerFunnel = db.prepare(`
+    WITH mailed_addrs AS (
+      SELECT DISTINCT
+        LOWER(TRIM(COALESCE(v.address, ''))) as addr,
+        LOWER(TRIM(COALESCE(v.unit, ''))) as unit
+      FROM voters v
+      JOIN voter_contacts vc ON vc.voter_id = v.id
+      WHERE vc.contact_type = 'Mailer'
+    )
+    SELECT
+      SUM(CASE WHEN ma.addr IS NOT NULL THEN 1 ELSE 0 END) as mailer_sent,
+      SUM(CASE WHEN ma.addr IS NOT NULL AND v.early_voted = 1 THEN 1 ELSE 0 END) as early_voted_mailer
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    LEFT JOIN mailed_addrs ma
+      ON ma.addr = LOWER(TRIM(COALESCE(v.address, '')))
+     AND ma.unit = LOWER(TRIM(COALESCE(v.unit, '')))
+    WHERE alv.list_id = ?
+  `).get(req.params.id) || {};
+  const mailerSent = mailerFunnel.mailer_sent || 0;
+  const earlyVotedMailer = mailerFunnel.early_voted_mailer || 0;
+
+  // Voted but NOT in this universe — early voters who weren't targeted by this
+  // list. Useful counterfactual: "how many turned out that I didn't target?"
+  // Not race-scoped (admin_lists has no race column) so this counts ALL early
+  // voters anywhere in the DB who aren't in this list.
+  const earlyVotedOutsideUniverse = (db.prepare(`
+    SELECT COUNT(*) as n FROM voters v
+    WHERE v.early_voted = 1
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+  `).get(req.params.id) || { n: 0 }).n;
+
   // Support-level breakdown restricted to people who actually voted early.
   // This uses individual voters.support_level (not address-level) because
   // we can't infer Jane's support from her husband John's recorded answer.
@@ -598,6 +638,13 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     early_voted_walked: earlyVotedWalked,
     early_voted_contact: earlyVotedContact,
     early_voted_not_home: walkFunnel.voted_nobody_home || 0,
+
+    // Mailer reach (address-level halo — same as walk logic)
+    mailer_sent: mailerSent,
+    early_voted_mailer: earlyVotedMailer,
+
+    // Counterfactual: early voters NOT in this universe (not race-scoped)
+    early_voted_outside: earlyVotedOutsideUniverse,
 
     // Voter-level breakdowns (individual records, not propagated to household)
     party_breakdown: partyBreakdown,
