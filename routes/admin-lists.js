@@ -562,15 +562,25 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   const earlyVotedContact = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0);
 
   // Mailer reach — ADDRESS-LEVEL, with per-household mailer count.
-  // Distinct mailers per household = COUNT(DISTINCT mailer_name + date).
-  // DATE (not exact timestamp) so that logging the same mailer against
-  // multiple lists on the same day counts as ONE mailer drop — which
-  // matches physical reality. Different-day re-drops still count separately.
+  // Distinct mailers per household = COUNT(DISTINCT mailer_name).
+  //
+  // Dedup by NAME ONLY (not timestamp): each unique mailer name = one piece
+  // of mail. Logging "Large Mailer A" to multiple lists or re-logging by
+  // accident still counts as 1 mailer. If you actually re-drop the same
+  // design weeks later, give it a different name like "Large Mailer A v2"
+  // to count it separately.
+  //
+  // Why not dedup by (name, day): if the user logs 2 DIFFERENT large mailers
+  // on the same day with the same-ish name (e.g., "Large Mailer" and "Large
+  // Mailer 2"), day-dedup works fine. But if they both have the exact same
+  // name "Large Mailer" and different timestamps, name+date still collapses.
+  // Name-only is the most aligned with user intent: "how many different
+  // mailer designs reached this household?"
   const mailerPerAddr = db.prepare(`
     SELECT
       LOWER(TRIM(COALESCE(v.address, ''))) as addr,
       LOWER(TRIM(COALESCE(v.unit, ''))) as unit,
-      COUNT(DISTINCT LOWER(TRIM(vc.notes)) || '|' || substr(vc.contacted_at, 1, 10)) as mailer_count
+      COUNT(DISTINCT LOWER(TRIM(vc.notes))) as mailer_count
     FROM voters v
     JOIN voter_contacts vc ON vc.voter_id = v.id
     WHERE vc.contact_type = 'Mailer'
@@ -608,6 +618,53 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   }
   // Array sorted by mailer count ascending
   const mailerBreakdown = Array.from(mailerBuckets.values()).sort((a, b) => a.count - b.count);
+
+  // Per-mailer reach — for each distinct mailer name, how many HOUSEHOLDS
+  // in this universe were reached (via address halo). Helps diagnose
+  // "why do some voters show only 1 mailer" — you can spot which mailer
+  // has less household coverage.
+  const distinctMailers = db.prepare(`
+    SELECT DISTINCT LOWER(TRIM(notes)) as name, notes as display_name
+    FROM voter_contacts
+    WHERE contact_type = 'Mailer' AND notes IS NOT NULL AND notes != ''
+  `).all();
+
+  // Build per-mailer → Set of addresses map
+  const mailerToAddrs = new Map();
+  for (const m of distinctMailers) mailerToAddrs.set(m.name, new Set());
+  const addrMailerRows = db.prepare(`
+    SELECT
+      LOWER(TRIM(vc.notes)) as name,
+      LOWER(TRIM(COALESCE(v.address, ''))) as addr,
+      LOWER(TRIM(COALESCE(v.unit, ''))) as unit
+    FROM voters v
+    JOIN voter_contacts vc ON vc.voter_id = v.id
+    WHERE vc.contact_type = 'Mailer'
+  `).all();
+  for (const r of addrMailerRows) {
+    if (!mailerToAddrs.has(r.name)) mailerToAddrs.set(r.name, new Set());
+    mailerToAddrs.get(r.name).add(r.addr + '||' + r.unit);
+  }
+  // For each mailer, count how many universe voters are at a reached address
+  const universeAddrSet = new Set();
+  const universeAddrToVoterCount = new Map();
+  for (const v of listVoters) {
+    const k = v.addr + '||' + v.unit;
+    universeAddrSet.add(k);
+    universeAddrToVoterCount.set(k, (universeAddrToVoterCount.get(k) || 0) + 1);
+  }
+  const perMailerReach = distinctMailers.map(m => {
+    const addrsForMailer = mailerToAddrs.get(m.name) || new Set();
+    let households = 0;
+    let voters = 0;
+    for (const k of addrsForMailer) {
+      if (universeAddrSet.has(k)) {
+        households++;
+        voters += universeAddrToVoterCount.get(k) || 0;
+      }
+    }
+    return { name: m.display_name, households, voters };
+  }).filter(r => r.voters > 0).sort((a, b) => b.voters - a.voters);
 
   // RACE-SCOPED counterfactuals — universes are built for a specific race
   // (navigation_port, city_district, state_rep, etc.). Compare early-voter
@@ -712,6 +769,8 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     early_voted_mailer: earlyVotedMailer,
     // Per-household mailer-count histogram: [{count:0, voters:N, voted:N}, {count:1, ...}, ...]
     mailer_breakdown: mailerBreakdown,
+    // Per-mailer reach detail: [{name, households, voters}, ...] — diagnostic
+    per_mailer_reach: perMailerReach,
 
     // District context (race-scoped — inferred from universe contents)
     detected_race_column: detectedRaceCol,

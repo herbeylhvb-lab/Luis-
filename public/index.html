@@ -14244,6 +14244,22 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       html += '</div>';
     }
 
+    // Per-mailer reach table — useful diagnostic. Shows each distinct mailer
+    // name with how many universe voters/households it reached.
+    var perMailer = data.per_mailer_reach || [];
+    if (perMailer.length > 0) {
+      html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #4c1d95"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">📋 Raw Mailer Log <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">· which mailers reached this universe</span></h6>';
+      for (var pm = 0; pm < perMailer.length; pm++) {
+        var pmItem = perMailer[pm];
+        var pmPct = totalVoters > 0 ? Math.round(pmItem.voters / totalVoters * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:12px">' +
+          '<div style="flex:1;color:#c4b5fd;font-weight:600">' + escHtml(pmItem.name) + '</div>' +
+          '<div style="color:#94a3b8;width:90px;text-align:right">' + pmItem.voters.toLocaleString() + ' voters</div>' +
+          '<div style="color:#64748b;font-size:11px;width:80px;text-align:right">' + pmItem.households.toLocaleString() + ' HH (' + pmPct + '%)</div></div>';
+      }
+      html += '</div>';
+    }
+
     if (mailerSent === 0) {
       html += '<div style="color:#64748b;font-size:11px;font-style:italic;margin-top:6px">No mailers logged for any voter at these addresses yet. Use the "Log Mailer" action to track a mail drop.</div>';
     }
