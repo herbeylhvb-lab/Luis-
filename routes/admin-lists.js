@@ -488,21 +488,24 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     GROUP BY v.support_level ORDER BY count DESC
   `).all(req.params.id);
 
-  // ADDRESS-LEVEL walk matching — counts a voter as "walked" if ANY walker
-  // visited their address, even if only one household member was logged.
-  // Walkers often only record the person who opened the door, but walking
-  // past the door means the whole household was reached.
+  // 4-CATEGORY WALK STATUS per voter in the universe:
   //
-  // Result classifications:
-  //   status=3: contact made (support/lean_support/undecided/lean_oppose/oppose/refused)
-  //   status=2: knocked but no one home (not_home)
-  //   status=1: address dead-end (moved/deceased/come_back) — we don't count these as "walked"
-  //   status=0 or null: no walk record for this address
+  //   1. direct_contact:    walker talked to THIS voter (voters.support_level recorded)
+  //   2. household_contact: walker talked to SOMEONE at this address, but not this
+  //                         voter specifically — house was really reached but we
+  //                         don't know this voter's personal support level
+  //   3. nobody_home:       walker knocked but got no answer
+  //   4. not_walked:        no walk record for this address at all
+  //
+  // The categories are mutually exclusive and partition the universe: total =
+  // direct_contact + household_contact + nobody_home + not_walked.
+  // "Walked" (any category 1-3) = direct + household + nobody_home.
   const walkFunnel = db.prepare(`
     WITH list_voters AS (
       SELECT
         v.id as voter_id,
         v.early_voted,
+        v.support_level,
         LOWER(TRIM(COALESCE(v.address, ''))) as addr,
         LOWER(TRIM(COALESCE(v.unit, ''))) as unit
       FROM admin_list_voters alv
@@ -522,17 +525,41 @@ router.get('/admin-lists/:id/stats', (req, res) => {
       FROM walk_addresses
       WHERE result IS NOT NULL AND result != '' AND result != 'not_visited'
       GROUP BY LOWER(TRIM(address)), LOWER(TRIM(COALESCE(unit, '')))
+    ),
+    classified AS (
+      SELECT
+        lv.voter_id, lv.early_voted,
+        CASE
+          -- Direct contact takes priority: if this voter's support_level is
+          -- recorded, they were personally walked (even if house_status is null
+          -- due to address format differences).
+          WHEN lv.support_level IS NOT NULL AND lv.support_level != '' AND lv.support_level != 'unknown'
+            THEN 'direct_contact'
+          WHEN wa.status = 3 THEN 'household_contact'
+          WHEN wa.status = 2 THEN 'nobody_home'
+          ELSE 'not_walked'
+        END as cat
+      FROM list_voters lv
+      LEFT JOIN walked_addrs wa ON wa.addr = lv.addr AND wa.unit = lv.unit
     )
     SELECT
-      SUM(CASE WHEN wa.status >= 2 THEN 1 ELSE 0 END) as walked_total,
-      SUM(CASE WHEN wa.status = 3 THEN 1 ELSE 0 END) as walked_contact,
-      SUM(CASE WHEN wa.status = 2 THEN 1 ELSE 0 END) as walked_not_home,
-      SUM(CASE WHEN lv.early_voted = 1 AND wa.status >= 2 THEN 1 ELSE 0 END) as early_voted_walked,
-      SUM(CASE WHEN lv.early_voted = 1 AND wa.status = 3 THEN 1 ELSE 0 END) as early_voted_contact,
-      SUM(CASE WHEN lv.early_voted = 1 AND wa.status = 2 THEN 1 ELSE 0 END) as early_voted_not_home
-    FROM list_voters lv
-    LEFT JOIN walked_addrs wa ON wa.addr = lv.addr AND wa.unit = lv.unit
+      SUM(CASE WHEN cat = 'direct_contact' THEN 1 ELSE 0 END) as direct_contact,
+      SUM(CASE WHEN cat = 'household_contact' THEN 1 ELSE 0 END) as household_contact,
+      SUM(CASE WHEN cat = 'nobody_home' THEN 1 ELSE 0 END) as nobody_home,
+      SUM(CASE WHEN cat = 'not_walked' THEN 1 ELSE 0 END) as not_walked,
+      SUM(CASE WHEN early_voted = 1 AND cat = 'direct_contact' THEN 1 ELSE 0 END) as voted_direct_contact,
+      SUM(CASE WHEN early_voted = 1 AND cat = 'household_contact' THEN 1 ELSE 0 END) as voted_household_contact,
+      SUM(CASE WHEN early_voted = 1 AND cat = 'nobody_home' THEN 1 ELSE 0 END) as voted_nobody_home,
+      SUM(CASE WHEN early_voted = 1 AND cat = 'not_walked' THEN 1 ELSE 0 END) as voted_not_walked
+    FROM classified
   `).get(req.params.id) || {};
+
+  // Aggregated "walked" counts (any of the 3 walked categories) for the existing
+  // stat cards and backward compatibility with earlier consumers.
+  const walkedTotal = (walkFunnel.direct_contact || 0) + (walkFunnel.household_contact || 0) + (walkFunnel.nobody_home || 0);
+  const walkedContact = (walkFunnel.direct_contact || 0) + (walkFunnel.household_contact || 0);
+  const earlyVotedWalked = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0) + (walkFunnel.voted_nobody_home || 0);
+  const earlyVotedContact = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0);
 
   // Support-level breakdown restricted to people who actually voted early.
   // This uses individual voters.support_level (not address-level) because
@@ -551,14 +578,28 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     with_phone: withPhone,
     households,
     early_voted: earlyVoted,
-    // Walk counts (address-level — whole household counts if anyone at that address was logged)
-    walked_total: walkFunnel.walked_total || 0,
-    walked_contact: walkFunnel.walked_contact || 0,
-    walked_not_home: walkFunnel.walked_not_home || 0,
-    early_voted_walked: walkFunnel.early_voted_walked || 0,
-    early_voted_contact: walkFunnel.early_voted_contact || 0,
-    early_voted_not_home: walkFunnel.early_voted_not_home || 0,
-    // Breakdowns (individual voter-level)
+
+    // 4-category walk status (mutually exclusive, sums to total_voters):
+    direct_contact: walkFunnel.direct_contact || 0,          // walker spoke to THIS voter
+    household_contact: walkFunnel.household_contact || 0,    // walker spoke to someone at this address, not this voter
+    nobody_home: walkFunnel.nobody_home || 0,                // knocked but no answer
+    not_walked: walkFunnel.not_walked || 0,                  // no walk record
+
+    // Same 4-way split filtered to early voters only
+    voted_direct_contact: walkFunnel.voted_direct_contact || 0,
+    voted_household_contact: walkFunnel.voted_household_contact || 0,
+    voted_nobody_home: walkFunnel.voted_nobody_home || 0,
+    voted_not_walked: walkFunnel.voted_not_walked || 0,
+
+    // Aggregate rollups (any walked = direct + household + nobody_home)
+    walked_total: walkedTotal,
+    walked_contact: walkedContact,                // spoke with someone in the house (direct OR household)
+    walked_not_home: walkFunnel.nobody_home || 0,
+    early_voted_walked: earlyVotedWalked,
+    early_voted_contact: earlyVotedContact,
+    early_voted_not_home: walkFunnel.voted_nobody_home || 0,
+
+    // Voter-level breakdowns (individual records, not propagated to household)
     party_breakdown: partyBreakdown,
     support_breakdown: supportBreakdown,
     early_voted_support_breakdown: earlyVotedSupportBreakdown

@@ -14136,28 +14136,45 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Walked Total</div><div class="value" style="color:#60a5fa;font-size:18px">' + walkedTotalCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + universeWalkedPct + '% of universe</div></div>';
     html += '</div>';
 
-    // 🚪 House walked — contact vs no-one-home split.
-    // Shows the quality of the walk effort: did walkers actually make contact,
-    // or did they knock and get no answer?
-    if (walkedTotalCount > 0) {
-      html += '<div style="margin-bottom:12px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🚪 House Walked Breakdown</h6>';
+    // 🚪 4-category walk breakdown — every voter falls into exactly one bucket:
+    //   Direct contact (walker talked to THIS voter — we know their answer)
+    //   Household contacted (walker talked to someone at this address, not this voter)
+    //   Nobody home (knocked, no answer)
+    //   Not walked (no walk record at this address yet)
+    var directContact = data.direct_contact || 0;
+    var householdContact = data.household_contact || 0;
+    var nobodyHome = data.nobody_home || 0;
+    var notWalked = data.not_walked || 0;
+    var walkCats = [
+      { key: 'direct_contact', label: 'Direct Contact (this voter)', count: directContact, color: '#22c55e' },
+      { key: 'household_contact', label: 'Household Contacted', count: householdContact, color: '#86efac' },
+      { key: 'nobody_home', label: 'Nobody Home', count: nobodyHome, color: '#fbbf24' },
+      { key: 'not_walked', label: 'Not Walked', count: notWalked, color: '#64748b' }
+    ];
+    html += '<div style="margin-bottom:12px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🚪 Walk Status (every voter in universe)</h6>';
+    for (var wc = 0; wc < walkCats.length; wc++) {
+      var cat = walkCats[wc];
+      var catPct = totalVoters > 0 ? Math.round(cat.count / totalVoters * 100) : 0;
       html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
-        '<div style="width:140px;color:#22c55e;font-weight:600;font-size:12px">Spoke With Someone</div>' +
-        '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:#22c55e;height:100%;width:' + contactPct + '%;border-radius:4px"></div></div>' +
-        '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + walkedContactCount.toLocaleString() + ' (' + contactPct + '%)</div></div>';
-      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
-        '<div style="width:140px;color:#fbbf24;font-weight:600;font-size:12px">Nobody Home</div>' +
-        '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:#fbbf24;height:100%;width:' + notHomePct + '%;border-radius:4px"></div></div>' +
-        '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + walkedNotHomeCount.toLocaleString() + ' (' + notHomePct + '%)</div></div>';
-
-      // Of the early voters, how many were "spoken with" vs "knocked but empty"
-      if (earlyVoted > 0 && earlyVotedWalked > 0) {
-        var evContactPct = earlyVotedWalked > 0 ? Math.round(earlyVotedContact / earlyVotedWalked * 100) : 0;
-        var evNotHomePct = earlyVotedWalked > 0 ? Math.round(earlyVotedNotHome / earlyVotedWalked * 100) : 0;
-        html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #334155;font-size:11px;color:#64748b">Of voted+walked: ' + earlyVotedContact.toLocaleString() + ' spoken with (' + evContactPct + '%), ' + earlyVotedNotHome.toLocaleString() + ' nobody home (' + evNotHomePct + '%)</div>';
-      }
-      html += '</div>';
+        '<div style="width:180px;color:' + cat.color + ';font-weight:600;font-size:12px">' + escHtml(cat.label) + '</div>' +
+        '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + cat.color + ';height:100%;width:' + catPct + '%;border-radius:4px"></div></div>' +
+        '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + cat.count.toLocaleString() + ' (' + catPct + '%)</div></div>';
     }
+
+    // Sub-line: same 4 categories restricted to early voters
+    if (earlyVoted > 0) {
+      var vDirect = data.voted_direct_contact || 0;
+      var vHh = data.voted_household_contact || 0;
+      var vNh = data.voted_nobody_home || 0;
+      var vNw = data.voted_not_walked || 0;
+      html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #334155;font-size:11px;color:#64748b">' +
+        'Of early voters: <span style="color:#22c55e">' + vDirect.toLocaleString() + ' direct</span> · ' +
+        '<span style="color:#86efac">' + vHh.toLocaleString() + ' household</span> · ' +
+        '<span style="color:#fbbf24">' + vNh.toLocaleString() + ' no-one-home</span> · ' +
+        '<span style="color:#64748b">' + vNw.toLocaleString() + ' not walked</span>' +
+        '</div>';
+    }
+    html += '</div>';
 
     // Support-level breakdown of the people who actually voted early.
     // Only counts voters whose individual support level was recorded — we
