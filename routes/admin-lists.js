@@ -906,6 +906,54 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     ORDER BY count DESC
   `).all(...raceScopedParams, req.params.id);
 
+  // ─── DEMOGRAPHICS OF MY UNIVERSE (the voters I targeted) ───
+  // Same shape as outside-voter demographics, but flipped: these are the
+  // voters IN my list. Compare side-by-side against outside demographics
+  // to spot targeting gaps (e.g., "I under-targeted 75+ voters").
+  const universeGenderRows = db.prepare(`
+    SELECT
+      CASE
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('M','MALE') THEN 'Male'
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('F','FEMALE') THEN 'Female'
+        ELSE 'Unknown'
+      END as gender_label,
+      COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY gender_label
+  `).all(req.params.id);
+
+  const universeAgeRows = db.prepare(`
+    SELECT
+      CASE
+        WHEN v.age IS NULL OR v.age = 0 THEN '9 Unknown'
+        WHEN v.age < 35 THEN '1 18-34'
+        WHEN v.age < 50 THEN '2 35-49'
+        WHEN v.age < 65 THEN '3 50-64'
+        WHEN v.age < 75 THEN '4 65-74'
+        ELSE '5 75+'
+      END as bucket,
+      COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY bucket
+    ORDER BY bucket
+  `).all(req.params.id).map(r => ({
+    range: r.bucket.substring(2),
+    count: r.count
+  }));
+
+  const universePartyRows = db.prepare(`
+    SELECT COALESCE(NULLIF(TRIM(v.party_score), ''), 'Unknown') as party, COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+    GROUP BY party
+    ORDER BY count DESC
+  `).all(req.params.id);
+
   // ─── TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped) ───
   // Shows where the turnout is concentrated in the district — essential for
   // future GOTV targeting. Counts ALL early voters in the race (not just
@@ -978,6 +1026,10 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     outside_gender_breakdown: outsideGenderRows,
     outside_age_buckets: outsideAgeRows,
     outside_party_breakdown: outsidePartyRows,
+    // Who are the voters in MY universe (the ones I targeted)
+    universe_gender_breakdown: universeGenderRows,
+    universe_age_buckets: universeAgeRows,
+    universe_party_breakdown: universePartyRows,
     // Top 10 precincts by early vote count (race-scoped)
     top_precincts_by_vote: topPrecincts,
 

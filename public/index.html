@@ -14219,69 +14219,105 @@ async function showUniverseDashboard(listId, listName, rowEl) {
 
     html += '</div>';
 
-    // 📊 DEMOGRAPHICS OF VOTERS I MISSED — who turned out that I didn't target.
-    // Shows gender split, age buckets, party lean, and a CSV download button
-    // so Luis can review the list and update his future universe targeting.
-    var outsideGender = data.outside_gender_breakdown || [];
-    var outsideAge = data.outside_age_buckets || [];
-    var outsideParty = data.outside_party_breakdown || [];
-    if (raceOutsideCount > 0) {
-      html += '<div style="margin-bottom:12px;padding:12px;background:#0a1b1f;border:1px solid #0891b2;border-radius:8px">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">' +
-        '<h5 style="color:#22d3ee;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0">📊 Demographics of Voters I Missed</h5>' +
-        '<a class="btn btn-sm" style="background:#0891b2;border-color:#0e7490;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-outside-voters">⬇ Download CSV</a>' +
+    // Shared renderer: draws a demographic breakdown block (gender+age+party)
+    // with a color accent and optional header-right content (like a CSV btn).
+    // Used for both "My Universe" and "Voters I Missed" so the two sections
+    // look visually parallel and comparisons are easy.
+    function renderDemographicsBlock(opts) {
+      var rows = opts.total > 0 ? opts : null;
+      var block = '';
+      block += '<div style="margin-bottom:12px;padding:12px;background:' + opts.bg + ';border:1px solid ' + opts.border + ';border-radius:8px">';
+      block += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">' +
+        '<h5 style="color:' + opts.accent + ';font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0">' + opts.title + '</h5>' +
+        (opts.headerRight || '') +
         '</div>';
-
+      if (opts.total === 0) {
+        block += '<div style="color:#64748b;font-size:12px;font-style:italic">No data yet.</div></div>';
+        return block;
+      }
       // Gender bars
-      if (outsideGender.length > 0) {
-        html += '<div style="margin-bottom:10px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Gender</h6>';
+      if (opts.gender && opts.gender.length > 0) {
+        block += '<div style="margin-bottom:10px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Gender</h6>';
         var gColors = { 'Male': '#60a5fa', 'Female': '#f472b6', 'Unknown': '#64748b' };
-        for (var gi = 0; gi < outsideGender.length; gi++) {
-          var g = outsideGender[gi];
-          var gPct = raceOutsideCount > 0 ? Math.round(g.count / raceOutsideCount * 100) : 0;
+        for (var gi = 0; gi < opts.gender.length; gi++) {
+          var g = opts.gender[gi];
+          var gPct = opts.total > 0 ? Math.round(g.count / opts.total * 100) : 0;
           var gCol = gColors[g.gender_label] || '#64748b';
-          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
+          block += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
             '<div style="width:80px;color:' + gCol + ';font-weight:600;font-size:12px">' + escHtml(g.gender_label) + '</div>' +
             '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + gCol + ';height:100%;width:' + gPct + '%;border-radius:4px"></div></div>' +
             '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + g.count.toLocaleString() + ' (' + gPct + '%)</div></div>';
         }
-        html += '</div>';
+        block += '</div>';
       }
-
       // Age buckets
-      if (outsideAge.length > 0) {
-        html += '<div style="margin-bottom:10px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Age Ranges</h6>';
-        // Age colors shift across the spectrum — young=cyan → old=purple
+      if (opts.age && opts.age.length > 0) {
+        block += '<div style="margin-bottom:10px"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Age Ranges</h6>';
         var ageColors = ['#67e8f9','#60a5fa','#818cf8','#a78bfa','#c084fc','#64748b'];
-        for (var ai = 0; ai < outsideAge.length; ai++) {
-          var a = outsideAge[ai];
-          var aPct = raceOutsideCount > 0 ? Math.round(a.count / raceOutsideCount * 100) : 0;
+        for (var ai = 0; ai < opts.age.length; ai++) {
+          var a = opts.age[ai];
+          var aPct = opts.total > 0 ? Math.round(a.count / opts.total * 100) : 0;
           var aCol = ageColors[ai] || '#64748b';
-          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
+          block += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
             '<div style="width:80px;color:' + aCol + ';font-weight:600;font-size:12px">' + escHtml(a.range) + '</div>' +
             '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + aCol + ';height:100%;width:' + aPct + '%;border-radius:4px"></div></div>' +
             '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + a.count.toLocaleString() + ' (' + aPct + '%)</div></div>';
         }
-        html += '</div>';
+        block += '</div>';
       }
-
-      // Party breakdown (party_score: D/DD/DDD lean Dem, R/RR/RRR lean Rep)
-      if (outsideParty.length > 0) {
-        html += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Party Lean</h6>';
+      // Party lean
+      if (opts.party && opts.party.length > 0) {
+        block += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Party Lean</h6>';
         var pColorMap = { D:'#60a5fa', DD:'#3b82f6', DDD:'#1d4ed8', R:'#f87171', RR:'#ef4444', RRR:'#b91c1c', SWING:'#a855f7', Unknown:'#64748b' };
-        for (var pi = 0; pi < outsideParty.length; pi++) {
-          var p = outsideParty[pi];
-          var pPct = raceOutsideCount > 0 ? Math.round(p.count / raceOutsideCount * 100) : 0;
+        for (var pi = 0; pi < opts.party.length; pi++) {
+          var p = opts.party[pi];
+          var pPct = opts.total > 0 ? Math.round(p.count / opts.total * 100) : 0;
           var pCol = pColorMap[p.party] || '#64748b';
-          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
+          block += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
             '<div style="width:80px;color:' + pCol + ';font-weight:600;font-size:12px">' + escHtml(p.party) + '</div>' +
             '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + pCol + ';height:100%;width:' + pPct + '%;border-radius:4px"></div></div>' +
             '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + p.count.toLocaleString() + ' (' + pPct + '%)</div></div>';
         }
-        html += '</div>';
+        block += '</div>';
       }
+      block += '</div>';
+      return block;
+    }
 
-      html += '</div>';
+    // 📊 DEMOGRAPHICS OF MY UNIVERSE — who I targeted
+    var universeGender = data.universe_gender_breakdown || [];
+    var universeAge = data.universe_age_buckets || [];
+    var universeParty = data.universe_party_breakdown || [];
+    if (totalVoters > 0) {
+      html += renderDemographicsBlock({
+        title: '📊 Demographics of My Universe',
+        bg: '#0f1a10',
+        border: '#166534',
+        accent: '#22c55e',
+        total: totalVoters,
+        gender: universeGender,
+        age: universeAge,
+        party: universeParty
+      });
+    }
+
+    // 📊 DEMOGRAPHICS OF VOTERS I MISSED — who turned out that I didn't target.
+    // Same component as above but with cyan accent and a CSV download button.
+    var outsideGender = data.outside_gender_breakdown || [];
+    var outsideAge = data.outside_age_buckets || [];
+    var outsideParty = data.outside_party_breakdown || [];
+    if (raceOutsideCount > 0) {
+      html += renderDemographicsBlock({
+        title: '📊 Demographics of Voters I Missed',
+        bg: '#0a1b1f',
+        border: '#0891b2',
+        accent: '#22d3ee',
+        total: raceOutsideCount,
+        gender: outsideGender,
+        age: outsideAge,
+        party: outsideParty,
+        headerRight: '<a class="btn btn-sm" style="background:#0891b2;border-color:#0e7490;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-outside-voters">⬇ Download CSV</a>'
+      });
     }
 
     // 🏆 TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped)
