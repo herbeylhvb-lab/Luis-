@@ -14244,19 +14244,43 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       html += '</div>';
     }
 
-    // Per-mailer reach table — useful diagnostic. Shows each distinct mailer
-    // name with how many universe voters/households it reached.
+    // Per-mailer reach table — full diagnostic. Columns:
+    //   LOGGED: raw voter_contacts rows for this mailer (across DB)
+    //   DB HH:  distinct addresses the mailer landed on (whole DB)
+    //   IN UNIV: households/voters from this universe at those addresses
+    // If LOGGED is much bigger than IN UNIV: mailer went to a different
+    // list. If orphaned > 0, some voters were deleted after logging.
     var perMailer = data.per_mailer_reach || [];
     if (perMailer.length > 0) {
-      html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #4c1d95"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">📋 Raw Mailer Log <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">· which mailers reached this universe</span></h6>';
+      html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #4c1d95"><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">📋 Raw Mailer Log <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">· diagnostic</span></h6>';
+      // Header row
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:#475569;padding-bottom:2px;border-bottom:1px solid #334155">' +
+        '<div style="flex:1">Mailer</div>' +
+        '<div style="width:70px;text-align:right">Logged</div>' +
+        '<div style="width:70px;text-align:right">DB HH</div>' +
+        '<div style="width:90px;text-align:right">In Universe</div>' +
+        '<div style="width:70px;text-align:right">Reach</div>' +
+        '</div>';
       for (var pm = 0; pm < perMailer.length; pm++) {
         var pmItem = perMailer[pm];
         var pmPct = totalVoters > 0 ? Math.round(pmItem.voters / totalVoters * 100) : 0;
+        // Flag if logged_total is way bigger than voters reached in universe
+        var discrepancyFlag = (pmItem.logged_total > pmItem.voters * 1.5 && pmItem.logged_total > 100)
+          ? ' ⚠️' : '';
+        var orphanFlag = pmItem.orphaned > 0 ? ' (' + pmItem.orphaned + ' orphaned)' : '';
         html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:12px">' +
-          '<div style="flex:1;color:#c4b5fd;font-weight:600">' + escHtml(pmItem.name) + '</div>' +
-          '<div style="color:#94a3b8;width:90px;text-align:right">' + pmItem.voters.toLocaleString() + ' voters</div>' +
-          '<div style="color:#64748b;font-size:11px;width:80px;text-align:right">' + pmItem.households.toLocaleString() + ' HH (' + pmPct + '%)</div></div>';
+          '<div style="flex:1;color:#c4b5fd;font-weight:600">' + escHtml(pmItem.name) + discrepancyFlag +
+            '<span style="color:#ef4444;font-size:10px">' + escHtml(orphanFlag) + '</span></div>' +
+          '<div style="color:#94a3b8;width:70px;text-align:right;font-variant-numeric:tabular-nums">' + pmItem.logged_total.toLocaleString() + '</div>' +
+          '<div style="color:#64748b;font-size:11px;width:70px;text-align:right;font-variant-numeric:tabular-nums">' + pmItem.total_hh.toLocaleString() + '</div>' +
+          '<div style="color:#94a3b8;width:90px;text-align:right;font-variant-numeric:tabular-nums">' + pmItem.voters.toLocaleString() + ' · ' + pmItem.households.toLocaleString() + ' HH</div>' +
+          '<div style="color:#64748b;font-size:11px;width:70px;text-align:right;font-variant-numeric:tabular-nums">' + pmPct + '%</div>' +
+          '</div>';
       }
+      html += '<div style="margin-top:6px;padding-top:4px;border-top:1px dashed #334155;font-size:10px;color:#64748b;line-height:1.4">' +
+        'Logged = total voter_contacts rows · DB HH = distinct addresses in whole DB · In Universe = voters/households from this list at those addresses<br>' +
+        '⚠️ flag: mailer was logged to far more voters than actually reach this universe — check if you logged to a different list.' +
+        '</div>';
       html += '</div>';
     }
 

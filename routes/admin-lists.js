@@ -620,16 +620,37 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   const mailerBreakdown = Array.from(mailerBuckets.values()).sort((a, b) => a.count - b.count);
 
   // Per-mailer reach — for each distinct mailer name, how many HOUSEHOLDS
-  // in this universe were reached (via address halo). Helps diagnose
-  // "why do some voters show only 1 mailer" — you can spot which mailer
-  // has less household coverage.
+  // in this universe were reached (via address halo).
+  //
+  // Diagnostic columns:
+  //   - logged_total: raw voter_contacts row count (= voters directly logged)
+  //   - orphaned:     contacts whose voter_id doesn't match any voter record
+  //   - total_hh:     distinct addresses where the mailer landed (whole DB)
+  //   - households:   of those addresses, how many are in THIS universe
+  //   - voters:       universe voters at those reached addresses
+  //
+  // If logged_total >> voters: the mailer was logged to voters who aren't in
+  // this universe (different list) OR addresses aren't matching. Check
+  // orphaned count — if high, some voter_ids point to deleted voters.
   const distinctMailers = db.prepare(`
-    SELECT DISTINCT LOWER(TRIM(notes)) as name, notes as display_name
+    SELECT DISTINCT LOWER(TRIM(notes)) as name, notes as display_name,
+      COUNT(*) as logged_total
     FROM voter_contacts
     WHERE contact_type = 'Mailer' AND notes IS NOT NULL AND notes != ''
+    GROUP BY LOWER(TRIM(notes)), notes
   `).all();
 
-  // Build per-mailer → Set of addresses map
+  // Per-mailer orphan counts (contacts pointing to non-existent voters)
+  const orphanCounts = db.prepare(`
+    SELECT LOWER(TRIM(vc.notes)) as name, COUNT(*) as orphans
+    FROM voter_contacts vc
+    LEFT JOIN voters v ON vc.voter_id = v.id
+    WHERE vc.contact_type = 'Mailer' AND v.id IS NULL
+    GROUP BY LOWER(TRIM(vc.notes))
+  `).all();
+  const orphansByMailer = new Map(orphanCounts.map(r => [r.name, r.orphans]));
+
+  // Build per-mailer → Set of addresses map (from valid voter joins only)
   const mailerToAddrs = new Map();
   for (const m of distinctMailers) mailerToAddrs.set(m.name, new Set());
   const addrMailerRows = db.prepare(`
@@ -640,6 +661,7 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     FROM voters v
     JOIN voter_contacts vc ON vc.voter_id = v.id
     WHERE vc.contact_type = 'Mailer'
+      AND v.address IS NOT NULL AND TRIM(v.address) != ''
   `).all();
   for (const r of addrMailerRows) {
     if (!mailerToAddrs.has(r.name)) mailerToAddrs.set(r.name, new Set());
@@ -663,8 +685,15 @@ router.get('/admin-lists/:id/stats', (req, res) => {
         voters += universeAddrToVoterCount.get(k) || 0;
       }
     }
-    return { name: m.display_name, households, voters };
-  }).filter(r => r.voters > 0).sort((a, b) => b.voters - a.voters);
+    return {
+      name: m.display_name,
+      logged_total: m.logged_total || 0,
+      orphaned: orphansByMailer.get(m.name) || 0,
+      total_hh: addrsForMailer.size,
+      households,
+      voters
+    };
+  }).filter(r => r.logged_total > 0).sort((a, b) => b.voters - a.voters);
 
   // RACE-SCOPED counterfactuals — prefer the race that was EXPLICITLY saved
   // when the universe was built (admin_lists.race_column / race_value).
