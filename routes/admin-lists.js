@@ -561,35 +561,55 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   const earlyVotedWalked = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0) + (walkFunnel.voted_nobody_home || 0);
   const earlyVotedContact = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0);
 
-  // Mailer reach — ADDRESS-LEVEL, just like the walk halo logic. One mailer
-  // physically arrives at a household and reaches everyone in the house, even
-  // if log-mailer only wrote voter_contacts rows for the voters that happened
-  // to be on the target list at the time. Anyone sharing that address should
-  // also count as reached.
+  // Mailer reach — ADDRESS-LEVEL, with per-household mailer count so we can
+  // break down "got 1 mailer", "got 2 mailers", etc. One mailer physically
+  // arrives at a household and reaches everyone in the house.
   //
-  // The mailedAddrs CTE dedupes to one row per address, then we join voters
-  // in the universe against it.
-  const mailerFunnel = db.prepare(`
-    WITH mailed_addrs AS (
-      SELECT DISTINCT
-        LOWER(TRIM(COALESCE(v.address, ''))) as addr,
-        LOWER(TRIM(COALESCE(v.unit, ''))) as unit
-      FROM voters v
-      JOIN voter_contacts vc ON vc.voter_id = v.id
-      WHERE vc.contact_type = 'Mailer'
-    )
+  // Distinct mailers per household = COUNT(DISTINCT notes || '|' || contacted_at)
+  // — each log-mailer call writes rows with the same mailer_name ('notes')
+  // and same timestamp, so that pair uniquely identifies a mailer drop.
+  const mailerPerAddr = db.prepare(`
     SELECT
-      SUM(CASE WHEN ma.addr IS NOT NULL THEN 1 ELSE 0 END) as mailer_sent,
-      SUM(CASE WHEN ma.addr IS NOT NULL AND v.early_voted = 1 THEN 1 ELSE 0 END) as early_voted_mailer
+      LOWER(TRIM(COALESCE(v.address, ''))) as addr,
+      LOWER(TRIM(COALESCE(v.unit, ''))) as unit,
+      COUNT(DISTINCT vc.notes || '|' || vc.contacted_at) as mailer_count
+    FROM voters v
+    JOIN voter_contacts vc ON vc.voter_id = v.id
+    WHERE vc.contact_type = 'Mailer'
+    GROUP BY LOWER(TRIM(COALESCE(v.address, ''))), LOWER(TRIM(COALESCE(v.unit, '')))
+  `).all();
+  // Build a lookup: address+unit → count
+  const mailerByAddr = new Map();
+  for (const r of mailerPerAddr) {
+    mailerByAddr.set(r.addr + '||' + r.unit, r.mailer_count);
+  }
+  // Now classify every voter in the universe by their household's mailer count
+  const listVoters = db.prepare(`
+    SELECT
+      v.id, v.early_voted,
+      LOWER(TRIM(COALESCE(v.address, ''))) as addr,
+      LOWER(TRIM(COALESCE(v.unit, ''))) as unit
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    LEFT JOIN mailed_addrs ma
-      ON ma.addr = LOWER(TRIM(COALESCE(v.address, '')))
-     AND ma.unit = LOWER(TRIM(COALESCE(v.unit, '')))
     WHERE alv.list_id = ?
-  `).get(req.params.id) || {};
-  const mailerSent = mailerFunnel.mailer_sent || 0;
-  const earlyVotedMailer = mailerFunnel.early_voted_mailer || 0;
+  `).all(req.params.id);
+  // Bucket by mailer count: 0 = none, 1 = one mailer, 2 = two, etc.
+  const mailerBuckets = new Map();
+  let mailerSent = 0;        // total voters who got >=1 mailer
+  let earlyVotedMailer = 0;  // early voters who got >=1 mailer
+  for (const v of listVoters) {
+    const cnt = mailerByAddr.get(v.addr + '||' + v.unit) || 0;
+    if (!mailerBuckets.has(cnt)) mailerBuckets.set(cnt, { count: cnt, voters: 0, voted: 0 });
+    const b = mailerBuckets.get(cnt);
+    b.voters++;
+    if (v.early_voted === 1) b.voted++;
+    if (cnt > 0) {
+      mailerSent++;
+      if (v.early_voted === 1) earlyVotedMailer++;
+    }
+  }
+  // Array sorted by mailer count ascending
+  const mailerBreakdown = Array.from(mailerBuckets.values()).sort((a, b) => a.count - b.count);
 
   // Voted but NOT in this universe — early voters who weren't targeted by this
   // list. Useful counterfactual: "how many turned out that I didn't target?"
@@ -642,6 +662,8 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     // Mailer reach (address-level halo — same as walk logic)
     mailer_sent: mailerSent,
     early_voted_mailer: earlyVotedMailer,
+    // Per-household mailer-count histogram: [{count:0, voters:N, voted:N}, {count:1, ...}, ...]
+    mailer_breakdown: mailerBreakdown,
 
     // Counterfactual: early voters NOT in this universe (not race-scoped)
     early_voted_outside: earlyVotedOutsideUniverse,
