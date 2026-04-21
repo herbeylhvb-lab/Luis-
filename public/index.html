@@ -14301,6 +14301,25 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       });
     }
 
+    // 📊 DEMOGRAPHICS OF UNIVERSE VOTERS WHO VOTED — subset of my universe
+    // that actually showed up. Comparing this to "My Universe" reveals
+    // which types of voters respond to outreach vs stay home.
+    var votedGender = data.voted_gender_breakdown || [];
+    var votedAge = data.voted_age_buckets || [];
+    var votedParty = data.voted_party_breakdown || [];
+    if (earlyVoted > 0) {
+      html += renderDemographicsBlock({
+        title: '📊 Demographics of Universe Voters Who Voted',
+        bg: '#0a1628',
+        border: '#1e40af',
+        accent: '#60a5fa',
+        total: earlyVoted,
+        gender: votedGender,
+        age: votedAge,
+        party: votedParty
+      });
+    }
+
     // 📊 DEMOGRAPHICS OF VOTERS I MISSED — who turned out that I didn't target.
     // Same component as above but with cyan accent and a CSV download button.
     var outsideGender = data.outside_gender_breakdown || [];
