@@ -73,23 +73,14 @@ const ELECTION_MAP = {
 };
 
 // --- District code → human-readable labels ---
-const CITY_LABELS = {
-  'CBR': 'Brownsville', 'CBV': 'Bayview', 'CHG': 'Harlingen', 'CLA': 'La Feria',
-  'CLV': 'Los Fresnos', 'CPR': 'Port Isabel', 'CRV': 'Rio Hondo', 'CSB': 'San Benito',
-  'CSP': 'South Padre Island', 'CSX': 'Santa Rosa', 'CLI': 'Laguna Vista',
-  'CLC': 'Los Indios', 'CCO': 'Combes', 'CRG': 'Rancho Viejo', 'CPT': 'Palm Valley',
-};
-const SCHOOL_LABELS = {
-  'IBR': 'Brownsville ISD', 'IHG': 'Harlingen ISD', 'ILA': 'La Feria ISD',
-  'ILO': 'Los Fresnos ISD', 'IPI': 'Point Isabel ISD', 'ISB': 'San Benito ISD',
-  'IRH': 'Rio Hondo ISD', 'ISR': 'Santa Rosa ISD',
-};
-const NAV_PORT_LABELS = {
-  'BND': 'Port of Brownsville', 'PIS': 'Port Isabel Navigation District',
-};
-const PORT_AUTH_LABELS = {
-  'SAN': 'Port of San Benito',
-};
+// Shared across all import scripts and the db.js startup migration.
+// See district-codes.js for the full canonical table.
+const {
+  CITY_LABELS,
+  SCHOOL_LABELS,
+  NAVIGATION_PORT_LABELS: NAV_PORT_LABELS,
+  PORT_AUTHORITY_LABELS: PORT_AUTH_LABELS,
+} = require('../district-codes');
 
 // --- Column index map (from the 236-column voter file) ---
 const COL = {

@@ -843,43 +843,15 @@ try {
 addColumn("ALTER TABLE voters ADD COLUMN unit_type TEXT DEFAULT ''");
 
 // --- Normalize district abbreviations to full names ---
+// Uses shared lookup in ./district-codes.js so the importer and the
+// migration can never drift apart. Adds BOTH legacy and current code
+// forms (e.g., CCO + CCB for Combes) to handle the county's re-coding.
+// Also decodes any raw codes that bled into the voters.city column
+// (which is what the Block Captain dropdown reads from).
+const { buildDistrictRenames, buildCityColumnRenames } = require('./district-codes');
 const districtRenames = [
-  // Navigation districts
-  ['navigation_port', 'BND', 'Port of Brownsville'],
-  ['navigation_port', 'PIS', 'Port Isabel-San Benito'],
-  ['navigation_port', 'Port Isabel Navigation District', 'Port Isabel-San Benito'], // fix old rename
-  // Port authorities
-  ['port_authority', 'SAN', 'Port of Harlingen'],
-  ['port_authority', 'Port of San Benito', 'Port of Harlingen'], // fix old rename
-  // City council districts (single member)
-  ['single_member_city', 'B01', 'Brownsville District 1'],
-  ['single_member_city', 'B02', 'Brownsville District 2'],
-  ['single_member_city', 'B03', 'Brownsville District 3'],
-  ['single_member_city', 'B04', 'Brownsville District 4'],
-  ['single_member_city', 'H01', 'Harlingen District 1'],
-  ['single_member_city', 'H02', 'Harlingen District 2'],
-  ['single_member_city', 'H03', 'Harlingen District 3'],
-  ['single_member_city', 'H04', 'Harlingen District 4'],
-  ['single_member_city', 'H05', 'Harlingen District 5'],
-  // School districts — abbreviations to full names
-  ['school_district', 'IBR', 'Brownsville ISD'],
-  ['school_district', 'IHG', 'Harlingen ISD'],
-  ['school_district', 'ILA', 'La Feria ISD'],
-  ['school_district', 'ILO', 'Los Fresnos ISD'],
-  ['school_district', 'ILY', 'Lyford ISD'],
-  ['school_district', 'IPI', 'Point Isabel ISD'],
-  ['school_district', 'IRH', 'Rio Hondo ISD'],
-  ['school_district', 'ISB', 'San Benito ISD'],
-  ['school_district', 'ISM', 'Santa Maria ISD'],
-  ['school_district', 'ISR', 'Santa Rosa ISD'],
-  // City abbreviations — Cameron County codes (C = City + initials)
-  ['city_district', 'CCB', 'Combes'],
-  ['city_district', 'CIL', 'Los Indios'],
-  ['city_district', 'CLO', 'Lozano'],
-  ['city_district', 'CPI', 'Primera'],
-  ['city_district', 'CPV', 'Palm Valley'],
-  ['city_district', 'CRH', 'Rangerville'],
-  ['city_district', 'CSR', 'Santa Rosa'],
+  ...buildDistrictRenames(),
+  ...buildCityColumnRenames(),  // voters.city: "CCO" → "Combes", etc.
 ];
 for (const [col, abbrev, fullName] of districtRenames) {
   try {

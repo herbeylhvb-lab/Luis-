@@ -70,19 +70,13 @@ const ELECTION_MAP = {
   '623':  { name: 'Local Jun 2023', date: '2023-06-10', type: 'local_runoff', cycle: 'june' },
 };
 
-const CITY_LABELS = {
-  'CBR': 'Brownsville', 'CBV': 'Bayview', 'CHG': 'Harlingen', 'CLA': 'La Feria',
-  'CLV': 'Los Fresnos', 'CPR': 'Port Isabel', 'CRV': 'Rio Hondo', 'CSB': 'San Benito',
-  'CSP': 'South Padre Island', 'CSX': 'Santa Rosa', 'CLI': 'Laguna Vista',
-  'CLC': 'Los Indios', 'CCO': 'Combes', 'CRG': 'Rancho Viejo', 'CPT': 'Palm Valley',
-};
-const SCHOOL_LABELS = {
-  'IBR': 'Brownsville ISD', 'IHG': 'Harlingen ISD', 'ILA': 'La Feria ISD',
-  'ILO': 'Los Fresnos ISD', 'IPI': 'Point Isabel ISD', 'ISB': 'San Benito ISD',
-  'IRH': 'Rio Hondo ISD', 'ISR': 'Santa Rosa ISD',
-};
-const NAV_PORT_LABELS = { 'BND': 'Port of Brownsville', 'PIS': 'Port Isabel Navigation District' };
-const PORT_AUTH_LABELS = { 'SAN': 'Port of San Benito' };
+// Shared lookup tables — see ../district-codes.js
+const {
+  CITY_LABELS,
+  SCHOOL_LABELS,
+  NAVIGATION_PORT_LABELS: NAV_PORT_LABELS,
+  PORT_AUTHORITY_LABELS: PORT_AUTH_LABELS,
+} = require('../district-codes');
 
 function parseName(nameStr) {
   if (!nameStr) return { last: '', first: '', middle: '' };
