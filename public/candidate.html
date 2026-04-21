@@ -99,7 +99,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .sidebar-dash-btn:hover{opacity:0.85}
 
 /* Center panel */
-.center-panel{width:380px;flex-shrink:0;overflow-y:auto;padding:20px;border-right:1px solid #334155}
+.center-panel{width:380px;flex-shrink:0;overflow-y:auto;overflow-x:hidden;padding:20px;border-right:1px solid #334155;min-width:0}
 .search-bar{position:relative;margin-bottom:20px}
 .search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
 .search-bar input:focus{border-color:#818cf8}
@@ -140,9 +140,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .right-empty{text-align:center;padding:3rem 1rem;color:#475569;font-size:14px}
 
 /* LIST SELECTOR IN CENTER */
-.list-selector{margin-bottom:16px;display:flex;align-items:center;gap:8px}
-.list-selector label{font-size:12px;color:#64748b;white-space:nowrap}
-.list-selector select{flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:16px;outline:none}
+/* min-width:0 on children defeats the flex-item default "cannot shrink below content size",
+   which is what makes long option text ("Captain Name: List Name (1040)") push the row wider
+   than the viewport and cause horizontal scroll. */
+.list-selector{margin-bottom:16px;display:flex;align-items:center;gap:8px;min-width:0}
+.list-selector label{font-size:12px;color:#64748b;white-space:nowrap;flex-shrink:0}
+.list-selector select{flex:1 1 0;min-width:0;max-width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:16px;outline:none;text-overflow:ellipsis}
 .list-selector select:focus{border-color:#818cf8}
 
 /* MODAL */
