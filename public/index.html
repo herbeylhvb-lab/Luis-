@@ -14249,31 +14249,26 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     }
     html += '</div>';
 
-    // 🗳️ District Turnout — race-scoped context. Shows total voters in the
-    // detected district (e.g., BND, Harlingen ISD), how many voted early in
-    // the whole district, and how many of those were NOT in this universe.
-    // Universe coverage = (voters in my universe that voted) / (voters in
-    // district that voted) — tells you how much of the real electorate you
-    // targeted.
-    var districtTotal = data.district_total || 0;
+    // 🗳️ In-Race Voters Not Targeted — the single number Luis cares about:
+    // of the people who voted in THIS race (inside the district boundaries),
+    // how many were NOT in my universe? These are the people I missed who
+    // actually cast a ballot for this election.
     var districtEarlyVoted = data.district_early_voted || 0;
     var outsideCount = data.early_voted_outside || 0;
     var raceCol = data.detected_race_column;
     var raceVal = data.detected_race_value;
     var raceScopeLabel = (raceCol && raceVal)
       ? escHtml(raceVal) + ' (' + raceCol.replace(/_/g, ' ') + ')'
-      : 'all voters in DB (no race detected)';
-    var districtTurnoutPct = districtTotal > 0 ? Math.round(districtEarlyVoted / districtTotal * 100) : 0;
+      : 'whole DB (race not auto-detected)';
     var universeCoverPct = districtEarlyVoted > 0 ? Math.round(earlyVoted / districtEarlyVoted * 100) : 0;
     html += '<div style="margin-bottom:12px;padding:10px;background:#0b1a1f;border:1px solid #0891b2;border-radius:6px">';
-    html += '<h6 style="color:#22d3ee;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🗳️ District Turnout <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">· ' + raceScopeLabel + '</span></h6>';
+    html += '<h6 style="color:#22d3ee;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">🗳️ Voters I Missed <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">· ' + raceScopeLabel + '</span></h6>';
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">' +
-      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#22d3ee;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">District Size</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + districtTotal.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">voters in district</div></div>' +
-      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#67e8f9;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">District Voted</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + districtEarlyVoted.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">' + districtTurnoutPct + '% turnout</div></div>' +
-      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#a5f3fc;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Voted Outside Universe</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + outsideCount.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">not in your target</div></div>' +
+      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#67e8f9;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Race Early Voters</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + districtEarlyVoted.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">voted in this race</div></div>' +
+      '<div style="background:#0f172a;border:1px solid #155e75;border-radius:4px;padding:8px 12px"><div style="color:#a5f3fc;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">Not In My Universe</div><div style="color:#e2e8f0;font-weight:700;font-size:17px">' + outsideCount.toLocaleString() + '</div><div style="color:#64748b;font-size:11px">voted but I didn\'t target</div></div>' +
       '</div>';
     html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #155e75;font-size:11px;color:#94a3b8">' +
-      '💡 Your universe covers <strong style="color:#22d3ee">' + universeCoverPct + '%</strong> of district early voters (' +
+      '💡 Your universe covered <strong style="color:#22d3ee">' + universeCoverPct + '%</strong> of in-race early voters (' +
       earlyVoted.toLocaleString() + ' of ' + districtEarlyVoted.toLocaleString() + ')' +
       '</div>';
     html += '</div>';

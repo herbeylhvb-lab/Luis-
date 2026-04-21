@@ -561,18 +561,16 @@ router.get('/admin-lists/:id/stats', (req, res) => {
   const earlyVotedWalked = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0) + (walkFunnel.voted_nobody_home || 0);
   const earlyVotedContact = (walkFunnel.voted_direct_contact || 0) + (walkFunnel.voted_household_contact || 0);
 
-  // Mailer reach — ADDRESS-LEVEL, with per-household mailer count so we can
-  // break down "got 1 mailer", "got 2 mailers", etc. One mailer physically
-  // arrives at a household and reaches everyone in the house.
-  //
-  // Distinct mailers per household = COUNT(DISTINCT notes || '|' || contacted_at)
-  // — each log-mailer call writes rows with the same mailer_name ('notes')
-  // and same timestamp, so that pair uniquely identifies a mailer drop.
+  // Mailer reach — ADDRESS-LEVEL, with per-household mailer count.
+  // Distinct mailers per household = COUNT(DISTINCT mailer_name + date).
+  // DATE (not exact timestamp) so that logging the same mailer against
+  // multiple lists on the same day counts as ONE mailer drop — which
+  // matches physical reality. Different-day re-drops still count separately.
   const mailerPerAddr = db.prepare(`
     SELECT
       LOWER(TRIM(COALESCE(v.address, ''))) as addr,
       LOWER(TRIM(COALESCE(v.unit, ''))) as unit,
-      COUNT(DISTINCT vc.notes || '|' || vc.contacted_at) as mailer_count
+      COUNT(DISTINCT LOWER(TRIM(vc.notes)) || '|' || substr(vc.contacted_at, 1, 10)) as mailer_count
     FROM voters v
     JOIN voter_contacts vc ON vc.voter_id = v.id
     WHERE vc.contact_type = 'Mailer'
