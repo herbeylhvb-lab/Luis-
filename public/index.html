@@ -13966,27 +13966,10 @@ async function loadMyUniverses() {
       }
     });
     right.appendChild(renameBtn);
-    // Phone List download — shift-click or Alt-click to include everyone,
-    // regular click excludes voters who already voted (once early-voter data
-    // is in the DB). Asks for confirmation on first click so it's not
-    // invisible behavior.
-    var stBtn = document.createElement('button');
-    stBtn.className = 'btn btn-sm';
-    stBtn.style.cssText = 'background:#2563eb;border-color:#1d4ed8';
-    stBtn.textContent = '📱 Phone List';
-    stBtn.title = 'Click: skip voters who already voted. Shift+Click: include everyone.';
-    (function(listId) {
-      stBtn.addEventListener('click', function(e) {
-        var excludeVoted = !e.shiftKey; // shift-click = full list
-        var url = '/api/admin-lists/' + listId + '/export-simpletext' +
-          (excludeVoted ? '?exclude_voted=1' : '');
-        var link = document.createElement('a');
-        link.href = url;
-        link.download = 'phone_list.csv';
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
-      });
-    })(l.id);
-    right.appendChild(stBtn);
+    // Phone List button removed from the row — it used to bypass the
+    // skip-voted toggle. Users should click View to open the dashboard,
+    // where the toggle controls all export links (including Phone List)
+    // consistently. Keeps one clear path, no duplicate behavior.
     var mailerBtn = document.createElement('button');
     mailerBtn.className = 'btn btn-sm';
     mailerBtn.style.cssText = 'background:#059669;border-color:#047857';
