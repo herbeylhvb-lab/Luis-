@@ -14109,6 +14109,46 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       html += '</div></div>';
     }
 
+    // 🎯 Early Voter Analysis — who voted, how many were block-walked, and
+    // what the support-level split of voters looks like. Uses early_voted
+    // flag on voters (synced from early voter data imports) and support_level
+    // (synced exclusively from walk outcomes — see db.js:1719).
+    var earlyVotedWalked = data.early_voted_walked || 0;
+    var walkedOfVotersPct = earlyVoted > 0 ? Math.round(earlyVotedWalked / earlyVoted * 100) : 0;
+    var walkedTotalCount = data.walked_total || 0;
+    var universeWalkedPct = totalVoters > 0 ? Math.round(walkedTotalCount / totalVoters * 100) : 0;
+    // Re-declare color/label maps so this block works even if party_breakdown was empty
+    var supColors = { strong_support: '#22c55e', lean_support: '#86efac', undecided: '#facc15', lean_oppose: '#f97316', strong_oppose: '#ef4444', refused: '#a855f7', unknown: '#64748b' };
+    var supLabels = { strong_support: 'Strong Support', lean_support: 'Lean Support', undecided: 'Undecided', lean_oppose: 'Lean Oppose', strong_oppose: 'Strong Oppose', refused: 'Refused', unknown: 'Not Walked' };
+
+    html += '<div style="margin:12px 0 16px;padding:14px;background:#0b1220;border:1px solid #1e40af;border-radius:8px">';
+    html += '<h5 style="color:#60a5fa;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px">🎯 Early Voter Analysis</h5>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px">';
+    html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted Early</div><div class="value" style="color:#86efac;font-size:18px">' + earlyVoted.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + votedPct + '% of universe</div></div>';
+    html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted & Walked</div><div class="value" style="color:#22c55e;font-size:18px">' + earlyVotedWalked.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + walkedOfVotersPct + '% of voters</div></div>';
+    html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Walked Total</div><div class="value" style="color:#60a5fa;font-size:18px">' + walkedTotalCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + universeWalkedPct + '% of universe</div></div>';
+    html += '</div>';
+
+    // Support-level breakdown of the people who actually voted early.
+    // Answers: "of those who voted, how many were supporters/undecided/etc."
+    if (data.early_voted_support_breakdown && data.early_voted_support_breakdown.length > 0 && earlyVoted > 0) {
+      html += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px">Support Level of Voters</h6>';
+      for (var ev = 0; ev < data.early_voted_support_breakdown.length; ev++) {
+        var evb = data.early_voted_support_breakdown[ev];
+        var evColor = supColors[evb.level] || '#64748b';
+        var evLabel = supLabels[evb.level] || evb.level;
+        var evPct = earlyVoted > 0 ? Math.round(evb.count / earlyVoted * 100) : 0;
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
+          '<div style="width:110px;color:' + evColor + ';font-weight:600;font-size:12px">' + escHtml(evLabel) + '</div>' +
+          '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + evColor + ';height:100%;width:' + evPct + '%;border-radius:4px"></div></div>' +
+          '<div style="color:#94a3b8;font-size:12px;width:80px;text-align:right">' + evb.count.toLocaleString() + ' (' + evPct + '%)</div></div>';
+      }
+      html += '</div>';
+    } else if (earlyVoted === 0) {
+      html += '<div style="color:#64748b;font-size:12px;font-style:italic;padding:4px 0">No early votes recorded yet for this universe.</div>';
+    }
+    html += '</div>';
+
     // Action buttons
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
       '<button class="btn btn-success btn-sm" onclick="createWalkFromUniverse(' + listId + ', false)">Create Single Walk</button>' +
