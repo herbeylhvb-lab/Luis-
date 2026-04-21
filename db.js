@@ -631,32 +631,87 @@ try {
   }
 } catch (e) { /* ignore */ }
 
-// One-time city name normalization — convert all city values to Title Case (e.g., "BROWNSVILLE" → "Brownsville")
-// so filters, dropdowns, and exports show one canonical casing per city.
-// Guarded with a settings flag so this only runs once per DB.
+// City name normalization — two-pass:
+// PASS 1: Title-case (BROWNSVILLE → Brownsville)
+// PASS 2: Fuzzy-match typos to canonical Cameron County city names
+//   (e.g., "Brownsvile", "Brownville", "Brownsvlle" all → "Brownsville")
+// Guarded with a settings flag so this only runs once per DB version.
 try {
-  const cityNormDone = db.prepare("SELECT value FROM settings WHERE key = 'city_names_normalized'").get();
+  const cityNormDone = db.prepare("SELECT value FROM settings WHERE key = 'city_names_normalized_v2'").get();
   if (!cityNormDone) {
-    // Title-case each word: "BROWNSVILLE" → "Brownsville", "south padre island" → "South Padre Island"
-    // SQLite doesn't have native title-case; do it in JS and batch-update
-    const distinctCities = db.prepare("SELECT DISTINCT city FROM voters WHERE city != '' AND city IS NOT NULL").all();
     function titleCase(s) {
       return (s || '').trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
     }
+    // Levenshtein edit distance — how many single-character edits (insert/delete/substitute)
+    // are needed to turn string a into string b. Used to detect typos like "Brownsvile" → "Brownsville" (1 edit).
+    function editDistance(a, b) {
+      a = a.toLowerCase(); b = b.toLowerCase();
+      if (a === b) return 0;
+      if (!a.length) return b.length;
+      if (!b.length) return a.length;
+      const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+      for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+      for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+      for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+          if (a[i-1] === b[j-1]) dp[i][j] = dp[i-1][j-1];
+          else dp[i][j] = 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        }
+      }
+      return dp[a.length][b.length];
+    }
+    // Canonical Cameron County cities (all properly spelled, Title Case).
+    // Any variant within 2 edits of these gets corrected to the canonical spelling.
+    const CANONICAL_CITIES = [
+      'Brownsville', 'Harlingen', 'Los Fresnos', 'Port Isabel', 'San Benito',
+      'Laguna Vista', 'South Padre Island', 'Rancho Viejo', 'Mercedes', 'La Feria',
+      'Rio Hondo', 'Combes', 'Olmito', 'Santa Rosa', 'Santa Maria', 'Bayview',
+      'Lozano', 'Sebastian', 'Lyford', 'Los Indios', 'Palm Valley', 'Indian Lake',
+      'Primera', 'Laureles', 'Bluetown', 'Encantada'
+    ];
+    // Distance threshold: how many typos we tolerate. 2 catches "Brownsvile" (1),
+    // "Brownville" (1), "Brownvile" (2) but not unrelated cities like "Louisville" (3+).
+    function canonicalize(name) {
+      const titled = titleCase(name);
+      // Exact match to canonical → keep it
+      if (CANONICAL_CITIES.includes(titled)) return titled;
+      // Fuzzy match: find closest canonical within 2 edits
+      let best = null, bestDist = Infinity;
+      for (const canonical of CANONICAL_CITIES) {
+        const d = editDistance(titled, canonical);
+        if (d < bestDist) { bestDist = d; best = canonical; }
+      }
+      // Only correct if within 2 edits AND the input is short enough that 2 edits is meaningful
+      // (avoid merging totally different short names like "La" vs "Lo")
+      if (bestDist <= 2 && titled.length >= 4) return best;
+      // Otherwise keep the Title-Cased version (unknown city, don't force a match)
+      return titled;
+    }
+    const distinctCities = db.prepare("SELECT DISTINCT city FROM voters WHERE city != '' AND city IS NOT NULL").all();
     const updateStmt = db.prepare('UPDATE voters SET city = ? WHERE city = ?');
-    let changed = 0;
+    let changed = 0, typosFixed = 0;
+    const typoLog = [];
     const tx = db.transaction(() => {
       for (const r of distinctCities) {
-        const normalized = titleCase(r.city);
+        const normalized = canonicalize(r.city);
         if (normalized && normalized !== r.city) {
           const res = updateStmt.run(normalized, r.city);
           changed += res.changes;
+          // Log if this was a typo correction (not just casing)
+          if (r.city.toLowerCase() !== normalized.toLowerCase()) {
+            typosFixed += res.changes;
+            typoLog.push(`${r.city} → ${normalized} (${res.changes} voters)`);
+          }
         }
       }
     });
     tx();
     if (changed > 0) console.log(`[cleanup] Normalized city names on ${changed.toLocaleString()} voter(s)`);
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('city_names_normalized', '1')").run();
+    if (typosFixed > 0) {
+      console.log(`[cleanup] Corrected ${typosFixed.toLocaleString()} misspelled cities:`);
+      for (const line of typoLog) console.log(`  ${line}`);
+    }
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('city_names_normalized_v2', '1')").run();
   }
 } catch (e) { console.warn('[cleanup] City name normalization failed:', e.message); }
 
