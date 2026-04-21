@@ -82,7 +82,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .search-bar{position:relative;margin-bottom:20px}
 .search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
 .search-bar input:focus{border-color:#f59e0b}
-.search-bar .hint{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12px;color:#64748b}
+.search-bar .hint{font-size:12px;color:#64748b;white-space:nowrap;flex-shrink:0}
 
 .voter-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;animation:fadeIn 0.2s ease}
 .voter-card .voter-top{display:flex;justify-content:space-between;align-items:flex-start}
@@ -269,8 +269,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
     <div class="center-panel">
       <div class="search-bar" style="display:flex;gap:8px;align-items:center">
         <input type="text" id="voterSearch" placeholder="Search by name..." oninput="debouncedSearch()" style="flex:1">
-        <button type="button" onclick="resetSearch()" style="background:#334155;border:1px solid #475569;color:#94a3b8;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap">Clear</button>
         <span class="hint">min 2 chars</span>
+        <button type="button" onclick="resetSearch()" style="background:#334155;border:1px solid #475569;color:#94a3b8;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;white-space:nowrap">Clear</button>
       </div>
       <div style="margin-bottom:12px">
         <div class="form-group" style="margin-bottom:8px"><label>City</label><select id="capCityFilter" onchange="debouncedSearch()"><option value="">All Cities</option></select></div>
