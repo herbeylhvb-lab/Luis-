@@ -853,9 +853,12 @@ const districtRenames = [
   ...buildDistrictRenames(),
   ...buildCityColumnRenames(),  // voters.city: "CCO" → "Combes", etc.
 ];
+// COLLATE NOCASE matches any casing: "CCB", "Ccb", "ccb" all decode the
+// same. Needed because the fuzzy city normalizer already Title-Cased
+// some of these codes (CCB → Ccb) before this migration existed.
 for (const [col, abbrev, fullName] of districtRenames) {
   try {
-    const r = db.prepare(`UPDATE voters SET ${col} = ? WHERE ${col} = ?`).run(fullName, abbrev);
+    const r = db.prepare(`UPDATE voters SET ${col} = ? WHERE ${col} = ? COLLATE NOCASE`).run(fullName, abbrev);
     if (r.changes > 0) console.log(`[migrate] Renamed ${col}: ${abbrev} → ${fullName} (${r.changes} voters)`);
   } catch(e) {}
 }
