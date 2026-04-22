@@ -14269,16 +14269,35 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       if (opts.party && opts.party.length > 0) {
         block += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Party Lean</h6>';
         var pColorMap = { D:'#60a5fa', DD:'#3b82f6', DDD:'#1d4ed8', R:'#f87171', RR:'#ef4444', RRR:'#b91c1c', SWING:'#a855f7', Unknown:'#64748b' };
+        // Compute D-lean and R-lean totals by summing the categorical buckets.
+        // Useful as a partisan summary at the bottom of each block.
+        var demTotal = 0, repTotal = 0, otherTotal = 0;
         for (var pi = 0; pi < opts.party.length; pi++) {
           var p = opts.party[pi];
           var pPct = opts.total > 0 ? Math.round(p.count / opts.total * 100) : 0;
           var pCol = pColorMap[p.party] || '#64748b';
+          if (['D','DD','DDD'].indexOf(p.party) >= 0) demTotal += p.count;
+          else if (['R','RR','RRR'].indexOf(p.party) >= 0) repTotal += p.count;
+          else otherTotal += p.count;
           block += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
             '<div style="width:80px;color:' + pCol + ';font-weight:600;font-size:12px">' + escHtml(p.party) + '</div>' +
             '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + pCol + ';height:100%;width:' + pPct + '%;border-radius:4px"></div></div>' +
             '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + p.count.toLocaleString() + ' (' + pPct + '%)</div></div>';
         }
+        // Partisan totals summary — makes the D-vs-R split obvious at a glance
+        var demPct = opts.total > 0 ? Math.round(demTotal / opts.total * 100) : 0;
+        var repPct = opts.total > 0 ? Math.round(repTotal / opts.total * 100) : 0;
+        var otherPct = opts.total > 0 ? Math.round(otherTotal / opts.total * 100) : 0;
+        block += '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #334155;display:flex;justify-content:space-between;align-items:center;font-size:12px;flex-wrap:wrap;gap:6px">' +
+          '<div style="color:#94a3b8">🟦 <strong style="color:#3b82f6">' + demTotal.toLocaleString() + '</strong> D-lean (' + demPct + '%)</div>' +
+          '<div style="color:#94a3b8">🟥 <strong style="color:#ef4444">' + repTotal.toLocaleString() + '</strong> R-lean (' + repPct + '%)</div>' +
+          '<div style="color:#64748b;font-size:11px">Swing/Unknown: ' + otherTotal.toLocaleString() + ' (' + otherPct + '%)</div>' +
+          '</div>';
         block += '</div>';
+      }
+      // Caller-supplied footer (e.g., "X first-time voters")
+      if (opts.footer) {
+        block += opts.footer;
       }
       block += '</div>';
       return block;
@@ -14326,6 +14345,18 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     var outsideAge = data.outside_age_buckets || [];
     var outsideParty = data.outside_party_breakdown || [];
     if (raceOutsideCount > 0) {
+      // First-time voter footer — shows how many of the missed voters are
+      // newly engaged (elections_voted <= 1). These are high-value targets
+      // for future cycles since they're voting but haven't locked into a
+      // partisan pattern yet.
+      var outsideFirstTime = data.outside_first_time_count || 0;
+      var firstTimePct = raceOutsideCount > 0 ? Math.round(outsideFirstTime / raceOutsideCount * 100) : 0;
+      var footerHtml = '<div style="margin-top:8px;padding:8px 10px;background:#083344;border:1px solid #0e7490;border-radius:4px;display:flex;align-items:center;gap:8px;font-size:12px">' +
+        '<span style="font-size:16px">🆕</span>' +
+        '<div style="flex:1"><strong style="color:#67e8f9">' + outsideFirstTime.toLocaleString() + '</strong> <span style="color:#94a3b8">first-time / low-propensity voters</span> (' + firstTimePct + '% of missed)</div>' +
+        '<span style="color:#64748b;font-size:11px">elections_voted ≤ 1 — newly engaged, high future value</span>' +
+        '</div>';
+
       html += renderDemographicsBlock({
         title: '📊 Demographics of Voters I Missed',
         bg: '#0a1b1f',
@@ -14335,7 +14366,8 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         gender: outsideGender,
         age: outsideAge,
         party: outsideParty,
-        headerRight: '<a class="btn btn-sm" style="background:#0891b2;border-color:#0e7490;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-outside-voters">⬇ Download CSV</a>'
+        headerRight: '<a class="btn btn-sm" style="background:#0891b2;border-color:#0e7490;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-outside-voters">⬇ Download CSV</a>',
+        footer: footerHtml
       });
     }
 

@@ -906,6 +906,17 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     ORDER BY count DESC
   `).all(...raceScopedParams, req.params.id);
 
+  // First-time voters among "voters I missed" — using elections_voted <= 1
+  // as the low-propensity threshold (voted at most once before). These are
+  // high-value future targets because they're newly engaged and you missed
+  // them this cycle.
+  const outsideFirstTimeCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM voters v
+    WHERE ${raceScopedWhere}
+      AND COALESCE(v.elections_voted, 0) <= 1
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+  `).get(...raceScopedParams, req.params.id) || { n: 0 }).n;
+
   // ─── DEMOGRAPHICS OF MY UNIVERSE (the voters I targeted) ───
   // Same shape as outside-voter demographics, but flipped: these are the
   // voters IN my list. Compare side-by-side against outside demographics
@@ -1119,6 +1130,8 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     outside_gender_breakdown: outsideGenderRows,
     outside_age_buckets: outsideAgeRows,
     outside_party_breakdown: outsidePartyRows,
+    // How many of those missed voters are first-time/low-propensity?
+    outside_first_time_count: outsideFirstTimeCount,
     // Who are the voters in MY universe (the ones I targeted)
     universe_gender_breakdown: universeGenderRows,
     universe_age_buckets: universeAgeRows,
