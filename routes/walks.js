@@ -1363,53 +1363,87 @@ router.delete('/walks/:walkId/addresses/:addrId', (req, res) => {
 // Idempotent: re-running after more voters vote will prune further.
 // Only touches unvisited addresses (result='not_visited' or empty).
 // Addresses with recorded walk results are never removed.
+//
+// Perf note: previous version used correlated NOT EXISTS subqueries
+// that scanned voters O(N²) and timed out at Railway (502). Rewritten
+// to scan voters once into an in-memory Map, then check walk_addresses
+// against it. O(voters + walk_addresses) instead of O(walk × voters²).
 router.post('/walks/:walkId/prune-voted-addresses', (req, res) => {
   const walk = db.prepare('SELECT id, name FROM block_walks WHERE id = ?').get(req.params.walkId);
   if (!walk) return res.status(404).json({ error: 'Walk not found.' });
 
-  // Count candidates before deletion so we can report accurately
-  const beforeCount = (db.prepare(`
-    SELECT COUNT(*) as n FROM walk_addresses wa
-    WHERE wa.walk_id = ?
-      AND (wa.result IS NULL OR wa.result = '' OR wa.result = 'not_visited')
-  `).get(req.params.walkId) || { n: 0 }).n;
-
-  // Delete unvisited addresses where NO voter at that address still
-  // needs to vote (i.e., everyone there has early_voted = 1).
-  const result = db.prepare(`
-    DELETE FROM walk_addresses
+  // Pull unvisited addresses for this walk (the only candidates for pruning)
+  const walkAddrs = db.prepare(`
+    SELECT id,
+      LOWER(TRIM(COALESCE(address, ''))) as addr,
+      LOWER(TRIM(COALESCE(unit, ''))) as unit
+    FROM walk_addresses
     WHERE walk_id = ?
       AND (result IS NULL OR result = '' OR result = 'not_visited')
-      AND NOT EXISTS (
-        SELECT 1 FROM voters v
-        WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(walk_addresses.address))
-          AND LOWER(TRIM(COALESCE(v.unit, ''))) = LOWER(TRIM(COALESCE(walk_addresses.unit, '')))
-          AND (v.early_voted IS NULL OR v.early_voted = 0)
-      )
-      -- Also require at least one voter record actually matches this
-      -- address, so we don't delete addresses whose voters aren't in
-      -- the DB at all (those might be legitimate homes we just don't
-      -- have data for).
-      AND EXISTS (
-        SELECT 1 FROM voters v2
-        WHERE LOWER(TRIM(v2.address)) = LOWER(TRIM(walk_addresses.address))
-          AND LOWER(TRIM(COALESCE(v2.unit, ''))) = LOWER(TRIM(COALESCE(walk_addresses.unit, '')))
-      )
-  `).run(req.params.walkId);
+  `).all(req.params.walkId);
+  const beforeCount = walkAddrs.length;
 
-  const afterCount = (db.prepare(`
-    SELECT COUNT(*) as n FROM walk_addresses wa
-    WHERE wa.walk_id = ?
-      AND (wa.result IS NULL OR wa.result = '' OR wa.result = 'not_visited')
-  `).get(req.params.walkId) || { n: 0 }).n;
+  if (walkAddrs.length === 0) {
+    return res.json({
+      success: true,
+      removed: 0,
+      unvisited_before: 0,
+      unvisited_after: 0,
+      walk_name: walk.name
+    });
+  }
+
+  // Scan voters once, building a map of address → { voted, notVoted } counts.
+  // O(N) over voters. Memory: ~30MB for 300K voters, well within budget.
+  const voterRows = db.prepare(`
+    SELECT
+      LOWER(TRIM(COALESCE(address, ''))) as addr,
+      LOWER(TRIM(COALESCE(unit, ''))) as unit,
+      COALESCE(early_voted, 0) as voted
+    FROM voters
+    WHERE address IS NOT NULL AND TRIM(address) != ''
+  `).all();
+  const addrMap = new Map();
+  for (const v of voterRows) {
+    const key = v.addr + '||' + v.unit;
+    let s = addrMap.get(key);
+    if (!s) { s = { voted: 0, notVoted: 0 }; addrMap.set(key, s); }
+    if (v.voted === 1) s.voted++; else s.notVoted++;
+  }
+
+  // Identify walk_addresses whose household is fully voted (voted > 0 AND
+  // notVoted === 0). Skip addresses that have no voter records at all —
+  // might be new residents or addresses we don't have data for.
+  const toDeleteIds = [];
+  for (const w of walkAddrs) {
+    const s = addrMap.get(w.addr + '||' + w.unit);
+    if (s && s.voted > 0 && s.notVoted === 0) {
+      toDeleteIds.push(w.id);
+    }
+  }
+
+  // Batch-delete by ID in a transaction (fast, no table scan)
+  let removed = 0;
+  if (toDeleteIds.length > 0) {
+    const delStmt = db.prepare('DELETE FROM walk_addresses WHERE id = ?');
+    const tx = db.transaction((ids) => {
+      for (const id of ids) {
+        const r = delStmt.run(id);
+        removed += r.changes;
+      }
+    });
+    tx(toDeleteIds);
+  }
+
+  const afterCount = beforeCount - removed;
 
   db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
-    `Walk "${walk.name}": pruned ${result.changes} addresses where all voters already voted`
+    `Walk "${walk.name}": pruned ${removed} addresses where all voters already voted`
   );
 
   res.json({
     success: true,
-    removed: result.changes,
+    removed,
     unvisited_before: beforeCount,
     unvisited_after: afterCount,
     walk_name: walk.name
