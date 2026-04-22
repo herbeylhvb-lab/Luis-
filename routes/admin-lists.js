@@ -488,6 +488,47 @@ router.get('/admin-lists/:id/export-outside-voters', (req, res) => {
   res.send(csv);
 });
 
+// ─── EXPORT "FIRST-TIME VOTERS IN MY UNIVERSE" ─────────────────────
+// CSV of voters in this universe who are first-time / low-propensity
+// (elections_voted <= 1). Use case: personal follow-up — thank-you
+// texts, volunteer recruitment, deepening engagement with newly
+// active voters you already had on your radar.
+router.get('/admin-lists/:id/export-first-time-voters', (req, res) => {
+  const list = db.prepare('SELECT * FROM admin_lists WHERE id = ?').get(req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const voters = db.prepare(`
+    SELECT v.first_name, v.middle_name, v.last_name, v.age, v.gender,
+           v.registration_number, v.address, v.city, v.zip, v.precinct,
+           v.party_score, v.phone, v.email, v.early_voted,
+           COALESCE(v.elections_voted, 0) as elections_voted
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+      AND COALESCE(v.elections_voted, 0) <= 1
+    ORDER BY v.precinct, v.last_name, v.first_name
+  `).all(req.params.id);
+
+  const csvEscape = (val) => {
+    const s = (val || '').toString().replace(/"/g, '""');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s + '"' : s;
+  };
+
+  const header = 'First Name,Middle,Last Name,Age,Gender,Reg #,Address,City,Zip,Precinct,Party,Phone,Email,Elections Voted,Voted This Cycle';
+  const rows = voters.map(v => [
+    v.first_name, v.middle_name, v.last_name, v.age || '', v.gender || '',
+    v.registration_number || '', v.address, v.city, v.zip, v.precinct,
+    v.party_score || '', v.phone || '', v.email || '',
+    v.elections_voted, v.early_voted ? 'Yes' : 'No'
+  ].map(csvEscape).join(','));
+  const csv = header + '\n' + rows.join('\n');
+
+  const safeName = list.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="' + safeName + '_first_time_voters.csv"');
+  res.send(csv);
+});
+
 // Save VBM matched voters as a mail universe list
 router.post('/admin-lists/vbm-save', (req, res) => {
   const { name, voter_ids } = req.body;
@@ -925,6 +966,17 @@ router.get('/admin-lists/:id/stats', (req, res) => {
       AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
   `).get(...raceScopedParams, req.params.id) || { n: 0 }).n;
 
+  // First-time voters INSIDE the universe — voters I targeted who are newly
+  // engaged (elections_voted <= 1). These are highest-value for personal
+  // follow-up: you targeted them, they voted, and they're not locked into
+  // partisan habits yet. Ideal for thank-you texts and volunteer recruiting.
+  const universeFirstTimeCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+      AND COALESCE(v.elections_voted, 0) <= 1
+  `).get(req.params.id) || { n: 0 }).n;
+
   // ─── DEMOGRAPHICS OF MY UNIVERSE (the voters I targeted) ───
   // Same shape as outside-voter demographics, but flipped: these are the
   // voters IN my list. Compare side-by-side against outside demographics
@@ -1170,6 +1222,8 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     outside_party_totals: outsidePartyTotals,
     // How many of those missed voters are first-time/low-propensity?
     outside_first_time_count: outsideFirstTimeCount,
+    // Same for voters inside the universe (newly engaged — target these)
+    universe_first_time_count: universeFirstTimeCount,
     // Who are the voters in MY universe (the ones I targeted)
     universe_gender_breakdown: universeGenderRows,
     universe_age_buckets: universeAgeRows,

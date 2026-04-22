@@ -14341,6 +14341,17 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     var universeAge = data.universe_age_buckets || [];
     var universeParty = data.universe_party_breakdown || [];
     if (totalVoters > 0) {
+      // First-time-voter footer (mirrors the "Voters I Missed" version) —
+      // highlights newly-engaged voters in the universe and gives a CSV
+      // download so Luis can personally follow up with them.
+      var universeFirstTime = data.universe_first_time_count || 0;
+      var uFirstTimePct = totalVoters > 0 ? Math.round(universeFirstTime / totalVoters * 100) : 0;
+      var uFooterHtml = '<div style="margin-top:8px;padding:8px 10px;background:#052e16;border:1px solid #166534;border-radius:4px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">' +
+        '<span style="font-size:16px">🆕</span>' +
+        '<div style="flex:1;min-width:200px"><strong style="color:#86efac">' + universeFirstTime.toLocaleString() + '</strong> <span style="color:#94a3b8">first-time / low-propensity voters</span> (' + uFirstTimePct + '% of universe)</div>' +
+        '<a class="btn btn-sm" style="background:#166534;border-color:#14532d;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-first-time-voters">⬇ Download CSV</a>' +
+        '</div>';
+
       html += renderDemographicsBlock({
         title: '📊 Demographics of My Universe',
         bg: '#0f1a10',
@@ -14350,7 +14361,8 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         gender: universeGender,
         age: universeAge,
         party: universeParty,
-        partyTotals: data.universe_party_totals
+        partyTotals: data.universe_party_totals,
+        footer: uFooterHtml
       });
     }
 
