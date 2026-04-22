@@ -378,8 +378,12 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   if (!captain) return res.status(404).json({ error: 'Invalid captain code.' });
   if (!captain.is_active) return res.status(403).json({ error: 'Your access has been disabled. Contact the campaign admin.' });
 
-  // Set captain session for portal auth
+  // Set captain session for portal auth. Captain sessions get a 30-day
+  // cookie (vs the default 7 days) since captains typically use the
+  // portal over a long campaign season and shouldn't need to re-login
+  // every week. Rolling extension happens in requireCaptainAuth below.
   req.session.captainId = captain.id;
+  req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
   // Include candidate race info for race filter (direct or shared)
@@ -524,6 +528,13 @@ router.post('/captains/:id/lists/:listId/bulk-upload', (req, res) => {
 function requireCaptainAuth(req, res, next) {
   const captainId = parseInt(req.params.id, 10);
   if (isNaN(captainId)) return res.status(400).json({ error: 'Invalid captain ID.' });
+  // Rolling session — bump the captain cookie expiration to 30 days from
+  // NOW on every authenticated request. Result: captains stay logged in
+  // indefinitely as long as they use the portal at least once per month,
+  // and expire after 30 days of no activity.
+  if (req.session && req.session.captainId) {
+    req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
+  }
   // Admin users can access any captain's data
   if (req.session && req.session.userId) return next();
   // Captain portal users must match their session
