@@ -232,6 +232,8 @@ app.use((req, res, next) => {
   }
   // Allow captain portal endpoints (used by captain.html without admin auth)
   if (req.path.match(/^\/api\/captains\/login/) ||
+      req.path.match(/^\/api\/captains\/logout$/) ||
+      req.path.match(/^\/api\/captains\/me$/) ||
       req.path.match(/^\/api\/captains\/\d+\/refresh/) ||
       req.path.match(/^\/api\/captains\/\d+\/lists/) ||
       req.path.match(/^\/api\/captains\/\d+\/assigned-lists/) ||

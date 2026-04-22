@@ -371,6 +371,92 @@ router.get('/captains/all-lists', (req, res) => {
 // ===================== CAPTAIN PORTAL ENDPOINTS =====================
 
 // Login with permanent code — sets session for captain auth
+// Restore captain session on page load — lets the portal auto-login
+// when the cookie is still valid. Without this, refreshing the page
+// drops the user back to the login screen even though the server
+// still knows who they are.
+router.get('/captains/me', (req, res) => {
+  if (!req.session || !req.session.captainId) {
+    return res.status(401).json({ error: 'Not logged in.' });
+  }
+  const captain = db.prepare('SELECT * FROM captains WHERE id = ?').get(req.session.captainId);
+  if (!captain || !captain.is_active) {
+    // Clear the stale session so the client shows the login screen
+    req.session.destroy(() => {});
+    return res.status(401).json({ error: 'Session invalid.' });
+  }
+
+  // Roll the cookie forward 30 days on each restore
+  req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
+
+  // Mirror the shape of /captains/login so the client can reuse its
+  // same post-login wire-up code (team, lists, sub-captains, etc.)
+  captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
+  if (captain.candidate_id) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(captain.candidate_id);
+    if (cand) { captain.race_type = cand.race_type; captain.race_value = cand.race_value; }
+  }
+  if (!captain.race_type) {
+    const sharedCand = db.prepare("SELECT c.race_type, c.race_value FROM captain_candidates cc JOIN candidates c ON cc.candidate_id = c.id WHERE cc.captain_id = ? AND c.race_type IS NOT NULL AND c.race_type != '' LIMIT 1").get(captain.id);
+    if (sharedCand) { captain.race_type = sharedCand.race_type; captain.race_value = sharedCand.race_value; }
+  }
+  captain.sub_captains = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id, name, code, is_active, created_at, parent_captain_id
+      FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id, c.name, c.code, c.is_active, c.created_at, c.parent_captain_id
+      FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
+    SELECT * FROM team_tree ORDER BY name
+  `).all(captain.id);
+  captain.lists = db.prepare(`
+    SELECT cl.*, COUNT(clv.id) as voter_count,
+      ctm.name as team_member_name
+    FROM captain_lists cl
+    LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
+    LEFT JOIN captain_team_members ctm ON cl.team_member_id = ctm.id
+    WHERE cl.captain_id = ?
+    GROUP BY cl.id ORDER BY cl.created_at DESC
+  `).all(captain.id);
+  captain.sub_captain_lists = db.prepare(`
+    WITH RECURSIVE team_tree AS (
+      SELECT id FROM captains WHERE parent_captain_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN team_tree t ON c.parent_captain_id = t.id
+    )
+    SELECT cl.*, COUNT(clv.id) as voter_count,
+      c.name as sub_captain_name, c.id as sub_captain_id
+    FROM captain_lists cl
+    LEFT JOIN captain_list_voters clv ON cl.id = clv.list_id
+    JOIN captains c ON cl.captain_id = c.id
+    WHERE c.id IN (SELECT id FROM team_tree)
+    GROUP BY cl.id ORDER BY c.name, cl.created_at DESC
+  `).all(captain.id);
+  captain.assigned_lists = db.prepare(`
+    SELECT al.id, al.name, al.description, al.list_type,
+      COUNT(alv.id) as voter_count
+    FROM admin_lists al
+    LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+    WHERE al.assigned_captain_id = ?
+    GROUP BY al.id ORDER BY al.created_at DESC
+  `).all(captain.id);
+  res.json({ success: true, captain });
+});
+
+// Logout — destroys the captain's server-side session so next visit
+// starts fresh at the login screen.
+router.post('/captains/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy(() => {
+      res.clearCookie('connect.sid');
+      res.json({ success: true });
+    });
+  } else {
+    res.json({ success: true });
+  }
+});
+
 router.post('/captains/login', captainLoginLimiter, (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code is required.' });

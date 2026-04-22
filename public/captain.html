@@ -522,21 +522,46 @@ async function loginCaptain() {
       document.getElementById('btnLogin').disabled = false;
       return;
     }
-    captainState.captain = data.captain;
-    if (data.captain.race_type) captainState.race_type = data.captain.race_type;
-    if (data.captain.race_value) captainState.race_value = data.captain.race_value;
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('appScreen').style.display = '';
-    document.getElementById('captainGreeting').textContent = 'Welcome, ' + data.captain.name;
-    refreshSidebar();
-    loadCapCityFilter();
+    bootCaptainPortal(data.captain);
   } catch (e) {
     errEl.textContent = 'Network error. Please try again.';
     document.getElementById('btnLogin').disabled = false;
   }
 }
 
+// Shared "you're logged in" setup — used by both loginCaptain() (after
+// manual code entry) and tryRestoreCaptainSession() (on page refresh).
+function bootCaptainPortal(captain) {
+  captainState.captain = captain;
+  if (captain.race_type) captainState.race_type = captain.race_type;
+  if (captain.race_value) captainState.race_value = captain.race_value;
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = '';
+  document.getElementById('captainGreeting').textContent = 'Welcome, ' + captain.name;
+  refreshSidebar();
+  loadCapCityFilter();
+}
+
+// On page load, check if there's a still-valid server session for this
+// captain. If yes, skip the login screen and jump straight to the portal.
+// Silently falls back to showing the login screen if not logged in.
+async function tryRestoreCaptainSession() {
+  try {
+    var res = await fetch('/api/captains/me', { credentials: 'same-origin' });
+    if (!res.ok) return; // not logged in — login screen stays visible
+    var data = await res.json();
+    if (data && data.captain) bootCaptainPortal(data.captain);
+  } catch (e) { /* network issue — user can still log in manually */ }
+}
+
+// Kick it off as soon as this script runs (login screen is default-visible
+// so the user isn't staring at a blank page during this ~100ms check).
+tryRestoreCaptainSession();
+
 function logoutCaptain() {
+  // Kill the server session too — otherwise refresh would auto-login again
+  fetch('/api/captains/logout', { method: 'POST', credentials: 'same-origin' })
+    .catch(function() { /* non-fatal; UI state change below still applies */ });
   captainState.captain = null;
   captainState.selectedListId = null;
   captainState.selectedListType = 'captain';
