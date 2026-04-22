@@ -1002,6 +1002,51 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     ORDER BY count DESC
   `).all(req.params.id);
 
+  // ─── DEMOGRAPHICS OF ALL EARLY VOTERS IN RACE (universe + outside) ───
+  // The complete electorate: everyone who voted in this race regardless of
+  // whether they were in my universe. Ground truth against which the other
+  // blocks compare. Race-scoped via detected_race_column, no list filter.
+  const allRaceGenderRows = db.prepare(`
+    SELECT
+      CASE
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('M','MALE') THEN 'Male'
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('F','FEMALE') THEN 'Female'
+        ELSE 'Unknown'
+      END as gender_label,
+      COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+    GROUP BY gender_label
+  `).all(...raceScopedParams);
+
+  const allRaceAgeRows = db.prepare(`
+    SELECT
+      CASE
+        WHEN v.age IS NULL OR v.age = 0 THEN '9 Unknown'
+        WHEN v.age < 35 THEN '1 18-34'
+        WHEN v.age < 50 THEN '2 35-49'
+        WHEN v.age < 65 THEN '3 50-64'
+        WHEN v.age < 75 THEN '4 65-74'
+        ELSE '5 75+'
+      END as bucket,
+      COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+    GROUP BY bucket
+    ORDER BY bucket
+  `).all(...raceScopedParams).map(r => ({
+    range: r.bucket.substring(2),
+    count: r.count
+  }));
+
+  const allRacePartyRows = db.prepare(`
+    SELECT COALESCE(NULLIF(TRIM(v.party_score), ''), 'Unknown') as party, COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+    GROUP BY party
+    ORDER BY count DESC
+  `).all(...raceScopedParams);
+
   // ─── TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped) ───
   // Shows where the turnout is concentrated in the district — essential for
   // future GOTV targeting. Counts ALL early voters in the race (not just
@@ -1082,6 +1127,10 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     voted_gender_breakdown: votedGenderRows,
     voted_age_buckets: votedAgeRows,
     voted_party_breakdown: votedPartyRows,
+    // Complete electorate — ALL early voters in the race (universe + outside)
+    all_race_gender_breakdown: allRaceGenderRows,
+    all_race_age_buckets: allRaceAgeRows,
+    all_race_party_breakdown: allRacePartyRows,
     // Top 10 precincts by early vote count (race-scoped)
     top_precincts_by_vote: topPrecincts,
 
