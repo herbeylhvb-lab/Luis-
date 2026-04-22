@@ -14292,16 +14292,32 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       if (opts.party && opts.party.length > 0) {
         block += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Party Lean</h6>';
         var pColorMap = { D:'#60a5fa', DD:'#3b82f6', DDD:'#1d4ed8', R:'#f87171', RR:'#ef4444', RRR:'#b91c1c', SWING:'#a855f7', Unknown:'#64748b' };
-        // Compute D-lean and R-lean totals by summing the categorical buckets.
-        // Useful as a partisan summary at the bottom of each block.
+        // Compute D-lean and R-lean totals by classifying each party row.
+        // Matching is case-insensitive AND prefix-based so it's robust to
+        // any party_score format variants in the DB:
+        //   "D", "DD", "DDD"       → D-lean
+        //   "d", "dd", "dem", "D1" → D-lean (lower/longer forms)
+        //   "R", "RR", "RRR", etc. → R-lean (mirror)
+        //   "SWING", "UNKNOWN", "" → other
+        //   anything else          → other
+        // Previous exact-match logic missed any casing/format drift, which is
+        // why universe + full-race blocks showed 0 totals while outside voters
+        // (which always had canonical D/DD/DDD values) worked fine.
         var demTotal = 0, repTotal = 0, otherTotal = 0;
         for (var pi = 0; pi < opts.party.length; pi++) {
           var p = opts.party[pi];
           var pPct = opts.total > 0 ? Math.round(p.count / opts.total * 100) : 0;
           var pCol = pColorMap[p.party] || '#64748b';
-          if (['D','DD','DDD'].indexOf(p.party) >= 0) demTotal += p.count;
-          else if (['R','RR','RRR'].indexOf(p.party) >= 0) repTotal += p.count;
-          else otherTotal += p.count;
+          var pUp = (p.party || '').toUpperCase().trim();
+          if (!pUp || pUp === 'UNKNOWN' || pUp === 'SWING' || pUp === 'N' || pUp === 'NONE') {
+            otherTotal += p.count;
+          } else if (pUp.charAt(0) === 'D') {
+            demTotal += p.count;
+          } else if (pUp.charAt(0) === 'R') {
+            repTotal += p.count;
+          } else {
+            otherTotal += p.count;
+          }
           block += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
             '<div style="width:80px;color:' + pCol + ';font-weight:600;font-size:12px">' + escHtml(p.party) + '</div>' +
             '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + pCol + ';height:100%;width:' + pPct + '%;border-radius:4px"></div></div>' +
