@@ -14292,38 +14292,32 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       if (opts.party && opts.party.length > 0) {
         block += '<div><h6 style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px">Party Lean</h6>';
         var pColorMap = { D:'#60a5fa', DD:'#3b82f6', DDD:'#1d4ed8', R:'#f87171', RR:'#ef4444', RRR:'#b91c1c', SWING:'#a855f7', Unknown:'#64748b' };
-        // Compute D-lean and R-lean totals by classifying each party row.
-        // Matching is case-insensitive AND prefix-based so it's robust to
-        // any party_score format variants in the DB:
-        //   "D", "DD", "DDD"       → D-lean
-        //   "d", "dd", "dem", "D1" → D-lean (lower/longer forms)
-        //   "R", "RR", "RRR", etc. → R-lean (mirror)
-        //   "SWING", "UNKNOWN", "" → other
-        //   anything else          → other
-        // Previous exact-match logic missed any casing/format drift, which is
-        // why universe + full-race blocks showed 0 totals while outside voters
-        // (which always had canonical D/DD/DDD values) worked fine.
-        var demTotal = 0, repTotal = 0, otherTotal = 0;
         for (var pi = 0; pi < opts.party.length; pi++) {
           var p = opts.party[pi];
           var pPct = opts.total > 0 ? Math.round(p.count / opts.total * 100) : 0;
           var pCol = pColorMap[p.party] || '#64748b';
-          var pUp = (p.party || '').toUpperCase().trim();
-          if (!pUp || pUp === 'UNKNOWN' || pUp === 'SWING' || pUp === 'N' || pUp === 'NONE') {
-            otherTotal += p.count;
-          } else if (pUp.charAt(0) === 'D') {
-            demTotal += p.count;
-          } else if (pUp.charAt(0) === 'R') {
-            repTotal += p.count;
-          } else {
-            otherTotal += p.count;
-          }
           block += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">' +
             '<div style="width:80px;color:' + pCol + ';font-weight:600;font-size:12px">' + escHtml(p.party) + '</div>' +
             '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:' + pCol + ';height:100%;width:' + pPct + '%;border-radius:4px"></div></div>' +
             '<div style="color:#94a3b8;font-size:12px;width:90px;text-align:right">' + p.count.toLocaleString() + ' (' + pPct + '%)</div></div>';
         }
-        // Partisan totals summary — makes the D-vs-R split obvious at a glance
+        // Partisan totals — prefer SQL-computed values when caller provides
+        // them (opts.partyTotals = {dem, rep}), since those use raw column
+        // data and avoid any JS casing/classification bugs. Fall back to
+        // summing opts.party if no SQL totals provided.
+        var demTotal = 0, repTotal = 0;
+        if (opts.partyTotals && typeof opts.partyTotals.dem === 'number') {
+          demTotal = opts.partyTotals.dem;
+          repTotal = opts.partyTotals.rep;
+        } else {
+          for (var pti = 0; pti < opts.party.length; pti++) {
+            var ppt = opts.party[pti];
+            var pptUp = (ppt.party || '').toUpperCase().trim();
+            if (pptUp.charAt(0) === 'D') demTotal += ppt.count;
+            else if (pptUp.charAt(0) === 'R') repTotal += ppt.count;
+          }
+        }
+        var otherTotal = opts.total - demTotal - repTotal;
         var demPct = opts.total > 0 ? Math.round(demTotal / opts.total * 100) : 0;
         var repPct = opts.total > 0 ? Math.round(repTotal / opts.total * 100) : 0;
         var otherPct = opts.total > 0 ? Math.round(otherTotal / opts.total * 100) : 0;
@@ -14355,7 +14349,8 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         total: totalVoters,
         gender: universeGender,
         age: universeAge,
-        party: universeParty
+        party: universeParty,
+        partyTotals: data.universe_party_totals
       });
     }
 
@@ -14374,7 +14369,8 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         total: earlyVoted,
         gender: votedGender,
         age: votedAge,
-        party: votedParty
+        party: votedParty,
+        partyTotals: data.voted_party_totals
       });
     }
 
@@ -14405,6 +14401,7 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         gender: outsideGender,
         age: outsideAge,
         party: outsideParty,
+        partyTotals: data.outside_party_totals,
         headerRight: '<a class="btn btn-sm" style="background:#0891b2;border-color:#0e7490;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-outside-voters">⬇ Download CSV</a>',
         footer: footerHtml
       });
@@ -14430,7 +14427,8 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         total: allRaceTotal,
         gender: allRaceGender,
         age: allRaceAge,
-        party: allRaceParty
+        party: allRaceParty,
+        partyTotals: data.all_race_party_totals
       });
     }
 

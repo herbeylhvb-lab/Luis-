@@ -905,6 +905,14 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     GROUP BY party
     ORDER BY count DESC
   `).all(...raceScopedParams, req.params.id);
+  const outsidePartyTotals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'D%' THEN 1 ELSE 0 END) as dem,
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'R%' THEN 1 ELSE 0 END) as rep
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+  `).get(...raceScopedParams, req.params.id) || { dem: 0, rep: 0 };
 
   // First-time voters among "voters I missed" — using elections_voted <= 1
   // as the low-propensity threshold (voted at most once before). These are
@@ -965,6 +973,20 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     ORDER BY count DESC
   `).all(req.params.id);
 
+  // Direct SQL-computed D-lean / R-lean totals for the universe block.
+  // The JS approach of summing the party array was unreliable — if the
+  // array doesn't include all variants or has casing drift, totals can
+  // come out as 0. This SQL version checks first character with UPPER()
+  // on the raw column so there's no ambiguity.
+  const universePartyTotals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'D%' THEN 1 ELSE 0 END) as dem,
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'R%' THEN 1 ELSE 0 END) as rep
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+  `).get(req.params.id) || { dem: 0, rep: 0 };
+
   // ─── DEMOGRAPHICS OF UNIVERSE VOTERS WHO VOTED ───
   // Same shape as universe demographics but filtered to early_voted = 1.
   // Compare against full-universe demographics to see which types of voters
@@ -1012,6 +1034,14 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     GROUP BY party
     ORDER BY count DESC
   `).all(req.params.id);
+  const votedPartyTotals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'D%' THEN 1 ELSE 0 END) as dem,
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'R%' THEN 1 ELSE 0 END) as rep
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1
+  `).get(req.params.id) || { dem: 0, rep: 0 };
 
   // ─── DEMOGRAPHICS OF ALL EARLY VOTERS IN RACE (universe + outside) ───
   // The complete electorate: everyone who voted in this race regardless of
@@ -1057,6 +1087,13 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     GROUP BY party
     ORDER BY count DESC
   `).all(...raceScopedParams);
+  const allRacePartyTotals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'D%' THEN 1 ELSE 0 END) as dem,
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'R%' THEN 1 ELSE 0 END) as rep
+    FROM voters v
+    WHERE ${raceScopedWhere}
+  `).get(...raceScopedParams) || { dem: 0, rep: 0 };
 
   // ─── TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped) ───
   // Shows where the turnout is concentrated in the district — essential for
@@ -1130,20 +1167,24 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     outside_gender_breakdown: outsideGenderRows,
     outside_age_buckets: outsideAgeRows,
     outside_party_breakdown: outsidePartyRows,
+    outside_party_totals: outsidePartyTotals,
     // How many of those missed voters are first-time/low-propensity?
     outside_first_time_count: outsideFirstTimeCount,
     // Who are the voters in MY universe (the ones I targeted)
     universe_gender_breakdown: universeGenderRows,
     universe_age_buckets: universeAgeRows,
     universe_party_breakdown: universePartyRows,
+    universe_party_totals: universePartyTotals,
     // Who are the voters from my universe who actually VOTED (subset)
     voted_gender_breakdown: votedGenderRows,
     voted_age_buckets: votedAgeRows,
     voted_party_breakdown: votedPartyRows,
+    voted_party_totals: votedPartyTotals,
     // Complete electorate — ALL early voters in the race (universe + outside)
     all_race_gender_breakdown: allRaceGenderRows,
     all_race_age_buckets: allRaceAgeRows,
     all_race_party_breakdown: allRacePartyRows,
+    all_race_party_totals: allRacePartyTotals,
     // Top 10 precincts by early vote count (race-scoped)
     top_precincts_by_vote: topPrecincts,
 
