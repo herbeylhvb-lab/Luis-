@@ -2027,7 +2027,19 @@ async function logDoor() {
         })
       });
       data = await res.json();
-      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
+      if (!res.ok) {
+        // Stale-address recovery: if server deleted this walk_address (prune
+        // or admin removal) while the walker had it cached, reload the walk.
+        if (res.status === 404) {
+          alert('This house was removed from the walk (the voter already voted early). Refreshing your list...');
+          _logDoorInProgress = false;
+          btn.textContent = 'Log & Next \u27A1';
+          await loadWalk();
+          return;
+        }
+        alert(data.error || 'Failed to log: server error ' + res.status);
+        _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return;
+      }
 
       // Update local state with overall result
       addr.result = data.result || walkState.selectedResult || 'not_home';
@@ -2050,7 +2062,20 @@ async function logDoor() {
         })
       });
       data = await res.json();
-      if (!res.ok) { alert(data.error || 'Failed to log: server error ' + res.status); _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return; }
+      if (!res.ok) {
+        // 404 means this address was deleted server-side (likely by a prune
+        // while the walker had a stale list). Auto-refresh the walk so they
+        // get the current address list instead of being stuck on a ghost.
+        if (res.status === 404) {
+          alert('This house was removed from the walk (the voter already voted early). Refreshing your list...');
+          _logDoorInProgress = false;
+          btn.textContent = 'Log & Next \u27A1';
+          await loadWalk();
+          return;
+        }
+        alert(data.error || 'Failed to log: server error ' + res.status);
+        _logDoorInProgress = false; btn.textContent = 'Log & Next \u27A1'; return;
+      }
 
       addr.result = walkState.selectedResult;
     }

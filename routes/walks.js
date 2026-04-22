@@ -1422,7 +1422,8 @@ router.post('/walks/:walkId/prune-voted-addresses', (req, res) => {
     }
   }
 
-  // Batch-delete by ID in a transaction (fast, no table scan)
+  // Batch-delete by ID in a transaction (fast, no table scan).
+  // FK ON DELETE CASCADE handles walk_attempts cleanup automatically.
   let removed = 0;
   if (toDeleteIds.length > 0) {
     const delStmt = db.prepare('DELETE FROM walk_addresses WHERE id = ?');
@@ -1433,6 +1434,17 @@ router.post('/walks/:walkId/prune-voted-addresses', (req, res) => {
       }
     });
     tx(toDeleteIds);
+  }
+
+  // Refresh SQLite's query-planner statistics after a large DELETE so
+  // subsequent queries against walk_addresses and walk_attempts use
+  // current cardinality estimates. Without this, walker-side endpoints
+  // can be mysteriously slow for a while after a big prune.
+  if (removed > 0) {
+    try {
+      db.prepare('ANALYZE walk_addresses').run();
+      db.prepare('ANALYZE walk_attempts').run();
+    } catch (e) { /* non-fatal */ }
   }
 
   const afterCount = beforeCount - removed;
