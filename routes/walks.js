@@ -1354,6 +1354,68 @@ router.delete('/walks/:walkId/addresses/:addrId', (req, res) => {
   res.json({ success: true });
 });
 
+// ─── REMOVE ADDRESSES WHERE EVERYONE VOTED ────────────────────────
+// Manual-click pruning: removes unvisited walk_addresses where EVERY
+// voter at that address has already early-voted. If even one resident
+// hasn't voted yet, the address stays on the walk so the walker can
+// still knock and reach them.
+//
+// Idempotent: re-running after more voters vote will prune further.
+// Only touches unvisited addresses (result='not_visited' or empty).
+// Addresses with recorded walk results are never removed.
+router.post('/walks/:walkId/prune-voted-addresses', (req, res) => {
+  const walk = db.prepare('SELECT id, name FROM block_walks WHERE id = ?').get(req.params.walkId);
+  if (!walk) return res.status(404).json({ error: 'Walk not found.' });
+
+  // Count candidates before deletion so we can report accurately
+  const beforeCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM walk_addresses wa
+    WHERE wa.walk_id = ?
+      AND (wa.result IS NULL OR wa.result = '' OR wa.result = 'not_visited')
+  `).get(req.params.walkId) || { n: 0 }).n;
+
+  // Delete unvisited addresses where NO voter at that address still
+  // needs to vote (i.e., everyone there has early_voted = 1).
+  const result = db.prepare(`
+    DELETE FROM walk_addresses
+    WHERE walk_id = ?
+      AND (result IS NULL OR result = '' OR result = 'not_visited')
+      AND NOT EXISTS (
+        SELECT 1 FROM voters v
+        WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(walk_addresses.address))
+          AND LOWER(TRIM(COALESCE(v.unit, ''))) = LOWER(TRIM(COALESCE(walk_addresses.unit, '')))
+          AND (v.early_voted IS NULL OR v.early_voted = 0)
+      )
+      -- Also require at least one voter record actually matches this
+      -- address, so we don't delete addresses whose voters aren't in
+      -- the DB at all (those might be legitimate homes we just don't
+      -- have data for).
+      AND EXISTS (
+        SELECT 1 FROM voters v2
+        WHERE LOWER(TRIM(v2.address)) = LOWER(TRIM(walk_addresses.address))
+          AND LOWER(TRIM(COALESCE(v2.unit, ''))) = LOWER(TRIM(COALESCE(walk_addresses.unit, '')))
+      )
+  `).run(req.params.walkId);
+
+  const afterCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM walk_addresses wa
+    WHERE wa.walk_id = ?
+      AND (wa.result IS NULL OR wa.result = '' OR wa.result = 'not_visited')
+  `).get(req.params.walkId) || { n: 0 }).n;
+
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    `Walk "${walk.name}": pruned ${result.changes} addresses where all voters already voted`
+  );
+
+  res.json({
+    success: true,
+    removed: result.changes,
+    unvisited_before: beforeCount,
+    unvisited_after: afterCount,
+    walk_name: walk.name
+  });
+});
+
 // ===================== VOLUNTEER WALKING INTERFACE =====================
 
 // Get walk for volunteer view (simplified, no admin data)

@@ -1022,6 +1022,7 @@ tr:hover td{background:#1e293b80}
           <span id="walkOutsideBadge" style="display:none;margin-left:8px;background:#f59e0b;color:#0f172a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700" title="Voters registered in this precinct but address geocodes outside boundary">⚠ <span>0 outside precinct</span></span>
           <button class="btn btn-sm" id="btnPrintWalk" style="background:#059669;color:#fff;margin-left:8px" onclick="printCurrentWalk()">&#x1F5A8; Print Walk List</button>
           <button class="btn btn-sm" style="background:#2563eb;color:#fff;margin-left:8px" onclick="downloadWalkCSV()">&#x2B07; Download CSV</button>
+          <button class="btn btn-sm" id="btnPruneVoted" style="background:#dc2626;color:#fff;margin-left:8px" onclick="pruneVotedAddresses()" title="Remove houses from this walk where everyone already voted early. Only affects unvisited addresses.">&#x1F5D1; Prune Voted Houses</button>
           <button class="btn btn-sm" id="btnRefreshTurf" style="background:#b45309;color:#fff;margin-left:8px;display:none" onclick="refreshCurrentTurf()">&#x1F504; Refresh Turf</button>
           <span id="geocodeStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
           <span id="refreshStatus" style="font-size:12px;color:#94a3b8;margin-left:8px"></span>
@@ -7006,6 +7007,28 @@ window.toggleWalkSandbox = async function() {
     }
     loadWalkDetail(state.currentWalkId);
   } catch(e) { alert('Failed: ' + (e.message || e)); }
+};
+
+// Prune walk addresses where everyone at that house already early-voted.
+// Only removes unvisited addresses — walked addresses with recorded results
+// are preserved. Idempotent: click again after more voters vote to prune more.
+window.pruneVotedAddresses = async function() {
+  if (!state.currentWalkId) return;
+  if (!confirm('Remove unvisited houses where every voter has already voted early?\n\nThis keeps houses where at least one resident has not voted yet, so walkers can still reach them.\n\nWalked addresses are never removed.')) return;
+
+  var btn = document.getElementById('btnPruneVoted');
+  if (btn) { btn.disabled = true; btn.textContent = 'Pruning...'; }
+  try {
+    var data = await apiPost('/api/walks/' + state.currentWalkId + '/prune-voted-addresses', {});
+    var msg = 'Removed ' + (data.removed || 0) + ' addresses.\n\n' +
+      'Unvisited before: ' + (data.unvisited_before || 0) + '\n' +
+      'Unvisited after:  ' + (data.unvisited_after || 0);
+    alert(msg);
+    loadWalkDetail(state.currentWalkId);
+  } catch (e) {
+    alert('Prune failed: ' + (e.message || e));
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = '&#x1F5D1; Prune Voted Houses'; }
 };
 
 window.downloadWalkCSV = async function() {
