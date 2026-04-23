@@ -37,6 +37,40 @@ function collectCaptainRaces(captainId, primaryCandidateId) {
   return races;
 }
 
+// Collect the distinct candidate roster this captain works under. Unlike
+// collectCaptainRaces, this keeps each candidate separate so the captain
+// UI can show a "Vote for [candidate]" picker per name — two candidates in
+// the same race both show up. Primary candidate is flagged so the UI can
+// default-select it. Returns [{ id, name, race_type, race_value, is_primary }]
+function collectCaptainCandidates(captainId, primaryCandidateId) {
+  const seen = new Set();
+  const out = [];
+  function add(row, isPrimary) {
+    if (!row || !row.id || seen.has(row.id)) return;
+    seen.add(row.id);
+    out.push({
+      id: row.id,
+      name: row.name,
+      race_type: row.race_type || null,
+      race_value: row.race_value || null,
+      is_primary: !!isPrimary,
+    });
+  }
+  if (primaryCandidateId) {
+    const primary = db.prepare('SELECT id, name, race_type, race_value FROM candidates WHERE id = ?').get(primaryCandidateId);
+    add(primary, true);
+  }
+  const shared = db.prepare(`
+    SELECT c.id, c.name, c.race_type, c.race_value
+    FROM captain_candidates cc
+    JOIN candidates c ON cc.candidate_id = c.id
+    WHERE cc.captain_id = ?
+    ORDER BY c.name COLLATE NOCASE
+  `).all(captainId);
+  for (const r of shared) add(r, false);
+  return out;
+}
+
 // Attach election_votes (turnout with party) to a list of voters
 function attachElectionVotes(voters) {
   if (!voters || voters.length === 0) return;
@@ -464,6 +498,9 @@ router.get('/captains/me', (req, res) => {
   // as /captains/login). Always pull fresh so admin changes take effect
   // on next session restore (hard refresh).
   captain.races = collectCaptainRaces(captain.id, captain.candidate_id);
+  // Candidates with their names so the text modal can offer a "Vote for:"
+  // picker. Primary first (is_primary), then shared candidates alpha.
+  captain.candidates = collectCaptainCandidates(captain.id, captain.candidate_id);
 
   // Mirror the shape of /captains/login so the client can reuse its
   // same post-login wire-up code (team, lists, sub-captains, etc.)
@@ -551,6 +588,9 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   // candidates. If they work across multiple candidates with different
   // races, the captain UI will render one race filter bar per race.
   captain.races = collectCaptainRaces(captain.id, captain.candidate_id);
+  // Candidates with their names so the text modal can offer a "Vote for:"
+  // picker (same shape as /captains/me).
+  captain.candidates = collectCaptainCandidates(captain.id, captain.candidate_id);
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
   // Include candidate race info for race filter (direct or shared)

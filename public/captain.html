@@ -2799,6 +2799,25 @@ var _bulkTextMode = 'individual';
 var GROUP_MAX_RECIPIENTS = 25;
 // Which batch of a >25-recipient group we're on. 0 = first batch.
 var _bulkTextGroupBatch = 0;
+// Which candidate the captain is currently texting voters about.
+// Drives the {candidate} / {candidate_first} / {race} placeholders.
+// Null = no candidate picked (placeholders render as empty strings).
+var _bulkTextCandidate = null;
+
+// Pick the default candidate for this captain on modal open.
+// Preference order: (1) last-used (localStorage), (2) primary candidate,
+// (3) first candidate in the list, (4) null.
+function initDefaultBulkCandidate() {
+  var cands = (captainState.captain && captainState.captain.candidates) || [];
+  if (cands.length === 0) { _bulkTextCandidate = null; return; }
+  var savedId = null;
+  try { savedId = localStorage.getItem(getCaptainStorageKey('text_candidate_id')); } catch (e) {}
+  var found = null;
+  if (savedId) found = cands.find(function(c) { return String(c.id) === String(savedId); });
+  if (!found) found = cands.find(function(c) { return c.is_primary; });
+  if (!found) found = cands[0];
+  _bulkTextCandidate = found || null;
+}
 
 // Skip voters who were texted in the last N days so we don't double-text.
 // 7 days is a sensible default for most campaign cadences.
@@ -2811,14 +2830,16 @@ function getCaptainStorageKey(suffix) {
 
 function getDefaultTextTemplate() {
   var captainName = (captainState.captain && captainState.captain.name) || '';
-  return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
+  return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote for {candidate} in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
 }
 
 // Default for GROUP mode — no {first_name} etc. since iOS won't
-// personalize a group send. Keep it short, team-ish, and actionable.
+// personalize a group send. Uses {candidate} (captain-filled via the
+// "Vote for:" picker) so every group text names who voters should
+// support. Keep it short, team-ish, and actionable.
 function getDefaultGroupTextTemplate() {
   var captainName = (captainState.captain && captainState.captain.name) || '';
-  return 'Hey team \u2014 it\u2019s ' + captainName.split(' ')[0] + '. Quick reminder to get out and vote in the upcoming election. Your vote really matters. Reply here if you have questions or need a ride to the polls. \uD83D\uDDF3\uFE0F';
+  return 'Hey team \u2014 it\u2019s ' + captainName.split(' ')[0] + '. Quick reminder to vote for {candidate} in the upcoming election. Your vote really matters. Reply here if you have questions or need a ride to the polls. \uD83D\uDDF3\uFE0F';
 }
 
 // Small indirection: which default/localStorage key to use for the
@@ -2832,11 +2853,26 @@ function templateStorageKey(mode) {
   return m === 'group' ? 'text_last_group_template' : 'text_last_template';
 }
 
+// Build a human-readable race label from a candidate row.
+// Uses _raceTypeLabels (admin-facing names) with a fallback to the raw type.
+function raceLabelFor(cand) {
+  if (!cand || !cand.race_type || !cand.race_value) return '';
+  var lbl = (typeof _raceTypeLabels !== 'undefined' && _raceTypeLabels[cand.race_type]) || cand.race_type;
+  return lbl + ' ' + cand.race_value;
+}
+
 function fillTemplate(template, voter) {
+  var cand = _bulkTextCandidate || null;
+  var candName  = cand ? (cand.name || '') : '';
+  var candFirst = cand ? (cand.name || '').split(' ')[0] : '';
+  var raceLbl   = cand ? raceLabelFor(cand) : '';
   return (template || '')
-    .replace(/\{first_name\}/g, voter.first_name || '')
-    .replace(/\{last_name\}/g, voter.last_name || '')
-    .replace(/\{full_name\}/g, ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim());
+    .replace(/\{first_name\}/g, (voter && voter.first_name) || '')
+    .replace(/\{last_name\}/g, (voter && voter.last_name) || '')
+    .replace(/\{full_name\}/g, (((voter && voter.first_name) || '') + ' ' + ((voter && voter.last_name) || '')).trim())
+    .replace(/\{candidate\}/g, candName)
+    .replace(/\{candidate_first\}/g, candFirst)
+    .replace(/\{race\}/g, raceLbl);
 }
 
 // ─── Saved templates (localStorage) ─────────────────────────────────
@@ -2975,6 +3011,7 @@ function startBulkTextFromVoters(voters) {
       _bulkTextOverrides = saved.overrides || {};
       _bulkTextMode = savedMode;
       _bulkTextGroupBatch = saved.groupBatch || 0;
+      initDefaultBulkCandidate();
       renderBulkTextModal();
       return;
     } else {
@@ -3021,6 +3058,7 @@ function startBulkTextFromVoters(voters) {
   var saved2 = null;
   try { saved2 = localStorage.getItem(getCaptainStorageKey(templateStorageKey())); } catch (e) {}
   _bulkTextTemplate = (saved2 != null && saved2 !== '') ? saved2 : getDefaultForMode(_bulkTextMode);
+  initDefaultBulkCandidate();
   saveQueueState();
   renderBulkTextModal();
 }
@@ -3095,6 +3133,78 @@ function renderBulkTextModal() {
     warn.appendChild(warnStrong);
     warn.appendChild(document.createTextNode(' All ' + queue.length + ' recipients will see each other\u2019s phone numbers and replies. Only use for teams / close supporters. iOS caps group messages at ~30 recipients.'));
     box.appendChild(warn);
+  }
+
+  // ─── Candidate picker (BOTH modes) ───────────────────────────────
+  // "Vote for:" section so every text names the candidate the captain
+  // wants voters to support. Drives {candidate} / {candidate_first} /
+  // {race} placeholders in the template. Shown whenever the captain
+  // has any linked candidates; pre-selects their primary candidate.
+  var cands = (captainState.captain && captainState.captain.candidates) || [];
+  if (cands.length > 0) {
+    var candBox = document.createElement('div');
+    candBox.style.cssText = 'margin-bottom:10px;padding:10px;background:#0b1628;border:1px solid #1e40af;border-radius:6px';
+    var candTop = document.createElement('div');
+    candTop.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+    var candLbl = document.createElement('span');
+    candLbl.style.cssText = 'font-size:11px;color:#93c5fd;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;white-space:nowrap';
+    candLbl.textContent = '\uD83D\uDDF3\uFE0F Vote for:';
+    candTop.appendChild(candLbl);
+    var candSelect = document.createElement('select');
+    candSelect.style.cssText = 'flex:1;min-width:120px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px';
+    var noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '(None \u2014 skip candidate name)';
+    candSelect.appendChild(noneOpt);
+    cands.forEach(function(c) {
+      var o = document.createElement('option');
+      o.value = String(c.id);
+      var raceStr = c.race_value ? ' \u2014 ' + raceLabelFor(c) : '';
+      o.textContent = (c.is_primary ? '\u2B50 ' : '') + c.name + raceStr;
+      candSelect.appendChild(o);
+    });
+    candSelect.value = _bulkTextCandidate ? String(_bulkTextCandidate.id) : '';
+    candSelect.addEventListener('change', function() {
+      var picked = cands.find(function(c) { return String(c.id) === candSelect.value; });
+      _bulkTextCandidate = picked || null;
+      try {
+        if (picked) localStorage.setItem(getCaptainStorageKey('text_candidate_id'), String(picked.id));
+        else localStorage.removeItem(getCaptainStorageKey('text_candidate_id'));
+      } catch (e) {}
+      // Re-render so the template preview, {candidate}-insert button,
+      // and char count all update with the new candidate data.
+      renderBulkTextModal();
+    });
+    candTop.appendChild(candSelect);
+    // Insert-placeholder button — quick way to drop {candidate} into
+    // the template without typing braces on a phone keyboard.
+    if (!/\{candidate\}/.test(_bulkTextTemplate)) {
+      var insertCandBtn = document.createElement('button');
+      insertCandBtn.className = 'btn btn-xs btn-secondary';
+      insertCandBtn.textContent = '+ Insert name';
+      insertCandBtn.title = 'Append "Vote for {candidate}" to the template';
+      insertCandBtn.addEventListener('click', function() {
+        var extra = ' Vote for {candidate}.';
+        _bulkTextTemplate = ((_bulkTextTemplate || '').trim() + extra).trim();
+        try { localStorage.setItem(getCaptainStorageKey(templateStorageKey()), _bulkTextTemplate); } catch (e) {}
+        saveQueueState();
+        renderBulkTextModal();
+      });
+      candTop.appendChild(insertCandBtn);
+    }
+    candBox.appendChild(candTop);
+    // Helper hint — explains placeholders to new captains
+    var candHint = document.createElement('div');
+    candHint.style.cssText = 'font-size:11px;color:#64748b;margin-top:6px;line-height:1.4';
+    if (_bulkTextCandidate) {
+      candHint.textContent = 'Placeholders {candidate}, {candidate_first}, and {race} will auto-fill with "'
+        + _bulkTextCandidate.name + '" / "' + (_bulkTextCandidate.name || '').split(' ')[0] + '" / "'
+        + (raceLabelFor(_bulkTextCandidate) || '\u2014') + '".';
+    } else {
+      candHint.textContent = 'Pick a candidate to auto-fill {candidate}, {candidate_first}, and {race} placeholders in your text.';
+    }
+    candBox.appendChild(candHint);
+    box.appendChild(candBox);
   }
 
   // ─── Template picker ─────────────────────────────────────────────
@@ -3203,7 +3313,11 @@ function renderBulkTextModal() {
   meta.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap;gap:6px';
   var hint = document.createElement('div');
   hint.style.cssText = 'font-size:11px;color:#64748b';
-  hint.textContent = 'Placeholders: {first_name}, {last_name}';
+  // In group mode, per-voter placeholders render empty — only show the
+  // candidate-scoped ones so captains don't write broken group texts.
+  hint.textContent = _bulkTextMode === 'group'
+    ? 'Placeholders: {candidate}, {candidate_first}, {race}'
+    : 'Placeholders: {first_name}, {last_name}, {candidate}, {race}';
   meta.appendChild(hint);
   var charCount = document.createElement('div');
   charCount.id = 'bulkTextCharCount';
@@ -3277,6 +3391,20 @@ function renderBulkTextModal() {
         phWarn.textContent = '\u26A0\uFE0F Placeholders won\u2019t be filled in group mode — edit the template to remove {first_name} etc. or switch to Individual mode.';
         box.appendChild(phWarn);
       }
+
+      // Filled-in preview so captains see exactly what recipients will
+      // get (with {candidate}/{race} substituted from the picker above).
+      var gPreviewBox = document.createElement('div');
+      gPreviewBox.style.cssText = 'margin-top:10px;padding:10px;background:#0f172a;border:1px dashed #334155;border-radius:6px';
+      var gPreviewLbl = document.createElement('div');
+      gPreviewLbl.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
+      gPreviewLbl.textContent = 'Preview (this is the exact text everyone gets)';
+      gPreviewBox.appendChild(gPreviewLbl);
+      var gPreview = document.createElement('div');
+      gPreview.style.cssText = 'font-size:13px;color:#e2e8f0;white-space:pre-wrap;line-height:1.4';
+      gPreview.textContent = fillTemplate(_bulkTextTemplate, {});
+      gPreviewBox.appendChild(gPreview);
+      box.appendChild(gPreviewBox);
 
       var sendGroupBtn = document.createElement('button');
       sendGroupBtn.style.cssText = 'display:block;width:100%;margin-top:12px;padding:14px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
@@ -3488,8 +3616,13 @@ function sendTextToVoter(voter, overrideBody) {
 // separated. iOS creates a group thread where everyone sees each
 // other. Logs every voter as texted in parallel since they all got
 // the same message.
-function sendGroupTextToVoters(voters, body) {
+function sendGroupTextToVoters(voters, template) {
   if (!voters || voters.length === 0) return;
+  // Fill candidate/race placeholders before sending. Per-voter placeholders
+  // ({first_name} etc.) render as empty strings in group mode because the
+  // text is sent to everyone at once — captains are warned about this in
+  // the modal and can switch to Individual mode if they need personalization.
+  var body = fillTemplate(template || '', {});
   // Normalize to E.164 (+1XXXXXXXXXX). iOS 14+ silently drops numbers
   // that aren't in E.164 when they appear in a multi-recipient sms: URL.
   // The old "sms:digits,digits?&body=..." form only loaded the FIRST
