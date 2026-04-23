@@ -925,7 +925,10 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey, methodKey) {
   }
   html += '</tr>';
   for (var t = 0; t < types.length; t++) {
-    html += '<tr><td style="padding:2px 4px;color:#94a3b8;font-size:9px;font-weight:600;white-space:nowrap">' + (typeLabels[types[t]] || types[t]) + '</td>';
+    // Escape raw types[t] — typeLabels is a static lookup of trusted strings,
+    // but the raw DB value (from an imported election_name) could contain HTML.
+    var rowLabel = typeLabels[types[t]] || escHtml(types[t]);
+    html += '<tr><td style="padding:2px 4px;color:#94a3b8;font-size:9px;font-weight:600;white-space:nowrap">' + rowLabel + '</td>';
     for (var yi = 0; yi < years.length; yi++) {
       var party = voted[types[t]] && voted[types[t]][years[yi]];
       if (party) {
@@ -938,6 +941,7 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey, methodKey) {
         else if (vm === 'mail' || vm === 'MAIL' || vm === 'Mail') vmL = 'M';
         else if (vm === 'election_day' || vm === 'ED' || vm === 'Election Day') vmL = 'D';
         else if (vm === 'provisional') vmL = 'P';
+        // vmL is a fixed set (E/M/D/P or ''), no escape needed for it.
         html += '<td style="padding:2px;text-align:center"><div style="width:16px;height:16px;border-radius:50%;background:' + dc + ';margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff">' + vmL + '</div></td>';
       } else {
         html += '<td style="padding:2px;text-align:center"><div style="width:16px;height:16px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';

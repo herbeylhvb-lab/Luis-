@@ -424,7 +424,10 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey, methodKey) {
   // One row per election type
   for (var t = 0; t < types.length; t++) {
     var rowType = types[t];
-    html += '<tr><td style="padding:5px 8px;color:#94a3b8;font-size:11px;font-weight:600;white-space:nowrap;border-right:1px solid #334155">' + (typeLabels[rowType] || rowType) + '</td>';
+    // Escape the fallback (typeLabels[rowType] is a trusted static string;
+    // the raw rowType could contain HTML from an imported CSV election name).
+    var rowLabel = typeLabels[rowType] || esc(rowType);
+    html += '<tr><td style="padding:5px 8px;color:#94a3b8;font-size:11px;font-weight:600;white-space:nowrap;border-right:1px solid #334155">' + rowLabel + '</td>';
     for (var yi = 0; yi < years.length; yi++) {
       var party = voted[rowType] && voted[rowType][years[yi]];
       if (party) {
@@ -438,7 +441,10 @@ function buildElectionDotGrid(electionVotes, nameKey, partyKey, methodKey) {
         else if (vm === 'mail' || vm === 'MAIL' || vm === 'Mail' || vm === 'absentee') vmLetter = 'M';
         else if (vm === 'election_day' || vm === 'ED' || vm === 'Election Day') vmLetter = 'D';
         else if (vm === 'provisional' || vm === 'Provisional') vmLetter = 'P';
-        var dotTitle = rowType + ' ' + years[yi] + (isDem ? ' (D)' : isRep ? ' (R)' : '') + (vm ? ' — ' + vm : '');
+        // Escape the title attr — rowType and vm both flow from DB-imported
+        // election names / vote_method strings, which could contain quotes
+        // or HTML if a hostile CSV was uploaded.
+        var dotTitle = esc(rowType + ' ' + years[yi] + (isDem ? ' (D)' : isRep ? ' (R)' : '') + (vm ? ' — ' + vm : ''));
         html += '<td style="padding:4px;text-align:center" title="' + dotTitle + '"><div style="width:20px;height:20px;border-radius:50%;background:' + dotColor + ';margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff">' + vmLetter + '</div></td>';
       } else {
         html += '<td style="padding:4px;text-align:center"><div style="width:20px;height:20px;border-radius:50%;background:#334155;margin:0 auto;opacity:0.3"></div></td>';
@@ -3008,7 +3014,10 @@ function startBulkTextFromVoters(voters) {
     if (hasWork && confirm('Resume your previous text session?\n\n' + remainingTxt + ' from a queue saved ' + (saved.savedAt || '').split('T')[0] + '.\n\nOK = Resume \u00B7 Cancel = Start fresh with current selection')) {
       _bulkTextQueue = saved.queue;
       _bulkTextIndex = saved.index || 0;
-      _bulkTextTemplate = saved.template || getDefaultTextTemplate();
+      // Fallback must match the SAVED mode — if we resume a group queue
+      // with an empty template, we want the group default, not the
+      // individual default (which contains {first_name}).
+      _bulkTextTemplate = saved.template || getDefaultForMode(savedMode);
       _bulkTextOverrides = saved.overrides || {};
       _bulkTextMode = savedMode;
       _bulkTextGroupBatch = saved.groupBatch || 0;
@@ -3205,13 +3214,21 @@ function renderBulkTextModal() {
     });
     candTop.appendChild(candSelect);
     // Insert-placeholder button — quick way to drop {candidate} into
-    // the template without typing braces on a phone keyboard.
+    // the template without typing braces on a phone keyboard. Button
+    // only renders when the template doesn't already contain
+    // {candidate}, but we also disable it on first click to defend
+    // against rapid double-taps that fire before the re-render.
     if (!/\{candidate\}/.test(_bulkTextTemplate)) {
       var insertCandBtn = document.createElement('button');
       insertCandBtn.className = 'btn btn-xs btn-secondary';
       insertCandBtn.textContent = '+ Insert name';
       insertCandBtn.title = 'Append "Vote for {candidate}" to the template';
       insertCandBtn.addEventListener('click', function() {
+        if (insertCandBtn.disabled) return;
+        insertCandBtn.disabled = true;
+        // Idempotent even if click fires twice: the regex guard below
+        // catches a second insert before the re-render happens.
+        if (/\{candidate\}/.test(_bulkTextTemplate)) { renderBulkTextModal(); return; }
         var extra = ' Vote for {candidate}.';
         _bulkTextTemplate = ((_bulkTextTemplate || '').trim() + extra).trim();
         try { localStorage.setItem(getCaptainStorageKey(templateStorageKey()), _bulkTextTemplate); } catch (e) {}
@@ -3665,6 +3682,15 @@ function lockBackgroundScroll(lock) {
     _bgScrollLocked = false;
   }
 }
+
+// If the captain navigates away (back button, tab close, iOS swipe back)
+// while the modal is open, pagehide fires before bfcache saves the page.
+// Release the scroll lock so the body isn't stuck as position:fixed when
+// they come back. Without this, returning via back-button leaves the
+// whole page unscrollable until a hard refresh.
+window.addEventListener('pagehide', function() {
+  lockBackgroundScroll(false);
+});
 
 function sendTextToVoter(voter, overrideBody) {
   var phoneDigits = (voter.phone || '').replace(/\D/g, '');

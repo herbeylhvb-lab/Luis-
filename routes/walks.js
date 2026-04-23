@@ -1575,11 +1575,13 @@ router.post('/walks/:walkId/addresses/:addrId/log', (req, res) => {
   const walkMeta = db.prepare('SELECT sandbox FROM block_walks WHERE id = ?').get(req.params.walkId);
   const isSandbox = walkMeta && walkMeta.sandbox;
 
-  // Determine GPS verification
+  // Determine GPS verification. Require accuracy metadata — a phone that
+  // reports coords without accuracy has unknown signal quality (e.g., cell
+  // tower triangulation can be off by km). Treat unknown as "don't verify".
   let gps_verified = 0;
   if (gps_lat != null && gps_lng != null && isValidCoord(gps_lat, gps_lng)) {
-    // Skip verification if accuracy is too poor
-    if (gps_accuracy != null && gps_accuracy > MAX_GPS_ACCURACY) {
+    if (gps_accuracy == null || gps_accuracy > MAX_GPS_ACCURACY) {
+      // Missing or too-poor accuracy → don't verify
       gps_verified = 0;
     } else if (addr.lat != null && addr.lng != null) {
       // If address has known coords, verify volunteer is within 150m
@@ -1718,10 +1720,12 @@ router.post('/walks/:walkId/addresses/:addrId/log-household', (req, res) => {
   const contactedMembers = members.filter(m => m.result && m.result !== 'not_home');
   const overallResult = contactedMembers.length > 0 ? contactedMembers[0].result : 'not_home';
 
-  // GPS verification
+  // GPS verification. Same rules as single-knock path: missing accuracy
+  // metadata = unknown signal quality = don't verify. See the sibling
+  // block above for rationale.
   let gps_verified = 0;
   if (gps_lat != null && gps_lng != null && isValidCoord(gps_lat, gps_lng)) {
-    if (gps_accuracy != null && gps_accuracy > MAX_GPS_ACCURACY) {
+    if (gps_accuracy == null || gps_accuracy > MAX_GPS_ACCURACY) {
       gps_verified = 0;
     } else if (addr.lat != null && addr.lng != null) {
       const dist = gpsDistance(gps_lat, gps_lng, addr.lat, addr.lng);
@@ -3078,17 +3082,23 @@ router.post('/walks/:id/assign-walker', (req, res) => {
   const walker = db.prepare('SELECT * FROM walkers WHERE id = ?').get(walker_id);
   if (!walker) return res.status(404).json({ error: 'Walker not found.' });
 
-  // Cap at walk.max_walkers (default 10). Same logic as self-serve join —
-  // 10 is a practical ceiling for doors-per-walker math. Admin can still
-  // set a tighter cap per walk if they want a small group.
+  // Cap at walk.max_walkers (default 10). The count-check + insert must
+  // happen atomically in a transaction, otherwise two concurrent assigns
+  // can both read count<cap and both insert, exceeding the cap. SQLite
+  // serializes writes but not reads, so without the transaction the
+  // SELECT and INSERT on different prepared statements can interleave.
   const cap = walk.max_walkers || 10;
-  const count = (db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(req.params.id) || { c: 0 }).c;
-  if (count >= cap) return res.status(400).json({ error: 'Walk is full (max ' + cap + ' walkers).' });
+  const result = db.transaction(() => {
+    const count = (db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(req.params.id) || { c: 0 }).c;
+    if (count >= cap) return { full: true };
+    const existing = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.id, walker_id);
+    if (existing) return { duplicate: true };
+    db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)').run(req.params.id, walker.name, walker.id, walker.phone || '');
+    return { success: true };
+  })();
 
-  const existing = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.id, walker_id);
-  if (existing) return res.status(400).json({ error: 'Walker already assigned to this walk.' });
-
-  db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, walker_id, phone) VALUES (?, ?, ?, ?)').run(req.params.id, walker.name, walker.id, walker.phone || '');
+  if (result.full) return res.status(400).json({ error: 'Walk is full (max ' + cap + ' walkers).' });
+  if (result.duplicate) return res.status(400).json({ error: 'Walker already assigned to this walk.' });
   res.json({ success: true });
 });
 

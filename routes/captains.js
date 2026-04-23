@@ -577,12 +577,17 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   if (!captain) return res.status(404).json({ error: 'Invalid captain code.' });
   if (!captain.is_active) return res.status(403).json({ error: 'Your access has been disabled. Contact the campaign admin.' });
 
-  // Set captain session for portal auth. Captain sessions get a 30-day
-  // cookie (vs the default 7 days) since captains typically use the
-  // portal over a long campaign season and shouldn't need to re-login
-  // every week. Rolling extension happens in requireCaptainAuth below.
-  req.session.captainId = captain.id;
-  req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+  // Regenerate session on login to prevent fixation — a fresh session id
+  // means any pre-login session id that was planted on this browser is
+  // invalidated. After regeneration, set captain portal fields.
+  req.session.regenerate(function(err) {
+    if (err) return res.status(500).json({ error: 'Session error. Please try again.' });
+    req.session.captainId = captain.id;
+    req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+    continueCaptainLogin();
+  });
+
+  function continueCaptainLogin() {
 
   // Collect ALL races this captain has via their primary + shared
   // candidates. If they work across multiple candidates with different
@@ -649,7 +654,10 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
     WHERE al.assigned_captain_id = ?
     GROUP BY al.id ORDER BY al.created_at DESC
   `).all(captain.id);
-  res.json({ success: true, captain });
+  req.session.save(function() {
+    res.json({ success: true, captain });
+  });
+  } // end continueCaptainLogin
 });
 
 // Refresh captain data without consuming login rate limit
@@ -1053,13 +1061,40 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
 // Add voter to list with optional contact info update
 // Log that the captain sent a personal text (sms:) to a voter. Records a
 // voter_contacts row with contact_type='Text' so the UI can show a
-// "Texted" badge and the bulk-text flow can auto-skip recently-texted
-// voters. Captain-scope auth verifies the caller owns this captain id.
+// "Texted" badge. Only logs if the voter is actually on a list this captain
+// (or their descendant team) can see — prevents a captain from stamping
+// fake "Texted" records on voters they don't own.
 router.post('/captains/:id/text-log', requireCaptainAuth, (req, res) => {
   const { voter_id, template_name, message_preview } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id required.' });
-  const voter = db.prepare('SELECT id FROM voters WHERE id = ?').get(voter_id);
-  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  const captainId = parseInt(req.params.id, 10);
+  if (isNaN(captainId)) return res.status(400).json({ error: 'Invalid captain id.' });
+
+  // Ownership check: voter must be on one of this captain's lists OR a
+  // list owned by any descendant in their team tree OR an admin list
+  // assigned to them. This mirrors the voter-visibility rules already
+  // used elsewhere (team lists, assigned lists). Admin users (req.session.userId)
+  // bypass the check since they can see everything.
+  if (!req.session.userId) {
+    const canSee = db.prepare(`
+      WITH RECURSIVE team AS (
+        SELECT id FROM captains WHERE id = ?
+        UNION ALL
+        SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
+      )
+      SELECT 1 FROM (
+        SELECT clv.voter_id FROM captain_list_voters clv
+          JOIN captain_lists cl ON cl.id = clv.list_id
+          WHERE cl.captain_id IN (SELECT id FROM team) AND clv.voter_id = ?
+        UNION
+        SELECT alv.voter_id FROM admin_list_voters alv
+          JOIN admin_lists al ON al.id = alv.list_id
+          WHERE al.assigned_captain_id IN (SELECT id FROM team) AND alv.voter_id = ?
+      ) LIMIT 1
+    `).get(captainId, voter_id, voter_id);
+    if (!canSee) return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+
   // Trim preview to avoid huge notes rows (first 200 chars is plenty for audit)
   const preview = (message_preview || '').slice(0, 200);
   const byLabel = 'Captain #' + req.params.id;

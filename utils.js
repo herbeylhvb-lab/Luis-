@@ -43,14 +43,26 @@ function generateJoinCode() {
 }
 
 /**
- * Generate a cryptographically secure alphanumeric code (e.g. "A3F8").
- * Used for walk group join codes.
+ * Generate a cryptographically secure alphanumeric code (e.g. "A3F8XZ").
+ * Used for walk group join codes. Uses A-Z + 2-9 minus ambiguous letters
+ * (0/1/I/O) — 32 chars. At the default length of 6, that's 32^6 ≈ 1B
+ * combos; at the legacy length 4 it's ~1M (16x better than the previous
+ * hex 65K). 32 divides 256 evenly so `byte % 32` is unbiased.
  */
-function generateAlphaCode(length = 4) {
-  return randomBytes(Math.ceil(length / 2))
-    .toString('hex')
-    .toUpperCase()
-    .slice(0, length);
+function generateAlphaCode(length = 6) {
+  // Avoid O/0 and I/1 — easy to mistype on phones.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const base = alphabet.length; // 32 (power of 2 → no modulo bias)
+  // Use 2x bytes so we can reject out-of-range draws without rerolling
+  const bytes = randomBytes(length * 2);
+  let out = '';
+  let i = 0;
+  while (out.length < length && i < bytes.length) {
+    const b = bytes[i++];
+    // 32 evenly divides 256, so every byte gives a uniform 0..31 draw
+    out += alphabet[b % base];
+  }
+  return out;
 }
 
 /**

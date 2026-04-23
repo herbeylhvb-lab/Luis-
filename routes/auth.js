@@ -52,13 +52,19 @@ router.post('/auth/setup', asyncHandler(async (req, res) => {
     username.toLowerCase().trim(), hash, displayName || username, 'admin'
   );
 
-  // Auto-login after setup
-  req.session.userId = result.lastInsertRowid;
-  req.session.username = username.toLowerCase().trim();
-  req.session.displayName = displayName || username;
-  req.session.role = 'admin';
-
-  res.json({ success: true, message: 'Admin account created.' });
+  // Auto-login after setup — regenerate session first to prevent fixation.
+  // If an attacker planted a session id before setup, regenerate invalidates
+  // it and issues a fresh one tied to the newly-created admin.
+  req.session.regenerate(function(err) {
+    if (err) return res.status(500).json({ error: 'Session error.' });
+    req.session.userId = result.lastInsertRowid;
+    req.session.username = username.toLowerCase().trim();
+    req.session.displayName = displayName || username;
+    req.session.role = 'admin';
+    req.session.save(function() {
+      res.json({ success: true, message: 'Admin account created.' });
+    });
+  });
 }));
 
 // Login
@@ -75,12 +81,19 @@ router.post('/auth/login', loginLimiter, asyncHandler(async (req, res) => {
   // Update last login
   db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
 
-  req.session.userId = user.id;
-  req.session.username = user.username;
-  req.session.displayName = user.display_name;
-  req.session.role = user.role;
-
-  res.json({ success: true, user: { id: user.id, username: user.username, displayName: user.display_name } });
+  // Regenerate session before writing user data — prevents session fixation,
+  // where an attacker plants a known session id and waits for a victim to
+  // authenticate with it. Regenerate issues a fresh id bound to this login.
+  req.session.regenerate(function(err) {
+    if (err) return res.status(500).json({ error: 'Session error.' });
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.displayName = user.display_name;
+    req.session.role = user.role;
+    req.session.save(function() {
+      res.json({ success: true, user: { id: user.id, username: user.username, displayName: user.display_name } });
+    });
+  });
 }));
 
 // Logout
