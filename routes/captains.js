@@ -779,12 +779,13 @@ function requireCaptainAuth(req, res, next) {
     `).get(req.session.captainId, captainId);
     if (isDescendant) return next();
 
-    // Also check if they share the same candidate (team members under same campaign)
-    const sameCandidate = db.prepare(`
-      SELECT 1 FROM captains a, captains b
-      WHERE a.id = ? AND b.id = ? AND a.candidate_id = b.candidate_id AND a.candidate_id IS NOT NULL
-    `).get(req.session.captainId, captainId);
-    if (sameCandidate) return next();
+    // We intentionally do NOT grant access based on "same candidate" —
+    // that bypass was too broad and let sub-captains read/write their
+    // parent's lists (parent and child share a candidate_id). Captains
+    // now only see their own data + anyone below them in the tree.
+    // Peer captains (different trees under the same candidate) are
+    // walled off from each other; admins still see everything via
+    // req.session.userId.
   }
   return res.status(401).json({ error: 'Captain authentication required. Please log in with your code.' });
 }
