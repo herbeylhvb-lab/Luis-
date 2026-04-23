@@ -1558,19 +1558,8 @@ function renderListVoters() {
     return;
   }
 
-  // "Text All Filtered" button row — one-tap to queue every voter in
-  // the currently visible filtered set for texting. Keeps a saved queue
-  // safe: if one is in progress, opening the modal offers to resume.
-  var quickActionBar = document.createElement('div');
-  quickActionBar.style.cssText = 'display:flex;gap:6px;padding:6px 12px;background:#0f172a;border-bottom:1px solid #334155;align-items:center;flex-wrap:wrap';
-  var textAllBtn = document.createElement('button');
-  textAllBtn.className = 'btn btn-xs';
-  textAllBtn.style.cssText = 'background:#22c55e;border-color:#16a34a;color:#fff;font-weight:600';
-  textAllBtn.textContent = '\uD83D\uDCAC Text All Filtered';
-  textAllBtn.title = 'Queue every voter currently visible in the list for personal texting';
-  textAllBtn.addEventListener('click', function() { startBulkTextAllFiltered(); });
-  quickActionBar.appendChild(textAllBtn);
-  el.appendChild(quickActionBar);
+  // (Removed "Text All Filtered" button — Select All checkbox + the
+  // 💬 Text button in the floating action bar cover this same flow.)
 
   // Tab bar: All | Not Voted | Voted
   var tabBar = document.createElement('div');
