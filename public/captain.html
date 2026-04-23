@@ -2789,6 +2789,10 @@ var _bulkTextTemplate = '';
 // Per-voter message overrides (keyed by voter.id). Populated when the
 // captain edits a specific voter's message before sending.
 var _bulkTextOverrides = {};
+// Mode: 'individual' (one thread per voter, private) or 'group' (single
+// thread, all recipients see each other). Default individual — the
+// privacy-safer option and higher response rate.
+var _bulkTextMode = 'individual';
 
 // Skip voters who were texted in the last N days so we don't double-text.
 // 7 days is a sensible default for most campaign cadences.
@@ -2980,8 +2984,49 @@ function renderBulkTextModal() {
 
   var sub = document.createElement('div');
   sub.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:12px';
-  sub.textContent = remaining + ' remaining \u00B7 ' + _bulkTextIndex + ' sent';
+  sub.textContent = _bulkTextMode === 'group'
+    ? queue.length + ' voter' + (queue.length !== 1 ? 's' : '') + ' in this group'
+    : remaining + ' remaining \u00B7 ' + _bulkTextIndex + ' sent';
   box.appendChild(sub);
+
+  // ─── Mode toggle: Individual vs Group ───────────────────────────
+  // Individual = one private 1:1 thread per voter (step-through).
+  // Group = single text with all recipients in one thread (fast but
+  // everyone sees each other's numbers).
+  var modeBar = document.createElement('div');
+  modeBar.style.cssText = 'display:flex;gap:4px;margin-bottom:12px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:3px';
+  [
+    { key: 'individual', label: '\uD83D\uDC64 Individual', title: 'Send a private 1:1 text to each voter, one at a time. Recipients never see each other.' },
+    { key: 'group', label: '\uD83D\uDC65 Group', title: 'Send ONE message with all recipients in one thread. Warning: everyone sees each other\u2019s numbers and replies.' }
+  ].forEach(function(m) {
+    var btn = document.createElement('button');
+    var isActive = _bulkTextMode === m.key;
+    btn.style.cssText = 'flex:1;padding:8px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;' +
+      (isActive ? 'background:#22c55e;color:#fff' : 'background:transparent;color:#94a3b8');
+    btn.textContent = m.label;
+    btn.title = m.title;
+    btn.addEventListener('click', function() {
+      _bulkTextMode = m.key;
+      renderBulkTextModal();
+    });
+    modeBar.appendChild(btn);
+  });
+  box.appendChild(modeBar);
+
+  // Warning banner in group mode — captains need to see the privacy
+  // implication explicitly before they send to everyone's phones.
+  if (_bulkTextMode === 'group') {
+    var warn = document.createElement('div');
+    warn.style.cssText = 'background:#422006;border:1px solid #f59e0b;color:#fcd34d;padding:8px 10px;border-radius:6px;font-size:12px;margin-bottom:12px';
+    var warnIcon = document.createElement('span');
+    warnIcon.textContent = '\u26A0\uFE0F ';
+    warn.appendChild(warnIcon);
+    var warnStrong = document.createElement('strong');
+    warnStrong.textContent = 'Group text warning:';
+    warn.appendChild(warnStrong);
+    warn.appendChild(document.createTextNode(' All ' + queue.length + ' recipients will see each other\u2019s phone numbers and replies. Only use for teams / close supporters. iOS caps group messages at ~30 recipients.'));
+    box.appendChild(warn);
+  }
 
   // ─── Template picker ─────────────────────────────────────────────
   // Dropdown of saved templates + Custom. Saved templates persist across
@@ -3068,7 +3113,65 @@ function renderBulkTextModal() {
   box.appendChild(meta);
   updateCharCount();
 
-  if (remaining === 0) {
+  // ─── GROUP MODE ─────────────────────────────────────────────────
+  // Send ONE message to all queued voters. iOS creates a single group
+  // thread. Log all voters as texted in one batch on send.
+  if (_bulkTextMode === 'group') {
+    // Recipient list preview
+    var recipBox = document.createElement('div');
+    recipBox.style.cssText = 'margin-top:8px;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;max-height:140px;overflow-y:auto';
+    var rHeader = document.createElement('div');
+    rHeader.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
+    rHeader.textContent = 'Recipients (' + queue.length + ')';
+    recipBox.appendChild(rHeader);
+    queue.forEach(function(v) {
+      var row = document.createElement('div');
+      row.style.cssText = 'font-size:12px;color:#e2e8f0;padding:2px 0';
+      row.textContent = ((v.first_name || '') + ' ' + (v.last_name || '')).trim() + ' \u00B7 ' + (v.phone || '');
+      recipBox.appendChild(row);
+    });
+    box.appendChild(recipBox);
+
+    // Group messages share one body — no per-voter substitution possible
+    // since every recipient sees the same message. Placeholders like
+    // {first_name} would look weird ("Hi {first_name}!"), so warn if
+    // they're present.
+    if (/\{first_name\}|\{last_name\}|\{full_name\}/.test(_bulkTextTemplate)) {
+      var phWarn = document.createElement('div');
+      phWarn.style.cssText = 'margin-top:8px;font-size:11px;color:#f59e0b';
+      phWarn.textContent = '\u26A0\uFE0F Placeholders won\u2019t be filled in group mode — edit the template to remove {first_name} etc. or switch to Individual mode.';
+      box.appendChild(phWarn);
+    }
+
+    var sendGroupBtn = document.createElement('button');
+    sendGroupBtn.style.cssText = 'display:block;width:100%;margin-top:12px;padding:14px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
+    sendGroupBtn.textContent = '\uD83D\uDCF1 Open Group Text (' + queue.length + ' recipients)';
+    sendGroupBtn.addEventListener('click', function() {
+      sendGroupTextToVoters(queue, _bulkTextTemplate);
+      // Mark everyone as texted — they all got it in one message.
+      _bulkTextIndex = queue.length;
+      saveQueueState();
+      closeBulkTextModal();
+      // Refresh the list so the Texted badges appear
+      if (typeof loadListVoters === 'function') {
+        setTimeout(function() { try { loadListVoters(); } catch(e) {} }, 300);
+      }
+    });
+    box.appendChild(sendGroupBtn);
+
+    var groupBtnRow = document.createElement('div');
+    groupBtnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+    var groupCancelBtn = document.createElement('button');
+    groupCancelBtn.className = 'btn btn-secondary';
+    groupCancelBtn.style.flex = '1';
+    groupCancelBtn.textContent = 'Cancel';
+    groupCancelBtn.addEventListener('click', function() {
+      clearQueueState();
+      closeBulkTextModal();
+    });
+    groupBtnRow.appendChild(groupCancelBtn);
+    box.appendChild(groupBtnRow);
+  } else if (remaining === 0) {
     var done = document.createElement('div');
     done.style.cssText = 'margin-top:16px;padding:12px;background:#052e16;border:1px solid #22c55e;border-radius:6px;color:#4ade80;text-align:center;font-weight:600';
     done.textContent = '\u2705 Finished all ' + queue.length + ' voters. Nice work!';
@@ -3216,6 +3319,37 @@ function sendTextToVoter(voter, overrideBody) {
   // iOS + Android: sms:+digits?&body=encoded — the &body form works
   // across more iOS versions than ?body= alone.
   var smsUrl = 'sms:' + phoneDigits + '?&body=' + encodeURIComponent(body);
+  window.location.href = smsUrl;
+}
+
+// Group send — opens a single sms: URL with all recipients comma-
+// separated. iOS creates a group thread where everyone sees each
+// other. Logs every voter as texted in parallel since they all got
+// the same message.
+function sendGroupTextToVoters(voters, body) {
+  if (!voters || voters.length === 0) return;
+  var phones = voters.map(function(v) {
+    return (v.phone || '').replace(/\D/g, '');
+  }).filter(function(p) { return p.length >= 10; });
+  if (phones.length === 0) return;
+  // Log every recipient as texted — fire-and-forget since sms: takes over
+  var capId = captainState.captain && captainState.captain.id;
+  if (capId) {
+    voters.forEach(function(v) {
+      try {
+        apiPost('/api/captains/' + capId + '/text-log', {
+          voter_id: v.id,
+          template_name: 'group',
+          message_preview: body
+        }).catch(function() { /* non-fatal */ });
+      } catch (e) { /* non-fatal */ }
+    });
+  }
+  // iOS group sms: uses comma-separated recipients in the URL.
+  // Not all Android versions support this — the fallback is they
+  // still get a message composer with the first recipient. Most
+  // modern Android handles it fine.
+  var smsUrl = 'sms:' + phones.join(',') + '?&body=' + encodeURIComponent(body || '');
   window.location.href = smsUrl;
 }
 
