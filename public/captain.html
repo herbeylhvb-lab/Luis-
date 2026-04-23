@@ -3490,9 +3490,17 @@ function sendTextToVoter(voter, overrideBody) {
 // the same message.
 function sendGroupTextToVoters(voters, body) {
   if (!voters || voters.length === 0) return;
+  // Normalize to E.164 (+1XXXXXXXXXX). iOS 14+ silently drops numbers
+  // that aren't in E.164 when they appear in a multi-recipient sms: URL.
+  // The old "sms:digits,digits?&body=..." form only loaded the FIRST
+  // number on current iOS, which is why group text looked broken.
   var phones = voters.map(function(v) {
-    return (v.phone || '').replace(/\D/g, '');
-  }).filter(function(p) { return p.length >= 10; });
+    var d = (v.phone || '').replace(/\D/g, '');
+    if (d.length === 10) return '+1' + d;
+    if (d.length === 11 && d.charAt(0) === '1') return '+' + d;
+    if (d.length >= 10) return '+' + d;
+    return null;
+  }).filter(function(p) { return !!p; });
   if (phones.length === 0) return;
   // Log every recipient as texted — fire-and-forget since sms: takes over
   var capId = captainState.captain && captainState.captain.id;
@@ -3507,11 +3515,11 @@ function sendGroupTextToVoters(voters, body) {
       } catch (e) { /* non-fatal */ }
     });
   }
-  // iOS group sms: uses comma-separated recipients in the URL.
-  // Not all Android versions support this — the fallback is they
-  // still get a message composer with the first recipient. Most
-  // modern Android handles it fine.
-  var smsUrl = 'sms:' + phones.join(',') + '?&body=' + encodeURIComponent(body || '');
+  // iOS 14+ multi-recipient format: sms:&addresses=+1...,+1...&body=...
+  // The leading "sms:&" (no path) is required — iOS parses the query
+  // string only when there's nothing between "sms:" and "&". Android
+  // also accepts this form on modern versions.
+  var smsUrl = 'sms:&addresses=' + phones.join(',') + '&body=' + encodeURIComponent(body || '');
   window.location.href = smsUrl;
 }
 
