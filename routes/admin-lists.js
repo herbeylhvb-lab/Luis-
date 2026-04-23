@@ -1058,6 +1058,71 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     WHERE alv.list_id = ? AND v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}
   `).get(req.params.id) || { dem: 0, rep: 0 };
 
+  // ─── VBM VOTERS OUTSIDE THE UNIVERSE ────────────────────────────
+  // Same "voters I missed" analysis but scoped to mail ballots only.
+  // These are high-value targets for future cycles — people already
+  // set up to vote by mail who weren't in your universe this time.
+  const outsideVbmCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM voters v
+    WHERE ${raceScopedWhere}
+      AND ${VBM_METHOD_CLAUSE}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+  `).get(...raceScopedParams, req.params.id) || { n: 0 }).n;
+
+  const outsideVbmGender = db.prepare(`
+    SELECT
+      CASE
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('M','MALE') THEN 'Male'
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('F','FEMALE') THEN 'Female'
+        ELSE 'Unknown'
+      END as gender_label,
+      COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND ${VBM_METHOD_CLAUSE}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    GROUP BY gender_label
+  `).all(...raceScopedParams, req.params.id);
+
+  const outsideVbmAge = db.prepare(`
+    SELECT
+      CASE
+        WHEN v.age IS NULL OR v.age = 0 THEN '9 Unknown'
+        WHEN v.age < 35 THEN '1 18-34'
+        WHEN v.age < 50 THEN '2 35-49'
+        WHEN v.age < 65 THEN '3 50-64'
+        WHEN v.age < 75 THEN '4 65-74'
+        ELSE '5 75+'
+      END as bucket,
+      COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND ${VBM_METHOD_CLAUSE}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    GROUP BY bucket
+    ORDER BY bucket
+  `).all(...raceScopedParams, req.params.id).map(r => ({ range: r.bucket.substring(2), count: r.count }));
+
+  const outsideVbmParty = db.prepare(`
+    SELECT COALESCE(NULLIF(TRIM(v.party_score), ''), 'Unknown') as party, COUNT(*) as count
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND ${VBM_METHOD_CLAUSE}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+    GROUP BY party
+    ORDER BY count DESC
+  `).all(...raceScopedParams, req.params.id);
+
+  const outsideVbmPartyTotals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'D%' THEN 1 ELSE 0 END) as dem,
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'R%' THEN 1 ELSE 0 END) as rep
+    FROM voters v
+    WHERE ${raceScopedWhere}
+      AND ${VBM_METHOD_CLAUSE}
+      AND v.id NOT IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+  `).get(...raceScopedParams, req.params.id) || { dem: 0, rep: 0 };
+
   // ─── DEMOGRAPHICS OF MY UNIVERSE (the voters I targeted) ───
   // Same shape as outside-voter demographics, but flipped: these are the
   // voters IN my list. Compare side-by-side against outside demographics
@@ -1314,6 +1379,12 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     universe_vbm_age_buckets: universeVbmAge,
     universe_vbm_party_breakdown: universeVbmParty,
     universe_vbm_party_totals: universeVbmPartyTotals,
+    // VBM voters OUTSIDE the universe — in race, voted by mail, not in my target
+    outside_vbm_count: outsideVbmCount,
+    outside_vbm_gender_breakdown: outsideVbmGender,
+    outside_vbm_age_buckets: outsideVbmAge,
+    outside_vbm_party_breakdown: outsideVbmParty,
+    outside_vbm_party_totals: outsideVbmPartyTotals,
     // Who are the voters in MY universe (the ones I targeted)
     universe_gender_breakdown: universeGenderRows,
     universe_age_buckets: universeAgeRows,

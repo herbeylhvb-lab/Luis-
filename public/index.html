@@ -14251,6 +14251,11 @@ async function showUniverseDashboard(listId, listName, rowEl) {
     var raceVbmCount = data.race_vbm_count || 0;
     var raceVbmPct = districtTurnoutNum > 0 ? Math.round(raceVbmCount / districtTurnoutNum * 100) : 0;
     html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75;border-left:3px solid #f472b6"><div class="label" style="color:#f9a8d4">Race VBM</div><div class="value" style="color:#f472b6;font-size:18px">' + raceVbmCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + raceVbmPct + '% of race</div></div>';
+    // VBM Outside card — mail voters in the race who were NOT in my universe.
+    // These are "warm" future targets: already set up for mail voting.
+    var outsideVbmCount = data.outside_vbm_count || 0;
+    var outsideVbmPctOfRaceVbm = raceVbmCount > 0 ? Math.round(outsideVbmCount / raceVbmCount * 100) : 0;
+    html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75;border-left:3px solid #ec4899"><div class="label" style="color:#f9a8d4">VBM Outside</div><div class="value" style="color:#ec4899;font-size:18px">' + outsideVbmCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + outsideVbmPctOfRaceVbm + '% of race VBM</div></div>';
     html += '</div></div>';
 
     html += '</div>';
@@ -14398,6 +14403,28 @@ async function showUniverseDashboard(listId, listName, rowEl) {
         age: universeVbmAge,
         party: universeVbmParty,
         partyTotals: data.universe_vbm_party_totals
+      });
+    }
+
+    // 📬 DEMOGRAPHICS OF VBM VOTERS I MISSED — mail voters in the race who
+    // weren't in my universe. Deeper pink accent to distinguish from the
+    // "my universe VBM" block above. These are the mail voters I SHOULD
+    // target next cycle — they're already comfortable with mail voting.
+    var outsideVbmCountUI = data.outside_vbm_count || 0;
+    var outsideVbmGenderUI = data.outside_vbm_gender_breakdown || [];
+    var outsideVbmAgeUI = data.outside_vbm_age_buckets || [];
+    var outsideVbmPartyUI = data.outside_vbm_party_breakdown || [];
+    if (outsideVbmCountUI > 0) {
+      html += renderDemographicsBlock({
+        title: '📬 Demographics of VBM Voters I Missed',
+        bg: '#1a0614',
+        border: '#be185d',
+        accent: '#ec4899',
+        total: outsideVbmCountUI,
+        gender: outsideVbmGenderUI,
+        age: outsideVbmAgeUI,
+        party: outsideVbmPartyUI,
+        partyTotals: data.outside_vbm_party_totals
       });
     }
 
