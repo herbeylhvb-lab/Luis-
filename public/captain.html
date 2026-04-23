@@ -106,12 +106,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .empty-state .icon{font-size:3rem;margin-bottom:0.5rem}
 
 /* Right panel — voter list (main focus area) */
-.right-panel{flex:1;min-width:400px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;display:flex;flex-direction:column}
+.right-panel{flex:1;min-width:400px;background:#1e293b;border-left:1px solid #334155;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column}
 .right-header{padding:16px;border-bottom:1px solid #334155}
 .right-header h3{font-size:15px;margin-bottom:2px}
 .right-header .sub{font-size:12px;color:#64748b}
-.right-list{flex:1;overflow-y:auto;padding:8px}
-.right-voter{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155;font-size:13px}
+.right-list{flex:1;overflow-y:auto;overflow-x:hidden;padding:8px;min-width:0}
+.right-voter{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #334155;font-size:13px;min-width:0}
 .right-voter:last-child{border-bottom:none}
 .right-voter .name{font-weight:600;color:#e2e8f0}
 .right-voter .addr{color:#64748b;font-size:12px;margin-top:2px}
@@ -1583,7 +1583,9 @@ function renderListVoters() {
     var inCount = voters.filter(function(v) { return v._in_race; }).length;
     var outCount = voters.length - inCount;
     var raceBar = document.createElement('div');
-    raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155';
+    // flex-wrap so on narrow screens (iPhone) the label + 3 buttons wrap
+    // instead of overflowing horizontally
+    raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
     var rlbl = document.createElement('span');
     rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
     rlbl.textContent = (_raceTypeLabels[rt] || rt) + ' ' + rv + ':';
@@ -2849,12 +2851,15 @@ async function submitAddVoter(voterId) {
     showToast('All selected voters are already on this list.', 'warn');
   }
 
-  // Stay on the search page — reload the current list in the background so
-  // the "On your list" badge appears on voters you just added, but DON'T
-  // reset the search or jump to the list tab. Captain wants to keep adding.
+  // Stay on the search page (don't jump to the list tab) but DO reset the
+  // search inputs so the captain starts fresh for the next voter. Keeps
+  // the workflow: add → search next person → add → search next, etc.
   try { await loadListVoters(); } catch(e) {}
-  // Re-run the search silently so newly-added voters now show the badge
-  try { await searchVoters(); } catch(e) {}
+  try { resetSearch(); } catch(e) {}
+  // Refocus the search box so the captain can immediately start typing
+  // the next name without having to tap into the field.
+  var searchBox = document.getElementById('voterSearch');
+  if (searchBox) searchBox.focus();
   try { refreshSidebar(); } catch(e) {}
 }
 
