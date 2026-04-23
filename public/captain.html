@@ -1900,6 +1900,20 @@ function renderListVoters() {
       evBadge.textContent = 'Not Voted';
     }
     nameRow.appendChild(evBadge);
+    // Out-of-race indicator — makes it easy to spot voters who aren't
+    // in the captain's assigned race even on the "All" tab. Subtle grey
+    // badge + the whole row is slightly dimmed so they visually recede
+    // while staying fully visible/interactive. Only shown when a race
+    // is configured (so v._in_race has been computed by the filter bar
+    // logic above).
+    if (v._in_race === false) {
+      var orBadge = document.createElement('span');
+      orBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:rgba(148,163,184,0.15);color:#94a3b8;border:1px solid #475569';
+      orBadge.textContent = 'Out of Race';
+      orBadge.title = 'Not in ' + (captainState.race_value || 'race');
+      nameRow.appendChild(orBadge);
+      row.style.opacity = '0.65';
+    }
     if (v.age) {
       var ageBadge2 = document.createElement('span');
       ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
