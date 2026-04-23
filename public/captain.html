@@ -2814,6 +2814,24 @@ function getDefaultTextTemplate() {
   return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
 }
 
+// Default for GROUP mode — no {first_name} etc. since iOS won't
+// personalize a group send. Keep it short, team-ish, and actionable.
+function getDefaultGroupTextTemplate() {
+  var captainName = (captainState.captain && captainState.captain.name) || '';
+  return 'Hey team \u2014 it\u2019s ' + captainName.split(' ')[0] + '. Quick reminder to get out and vote in the upcoming election. Your vote really matters. Reply here if you have questions or need a ride to the polls. \uD83D\uDDF3\uFE0F';
+}
+
+// Small indirection: which default/localStorage key to use for the
+// current mode. Individual and Group each have their own "last used"
+// draft so toggling doesn't clobber the other.
+function getDefaultForMode(mode) {
+  return mode === 'group' ? getDefaultGroupTextTemplate() : getDefaultTextTemplate();
+}
+function templateStorageKey(mode) {
+  var m = mode || _bulkTextMode;
+  return m === 'group' ? 'text_last_group_template' : 'text_last_template';
+}
+
 function fillTemplate(template, voter) {
   return (template || '')
     .replace(/\{first_name\}/g, voter.first_name || '')
@@ -2822,18 +2840,28 @@ function fillTemplate(template, voter) {
 }
 
 // ─── Saved templates (localStorage) ─────────────────────────────────
-// Stored as an array of {name, body}. Captains can save the current
-// textarea content as a named template and switch between them.
+// Stored as an array of {name, body, mode}. `mode` is 'individual' or
+// 'group' and lets the dropdown filter to only the relevant kind for
+// the current send mode. Legacy entries without `mode` are treated as
+// 'individual' (where they were originally saved).
 function loadSavedTemplates() {
   try {
     var raw = localStorage.getItem(getCaptainStorageKey('text_templates'));
     if (!raw) return [];
     var arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function(t) {
+      return { name: t.name, body: t.body, mode: t.mode || 'individual' };
+    });
   } catch (e) { return []; }
 }
 function saveSavedTemplates(arr) {
   try { localStorage.setItem(getCaptainStorageKey('text_templates'), JSON.stringify(arr)); } catch (e) {}
+}
+// Only templates matching the current mode should appear in the picker.
+function loadSavedTemplatesForMode(mode) {
+  var m = mode || _bulkTextMode;
+  return loadSavedTemplates().filter(function(t) { return (t.mode || 'individual') === m; });
 }
 
 // ─── Queue state persistence (pause/resume) ─────────────────────────
@@ -2987,10 +3015,12 @@ function startBulkTextFromVoters(voters) {
   _bulkTextOverrides = {};
   _bulkTextGroupBatch = 0;
   // Keep whatever mode the captain last used (defaults to 'individual')
-  // Start with the last-used template (localStorage) or the default
+  // Start with the last-used template FOR THAT MODE (localStorage) or the
+  // mode-appropriate default. Each mode tracks its own draft so switching
+  // between Individual and Group doesn't clobber the other.
   var saved2 = null;
-  try { saved2 = localStorage.getItem(getCaptainStorageKey('text_last_template')); } catch (e) {}
-  _bulkTextTemplate = saved2 || getDefaultTextTemplate();
+  try { saved2 = localStorage.getItem(getCaptainStorageKey(templateStorageKey())); } catch (e) {}
+  _bulkTextTemplate = (saved2 != null && saved2 !== '') ? saved2 : getDefaultForMode(_bulkTextMode);
   saveQueueState();
   renderBulkTextModal();
 }
@@ -3036,7 +3066,16 @@ function renderBulkTextModal() {
     btn.textContent = m.label;
     btn.title = m.title;
     btn.addEventListener('click', function() {
+      if (_bulkTextMode === m.key) return;
+      // Persist the current mode's draft so we don't lose it when swapping
+      try { localStorage.setItem(getCaptainStorageKey(templateStorageKey()), _bulkTextTemplate); } catch (e) {}
+      // Swap modes
       _bulkTextMode = m.key;
+      // Load the new mode's "last used" draft, or fall back to its default
+      var draft = null;
+      try { draft = localStorage.getItem(getCaptainStorageKey(templateStorageKey())); } catch (e) {}
+      _bulkTextTemplate = (draft != null && draft !== '') ? draft : getDefaultForMode(_bulkTextMode);
+      saveQueueState();
       renderBulkTextModal();
     });
     modeBar.appendChild(btn);
@@ -3059,21 +3098,26 @@ function renderBulkTextModal() {
   }
 
   // ─── Template picker ─────────────────────────────────────────────
-  // Dropdown of saved templates + Custom. Saved templates persist across
-  // sessions via localStorage (per-captain).
-  var saved = loadSavedTemplates();
+  // Dropdown of saved templates + Custom. Filtered to the current mode
+  // so group templates don't show up in individual mode and vice versa.
+  // Saved templates persist across sessions via localStorage (per-captain).
+  var saved = loadSavedTemplatesForMode(_bulkTextMode);
   var tplRow = document.createElement('div');
   tplRow.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
   var tplLbl = document.createElement('span');
   tplLbl.style.cssText = 'font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px';
-  tplLbl.textContent = 'Template:';
+  tplLbl.textContent = _bulkTextMode === 'group' ? 'Group template:' : 'Template:';
   tplRow.appendChild(tplLbl);
   var tplSelect = document.createElement('select');
   tplSelect.style.cssText = 'flex:1;min-width:120px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px';
   var customOpt = document.createElement('option');
   customOpt.value = '__custom__';
-  customOpt.textContent = '(Custom — edit below)';
+  customOpt.textContent = '(Custom \u2014 edit below)';
   tplSelect.appendChild(customOpt);
+  var defaultOpt = document.createElement('option');
+  defaultOpt.value = '__default__';
+  defaultOpt.textContent = _bulkTextMode === 'group' ? 'Reset to default group template' : 'Reset to default template';
+  tplSelect.appendChild(defaultOpt);
   saved.forEach(function(t) {
     var o = document.createElement('option');
     o.value = t.name;
@@ -3082,19 +3126,37 @@ function renderBulkTextModal() {
   });
   tplSelect.addEventListener('change', function() {
     if (tplSelect.value === '__custom__') return;
+    if (tplSelect.value === '__default__') {
+      _bulkTextTemplate = getDefaultForMode(_bulkTextMode);
+      try { localStorage.setItem(getCaptainStorageKey(templateStorageKey()), _bulkTextTemplate); } catch (e) {}
+      saveQueueState();
+      renderBulkTextModal();
+      return;
+    }
     var t = saved.find(function(t) { return t.name === tplSelect.value; });
-    if (t) { _bulkTextTemplate = t.body; saveQueueState(); renderBulkTextModal(); }
+    if (t) {
+      _bulkTextTemplate = t.body;
+      try { localStorage.setItem(getCaptainStorageKey(templateStorageKey()), _bulkTextTemplate); } catch (e) {}
+      saveQueueState();
+      renderBulkTextModal();
+    }
   });
   tplRow.appendChild(tplSelect);
   var saveBtn = document.createElement('button');
   saveBtn.className = 'btn btn-xs btn-secondary';
   saveBtn.textContent = '\uD83D\uDCBE Save';
-  saveBtn.title = 'Save current template for reuse';
+  saveBtn.title = _bulkTextMode === 'group'
+    ? 'Save current template as a reusable GROUP template'
+    : 'Save current template for reuse';
   saveBtn.addEventListener('click', function() {
-    var name = prompt('Name this template:');
+    var name = prompt('Name this ' + (_bulkTextMode === 'group' ? 'group ' : '') + 'template:');
     if (!name || !name.trim()) return;
-    var arr = loadSavedTemplates().filter(function(t) { return t.name !== name.trim(); });
-    arr.push({ name: name.trim(), body: _bulkTextTemplate });
+    // Keep other-mode entries untouched; replace only a same-mode same-name clash
+    var arr = loadSavedTemplates().filter(function(t) {
+      var tm = t.mode || 'individual';
+      return !(t.name === name.trim() && tm === _bulkTextMode);
+    });
+    arr.push({ name: name.trim(), body: _bulkTextTemplate, mode: _bulkTextMode });
     saveSavedTemplates(arr);
     renderBulkTextModal();
   });
@@ -3106,9 +3168,14 @@ function renderBulkTextModal() {
     delBtn.title = 'Delete a saved template';
     delBtn.addEventListener('click', function() {
       var names = saved.map(function(t) { return t.name; }).join('\n');
-      var pick = prompt('Which template to delete?\n\n' + names);
+      var pick = prompt('Which ' + (_bulkTextMode === 'group' ? 'group ' : '') + 'template to delete?\n\n' + names);
       if (!pick) return;
-      var arr = saved.filter(function(t) { return t.name !== pick.trim(); });
+      // Only delete entries matching current mode — don't stomp other-mode
+      // templates sharing the same name.
+      var arr = loadSavedTemplates().filter(function(t) {
+        var tm = t.mode || 'individual';
+        return !(t.name === pick.trim() && tm === _bulkTextMode);
+      });
       saveSavedTemplates(arr);
       renderBulkTextModal();
     });
@@ -3123,7 +3190,9 @@ function renderBulkTextModal() {
   ta.style.cssText = 'width:100%;min-height:100px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px;color:#e2e8f0;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box';
   ta.addEventListener('input', function() {
     _bulkTextTemplate = ta.value;
-    try { localStorage.setItem(getCaptainStorageKey('text_last_template'), ta.value); } catch (e) {}
+    // Save to whichever key matches the current mode so Individual and
+    // Group drafts don't overwrite each other.
+    try { localStorage.setItem(getCaptainStorageKey(templateStorageKey()), ta.value); } catch (e) {}
     updateBulkTextPreview();
     updateCharCount();
   });
