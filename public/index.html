@@ -12185,7 +12185,33 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
         var sharedBadge = document.createElement('span');
         sharedBadge.style.cssText = 'font-size:10px;color:#818cf8;background:rgba(129,140,248,0.15);padding:1px 6px;border-radius:4px;border:1px solid #818cf8';
         sharedBadge.textContent = 'Shared';
+        sharedBadge.title = 'This captain is shared with this candidate but their PRIMARY candidate is different. The race filter in their portal shows the PRIMARY candidate\u2019s race. Click "Make Primary" to switch.';
         right.appendChild(sharedBadge);
+        // Make Primary button — lets admin switch the captain's primary
+        // candidate to THIS one so the race filter in the captain portal
+        // shows this candidate's race (e.g., College TSC instead of Port).
+        var makePrimaryBtn = document.createElement('button');
+        makePrimaryBtn.className = 'btn btn-xs';
+        makePrimaryBtn.style.cssText = 'background:#0891b2;border-color:#0e7490;color:#fff';
+        makePrimaryBtn.textContent = 'Make Primary';
+        makePrimaryBtn.title = 'Set this candidate as the captain\u2019s primary so they see this race\u2019s filter';
+        makePrimaryBtn.onclick = (function(captain, candId) { return async function(e) {
+          e.stopPropagation();
+          if (!confirm('Make this candidate the primary for "' + captain.name + '"?\n\nTheir race filter in the captain portal will switch to this candidate\u2019s race. They\u2019ll need to log out and log back in (or hard-refresh) to see the change.')) return;
+          try {
+            await apiPut('/api/captains/' + captain.id + '/primary-candidate', { candidate_id: candId });
+            refreshCandidateDetail();
+          } catch (err) { alert('Error: ' + (err.message || err)); }
+        }; })(c, _candidateDetailId);
+        right.appendChild(makePrimaryBtn);
+      } else {
+        // Already primary for this candidate — reassuring badge so admin
+        // knows the race filter is set from this side
+        var primaryBadge = document.createElement('span');
+        primaryBadge.style.cssText = 'font-size:10px;color:#22c55e;background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:4px;border:1px solid #22c55e';
+        primaryBadge.textContent = 'Primary';
+        primaryBadge.title = 'This candidate is the captain\u2019s primary — their race filter in the portal matches this candidate\u2019s race';
+        right.appendChild(primaryBadge);
       }
 
       var statusBadge = document.createElement('span');

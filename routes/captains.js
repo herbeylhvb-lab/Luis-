@@ -233,6 +233,47 @@ router.put('/captains/:id/reassign', (req, res) => {
   res.json({ success: true });
 });
 
+// Set captain's PRIMARY candidate — this is the candidate whose race the
+// captain inherits for their list's race filter. A captain can be linked
+// to multiple candidates via /captains/:id/share, but only the primary's
+// race shows in the filter. This endpoint lets an admin explicitly move
+// the primary to any candidate the captain is already linked to (or
+// create a new primary link if they aren't yet linked).
+router.put('/captains/:id/primary-candidate', (req, res) => {
+  const { candidate_id } = req.body;
+  if (!candidate_id) return res.status(400).json({ error: 'candidate_id is required.' });
+  const captain = db.prepare('SELECT id, name, candidate_id FROM captains WHERE id = ?').get(req.params.id);
+  if (!captain) return res.status(404).json({ error: 'Captain not found.' });
+  const candidate = db.prepare('SELECT id, name, race_type, race_value FROM candidates WHERE id = ?').get(candidate_id);
+  if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
+  const oldPrimaryId = captain.candidate_id;
+  // Update primary
+  db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ?').run(candidate_id, captain.id);
+  // Keep the old primary reachable via captain_candidates so the captain
+  // doesn't lose access to their previous candidate's work.
+  if (oldPrimaryId && oldPrimaryId !== candidate_id) {
+    try {
+      db.prepare('INSERT OR IGNORE INTO captain_candidates (captain_id, candidate_id) VALUES (?, ?)')
+        .run(captain.id, oldPrimaryId);
+    } catch (e) { /* unique constraint fine — they were already linked */ }
+  }
+  // Remove the new primary from captain_candidates (no duplication needed —
+  // captain.candidate_id IS the link now).
+  db.prepare('DELETE FROM captain_candidates WHERE captain_id = ? AND candidate_id = ?')
+    .run(captain.id, candidate_id);
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Captain "' + captain.name + '" primary candidate → "' + candidate.name + '" (race: ' +
+    (candidate.race_type ? candidate.race_type + '=' + candidate.race_value : 'none') + ')'
+  );
+  res.json({
+    success: true,
+    captain_id: captain.id,
+    candidate_id: candidate.id,
+    race_type: candidate.race_type || null,
+    race_value: candidate.race_value || null
+  });
+});
+
 // Share captain with additional candidate
 router.post('/captains/:id/share', (req, res) => {
   const { candidate_id } = req.body;
