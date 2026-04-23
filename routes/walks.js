@@ -1861,18 +1861,17 @@ router.post('/walks/join', (req, res) => {
     return res.json({ success: true, walkId: walk.id, walkName: walk.name, walkerName: existing.walker_name });
   }
 
-  // Check member count + add member atomically to prevent race condition
-  const maxWalkers = walk.max_walkers || 4;
+  // Add member atomically. We deliberately do NOT enforce walk.max_walkers
+  // anymore — block walkers should never be turned away from joining a
+  // list. splitAddresses() below redivides addresses among however many
+  // walkers joined, so larger groups just get fewer doors each.
   const joinResult = db.transaction(() => {
-    const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
-    if (members.c >= maxWalkers) return { full: true };
     const existing = db.prepare('SELECT 1 FROM walk_group_members WHERE walk_id = ? AND phone = ?').get(walk.id, normPhone);
     if (existing) return { duplicate: true };
     db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
     return { success: true };
   })();
 
-  if (joinResult.full) return res.status(400).json({ error: 'Group is full (max ' + maxWalkers + ' walkers).' });
   if (joinResult.duplicate) return res.status(400).json({ error: 'This phone number has already joined this walk.' });
 
   // Auto-split addresses among group members
@@ -3074,9 +3073,11 @@ router.post('/walks/:id/assign-walker', (req, res) => {
   const walker = db.prepare('SELECT * FROM walkers WHERE id = ?').get(walker_id);
   if (!walker) return res.status(404).json({ error: 'Walker not found.' });
 
-  const count = (db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(req.params.id) || { c: 0 }).c;
-  if (count >= (walk.max_walkers || 10)) return res.status(400).json({ error: 'Walk is full (max ' + (walk.max_walkers || 10) + ' walkers).' });
-
+  // Block walkers should never be capped out of a list — removed the
+  // "Walk is full" check. splitAddresses() in the join path redivides
+  // addresses across whoever is present, so large groups just share
+  // more broadly. Keep the duplicate-walker check since assigning the
+  // same person twice is genuinely an error.
   const existing = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.id, walker_id);
   if (existing) return res.status(400).json({ error: 'Walker already assigned to this walk.' });
 
