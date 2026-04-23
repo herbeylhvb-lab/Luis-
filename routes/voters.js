@@ -2121,6 +2121,26 @@ router.post('/early-voting/import', (req, res) => {
   const markEarly = db.prepare(
     "UPDATE voters SET early_voted = 1, early_voted_date = COALESCE(?, early_voted_date), early_voted_method = COALESCE(?, early_voted_method), early_voted_ballot = COALESCE(?, early_voted_ballot), updated_at = datetime('now') WHERE id = ?"
   );
+  // Prepared ONCE outside the loop — previously was re-prepared per row
+  // inside the transaction, which added needless overhead on large imports.
+  const getEarly = db.prepare('SELECT early_voted FROM voters WHERE id = ?');
+
+  // Normalize IDs the same way the lookup maps do — strip leading zeros
+  // and upper-case. Catches "00123" vs "123" mismatches between CSVs from
+  // different sources (some strip leading zeros, some don't).
+  function normalizeId(s) {
+    const t = (s || '').trim().toUpperCase();
+    // Only strip leading zeros if the result is still non-empty and starts
+    // with a digit — preserves letter-prefixed IDs unchanged.
+    if (/^0+\d/.test(t)) return t.replace(/^0+/, '');
+    return t;
+  }
+  // Rebuild the maps using normalized keys so lookups match regardless
+  // of leading-zero variation.
+  const regMapN = {}, countyMapN = {}, stateMapN = {};
+  for (const k of Object.keys(regMap)) regMapN[normalizeId(k)] = regMap[k];
+  for (const k of Object.keys(countyMap)) countyMapN[normalizeId(k)] = countyMap[k];
+  for (const k of Object.keys(stateMap)) stateMapN[normalizeId(k)] = stateMap[k];
 
   const results = { total: rows.length, matched: 0, already_voted: 0, not_found: 0, details: { by_registration: 0, by_county_file_id: 0, by_state_file_id: 0, by_phone: 0, by_name_address: 0 } };
 
@@ -2130,26 +2150,26 @@ router.post('/early-voting/import', (req, res) => {
       let matchMethod = '';
 
       // 1. Registration number / VUID match
-      const reg = (row.registration_number || row.voter_id || row.vuid || row.reg_num || row.voter_unique_id || row.id || row.vanid || '').trim().toUpperCase();
-      if (reg && regMap[reg]) {
-        voterId = regMap[reg];
+      const reg = normalizeId(row.registration_number || row.voter_id || row.vuid || row.reg_num || row.voter_unique_id || row.id || row.vanid);
+      if (reg && regMapN[reg]) {
+        voterId = regMapN[reg];
         matchMethod = 'registration';
       }
 
       // 2. County File ID match
       if (!voterId) {
-        const cfid = (row.county_file_id || row.countyfileid || '').trim().toUpperCase();
-        if (cfid && countyMap[cfid]) {
-          voterId = countyMap[cfid];
+        const cfid = normalizeId(row.county_file_id || row.countyfileid);
+        if (cfid && countyMapN[cfid]) {
+          voterId = countyMapN[cfid];
           matchMethod = 'county_file_id';
         }
       }
 
       // 3. State File ID match
       if (!voterId) {
-        const sfid = (row.state_file_id || row.statefileid || row.state_id || '').trim().toUpperCase();
-        if (sfid && stateMap[sfid]) {
-          voterId = stateMap[sfid];
+        const sfid = normalizeId(row.state_file_id || row.statefileid || row.state_id);
+        if (sfid && stateMapN[sfid]) {
+          voterId = stateMapN[sfid];
           matchMethod = 'state_file_id';
         }
       }
@@ -2163,7 +2183,7 @@ router.post('/early-voting/import', (req, res) => {
         }
       }
 
-      // 3. Name + address match
+      // 5. Name + address match (weakest fallback — only if first+last+addr all present)
       if (!voterId && row.first_name && row.last_name && row.address) {
         const addrWords = row.address.trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
         if (addrWords) {
@@ -2173,8 +2193,8 @@ router.post('/early-voting/import', (req, res) => {
       }
 
       if (voterId) {
-        // Check if already marked
-        const existing = db.prepare('SELECT early_voted FROM voters WHERE id = ?').get(voterId);
+        // Check if already marked (prepared once outside the loop — fast)
+        const existing = getEarly.get(voterId);
         if (existing && existing.early_voted === 1) {
           results.already_voted++;
         } else {
