@@ -49,9 +49,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .app-header h1 span{color:#f59e0b}
 .app-header .info{font-size:13px;color:#94a3b8}
 .btn-leave{padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}
-/* Reset-zoom button — only meaningful on touch devices (pointer: coarse) */
-.btn-zoom-reset{display:none;padding:6px 10px;background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:6px;font-size:15px;cursor:pointer;line-height:1}
-@media (pointer: coarse) { .btn-zoom-reset{display:inline-block} }
 
 .app-layout{display:flex;height:calc(100vh - 52px);overflow:hidden}
 
@@ -235,14 +232,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <h1>&#128081; <span>Block Captain</span></h1>
       <div class="info" id="captainGreeting"></div>
     </div>
-    <div style="display:flex;gap:6px;align-items:center">
-      <!-- Reset Zoom button — iOS Safari makes it hard to pinch-zoom out
-           once you've zoomed in. Tapping this briefly forces viewport scale
-           back to 1.0 so users can see the full page again. Hidden on
-           desktop (where browser zoom is handled by Cmd+/-). -->
-      <button class="btn-zoom-reset" onclick="resetZoom()" title="Reset zoom to fit screen" aria-label="Reset zoom">&#128269;</button>
-      <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
-    </div>
+    <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
   </div>
 
   <!-- Mobile bottom tab bar -->
@@ -568,18 +558,35 @@ async function tryRestoreCaptainSession() {
 // so the user isn't staring at a blank page during this ~100ms check).
 tryRestoreCaptainSession();
 
-// Reset viewport zoom on iOS Safari. Forces the page back to 1.0 scale
-// by temporarily setting maximum-scale=1, then restoring to allow zoom
-// again so users can still pinch-zoom in the future. Works because iOS
-// re-evaluates the viewport meta tag when it changes.
-window.resetZoom = function() {
-  var vp = document.querySelector('meta[name=viewport]');
-  if (!vp) return;
-  var normal = 'width=device-width, initial-scale=1.0';
-  vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
-  // After a tick, restore so users can pinch-zoom again on demand
-  setTimeout(function() { vp.setAttribute('content', normal); }, 100);
-};
+// Auto-reset viewport zoom after the user has been pinch-zoomed-in for a
+// while. iOS Safari makes pinch-zoom-out awkward (two-finger spread on a
+// small screen); this saves captains from the struggle. Uses visualViewport
+// API to detect when scale > 1, then after 10 seconds at that scale forces
+// the page back to 1.0 by briefly toggling the viewport meta tag.
+//
+// No UI button — runs automatically. User can still pinch-zoom in whenever
+// they need to see something small; the auto-reset just keeps them from
+// being stuck zoomed.
+(function() {
+  var ZOOM_HOLD_MS = 10000; // 10 seconds zoomed in → auto-reset
+  var resetTimer = null;
+  function resetZoom() {
+    var vp = document.querySelector('meta[name=viewport]');
+    if (!vp) return;
+    var normal = 'width=device-width, initial-scale=1.0';
+    vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+    setTimeout(function() { vp.setAttribute('content', normal); }, 100);
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function() {
+      clearTimeout(resetTimer);
+      // 1.05 threshold avoids false positives from sub-pixel browser rendering
+      if (window.visualViewport.scale > 1.05) {
+        resetTimer = setTimeout(resetZoom, ZOOM_HOLD_MS);
+      }
+    });
+  }
+})();
 
 function logoutCaptain() {
   // Kill the server session too — otherwise refresh would auto-login again
