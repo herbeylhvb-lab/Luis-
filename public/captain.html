@@ -49,6 +49,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .app-header h1 span{color:#f59e0b}
 .app-header .info{font-size:13px;color:#94a3b8}
 .btn-leave{padding:6px 14px;background:#ef4444;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}
+/* Reset-zoom button — only meaningful on touch devices (pointer: coarse) */
+.btn-zoom-reset{display:none;padding:6px 10px;background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:6px;font-size:15px;cursor:pointer;line-height:1}
+@media (pointer: coarse) { .btn-zoom-reset{display:inline-block} }
 
 .app-layout{display:flex;height:calc(100vh - 52px);overflow:hidden}
 
@@ -232,7 +235,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <h1>&#128081; <span>Block Captain</span></h1>
       <div class="info" id="captainGreeting"></div>
     </div>
-    <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
+    <div style="display:flex;gap:6px;align-items:center">
+      <!-- Reset Zoom button — iOS Safari makes it hard to pinch-zoom out
+           once you've zoomed in. Tapping this briefly forces viewport scale
+           back to 1.0 so users can see the full page again. Hidden on
+           desktop (where browser zoom is handled by Cmd+/-). -->
+      <button class="btn-zoom-reset" onclick="resetZoom()" title="Reset zoom to fit screen" aria-label="Reset zoom">&#128269;</button>
+      <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
+    </div>
   </div>
 
   <!-- Mobile bottom tab bar -->
@@ -557,6 +567,19 @@ async function tryRestoreCaptainSession() {
 // Kick it off as soon as this script runs (login screen is default-visible
 // so the user isn't staring at a blank page during this ~100ms check).
 tryRestoreCaptainSession();
+
+// Reset viewport zoom on iOS Safari. Forces the page back to 1.0 scale
+// by temporarily setting maximum-scale=1, then restoring to allow zoom
+// again so users can still pinch-zoom in the future. Works because iOS
+// re-evaluates the viewport meta tag when it changes.
+window.resetZoom = function() {
+  var vp = document.querySelector('meta[name=viewport]');
+  if (!vp) return;
+  var normal = 'width=device-width, initial-scale=1.0';
+  vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+  // After a tick, restore so users can pinch-zoom again on demand
+  setTimeout(function() { vp.setAttribute('content', normal); }, 100);
+};
 
 function logoutCaptain() {
   // Kill the server session too — otherwise refresh would auto-login again
@@ -1060,6 +1083,10 @@ function getListApiBase() {
 
 // Store current list voters for tab filtering and download
 var _currentListVoters = [];
+// Set of voter IDs in the currently selected list — used to show "On Your
+// List" badges in search results so the captain knows who they've already
+// added without having to switch tabs.
+var _currentListVoterIds = new Set();
 var _currentListTab = 'all';
 var _currentRaceTab = 'all';
 var _currentP26Tab = 'all';
@@ -1431,6 +1458,9 @@ async function loadListVoters() {
   var voters = data.voters || [];
   _currentListVoters = voters;
   _currentListTab = 'all';
+  // Build a Set of voter IDs in the current list — used by searchVoters()
+  // to show "On Your List" badges on search results for voters already added.
+  _currentListVoterIds = new Set(voters.map(function(v) { return v.id; }));
 
   var nameEl = document.getElementById('rightListName');
   nameEl.textContent = captainState.selectedListName;
@@ -2127,6 +2157,16 @@ async function searchVoters() {
       evSearchBadge.textContent = 'Not Voted';
     }
     nameRow.appendChild(evSearchBadge);
+    // "On Your List" badge — shows if voter is already in the currently
+    // selected list. Saves the captain from re-adding the same person.
+    var alreadyOnList = !!(captainState.selectedListId && _currentListVoterIds && _currentListVoterIds.has(v.id));
+    if (alreadyOnList) {
+      var onListBadge = document.createElement('span');
+      onListBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid #22c55e';
+      onListBadge.textContent = '\u2713 On Your List';
+      onListBadge.title = 'Already on ' + captainState.selectedListName;
+      nameRow.appendChild(onListBadge);
+    }
     if (v.age) {
       var ageBadge = document.createElement('span');
       ageBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
@@ -2143,7 +2183,14 @@ async function searchVoters() {
 
     var addBtn = document.createElement('button');
     addBtn.className = 'btn btn-xs btn-captain';
-    addBtn.textContent = '+ Add';
+    if (alreadyOnList) {
+      // Voter already added — grey it out but still clickable (in case they
+      // want to see the modal for some reason like household add-ons)
+      addBtn.textContent = 'Added';
+      addBtn.style.opacity = '0.5';
+    } else {
+      addBtn.textContent = '+ Add';
+    }
     addBtn.addEventListener('click', (function(voter) { return function() {
       if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
       showAddVoterModal(voter);
@@ -2795,13 +2842,12 @@ async function submitAddVoter(voterId) {
     showToast('All selected voters are already on this list.', 'warn');
   }
 
-  // Reset search FIRST so results clear immediately
-  resetSearch();
-
-  // On mobile, switch to My List tab so user sees the voter they just added
-  if (window.innerWidth <= 900) switchMobileTab('list');
-
+  // Stay on the search page — reload the current list in the background so
+  // the "On your list" badge appears on voters you just added, but DON'T
+  // reset the search or jump to the list tab. Captain wants to keep adding.
   try { await loadListVoters(); } catch(e) {}
+  // Re-run the search silently so newly-added voters now show the badge
+  try { await searchVoters(); } catch(e) {}
   try { refreshSidebar(); } catch(e) {}
 }
 
