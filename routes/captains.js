@@ -994,7 +994,11 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
   const voters = db.prepare(`
     SELECT v.*, clv.added_at, clv.parent_voter_id, clv.notes as captain_notes,
       (SELECT ev.party_voted FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_party,
-      (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method
+      (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method,
+      -- Last personal text sent to this voter (captain portal bulk-text flow).
+      -- Used to show a "Texted" badge and auto-skip recently-texted voters
+      -- from the bulk queue so captains don't accidentally double-text.
+      (SELECT MAX(vc.contacted_at) FROM voter_contacts vc WHERE vc.voter_id = v.id AND vc.contact_type = 'Text') as last_texted_at
     FROM captain_list_voters clv
     JOIN voters v ON clv.voter_id = v.id
     WHERE clv.list_id = ?
@@ -1007,6 +1011,24 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
 });
 
 // Add voter to list with optional contact info update
+// Log that the captain sent a personal text (sms:) to a voter. Records a
+// voter_contacts row with contact_type='Text' so the UI can show a
+// "Texted" badge and the bulk-text flow can auto-skip recently-texted
+// voters. Captain-scope auth verifies the caller owns this captain id.
+router.post('/captains/:id/text-log', requireCaptainAuth, (req, res) => {
+  const { voter_id, template_name, message_preview } = req.body;
+  if (!voter_id) return res.status(400).json({ error: 'voter_id required.' });
+  const voter = db.prepare('SELECT id FROM voters WHERE id = ?').get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  // Trim preview to avoid huge notes rows (first 200 chars is plenty for audit)
+  const preview = (message_preview || '').slice(0, 200);
+  const byLabel = 'Captain #' + req.params.id;
+  db.prepare(
+    "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Text', 'sent', ?, ?, datetime('now'))"
+  ).run(voter_id, (template_name ? '[' + template_name + '] ' : '') + preview, byLabel);
+  res.json({ success: true });
+});
+
 router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
   const { voter_id, phone, email } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id is required.' });

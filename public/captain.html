@@ -1558,6 +1558,20 @@ function renderListVoters() {
     return;
   }
 
+  // "Text All Filtered" button row — one-tap to queue every voter in
+  // the currently visible filtered set for texting. Keeps a saved queue
+  // safe: if one is in progress, opening the modal offers to resume.
+  var quickActionBar = document.createElement('div');
+  quickActionBar.style.cssText = 'display:flex;gap:6px;padding:6px 12px;background:#0f172a;border-bottom:1px solid #334155;align-items:center;flex-wrap:wrap';
+  var textAllBtn = document.createElement('button');
+  textAllBtn.className = 'btn btn-xs';
+  textAllBtn.style.cssText = 'background:#22c55e;border-color:#16a34a;color:#fff;font-weight:600';
+  textAllBtn.textContent = '\uD83D\uDCAC Text All Filtered';
+  textAllBtn.title = 'Queue every voter currently visible in the list for personal texting';
+  textAllBtn.addEventListener('click', function() { startBulkTextAllFiltered(); });
+  quickActionBar.appendChild(textAllBtn);
+  el.appendChild(quickActionBar);
+
   // Tab bar: All | Not Voted | Voted
   var tabBar = document.createElement('div');
   tabBar.style.cssText = 'display:flex;border-bottom:2px solid #334155;background:#0f172a';
@@ -1972,6 +1986,16 @@ function renderListVoters() {
       orBadge.title = 'Not in ' + (captainState.race_value || 'race');
       nameRow.appendChild(orBadge);
       row.style.opacity = '0.65';
+    }
+    // "Texted" badge — shows when this voter received a personal text
+    // from the captain's phone (logged via the bulk-text flow).
+    if (v.last_texted_at) {
+      var days = daysSince(v.last_texted_at);
+      var tbadge = document.createElement('span');
+      tbadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid #3b82f6';
+      tbadge.textContent = days === 0 ? '\uD83D\uDCF1 Texted today' : days === 1 ? '\uD83D\uDCF1 Texted 1d' : '\uD83D\uDCF1 Texted ' + days + 'd';
+      tbadge.title = 'Last texted: ' + (v.last_texted_at || '').replace('T', ' ').slice(0, 16);
+      nameRow.appendChild(tbadge);
     }
     if (v.age) {
       var ageBadge2 = document.createElement('span');
@@ -2768,14 +2792,26 @@ async function showVoterDetail(voter) {
 // "Load the contract" = load each voter's contact (phone number) into
 // the Messages app as the recipient. Body is pre-filled but editable.
 
-// Step through state — which voter in the queue we're texting next
+// Step through state — which voter in the queue we're texting next.
+// Saved to localStorage so captains can pause mid-flow and resume later.
 var _bulkTextQueue = [];
 var _bulkTextIndex = 0;
 var _bulkTextTemplate = '';
+// Per-voter message overrides (keyed by voter.id). Populated when the
+// captain edits a specific voter's message before sending.
+var _bulkTextOverrides = {};
+
+// Skip voters who were texted in the last N days so we don't double-text.
+// 7 days is a sensible default for most campaign cadences.
+var TEXT_SKIP_DAYS = 7;
+
+function getCaptainStorageKey(suffix) {
+  var cid = (captainState.captain && captainState.captain.id) || 'anon';
+  return 'cap_' + cid + '_' + suffix;
+}
 
 function getDefaultTextTemplate() {
   var captainName = (captainState.captain && captainState.captain.name) || '';
-  // Keep the first line personal-looking. Captains edit this per-voter.
   return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
 }
 
@@ -2786,25 +2822,155 @@ function fillTemplate(template, voter) {
     .replace(/\{full_name\}/g, ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim());
 }
 
+// ─── Saved templates (localStorage) ─────────────────────────────────
+// Stored as an array of {name, body}. Captains can save the current
+// textarea content as a named template and switch between them.
+function loadSavedTemplates() {
+  try {
+    var raw = localStorage.getItem(getCaptainStorageKey('text_templates'));
+    if (!raw) return [];
+    var arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+function saveSavedTemplates(arr) {
+  try { localStorage.setItem(getCaptainStorageKey('text_templates'), JSON.stringify(arr)); } catch (e) {}
+}
+
+// ─── Queue state persistence (pause/resume) ─────────────────────────
+function saveQueueState() {
+  try {
+    localStorage.setItem(getCaptainStorageKey('text_queue_state'), JSON.stringify({
+      queue: _bulkTextQueue,
+      index: _bulkTextIndex,
+      template: _bulkTextTemplate,
+      overrides: _bulkTextOverrides,
+      savedAt: new Date().toISOString()
+    }));
+  } catch (e) {}
+}
+function loadQueueState() {
+  try {
+    var raw = localStorage.getItem(getCaptainStorageKey('text_queue_state'));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function clearQueueState() {
+  try { localStorage.removeItem(getCaptainStorageKey('text_queue_state')); } catch (e) {}
+}
+
+// SMS character-length calculator. A single GSM-7 SMS is 160 chars;
+// messages with unicode (emojis, curly quotes) drop to 70 chars per part.
+// iMessage-to-iMessage has no hard limit and this matters less, but the
+// indicator is useful for carrier-SMS recipients.
+function smsPartCount(text) {
+  if (!text) return { chars: 0, parts: 0, limit: 160, unicode: false };
+  var hasUnicode = /[^\x00-\x7F]/.test(text);
+  var limit = hasUnicode ? 70 : 160;
+  var multiLimit = hasUnicode ? 67 : 153;
+  var chars = text.length;
+  var parts = chars === 0 ? 0 : (chars <= limit ? 1 : Math.ceil(chars / multiLimit));
+  return { chars: chars, parts: parts, limit: limit, unicode: hasUnicode };
+}
+
+// Days since an ISO timestamp — used to check "texted recently"
+function daysSince(iso) {
+  if (!iso) return null;
+  var then = new Date(iso);
+  if (isNaN(then.getTime())) return null;
+  return Math.floor((Date.now() - then.getTime()) / 86400000);
+}
+
+// Entry from the floating-action-bar "💬 Text" button. Uses selected
+// voters from _selectedVoterIds. Offers to resume if a queue was saved.
 window.startBulkTextFlow = function() {
   if (_selectedVoterIds.size === 0) {
     alert('Select one or more voters first.');
     return;
   }
-  // Build the queue — only voters with phones
   var allVoters = _currentListVoters || [];
-  var queue = allVoters.filter(function(v) {
-    return _selectedVoterIds.has(v.id) && v.phone && String(v.phone).replace(/\D/g, '').length >= 10;
+  var selected = allVoters.filter(function(v) { return _selectedVoterIds.has(v.id); });
+  startBulkTextFromVoters(selected);
+};
+
+// Entry from "Text All Filtered" button — takes the current filtered view
+// (whatever tab/search/race filters are active) and queues them all.
+window.startBulkTextAllFiltered = function() {
+  if (!_currentListVoters) return;
+  // Apply the same filter pipeline as renderListVoters — simplest way
+  // is to let the user see the filtered state and hit Select All first,
+  // OR just grab all currently-rendered rows.
+  var rows = document.querySelectorAll('#rightListContent .right-voter[data-voter-id]');
+  var ids = new Set();
+  rows.forEach(function(r) { ids.add(parseInt(r.getAttribute('data-voter-id'), 10)); });
+  var filtered = (_currentListVoters || []).filter(function(v) { return ids.has(v.id); });
+  if (filtered.length === 0) {
+    alert('No voters in the current filtered view.');
+    return;
+  }
+  if (!confirm('Queue all ' + filtered.length + ' visible voter' + (filtered.length !== 1 ? 's' : '') + ' for texting?')) return;
+  startBulkTextFromVoters(filtered);
+};
+
+// Core: given a list of voter objects, build the filtered queue and open
+// the modal. Applies auto-skips for invalid phones, landlines, and
+// recently-texted voters. Offers to resume a saved queue if one exists.
+function startBulkTextFromVoters(voters) {
+  // Offer to resume a saved in-progress queue (pause-and-resume)
+  var saved = loadQueueState();
+  if (saved && saved.queue && saved.queue.length > saved.index) {
+    var remaining = saved.queue.length - saved.index;
+    if (confirm('Resume your previous text session?\n\n' + remaining + ' voter' + (remaining !== 1 ? 's' : '') + ' remaining from a queue saved ' + (saved.savedAt || '').split('T')[0] + '.\n\nOK = Resume · Cancel = Start fresh with current selection')) {
+      _bulkTextQueue = saved.queue;
+      _bulkTextIndex = saved.index;
+      _bulkTextTemplate = saved.template || getDefaultTextTemplate();
+      _bulkTextOverrides = saved.overrides || {};
+      renderBulkTextModal();
+      return;
+    } else {
+      clearQueueState();
+    }
+  }
+
+  // Filter: must have 10+ digit phone, not a landline/voip/invalid,
+  // and not already texted in the last TEXT_SKIP_DAYS days.
+  var noPhone = 0, badType = 0, recentlyTexted = 0;
+  var queue = voters.filter(function(v) {
+    if (!v.phone || String(v.phone).replace(/\D/g, '').length < 10) { noPhone++; return false; }
+    var pt = (v.phone_type || '').toLowerCase();
+    if (pt === 'landline' || pt === 'voip' || pt === 'invalid') { badType++; return false; }
+    var d = daysSince(v.last_texted_at);
+    if (d !== null && d < TEXT_SKIP_DAYS) { recentlyTexted++; return false; }
+    return true;
   });
   if (queue.length === 0) {
-    alert('None of the selected voters have a valid phone number on file.');
+    alert('No eligible voters to text.\n\nSkipped:\n' +
+      (noPhone > 0 ? '\u2022 ' + noPhone + ' without a phone\n' : '') +
+      (badType > 0 ? '\u2022 ' + badType + ' landlines/voip/invalid\n' : '') +
+      (recentlyTexted > 0 ? '\u2022 ' + recentlyTexted + ' texted in the last ' + TEXT_SKIP_DAYS + ' days\n' : ''));
     return;
+  }
+  // Show a summary of skips so the captain knows their queue is smaller
+  // than they selected and why.
+  if (noPhone + badType + recentlyTexted > 0) {
+    var summary = queue.length + ' voter' + (queue.length !== 1 ? 's' : '') + ' queued.\n\nSkipped:\n' +
+      (noPhone > 0 ? '\u2022 ' + noPhone + ' without a phone\n' : '') +
+      (badType > 0 ? '\u2022 ' + badType + ' landlines/voip/invalid\n' : '') +
+      (recentlyTexted > 0 ? '\u2022 ' + recentlyTexted + ' texted in the last ' + TEXT_SKIP_DAYS + ' days\n' : '') +
+      '\nContinue?';
+    if (!confirm(summary)) return;
   }
   _bulkTextQueue = queue;
   _bulkTextIndex = 0;
-  _bulkTextTemplate = getDefaultTextTemplate();
+  _bulkTextOverrides = {};
+  // Start with the last-used template (localStorage) or the default
+  var saved2 = null;
+  try { saved2 = localStorage.getItem(getCaptainStorageKey('text_last_template')); } catch (e) {}
+  _bulkTextTemplate = saved2 || getDefaultTextTemplate();
+  saveQueueState();
   renderBulkTextModal();
-};
+}
 
 function renderBulkTextModal() {
   closeBulkTextModal();
@@ -2825,32 +2991,100 @@ function renderBulkTextModal() {
 
   var sub = document.createElement('div');
   sub.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:12px';
-  sub.textContent = remaining + ' voter' + (remaining !== 1 ? 's' : '') + ' remaining \u00B7 ' +
-    _bulkTextIndex + ' sent so far';
+  sub.textContent = remaining + ' remaining \u00B7 ' + _bulkTextIndex + ' sent';
   box.appendChild(sub);
 
-  // Message template editor
-  var lbl = document.createElement('div');
-  lbl.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px';
-  lbl.textContent = 'Message Template';
-  box.appendChild(lbl);
+  // ─── Template picker ─────────────────────────────────────────────
+  // Dropdown of saved templates + Custom. Saved templates persist across
+  // sessions via localStorage (per-captain).
+  var saved = loadSavedTemplates();
+  var tplRow = document.createElement('div');
+  tplRow.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
+  var tplLbl = document.createElement('span');
+  tplLbl.style.cssText = 'font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px';
+  tplLbl.textContent = 'Template:';
+  tplRow.appendChild(tplLbl);
+  var tplSelect = document.createElement('select');
+  tplSelect.style.cssText = 'flex:1;min-width:120px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px';
+  var customOpt = document.createElement('option');
+  customOpt.value = '__custom__';
+  customOpt.textContent = '(Custom — edit below)';
+  tplSelect.appendChild(customOpt);
+  saved.forEach(function(t) {
+    var o = document.createElement('option');
+    o.value = t.name;
+    o.textContent = t.name;
+    tplSelect.appendChild(o);
+  });
+  tplSelect.addEventListener('change', function() {
+    if (tplSelect.value === '__custom__') return;
+    var t = saved.find(function(t) { return t.name === tplSelect.value; });
+    if (t) { _bulkTextTemplate = t.body; saveQueueState(); renderBulkTextModal(); }
+  });
+  tplRow.appendChild(tplSelect);
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-xs btn-secondary';
+  saveBtn.textContent = '\uD83D\uDCBE Save';
+  saveBtn.title = 'Save current template for reuse';
+  saveBtn.addEventListener('click', function() {
+    var name = prompt('Name this template:');
+    if (!name || !name.trim()) return;
+    var arr = loadSavedTemplates().filter(function(t) { return t.name !== name.trim(); });
+    arr.push({ name: name.trim(), body: _bulkTextTemplate });
+    saveSavedTemplates(arr);
+    renderBulkTextModal();
+  });
+  tplRow.appendChild(saveBtn);
+  if (saved.length > 0) {
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-xs btn-secondary';
+    delBtn.textContent = '\uD83D\uDDD1\uFE0F';
+    delBtn.title = 'Delete a saved template';
+    delBtn.addEventListener('click', function() {
+      var names = saved.map(function(t) { return t.name; }).join('\n');
+      var pick = prompt('Which template to delete?\n\n' + names);
+      if (!pick) return;
+      var arr = saved.filter(function(t) { return t.name !== pick.trim(); });
+      saveSavedTemplates(arr);
+      renderBulkTextModal();
+    });
+    tplRow.appendChild(delBtn);
+  }
+  box.appendChild(tplRow);
+
+  // ─── Template editor ─────────────────────────────────────────────
   var ta = document.createElement('textarea');
   ta.id = 'bulkTextTemplate';
   ta.value = _bulkTextTemplate;
   ta.style.cssText = 'width:100%;min-height:100px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px;color:#e2e8f0;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box';
-  ta.addEventListener('input', function() { _bulkTextTemplate = ta.value; updateBulkTextPreview(); });
+  ta.addEventListener('input', function() {
+    _bulkTextTemplate = ta.value;
+    try { localStorage.setItem(getCaptainStorageKey('text_last_template'), ta.value); } catch (e) {}
+    updateBulkTextPreview();
+    updateCharCount();
+  });
   box.appendChild(ta);
+
+  // Char count + hint
+  var meta = document.createElement('div');
+  meta.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-top:4px;flex-wrap:wrap;gap:6px';
   var hint = document.createElement('div');
-  hint.style.cssText = 'font-size:11px;color:#64748b;margin-top:4px';
-  hint.textContent = 'Placeholders: {first_name}, {last_name}, {full_name} \u2014 filled per voter';
-  box.appendChild(hint);
+  hint.style.cssText = 'font-size:11px;color:#64748b';
+  hint.textContent = 'Placeholders: {first_name}, {last_name}';
+  meta.appendChild(hint);
+  var charCount = document.createElement('div');
+  charCount.id = 'bulkTextCharCount';
+  charCount.style.cssText = 'font-size:11px;color:#64748b;font-variant-numeric:tabular-nums';
+  meta.appendChild(charCount);
+  box.appendChild(meta);
+  updateCharCount();
 
   if (remaining === 0) {
-    // All done
     var done = document.createElement('div');
     done.style.cssText = 'margin-top:16px;padding:12px;background:#052e16;border:1px solid #22c55e;border-radius:6px;color:#4ade80;text-align:center;font-weight:600';
     done.textContent = '\u2705 Finished all ' + queue.length + ' voters. Nice work!';
     box.appendChild(done);
+    clearQueueState();
     var closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-primary';
     closeBtn.style.cssText = 'margin-top:12px;width:100%';
@@ -2859,7 +3093,6 @@ function renderBulkTextModal() {
     box.appendChild(closeBtn);
   } else {
     var nextVoter = queue[_bulkTextIndex];
-    // Preview: who's next + filled message
     var nextBox = document.createElement('div');
     nextBox.style.cssText = 'margin-top:14px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px';
     var nameLine = document.createElement('div');
@@ -2870,56 +3103,106 @@ function renderBulkTextModal() {
     phoneLine.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:8px';
     phoneLine.textContent = nextVoter.phone;
     nextBox.appendChild(phoneLine);
+
+    // Editable per-voter preview — captain can tweak the message for
+    // this specific voter (e.g., add a personal note). Saved to
+    // _bulkTextOverrides keyed by voter.id so edits survive re-renders.
     var previewLbl = document.createElement('div');
-    previewLbl.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px';
-    previewLbl.textContent = 'Preview';
+    previewLbl.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;display:flex;justify-content:space-between';
+    var lblText = document.createElement('span');
+    lblText.textContent = 'Message for this voter (editable)';
+    previewLbl.appendChild(lblText);
     nextBox.appendChild(previewLbl);
-    var previewEl = document.createElement('div');
+    var previewEl = document.createElement('textarea');
     previewEl.id = 'bulkTextPreview';
-    previewEl.style.cssText = 'font-size:13px;color:#e2e8f0;white-space:pre-wrap;background:#1e293b;padding:8px 10px;border-radius:4px;border-left:3px solid #22c55e';
-    previewEl.textContent = fillTemplate(_bulkTextTemplate, nextVoter);
+    previewEl.style.cssText = 'width:100%;min-height:80px;background:#1e293b;border:1px solid #334155;border-left:3px solid #22c55e;border-radius:4px;padding:8px 10px;color:#e2e8f0;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;line-height:1.4';
+    previewEl.value = _bulkTextOverrides[nextVoter.id] != null
+      ? _bulkTextOverrides[nextVoter.id]
+      : fillTemplate(_bulkTextTemplate, nextVoter);
+    previewEl.addEventListener('input', function() {
+      _bulkTextOverrides[nextVoter.id] = previewEl.value;
+      saveQueueState();
+      updateCharCount();
+    });
     nextBox.appendChild(previewEl);
     box.appendChild(nextBox);
 
-    // Send button — opens sms: URL for THIS voter
+    // Send button
     var sendBtn = document.createElement('button');
     sendBtn.style.cssText = 'display:block;width:100%;margin-top:12px;padding:14px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
     sendBtn.textContent = '\u{1F4F1} Open Messages for ' + (nextVoter.first_name || 'Voter');
     sendBtn.addEventListener('click', function() {
-      sendTextToVoter(nextVoter);
-      // After sending, advance the queue and re-render
+      var finalBody = _bulkTextOverrides[nextVoter.id] != null
+        ? _bulkTextOverrides[nextVoter.id]
+        : fillTemplate(_bulkTextTemplate, nextVoter);
+      sendTextToVoter(nextVoter, finalBody);
       _bulkTextIndex++;
+      saveQueueState();
       renderBulkTextModal();
     });
     box.appendChild(sendBtn);
 
-    // Skip / Cancel
+    // Skip / Pause / Cancel
     var btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;flex-wrap:wrap';
     var skipBtn = document.createElement('button');
     skipBtn.className = 'btn btn-secondary';
     skipBtn.style.flex = '1';
     skipBtn.textContent = 'Skip';
-    skipBtn.addEventListener('click', function() { _bulkTextIndex++; renderBulkTextModal(); });
+    skipBtn.addEventListener('click', function() { _bulkTextIndex++; saveQueueState(); renderBulkTextModal(); });
     btnRow.appendChild(skipBtn);
+    var pauseBtn = document.createElement('button');
+    pauseBtn.className = 'btn btn-secondary';
+    pauseBtn.style.flex = '1';
+    pauseBtn.title = 'Save progress and close. Click 💬 Text again to resume.';
+    pauseBtn.textContent = '\u23F8\uFE0F Pause';
+    pauseBtn.addEventListener('click', function() { saveQueueState(); closeBulkTextModal(); });
+    btnRow.appendChild(pauseBtn);
     var cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-secondary';
     cancelBtn.style.flex = '1';
     cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', closeBulkTextModal);
+    cancelBtn.addEventListener('click', function() {
+      if (confirm('Cancel and discard saved queue?')) {
+        clearQueueState();
+        closeBulkTextModal();
+      }
+    });
     btnRow.appendChild(cancelBtn);
     box.appendChild(btnRow);
   }
 
   overlay.appendChild(box);
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeBulkTextModal(); });
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) { saveQueueState(); closeBulkTextModal(); }
+  });
   document.body.appendChild(overlay);
 }
 
 function updateBulkTextPreview() {
   var preview = document.getElementById('bulkTextPreview');
   if (!preview || _bulkTextIndex >= _bulkTextQueue.length) return;
-  preview.textContent = fillTemplate(_bulkTextTemplate, _bulkTextQueue[_bulkTextIndex]);
+  var voter = _bulkTextQueue[_bulkTextIndex];
+  // Only update the preview if there's no override — otherwise the
+  // captain's edits stay intact when they tweak the template above.
+  if (_bulkTextOverrides[voter.id] == null) {
+    preview.value = fillTemplate(_bulkTextTemplate, voter);
+  }
+}
+
+function updateCharCount() {
+  var el = document.getElementById('bulkTextCharCount');
+  if (!el) return;
+  var preview = document.getElementById('bulkTextPreview');
+  var text = preview && preview.value != null ? preview.value : _bulkTextTemplate;
+  var s = smsPartCount(text);
+  if (s.parts <= 1) {
+    el.textContent = s.chars + ' / ' + s.limit + ' chars';
+    el.style.color = '#64748b';
+  } else {
+    el.textContent = s.chars + ' chars \u2022 ' + s.parts + ' SMS parts' + (s.unicode ? ' (unicode)' : '');
+    el.style.color = s.parts >= 3 ? '#f59e0b' : '#94a3b8';
+  }
 }
 
 function closeBulkTextModal() {
@@ -2927,15 +3210,23 @@ function closeBulkTextModal() {
   if (el) el.remove();
 }
 
-function sendTextToVoter(voter) {
+function sendTextToVoter(voter, overrideBody) {
   var phoneDigits = (voter.phone || '').replace(/\D/g, '');
   if (phoneDigits.length === 0) return;
-  var body = fillTemplate(_bulkTextTemplate, voter);
-  // iOS + Android both understand sms:+phone?body=encoded
-  // Use &body= form since some iOS versions prefer it over ?body=
+  var body = overrideBody != null ? overrideBody : fillTemplate(_bulkTextTemplate, voter);
+  // Log to server BEFORE opening the sms: URL — once the Messages app
+  // takes over, we don't get a callback. Fire-and-forget; network errors
+  // shouldn't block the send.
+  try {
+    apiPost('/api/captains/' + captainState.captain.id + '/text-log', {
+      voter_id: voter.id,
+      template_name: 'bulk',
+      message_preview: body
+    }).catch(function() { /* non-fatal */ });
+  } catch (e) { /* non-fatal */ }
+  // iOS + Android: sms:+digits?&body=encoded — the &body form works
+  // across more iOS versions than ?body= alone.
   var smsUrl = 'sms:' + phoneDigits + '?&body=' + encodeURIComponent(body);
-  // Open in a new tab so the current session isn't navigated away.
-  // On mobile this handshakes to the Messages app.
   window.location.href = smsUrl;
 }
 
