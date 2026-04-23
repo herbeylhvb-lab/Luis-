@@ -7,6 +7,36 @@ const { phoneDigits, normalizePhone } = require('../utils');
 
 const captainLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
 
+// Collect the unique set of (race_type, race_value) pairs this captain can
+// filter by — pulls from their primary candidate (captains.candidate_id) +
+// any shared candidates (captain_candidates). Dedupe by type+value so two
+// candidates in the same race don't produce two identical filter bars.
+function collectCaptainRaces(captainId, primaryCandidateId) {
+  const seen = new Set();
+  const races = [];
+  function add(type, value) {
+    if (!type || !value) return;
+    const key = type + '||' + value;
+    if (seen.has(key)) return;
+    seen.add(key);
+    races.push({ type, value });
+  }
+  if (primaryCandidateId) {
+    const primary = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(primaryCandidateId);
+    if (primary) add(primary.race_type, primary.race_value);
+  }
+  const shared = db.prepare(`
+    SELECT c.race_type, c.race_value
+    FROM captain_candidates cc
+    JOIN candidates c ON cc.candidate_id = c.id
+    WHERE cc.captain_id = ?
+      AND c.race_type IS NOT NULL AND c.race_type != ''
+      AND c.race_value IS NOT NULL AND c.race_value != ''
+  `).all(captainId);
+  for (const r of shared) add(r.race_type, r.race_value);
+  return races;
+}
+
 // Attach election_votes (turnout with party) to a list of voters
 function attachElectionVotes(voters) {
   if (!voters || voters.length === 0) return;
@@ -430,6 +460,11 @@ router.get('/captains/me', (req, res) => {
   // Roll the cookie forward 30 days on each restore
   req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
 
+  // Collect ALL linked races for multi-race filter rendering (same logic
+  // as /captains/login). Always pull fresh so admin changes take effect
+  // on next session restore (hard refresh).
+  captain.races = collectCaptainRaces(captain.id, captain.candidate_id);
+
   // Mirror the shape of /captains/login so the client can reuse its
   // same post-login wire-up code (team, lists, sub-captains, etc.)
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
@@ -511,6 +546,11 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   // every week. Rolling extension happens in requireCaptainAuth below.
   req.session.captainId = captain.id;
   req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+  // Collect ALL races this captain has via their primary + shared
+  // candidates. If they work across multiple candidates with different
+  // races, the captain UI will render one race filter bar per race.
+  captain.races = collectCaptainRaces(captain.id, captain.candidate_id);
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
   // Include candidate race info for race filter (direct or shared)

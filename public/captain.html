@@ -533,8 +533,17 @@ async function loginCaptain() {
 // manual code entry) and tryRestoreCaptainSession() (on page refresh).
 function bootCaptainPortal(captain) {
   captainState.captain = captain;
-  if (captain.race_type) captainState.race_type = captain.race_type;
-  if (captain.race_value) captainState.race_value = captain.race_value;
+  // Backward-compat: keep race_type/race_value fields populated from the
+  // primary (first) race so any legacy code still reads them. Newer code
+  // reads captain.races[] directly for multi-race support.
+  if (captain.races && captain.races.length > 0) {
+    var primary = captain.races[0];
+    captainState.race_type = primary.type;
+    captainState.race_value = primary.value;
+  } else {
+    if (captain.race_type) captainState.race_type = captain.race_type;
+    if (captain.race_value) captainState.race_value = captain.race_value;
+  }
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = '';
   document.getElementById('captainGreeting').textContent = 'Welcome, ' + captain.name;
@@ -1095,13 +1104,25 @@ var _currentListVoters = [];
 // added without having to switch tabs.
 var _currentListVoterIds = new Set();
 var _currentListTab = 'all';
-var _currentRaceTab = 'all';
+// Per-race filter state — maps "race_type||race_value" key → 'all'|'in'|'out'.
+// Legacy single-race state is still mirrored in the map for backward
+// compatibility with code that reads _currentRaceTab for the primary.
+var _raceTabs = {};
+var _currentRaceTab = 'all'; // mirrors the primary race's tab value
 // P26 Runoff filter — multi-select. Empty Set = show all. Any entries
 // = union filter (voter passes if their p26 state is in the Set).
 // Use case: in a runoff, only DEM primary voters + non-voters are eligible
 // to vote, so captain clicks DEM + Didn't Vote to target both groups and
 // exclude REP primary voters who can't cross over.
 var _currentP26Tabs = new Set();
+function raceKey(r) { return (r.type || '') + '||' + (r.value || ''); }
+function getRaceTab(r) { return _raceTabs[raceKey(r)] || 'all'; }
+function setRaceTab(r, val) {
+  _raceTabs[raceKey(r)] = val;
+  // Keep primary's tab exposed for any legacy reads
+  var primary = (captainState.captain && captainState.captain.races && captainState.captain.races[0]);
+  if (primary && raceKey(primary) === raceKey(r)) _currentRaceTab = val;
+}
 var _listSearchTerm = '';
 var _listSearchRaw = '';
 // Whether the "More Filters" section in the list view is expanded.
@@ -1590,28 +1611,55 @@ function renderListVoters() {
   });
   searchBar.appendChild(searchInput);
 
-  // Race filter bar — ALWAYS visible (primary scoping control)
-  var rt = captainState.race_type;
-  var rv = captainState.race_value;
-  if (rt && rv) {
-    voters.forEach(function(v) { v._in_race = (v[rt] || '').toString().trim() === rv.toString().trim(); });
-    var inCount = voters.filter(function(v) { return v._in_race; }).length;
-    var outCount = voters.length - inCount;
-    var raceBar = document.createElement('div');
-    raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
-    var rlbl = document.createElement('span');
-    rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
-    rlbl.textContent = (_raceTypeLabels[rt] || rt) + ' ' + rv + ':';
-    raceBar.appendChild(rlbl);
-    [['all','All'],['in','In Race (' + inCount + ')'],['out','Not In Race (' + outCount + ')']].forEach(function(o) {
-      var btn = document.createElement('button');
-      var isActive = (_currentRaceTab || 'all') === o[0];
-      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:#818cf8;color:#fff;border-color:#818cf8' : 'background:#1e293b;color:#94a3b8');
-      btn.textContent = o[1];
-      btn.addEventListener('click', function() { _currentRaceTab = o[0]; renderListVoters(); });
-      raceBar.appendChild(btn);
+  // Race filter bars — ALWAYS visible. If the captain is linked to
+  // multiple candidates with different races, render one filter bar PER
+  // race. Each filter independently tracks all/in/out. A voter passes
+  // the combined race filter if they're in-race for every filter set to
+  // 'in' and out-of-race for every filter set to 'out' (AND across races).
+  //
+  // For each voter, tag _inRace[type+value] = true/false so the row
+  // renderer can surface "Out of [race]" badges without recomputing.
+  var captainRaces = (captainState.captain && captainState.captain.races) || [];
+  // Backward compat: if backend didn't send races[] but did set
+  // race_type/race_value, build a single-race array
+  if (captainRaces.length === 0 && captainState.race_type && captainState.race_value) {
+    captainRaces = [{ type: captainState.race_type, value: captainState.race_value }];
+  }
+  if (captainRaces.length > 0) {
+    // Pre-compute per-race membership for each voter
+    voters.forEach(function(v) {
+      if (!v._inRace) v._inRace = {};
+      captainRaces.forEach(function(r) {
+        var val = (v[r.type] || '').toString().trim();
+        v._inRace[raceKey(r)] = val === r.value.toString().trim();
+      });
+      // Legacy flag — true only if voter is in ALL of the captain's races
+      v._in_race = captainRaces.every(function(r) { return v._inRace[raceKey(r)]; });
     });
-    el.appendChild(raceBar);
+    // Render one bar per race
+    captainRaces.forEach(function(r) {
+      var rInCount = voters.filter(function(v) { return v._inRace[raceKey(r)]; }).length;
+      var rOutCount = voters.length - rInCount;
+      var raceBar = document.createElement('div');
+      raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
+      var rlbl = document.createElement('span');
+      rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
+      rlbl.textContent = (_raceTypeLabels[r.type] || r.type) + ' ' + r.value + ':';
+      raceBar.appendChild(rlbl);
+      var currentTab = getRaceTab(r);
+      [['all','All'],['in','In Race (' + rInCount + ')'],['out','Not In Race (' + rOutCount + ')']].forEach(function(o) {
+        var btn = document.createElement('button');
+        var isActive = currentTab === o[0];
+        btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:#818cf8;color:#fff;border-color:#818cf8' : 'background:#1e293b;color:#94a3b8');
+        btn.textContent = o[1];
+        btn.addEventListener('click', (function(race, val) { return function() {
+          setRaceTab(race, val);
+          renderListVoters();
+        }; })(r, o[0]));
+        raceBar.appendChild(btn);
+      });
+      el.appendChild(raceBar);
+    });
   }
 
   // ─── MORE FILTERS (collapsible) ──────────────────────────────
@@ -1702,9 +1750,19 @@ function renderListVoters() {
         || (v.captain_notes || '').toLowerCase().indexOf(q) >= 0;
     });
   }
-  // Apply race filter
-  if (rt && rv && _currentRaceTab === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
-  else if (rt && rv && _currentRaceTab === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
+  // Apply per-race filters (one per race the captain has). A voter must
+  // match EVERY active race filter to pass — 'in' = they must be in that
+  // race, 'out' = they must NOT be in that race, 'all' = no constraint.
+  if (captainRaces.length > 0) {
+    captainRaces.forEach(function(r) {
+      var tab = getRaceTab(r);
+      if (tab === 'all') return;
+      filtered = filtered.filter(function(v) {
+        var isIn = v._inRace && v._inRace[raceKey(r)];
+        return tab === 'in' ? isIn : !isIn;
+      });
+    });
+  }
   // Apply P26 runoff filter — MULTI-SELECT (Set membership).
   // Empty Set = show everyone. Any entries = keep voters whose p26 state
   // matches ANY selected option (union). E.g., selecting DEM + none shows
