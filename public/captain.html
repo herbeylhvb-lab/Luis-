@@ -2793,6 +2793,12 @@ var _bulkTextOverrides = {};
 // thread, all recipients see each other). Default individual — the
 // privacy-safer option and higher response rate.
 var _bulkTextMode = 'individual';
+// iOS caps group messages at around 30 recipients (varies by version /
+// carrier). We use 25 as a safe margin so the Messages app doesn't
+// silently drop late recipients.
+var GROUP_MAX_RECIPIENTS = 25;
+// Which batch of a >25-recipient group we're on. 0 = first batch.
+var _bulkTextGroupBatch = 0;
 
 // Skip voters who were texted in the last N days so we don't double-text.
 // 7 days is a sensible default for most campaign cadences.
@@ -2838,6 +2844,8 @@ function saveQueueState() {
       index: _bulkTextIndex,
       template: _bulkTextTemplate,
       overrides: _bulkTextOverrides,
+      mode: _bulkTextMode,
+      groupBatch: _bulkTextGroupBatch,
       savedAt: new Date().toISOString()
     }));
   } catch (e) {}
@@ -2910,15 +2918,35 @@ window.startBulkTextAllFiltered = function() {
 // the modal. Applies auto-skips for invalid phones, landlines, and
 // recently-texted voters. Offers to resume a saved queue if one exists.
 function startBulkTextFromVoters(voters) {
-  // Offer to resume a saved in-progress queue (pause-and-resume)
+  // Offer to resume a saved in-progress queue (pause-and-resume).
+  // In individual mode, "remaining" is queue.length - index. In group
+  // mode, it's the count of voters still in batches not yet sent.
   var saved = loadQueueState();
-  if (saved && saved.queue && saved.queue.length > saved.index) {
-    var remaining = saved.queue.length - saved.index;
-    if (confirm('Resume your previous text session?\n\n' + remaining + ' voter' + (remaining !== 1 ? 's' : '') + ' remaining from a queue saved ' + (saved.savedAt || '').split('T')[0] + '.\n\nOK = Resume · Cancel = Start fresh with current selection')) {
+  if (saved && saved.queue && saved.queue.length > 0) {
+    var savedMode = saved.mode || 'individual';
+    var hasWork = false;
+    var remainingTxt = '';
+    if (savedMode === 'group') {
+      var batchSize = GROUP_MAX_RECIPIENTS;
+      var savedTotalBatches = Math.ceil(saved.queue.length / batchSize);
+      var savedBatch = saved.groupBatch || 0;
+      if (savedBatch < savedTotalBatches) {
+        hasWork = true;
+        var batchesLeft = savedTotalBatches - savedBatch;
+        remainingTxt = batchesLeft + ' group batch' + (batchesLeft !== 1 ? 'es' : '') + ' remaining';
+      }
+    } else if (saved.queue.length > saved.index) {
+      hasWork = true;
+      var remVoters = saved.queue.length - saved.index;
+      remainingTxt = remVoters + ' voter' + (remVoters !== 1 ? 's' : '') + ' remaining';
+    }
+    if (hasWork && confirm('Resume your previous text session?\n\n' + remainingTxt + ' from a queue saved ' + (saved.savedAt || '').split('T')[0] + '.\n\nOK = Resume \u00B7 Cancel = Start fresh with current selection')) {
       _bulkTextQueue = saved.queue;
-      _bulkTextIndex = saved.index;
+      _bulkTextIndex = saved.index || 0;
       _bulkTextTemplate = saved.template || getDefaultTextTemplate();
       _bulkTextOverrides = saved.overrides || {};
+      _bulkTextMode = savedMode;
+      _bulkTextGroupBatch = saved.groupBatch || 0;
       renderBulkTextModal();
       return;
     } else {
@@ -2957,6 +2985,8 @@ function startBulkTextFromVoters(voters) {
   _bulkTextQueue = queue;
   _bulkTextIndex = 0;
   _bulkTextOverrides = {};
+  _bulkTextGroupBatch = 0;
+  // Keep whatever mode the captain last used (defaults to 'individual')
   // Start with the last-used template (localStorage) or the default
   var saved2 = null;
   try { saved2 = localStorage.getItem(getCaptainStorageKey('text_last_template')); } catch (e) {}
@@ -3114,63 +3144,126 @@ function renderBulkTextModal() {
   updateCharCount();
 
   // ─── GROUP MODE ─────────────────────────────────────────────────
-  // Send ONE message to all queued voters. iOS creates a single group
-  // thread. Log all voters as texted in one batch on send.
+  // Send one message per batch of up to 25 voters. iOS caps group
+  // messages around 30 recipients — beyond that the Messages app
+  // silently drops latecomers. So we chunk, send batch 1, captain
+  // comes back, sends batch 2, and so on until done.
   if (_bulkTextMode === 'group') {
-    // Recipient list preview
-    var recipBox = document.createElement('div');
-    recipBox.style.cssText = 'margin-top:8px;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;max-height:140px;overflow-y:auto';
-    var rHeader = document.createElement('div');
-    rHeader.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
-    rHeader.textContent = 'Recipients (' + queue.length + ')';
-    recipBox.appendChild(rHeader);
-    queue.forEach(function(v) {
-      var row = document.createElement('div');
-      row.style.cssText = 'font-size:12px;color:#e2e8f0;padding:2px 0';
-      row.textContent = ((v.first_name || '') + ' ' + (v.last_name || '')).trim() + ' \u00B7 ' + (v.phone || '');
-      recipBox.appendChild(row);
-    });
-    box.appendChild(recipBox);
+    // Compute batches on the current queue
+    var batchSize = GROUP_MAX_RECIPIENTS;
+    var totalBatches = Math.ceil(queue.length / batchSize);
+    // Clamp batch index in case queue shrank
+    if (_bulkTextGroupBatch >= totalBatches) _bulkTextGroupBatch = Math.max(0, totalBatches - 1);
+    var currentBatchStart = _bulkTextGroupBatch * batchSize;
+    var currentBatchEnd = Math.min(currentBatchStart + batchSize, queue.length);
+    var currentBatch = queue.slice(currentBatchStart, currentBatchEnd);
+    var batchesRemaining = totalBatches - _bulkTextGroupBatch;
+    var allBatchesDone = _bulkTextGroupBatch >= totalBatches;
 
-    // Group messages share one body — no per-voter substitution possible
-    // since every recipient sees the same message. Placeholders like
-    // {first_name} would look weird ("Hi {first_name}!"), so warn if
-    // they're present.
-    if (/\{first_name\}|\{last_name\}|\{full_name\}/.test(_bulkTextTemplate)) {
-      var phWarn = document.createElement('div');
-      phWarn.style.cssText = 'margin-top:8px;font-size:11px;color:#f59e0b';
-      phWarn.textContent = '\u26A0\uFE0F Placeholders won\u2019t be filled in group mode — edit the template to remove {first_name} etc. or switch to Individual mode.';
-      box.appendChild(phWarn);
+    // Batch progress banner (only shown if more than one batch)
+    if (totalBatches > 1) {
+      var batchInfo = document.createElement('div');
+      batchInfo.style.cssText = 'margin-top:8px;padding:8px 10px;background:#0b1628;border:1px solid #1e40af;border-radius:6px;font-size:12px;color:#93c5fd';
+      if (allBatchesDone) {
+        batchInfo.textContent = '\u2705 All ' + totalBatches + ' batches sent \u00B7 ' + queue.length + ' voters contacted.';
+      } else {
+        batchInfo.textContent = '\uD83D\uDCE6 Batch ' + (_bulkTextGroupBatch + 1) + ' of ' + totalBatches +
+          ' \u00B7 ' + currentBatch.length + ' recipients in this group' +
+          (batchesRemaining > 1 ? ' \u00B7 ' + (batchesRemaining - 1) + ' batch' + (batchesRemaining - 1 !== 1 ? 'es' : '') + ' after this' : '');
+      }
+      box.appendChild(batchInfo);
     }
 
-    var sendGroupBtn = document.createElement('button');
-    sendGroupBtn.style.cssText = 'display:block;width:100%;margin-top:12px;padding:14px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
-    sendGroupBtn.textContent = '\uD83D\uDCF1 Open Group Text (' + queue.length + ' recipients)';
-    sendGroupBtn.addEventListener('click', function() {
-      sendGroupTextToVoters(queue, _bulkTextTemplate);
-      // Mark everyone as texted — they all got it in one message.
-      _bulkTextIndex = queue.length;
-      saveQueueState();
-      closeBulkTextModal();
-      // Refresh the list so the Texted badges appear
-      if (typeof loadListVoters === 'function') {
-        setTimeout(function() { try { loadListVoters(); } catch(e) {} }, 300);
-      }
-    });
-    box.appendChild(sendGroupBtn);
-
-    var groupBtnRow = document.createElement('div');
-    groupBtnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
-    var groupCancelBtn = document.createElement('button');
-    groupCancelBtn.className = 'btn btn-secondary';
-    groupCancelBtn.style.flex = '1';
-    groupCancelBtn.textContent = 'Cancel';
-    groupCancelBtn.addEventListener('click', function() {
+    if (allBatchesDone) {
+      var gDone = document.createElement('div');
+      gDone.style.cssText = 'margin-top:12px;padding:12px;background:#052e16;border:1px solid #22c55e;border-radius:6px;color:#4ade80;text-align:center;font-weight:600';
+      gDone.textContent = '\u2705 All recipients texted. Nice work!';
+      box.appendChild(gDone);
       clearQueueState();
-      closeBulkTextModal();
-    });
-    groupBtnRow.appendChild(groupCancelBtn);
-    box.appendChild(groupBtnRow);
+      var gDoneBtn = document.createElement('button');
+      gDoneBtn.className = 'btn btn-primary';
+      gDoneBtn.style.cssText = 'margin-top:12px;width:100%';
+      gDoneBtn.textContent = 'Close';
+      gDoneBtn.addEventListener('click', closeBulkTextModal);
+      box.appendChild(gDoneBtn);
+    } else {
+      // Recipient list preview for THIS batch
+      var recipBox = document.createElement('div');
+      recipBox.style.cssText = 'margin-top:8px;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;max-height:140px;overflow-y:auto';
+      var rHeader = document.createElement('div');
+      rHeader.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
+      rHeader.textContent = 'Recipients in this batch (' + currentBatch.length + ')';
+      recipBox.appendChild(rHeader);
+      currentBatch.forEach(function(v) {
+        var row = document.createElement('div');
+        row.style.cssText = 'font-size:12px;color:#e2e8f0;padding:2px 0';
+        row.textContent = ((v.first_name || '') + ' ' + (v.last_name || '')).trim() + ' \u00B7 ' + (v.phone || '');
+        recipBox.appendChild(row);
+      });
+      box.appendChild(recipBox);
+
+      if (/\{first_name\}|\{last_name\}|\{full_name\}/.test(_bulkTextTemplate)) {
+        var phWarn = document.createElement('div');
+        phWarn.style.cssText = 'margin-top:8px;font-size:11px;color:#f59e0b';
+        phWarn.textContent = '\u26A0\uFE0F Placeholders won\u2019t be filled in group mode — edit the template to remove {first_name} etc. or switch to Individual mode.';
+        box.appendChild(phWarn);
+      }
+
+      var sendGroupBtn = document.createElement('button');
+      sendGroupBtn.style.cssText = 'display:block;width:100%;margin-top:12px;padding:14px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
+      var btnLabel = totalBatches > 1
+        ? '\uD83D\uDCF1 Send Batch ' + (_bulkTextGroupBatch + 1) + ' of ' + totalBatches + ' (' + currentBatch.length + ')'
+        : '\uD83D\uDCF1 Open Group Text (' + currentBatch.length + ' recipients)';
+      sendGroupBtn.textContent = btnLabel;
+      sendGroupBtn.addEventListener('click', function() {
+        sendGroupTextToVoters(currentBatch, _bulkTextTemplate);
+        // Advance to next batch; re-render after a short delay so the
+        // Messages app has time to open before we change state
+        _bulkTextGroupBatch++;
+        saveQueueState();
+        setTimeout(function() {
+          renderBulkTextModal();
+          if (typeof loadListVoters === 'function') {
+            try { loadListVoters(); } catch(e) {}
+          }
+        }, 300);
+      });
+      box.appendChild(sendGroupBtn);
+
+      var groupBtnRow = document.createElement('div');
+      groupBtnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+      if (totalBatches > 1) {
+        var skipBatchBtn = document.createElement('button');
+        skipBatchBtn.className = 'btn btn-secondary';
+        skipBatchBtn.style.flex = '1';
+        skipBatchBtn.textContent = 'Skip This Batch';
+        skipBatchBtn.addEventListener('click', function() {
+          _bulkTextGroupBatch++;
+          saveQueueState();
+          renderBulkTextModal();
+        });
+        groupBtnRow.appendChild(skipBatchBtn);
+      }
+      var groupPauseBtn = document.createElement('button');
+      groupPauseBtn.className = 'btn btn-secondary';
+      groupPauseBtn.style.flex = '1';
+      groupPauseBtn.title = 'Save progress and close. Click 💬 Text again to resume from the next batch.';
+      groupPauseBtn.textContent = '\u23F8\uFE0F Pause';
+      groupPauseBtn.addEventListener('click', function() { saveQueueState(); closeBulkTextModal(); });
+      groupBtnRow.appendChild(groupPauseBtn);
+      var groupCancelBtn = document.createElement('button');
+      groupCancelBtn.className = 'btn btn-secondary';
+      groupCancelBtn.style.flex = '1';
+      groupCancelBtn.textContent = 'Cancel';
+      groupCancelBtn.addEventListener('click', function() {
+        if (confirm('Cancel the rest of the batches?')) {
+          clearQueueState();
+          closeBulkTextModal();
+        }
+      });
+      groupBtnRow.appendChild(groupCancelBtn);
+      box.appendChild(groupBtnRow);
+    }
   } else if (remaining === 0) {
     var done = document.createElement('div');
     done.style.cssText = 'margin-top:16px;padding:12px;background:#052e16;border:1px solid #22c55e;border-radius:6px;color:#4ade80;text-align:center;font-weight:600';
