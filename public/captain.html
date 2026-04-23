@@ -1099,6 +1099,11 @@ var _currentRaceTab = 'all';
 var _currentP26Tab = 'all';
 var _listSearchTerm = '';
 var _listSearchRaw = '';
+// Whether the "More Filters" section in the list view is expanded.
+// Starts collapsed so the in-list search input is hidden — captains kept
+// typing there to find NEW voters, not realizing that field only filters
+// the existing list.
+var _listMoreFiltersOpen = false;
 var _raceTypeLabels = { navigation_port:'Navigation Port', port_authority:'Port Authority', city_district:'City District', county_commissioner:'County Commissioner', justice_of_peace:'Justice of Peace', state_board_ed:'State Board of Ed', state_rep:'State Rep', state_senate:'State Senate', us_congress:'US Congress', school_district:'School District', college_district:'College District', hospital_district:'Hospital District' };
 
 // Multi-select state
@@ -1547,20 +1552,26 @@ function renderListVoters() {
   });
   el.appendChild(tabBar);
 
-  // Search bar to filter voters in this list
+  // Build the in-list search bar but DON'T append it yet — it goes inside
+  // the collapsible "More Filters" section below. Captains were typing in
+  // here expecting to find new voters (not realizing it only filters the
+  // existing list), so it's tucked away by default.
   var searchBar = document.createElement('div');
   searchBar.style.cssText = 'padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155';
+  var searchLabel = document.createElement('div');
+  searchLabel.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
+  searchLabel.textContent = 'Filter this list (not voter file search)';
+  searchBar.appendChild(searchLabel);
   var searchInput = document.createElement('input');
   searchInput.type = 'text';
   searchInput.id = 'listSearchInput';
-  searchInput.placeholder = 'Search list by name, address, phone...';
+  searchInput.placeholder = 'Name, address, phone...';
   searchInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px 10px;color:#e2e8f0;font-size:13px;outline:none;box-sizing:border-box';
   if (_listSearchRaw) searchInput.value = _listSearchRaw;
   var _searchDebounce = null;
   searchInput.addEventListener('input', function() {
     _listSearchRaw = searchInput.value;
     _listSearchTerm = searchInput.value.toLowerCase();
-    // Debounce re-render to avoid cursor issues
     clearTimeout(_searchDebounce);
     _searchDebounce = setTimeout(function() {
       var cursorPos = searchInput.selectionStart;
@@ -1573,9 +1584,8 @@ function renderListVoters() {
     }, 200);
   });
   searchBar.appendChild(searchInput);
-  el.appendChild(searchBar);
 
-  // Race filter bar (if candidate has a race assigned)
+  // Race filter bar — ALWAYS visible (primary scoping control)
   var rt = captainState.race_type;
   var rv = captainState.race_value;
   if (rt && rv) {
@@ -1583,8 +1593,6 @@ function renderListVoters() {
     var inCount = voters.filter(function(v) { return v._in_race; }).length;
     var outCount = voters.length - inCount;
     var raceBar = document.createElement('div');
-    // flex-wrap so on narrow screens (iPhone) the label + 3 buttons wrap
-    // instead of overflowing horizontally
     raceBar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
     var rlbl = document.createElement('span');
     rlbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
@@ -1601,32 +1609,56 @@ function renderListVoters() {
     el.appendChild(raceBar);
   }
 
-  // P26 Primary / Runoff eligibility filter
-  var demCount = voters.filter(function(v) { return v.p26_party === 'DEM'; }).length;
-  var repCount = voters.filter(function(v) { return v.p26_party === 'REP'; }).length;
-  var noP26Count = voters.filter(function(v) { return !v.p26_party; }).length;
-  if (demCount > 0 || repCount > 0) {
-    var p26Bar = document.createElement('div');
-    p26Bar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
-    var p26lbl = document.createElement('span');
-    p26lbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
-    p26lbl.textContent = 'P26 Runoff:';
-    p26Bar.appendChild(p26lbl);
-    var p26Tabs = [
-      ['all', 'All', '#e2e8f0'],
-      ['dem', 'DEM (' + demCount + ')', '#3b82f6'],
-      ['rep', 'REP (' + repCount + ')', '#ef4444'],
-      ['none', 'Didn\'t Vote (' + noP26Count + ')', '#f59e0b']
-    ];
-    p26Tabs.forEach(function(o) {
-      var btn = document.createElement('button');
-      var isActive = (_currentP26Tab || 'all') === o[0];
-      btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:' + o[2] + ';color:#000;border-color:' + o[2] + ';font-weight:700' : 'background:#1e293b;color:#94a3b8');
-      btn.textContent = o[1];
-      btn.addEventListener('click', function() { _currentP26Tab = o[0]; renderListVoters(); });
-      p26Bar.appendChild(btn);
-    });
-    el.appendChild(p26Bar);
+  // ─── MORE FILTERS (collapsible) ──────────────────────────────
+  // Contains the in-list search + P26 Runoff filter. Collapsed by
+  // default because captains kept typing in the list-search field
+  // trying to find NEW voters (which only the Search tab does).
+  // Hiding it reduces confusion; captains who actually want to
+  // narrow their existing list can tap to reveal these filters.
+  var p26DemCount = voters.filter(function(v) { return v.p26_party === 'DEM'; }).length;
+  var p26RepCount = voters.filter(function(v) { return v.p26_party === 'REP'; }).length;
+  var p26NoneCount = voters.filter(function(v) { return !v.p26_party; }).length;
+  var hasP26Data = p26DemCount > 0 || p26RepCount > 0;
+
+  // Badge on toggle showing active filter state
+  var hasActiveFilters = (_listSearchRaw && _listSearchRaw.trim()) || (_currentP26Tab && _currentP26Tab !== 'all');
+  var toggleBar = document.createElement('button');
+  toggleBar.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:6px 12px;background:#0f172a;border:none;border-bottom:1px solid #334155;color:' + (hasActiveFilters ? '#f59e0b' : '#64748b') + ';font-size:11px;text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;text-align:left;font-weight:600';
+  toggleBar.textContent = (_listMoreFiltersOpen ? '\u25BC' : '\u25B6') + ' More Filters' + (hasActiveFilters ? ' \u2022 active' : '');
+  toggleBar.addEventListener('click', function() {
+    _listMoreFiltersOpen = !_listMoreFiltersOpen;
+    renderListVoters();
+  });
+  el.appendChild(toggleBar);
+
+  if (_listMoreFiltersOpen) {
+    // Append the in-list search bar built earlier
+    el.appendChild(searchBar);
+
+    // P26 Primary / Runoff eligibility filter
+    if (hasP26Data) {
+      var p26Bar = document.createElement('div');
+      p26Bar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
+      var p26lbl = document.createElement('span');
+      p26lbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
+      p26lbl.textContent = 'P26 Runoff:';
+      p26Bar.appendChild(p26lbl);
+      var p26Tabs = [
+        ['all', 'All', '#e2e8f0'],
+        ['dem', 'DEM (' + p26DemCount + ')', '#3b82f6'],
+        ['rep', 'REP (' + p26RepCount + ')', '#ef4444'],
+        ['none', 'Didn\'t Vote (' + p26NoneCount + ')', '#f59e0b']
+      ];
+      p26Tabs.forEach(function(o) {
+        var btn = document.createElement('button');
+        var isActive = (_currentP26Tab || 'all') === o[0];
+        btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:' + o[2] + ';color:#000;border-color:' + o[2] + ';font-weight:700' : 'background:#1e293b;color:#94a3b8');
+        btn.textContent = o[1];
+        btn.addEventListener('click', function() { _currentP26Tab = o[0]; renderListVoters(); });
+        p26Bar.appendChild(btn);
+      });
+      el.appendChild(p26Bar);
+    }
   }
 
   // Filter voters by tab
