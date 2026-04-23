@@ -71,8 +71,10 @@ router.get('/voters', (req, res) => {
     for (const w of words) {
       const escaped = w.replace(/[\\%_]/g, '\\$&');
       const term = '%' + escaped + '%';
-      sql += " AND (voters.first_name LIKE ? ESCAPE '\\' OR voters.last_name LIKE ? ESCAPE '\\' OR voters.address LIKE ? ESCAPE '\\' OR voters.city LIKE ? ESCAPE '\\' OR voters.phone LIKE ? ESCAPE '\\' OR voters.precinct LIKE ? ESCAPE '\\' OR voters.registration_number LIKE ? ESCAPE '\\' OR voters.vanid LIKE ? ESCAPE '\\' OR voters.county_file_id LIKE ? ESCAPE '\\' OR voters.state_file_id LIKE ? ESCAPE '\\')";
-      params.push(term, term, term, term, term, term, term, term, term, term);
+      // Added voters.middle_name so full-name queries like
+      // "John Michael Smith" match all three parts.
+      sql += " AND (voters.first_name LIKE ? ESCAPE '\\' OR voters.middle_name LIKE ? ESCAPE '\\' OR voters.last_name LIKE ? ESCAPE '\\' OR voters.address LIKE ? ESCAPE '\\' OR voters.city LIKE ? ESCAPE '\\' OR voters.phone LIKE ? ESCAPE '\\' OR voters.precinct LIKE ? ESCAPE '\\' OR voters.registration_number LIKE ? ESCAPE '\\' OR voters.vanid LIKE ? ESCAPE '\\' OR voters.county_file_id LIKE ? ESCAPE '\\' OR voters.state_file_id LIKE ? ESCAPE '\\')";
+      params.push(term, term, term, term, term, term, term, term, term, term, term);
     }
   }
   if (party) { sql += ' AND voters.party = ?'; params.push(party); }

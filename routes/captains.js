@@ -672,14 +672,18 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
   const conditions = [];
   const params = [];
 
-  // Name-only search: split into words — each word must match first or last name
+  // Name search: split the query into words — each word must match first,
+  // middle, OR last name. Previously only first/last were checked, so
+  // searching "John Michael Smith" failed when "Michael" (the middle name)
+  // didn't match either first or last. Adding middle_name to the OR fixes
+  // that without breaking two-word "First Last" searches.
   if (q && q.trim().length >= 2) {
     const words = q.trim().split(/\s+/).filter(Boolean);
     for (const w of words) {
       const escaped = w.replace(/[\\%_]/g, '\\$&');
       const term = '%' + escaped + '%';
-      conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
-      params.push(term, term);
+      conditions.push("(first_name LIKE ? ESCAPE '\\' OR middle_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
+      params.push(term, term, term);
     }
   }
 

@@ -603,14 +603,16 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
   const conditions = [];
   const params = [];
 
-  // Name-only search: each word must match first or last name
+  // Name search: each word must match first, middle, OR last name.
+  // Middle-name matching was missing — searching "John Michael Smith"
+  // failed because "Michael" wasn't checked against middle_name.
   if (q && q.trim().length >= 2) {
     const words = q.trim().split(/\s+/).filter(Boolean);
     for (const w of words) {
       const escaped = w.replace(/[\\%_]/g, '\\$&');
       const term = '%' + escaped + '%';
-      conditions.push("(first_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
-      params.push(term, term);
+      conditions.push("(first_name LIKE ? ESCAPE '\\' OR middle_name LIKE ? ESCAPE '\\' OR last_name LIKE ? ESCAPE '\\')");
+      params.push(term, term, term);
     }
   }
 
