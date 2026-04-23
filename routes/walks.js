@@ -1170,7 +1170,7 @@ router.post('/walks', (req, res) => {
   if (!name) return res.status(400).json({ error: 'Walk name is required.' });
   const joinCode = generateAlphaCode(4);
   const result = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code, candidate_id) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, candidate_id, max_walkers) VALUES (?, ?, ?, ?, ?, 10)'
   ).run(name, description || '', assigned_to || '', joinCode, candidate_id || null);
   // Auto-assign walkers from same candidate to the new walk
   const walkId = result.lastInsertRowid;
@@ -1861,17 +1861,22 @@ router.post('/walks/join', (req, res) => {
     return res.json({ success: true, walkId: walk.id, walkName: walk.name, walkerName: existing.walker_name });
   }
 
-  // Add member atomically. We deliberately do NOT enforce walk.max_walkers
-  // anymore — block walkers should never be turned away from joining a
-  // list. splitAddresses() below redivides addresses among however many
-  // walkers joined, so larger groups just get fewer doors each.
+  // Cap at 10 walkers per walk — coordinating larger groups gets messy
+  // (each walker ends up with only 2-3 doors) and iOS group-text caps
+  // around 30 anyway. 10 is a practical ceiling. Admin can still set
+  // a lower cap per walk via walk.max_walkers if they want a tighter
+  // group (neighborhood-specific small teams).
+  const maxWalkers = walk.max_walkers || 10;
   const joinResult = db.transaction(() => {
+    const members = db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(walk.id) || { c: 0 };
+    if (members.c >= maxWalkers) return { full: true };
     const existing = db.prepare('SELECT 1 FROM walk_group_members WHERE walk_id = ? AND phone = ?').get(walk.id, normPhone);
     if (existing) return { duplicate: true };
     db.prepare('INSERT INTO walk_group_members (walk_id, walker_name, phone) VALUES (?, ?, ?)').run(walk.id, walkerName, normPhone);
     return { success: true };
   })();
 
+  if (joinResult.full) return res.status(400).json({ error: 'Group is full (max ' + maxWalkers + ' walkers). Ask the admin to create another walk if more volunteers want to join.' });
   if (joinResult.duplicate) return res.status(400).json({ error: 'This phone number has already joined this walk.' });
 
   // Auto-split addresses among group members
@@ -2079,7 +2084,7 @@ router.post('/walks/from-precinct', (req, res) => {
   const walkName = name || ('Precinct Walk: ' + precincts.join(', '));
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json, candidate_id, sandbox) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, source_precincts, source_filters_json, candidate_id, sandbox, max_walkers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 10)'
   ).run(walkName, description || 'Auto-created from precincts: ' + precincts.join(', '), '', joinCode, precincts.join(','), JSON.stringify(filters || {}), candidate_id || null, sandbox ? 1 : 0);
   const walkId = walkResult.lastInsertRowid;
 
@@ -2127,7 +2132,7 @@ router.post('/walks/from-voters', (req, res) => {
     : 'Walk from voter list (' + voters.length + ' addresses)');
   const joinCode = generateAlphaCode(4);
   const walkResult = db.prepare(
-    'INSERT INTO block_walks (name, description, assigned_to, join_code, candidate_id) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO block_walks (name, description, assigned_to, join_code, candidate_id, max_walkers) VALUES (?, ?, ?, ?, ?, 10)'
   ).run(walkName, description || '', '', joinCode, candidate_id || null);
   const walkId = walkResult.lastInsertRowid;
 
@@ -2783,7 +2788,7 @@ router.post('/walk-universes/claim', distributedJoinLimiter, (req, res) => {
     const joinCode = generateAlphaCode(4);
     const walkName = universe.name + ' - ' + walkerName;
     const walkResult = db.prepare(
-      'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO block_walks (name, description, assigned_to, join_code, script_id, source_precincts, source_filters_json, max_walkers) VALUES (?, ?, ?, ?, ?, ?, ?, 10)'
     ).run(walkName, 'Auto-assigned from universe: ' + universe.name, walkerName, joinCode, universe.script_id, precincts.join(','), universe.filters_json);
     const walkId = walkResult.lastInsertRowid;
 
@@ -3073,11 +3078,13 @@ router.post('/walks/:id/assign-walker', (req, res) => {
   const walker = db.prepare('SELECT * FROM walkers WHERE id = ?').get(walker_id);
   if (!walker) return res.status(404).json({ error: 'Walker not found.' });
 
-  // Block walkers should never be capped out of a list — removed the
-  // "Walk is full" check. splitAddresses() in the join path redivides
-  // addresses across whoever is present, so large groups just share
-  // more broadly. Keep the duplicate-walker check since assigning the
-  // same person twice is genuinely an error.
+  // Cap at walk.max_walkers (default 10). Same logic as self-serve join —
+  // 10 is a practical ceiling for doors-per-walker math. Admin can still
+  // set a tighter cap per walk if they want a small group.
+  const cap = walk.max_walkers || 10;
+  const count = (db.prepare('SELECT COUNT(*) as c FROM walk_group_members WHERE walk_id = ?').get(req.params.id) || { c: 0 }).c;
+  if (count >= cap) return res.status(400).json({ error: 'Walk is full (max ' + cap + ' walkers).' });
+
   const existing = db.prepare('SELECT id FROM walk_group_members WHERE walk_id = ? AND walker_id = ?').get(req.params.id, walker_id);
   if (existing) return res.status(400).json({ error: 'Walker already assigned to this walk.' });
 

@@ -390,7 +390,9 @@ addColumn("ALTER TABLE captain_lists ADD COLUMN list_type TEXT DEFAULT 'general'
 // Admin list can be assigned to a captain — captain can then add voters to it
 addColumn("ALTER TABLE admin_lists ADD COLUMN assigned_captain_id INTEGER DEFAULT NULL");
 
-// Block walking group mode — up to 4 walkers per group
+// Block walking group mode — up to 10 walkers per group (historical default
+// was 4; the idempotent migration below bumps existing walks to 10 and every
+// INSERT in routes/walks.js now passes max_walkers = 10 explicitly).
 addColumn("ALTER TABLE block_walks ADD COLUMN join_code TEXT DEFAULT NULL");
 addColumn("ALTER TABLE block_walks ADD COLUMN max_walkers INTEGER DEFAULT 4");
 db.exec(`
@@ -1567,6 +1569,14 @@ try {
     db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers = 4").run();
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('max_walkers_migrated', '1')").run();
   }
+} catch(e) {}
+
+// Re-run the 4→10 bump idempotently. Walks created between the first
+// migration and the code change that sets max_walkers=10 explicitly on
+// INSERT would still be at 4 (the column default). This catches them
+// without being destructive — we only touch walks still below 10.
+try {
+  db.prepare("UPDATE block_walks SET max_walkers = 10 WHERE max_walkers IS NULL OR max_walkers < 10").run();
 } catch(e) {}
 
 // --- Groups table (code-based login, block walk only, max 10) ---
