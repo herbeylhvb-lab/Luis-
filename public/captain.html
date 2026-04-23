@@ -1096,7 +1096,12 @@ var _currentListVoters = [];
 var _currentListVoterIds = new Set();
 var _currentListTab = 'all';
 var _currentRaceTab = 'all';
-var _currentP26Tab = 'all';
+// P26 Runoff filter — multi-select. Empty Set = show all. Any entries
+// = union filter (voter passes if their p26 state is in the Set).
+// Use case: in a runoff, only DEM primary voters + non-voters are eligible
+// to vote, so captain clicks DEM + Didn't Vote to target both groups and
+// exclude REP primary voters who can't cross over.
+var _currentP26Tabs = new Set();
 var _listSearchTerm = '';
 var _listSearchRaw = '';
 // Whether the "More Filters" section in the list view is expanded.
@@ -1621,7 +1626,7 @@ function renderListVoters() {
   var hasP26Data = p26DemCount > 0 || p26RepCount > 0;
 
   // Badge on toggle showing active filter state
-  var hasActiveFilters = (_listSearchRaw && _listSearchRaw.trim()) || (_currentP26Tab && _currentP26Tab !== 'all');
+  var hasActiveFilters = (_listSearchRaw && _listSearchRaw.trim()) || _currentP26Tabs.size > 0;
   var toggleBar = document.createElement('button');
   toggleBar.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:6px 12px;background:#0f172a;border:none;border-bottom:1px solid #334155;color:' + (hasActiveFilters ? '#f59e0b' : '#64748b') + ';font-size:11px;text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;text-align:left;font-weight:600';
   toggleBar.textContent = (_listMoreFiltersOpen ? '\u25BC' : '\u25B6') + ' More Filters' + (hasActiveFilters ? ' \u2022 active' : '');
@@ -1635,7 +1640,11 @@ function renderListVoters() {
     // Append the in-list search bar built earlier
     el.appendChild(searchBar);
 
-    // P26 Primary / Runoff eligibility filter
+    // P26 Primary / Runoff eligibility filter — MULTI-SELECT.
+    // Use case: in a runoff, only voters from the candidate's party
+    // primary + non-voters are eligible. Captain can select DEM + Didn't
+    // Vote together to target both eligible groups and hide REP primary
+    // voters who can't cross over.
     if (hasP26Data) {
       var p26Bar = document.createElement('div');
       p26Bar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;flex-wrap:wrap';
@@ -1643,20 +1652,36 @@ function renderListVoters() {
       p26lbl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap';
       p26lbl.textContent = 'P26 Runoff:';
       p26Bar.appendChild(p26lbl);
+      // "All" button — clears the selection Set (shows everyone)
+      var allBtn = document.createElement('button');
+      var allActive = _currentP26Tabs.size === 0;
+      allBtn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (allActive ? 'background:#e2e8f0;color:#000;border-color:#e2e8f0;font-weight:700' : 'background:#1e293b;color:#94a3b8');
+      allBtn.textContent = 'All';
+      allBtn.addEventListener('click', function() { _currentP26Tabs.clear(); renderListVoters(); });
+      p26Bar.appendChild(allBtn);
+      // Hint text to teach the multi-select behavior (once discovered, intuitive)
       var p26Tabs = [
-        ['all', 'All', '#e2e8f0'],
         ['dem', 'DEM (' + p26DemCount + ')', '#3b82f6'],
         ['rep', 'REP (' + p26RepCount + ')', '#ef4444'],
         ['none', 'Didn\'t Vote (' + p26NoneCount + ')', '#f59e0b']
       ];
       p26Tabs.forEach(function(o) {
         var btn = document.createElement('button');
-        var isActive = (_currentP26Tab || 'all') === o[0];
+        var isActive = _currentP26Tabs.has(o[0]);
         btn.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid #334155;cursor:pointer;' + (isActive ? 'background:' + o[2] + ';color:#000;border-color:' + o[2] + ';font-weight:700' : 'background:#1e293b;color:#94a3b8');
-        btn.textContent = o[1];
-        btn.addEventListener('click', function() { _currentP26Tab = o[0]; renderListVoters(); });
+        btn.textContent = (isActive ? '\u2713 ' : '') + o[1];
+        btn.addEventListener('click', function() {
+          if (_currentP26Tabs.has(o[0])) _currentP26Tabs.delete(o[0]);
+          else _currentP26Tabs.add(o[0]);
+          renderListVoters();
+        });
         p26Bar.appendChild(btn);
       });
+      // Hint explaining multi-select
+      var hint = document.createElement('span');
+      hint.style.cssText = 'font-size:10px;color:#64748b;flex-basis:100%;margin-top:2px';
+      hint.textContent = 'Select multiple to target several groups at once (e.g., DEM + Didn\u2019t Vote)';
+      p26Bar.appendChild(hint);
       el.appendChild(p26Bar);
     }
   }
@@ -1680,10 +1705,18 @@ function renderListVoters() {
   // Apply race filter
   if (rt && rv && _currentRaceTab === 'in') filtered = filtered.filter(function(v) { return v._in_race; });
   else if (rt && rv && _currentRaceTab === 'out') filtered = filtered.filter(function(v) { return !v._in_race; });
-  // Apply P26 runoff filter
-  if (_currentP26Tab === 'dem') filtered = filtered.filter(function(v) { return v.p26_party === 'DEM'; });
-  else if (_currentP26Tab === 'rep') filtered = filtered.filter(function(v) { return v.p26_party === 'REP'; });
-  else if (_currentP26Tab === 'none') filtered = filtered.filter(function(v) { return !v.p26_party; });
+  // Apply P26 runoff filter — MULTI-SELECT (Set membership).
+  // Empty Set = show everyone. Any entries = keep voters whose p26 state
+  // matches ANY selected option (union). E.g., selecting DEM + none shows
+  // DEM primary voters AND non-voters, hiding REP primary voters.
+  if (_currentP26Tabs.size > 0) {
+    filtered = filtered.filter(function(v) {
+      if (_currentP26Tabs.has('dem') && v.p26_party === 'DEM') return true;
+      if (_currentP26Tabs.has('rep') && v.p26_party === 'REP') return true;
+      if (_currentP26Tabs.has('none') && !v.p26_party) return true;
+      return false;
+    });
+  }
 
   // Prune selection to only include voters in the current filtered set
   filtered.forEach(function(v) { filteredIds.add(v.id); });
