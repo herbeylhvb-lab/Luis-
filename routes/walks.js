@@ -1424,13 +1424,27 @@ router.post('/walks/:walkId/prune-voted-addresses', (req, res) => {
 
   // Batch-delete by ID in a transaction (fast, no table scan).
   // FK ON DELETE CASCADE handles walk_attempts cleanup automatically.
+  //
+  // DEFENSE: the DELETE includes the `result IS NULL OR 'not_visited'`
+  // condition even though we already filtered for it when we built
+  // toDeleteIds. This prevents a race: a walker could knock an address
+  // between SELECT and DELETE, changing its result to 'support' / etc.
+  // Without this guard, we'd still delete that row and destroy the
+  // walker's recorded knock. The double-check guarantees walked data
+  // never gets pruned — belt and suspenders.
   let removed = 0;
+  let preserved = 0;
   if (toDeleteIds.length > 0) {
-    const delStmt = db.prepare('DELETE FROM walk_addresses WHERE id = ?');
+    const delStmt = db.prepare(`
+      DELETE FROM walk_addresses
+      WHERE id = ?
+        AND (result IS NULL OR result = '' OR result = 'not_visited')
+    `);
     const tx = db.transaction((ids) => {
       for (const id of ids) {
         const r = delStmt.run(id);
-        removed += r.changes;
+        if (r.changes > 0) removed++;
+        else preserved++; // walked between our SELECT and DELETE — leave it alone
       }
     });
     tx(toDeleteIds);
@@ -1449,13 +1463,15 @@ router.post('/walks/:walkId/prune-voted-addresses', (req, res) => {
 
   const afterCount = beforeCount - removed;
 
-  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
-    `Walk "${walk.name}": pruned ${removed} addresses where all voters already voted`
-  );
+  const logMsg = preserved > 0
+    ? `Walk "${walk.name}": pruned ${removed} voted-household addresses; ${preserved} protected (walked between select and delete)`
+    : `Walk "${walk.name}": pruned ${removed} addresses where all voters already voted`;
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(logMsg);
 
   res.json({
     success: true,
     removed,
+    preserved,           // houses that walker knocked between select + delete — kept safe
     unvisited_before: beforeCount,
     unvisited_after: afterCount,
     walk_name: walk.name

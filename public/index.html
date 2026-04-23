@@ -7023,6 +7023,11 @@ window.pruneVotedAddresses = async function() {
     var msg = 'Removed ' + (data.removed || 0) + ' addresses.\n\n' +
       'Unvisited before: ' + (data.unvisited_before || 0) + '\n' +
       'Unvisited after:  ' + (data.unvisited_after || 0);
+    // Report protected-mid-prune count so Luis can see the safeguard working
+    if (data.preserved && data.preserved > 0) {
+      msg += '\n\n' + data.preserved + ' house' + (data.preserved > 1 ? 's were' : ' was') +
+        ' protected because a walker knocked during the prune (their data is safe).';
+    }
     alert(msg);
     loadWalkDetail(state.currentWalkId);
   } catch (e) {
