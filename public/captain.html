@@ -306,6 +306,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       </div>
       <div class="floating-action-bar" id="floatingActionBar">
         <span class="fab-count" id="fabCount">0 voters selected</span>
+        <button class="btn btn-xs" style="background:#22c55e;border-color:#16a34a;color:#fff" onclick="startBulkTextFlow()" title="Send a personal text to each selected voter from your phone">&#128172; Text</button>
         <span style="color:#64748b;font-size:13px">Send to &rarr;</span>
         <select id="fabTargetList"></select>
         <button class="btn btn-xs btn-captain" onclick="transferVoters(false)">Copy</button>
@@ -2750,6 +2751,193 @@ async function showVoterDetail(voter) {
 }
 
 // ===================== ADD / REMOVE VOTERS =====================
+
+// ===================== BULK TEXT (personal sms: URL) =====================
+// Captains open their phone's Messages app pre-filled with each voter's
+// phone + a message template. They walk through the selected voters one
+// tap at a time — Apple/Google won't let us send in bulk silently, but
+// this streamlines the process.
+//
+// Why sms: URL scheme:
+//   - Uses captain's OWN phone (iMessage if both are iPhone → free)
+//   - No SMS API costs for the campaign
+//   - No 10DLC compliance headache
+//   - Messages go from a KNOWN personal number → much higher response
+//     rates than shortcode blasts
+//
+// "Load the contract" = load each voter's contact (phone number) into
+// the Messages app as the recipient. Body is pre-filled but editable.
+
+// Step through state — which voter in the queue we're texting next
+var _bulkTextQueue = [];
+var _bulkTextIndex = 0;
+var _bulkTextTemplate = '';
+
+function getDefaultTextTemplate() {
+  var captainName = (captainState.captain && captainState.captain.name) || '';
+  // Keep the first line personal-looking. Captains edit this per-voter.
+  return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
+}
+
+function fillTemplate(template, voter) {
+  return (template || '')
+    .replace(/\{first_name\}/g, voter.first_name || '')
+    .replace(/\{last_name\}/g, voter.last_name || '')
+    .replace(/\{full_name\}/g, ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim());
+}
+
+window.startBulkTextFlow = function() {
+  if (_selectedVoterIds.size === 0) {
+    alert('Select one or more voters first.');
+    return;
+  }
+  // Build the queue — only voters with phones
+  var allVoters = _currentListVoters || [];
+  var queue = allVoters.filter(function(v) {
+    return _selectedVoterIds.has(v.id) && v.phone && String(v.phone).replace(/\D/g, '').length >= 10;
+  });
+  if (queue.length === 0) {
+    alert('None of the selected voters have a valid phone number on file.');
+    return;
+  }
+  _bulkTextQueue = queue;
+  _bulkTextIndex = 0;
+  _bulkTextTemplate = getDefaultTextTemplate();
+  renderBulkTextModal();
+};
+
+function renderBulkTextModal() {
+  closeBulkTextModal();
+  var queue = _bulkTextQueue;
+  var remaining = queue.length - _bulkTextIndex;
+
+  var overlay = document.createElement('div');
+  overlay.id = 'bulkTextModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:20px 12px';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:540px;width:100%;max-height:calc(100vh - 40px);overflow-y:auto;margin:auto';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 6px 0;font-size:18px;color:#e2e8f0';
+  title.textContent = '\u{1F4AC} Text Voters from Your Phone';
+  box.appendChild(title);
+
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:12px';
+  sub.textContent = remaining + ' voter' + (remaining !== 1 ? 's' : '') + ' remaining \u00B7 ' +
+    _bulkTextIndex + ' sent so far';
+  box.appendChild(sub);
+
+  // Message template editor
+  var lbl = document.createElement('div');
+  lbl.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px';
+  lbl.textContent = 'Message Template';
+  box.appendChild(lbl);
+  var ta = document.createElement('textarea');
+  ta.id = 'bulkTextTemplate';
+  ta.value = _bulkTextTemplate;
+  ta.style.cssText = 'width:100%;min-height:100px;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px;color:#e2e8f0;font-size:14px;font-family:inherit;resize:vertical;box-sizing:border-box';
+  ta.addEventListener('input', function() { _bulkTextTemplate = ta.value; updateBulkTextPreview(); });
+  box.appendChild(ta);
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:11px;color:#64748b;margin-top:4px';
+  hint.textContent = 'Placeholders: {first_name}, {last_name}, {full_name} \u2014 filled per voter';
+  box.appendChild(hint);
+
+  if (remaining === 0) {
+    // All done
+    var done = document.createElement('div');
+    done.style.cssText = 'margin-top:16px;padding:12px;background:#052e16;border:1px solid #22c55e;border-radius:6px;color:#4ade80;text-align:center;font-weight:600';
+    done.textContent = '\u2705 Finished all ' + queue.length + ' voters. Nice work!';
+    box.appendChild(done);
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-primary';
+    closeBtn.style.cssText = 'margin-top:12px;width:100%';
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', closeBulkTextModal);
+    box.appendChild(closeBtn);
+  } else {
+    var nextVoter = queue[_bulkTextIndex];
+    // Preview: who's next + filled message
+    var nextBox = document.createElement('div');
+    nextBox.style.cssText = 'margin-top:14px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:6px';
+    var nameLine = document.createElement('div');
+    nameLine.style.cssText = 'font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:4px';
+    nameLine.textContent = 'Next: ' + ((nextVoter.first_name || '') + ' ' + (nextVoter.last_name || '')).trim();
+    nextBox.appendChild(nameLine);
+    var phoneLine = document.createElement('div');
+    phoneLine.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:8px';
+    phoneLine.textContent = nextVoter.phone;
+    nextBox.appendChild(phoneLine);
+    var previewLbl = document.createElement('div');
+    previewLbl.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px';
+    previewLbl.textContent = 'Preview';
+    nextBox.appendChild(previewLbl);
+    var previewEl = document.createElement('div');
+    previewEl.id = 'bulkTextPreview';
+    previewEl.style.cssText = 'font-size:13px;color:#e2e8f0;white-space:pre-wrap;background:#1e293b;padding:8px 10px;border-radius:4px;border-left:3px solid #22c55e';
+    previewEl.textContent = fillTemplate(_bulkTextTemplate, nextVoter);
+    nextBox.appendChild(previewEl);
+    box.appendChild(nextBox);
+
+    // Send button — opens sms: URL for THIS voter
+    var sendBtn = document.createElement('button');
+    sendBtn.style.cssText = 'display:block;width:100%;margin-top:12px;padding:14px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
+    sendBtn.textContent = '\u{1F4F1} Open Messages for ' + (nextVoter.first_name || 'Voter');
+    sendBtn.addEventListener('click', function() {
+      sendTextToVoter(nextVoter);
+      // After sending, advance the queue and re-render
+      _bulkTextIndex++;
+      renderBulkTextModal();
+    });
+    box.appendChild(sendBtn);
+
+    // Skip / Cancel
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+    var skipBtn = document.createElement('button');
+    skipBtn.className = 'btn btn-secondary';
+    skipBtn.style.flex = '1';
+    skipBtn.textContent = 'Skip';
+    skipBtn.addEventListener('click', function() { _bulkTextIndex++; renderBulkTextModal(); });
+    btnRow.appendChild(skipBtn);
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.style.flex = '1';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', closeBulkTextModal);
+    btnRow.appendChild(cancelBtn);
+    box.appendChild(btnRow);
+  }
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeBulkTextModal(); });
+  document.body.appendChild(overlay);
+}
+
+function updateBulkTextPreview() {
+  var preview = document.getElementById('bulkTextPreview');
+  if (!preview || _bulkTextIndex >= _bulkTextQueue.length) return;
+  preview.textContent = fillTemplate(_bulkTextTemplate, _bulkTextQueue[_bulkTextIndex]);
+}
+
+function closeBulkTextModal() {
+  var el = document.getElementById('bulkTextModal');
+  if (el) el.remove();
+}
+
+function sendTextToVoter(voter) {
+  var phoneDigits = (voter.phone || '').replace(/\D/g, '');
+  if (phoneDigits.length === 0) return;
+  var body = fillTemplate(_bulkTextTemplate, voter);
+  // iOS + Android both understand sms:+phone?body=encoded
+  // Use &body= form since some iOS versions prefer it over ?body=
+  var smsUrl = 'sms:' + phoneDigits + '?&body=' + encodeURIComponent(body);
+  // Open in a new tab so the current session isn't navigated away.
+  // On mobile this handshakes to the Messages app.
+  window.location.href = smsUrl;
+}
 
 function showAddVoterModal(voter) {
   if (!captainState.selectedListId) {
