@@ -14187,6 +14187,37 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       '</div>';
     html += '</div>';
 
+    // 📊 DEMOGRAPHICS OF MY UNIVERSE — moved to universe-top level (previously
+    // lived inside the blue "Early Voter Analysis" block). This is universe-
+    // wide data describing everyone I targeted, not specific to early voters,
+    // so it belongs with the other universe-level blocks (Walk Status above).
+    // renderDemographicsBlock is defined later in this function but declared
+    // as a function statement, so hoisting makes it available here.
+    var universeGender = data.universe_gender_breakdown || [];
+    var universeAge = data.universe_age_buckets || [];
+    var universeParty = data.universe_party_breakdown || [];
+    if (totalVoters > 0) {
+      var universeFirstTime = data.universe_first_time_count || 0;
+      var uFirstTimePct = totalVoters > 0 ? Math.round(universeFirstTime / totalVoters * 100) : 0;
+      var uFooterHtml = '<div style="margin-top:8px;padding:8px 10px;background:#052e16;border:1px solid #166534;border-radius:4px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">' +
+        '<span style="font-size:16px">🆕</span>' +
+        '<div style="flex:1;min-width:200px"><strong style="color:#86efac">' + universeFirstTime.toLocaleString() + '</strong> <span style="color:#94a3b8">first-time / low-propensity voters</span> (' + uFirstTimePct + '% of universe)</div>' +
+        '<a class="btn btn-sm" style="background:#166534;border-color:#14532d;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-first-time-voters">⬇ Download CSV</a>' +
+        '</div>';
+      html += renderDemographicsBlock({
+        title: '📊 Demographics of My Universe',
+        bg: '#0f1a10',
+        border: '#166534',
+        accent: '#22c55e',
+        total: totalVoters,
+        gender: universeGender,
+        age: universeAge,
+        party: universeParty,
+        partyTotals: data.universe_party_totals,
+        footer: uFooterHtml
+      });
+    }
+
     // 🎯 Early Voter Analysis — who voted, how many were block-walked,
     // whether anyone was home, and the support-level split of voters.
     // "Walked" counts are now address-level: if ANY walker visited the
@@ -14354,35 +14385,9 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       return block;
     }
 
-    // 📊 DEMOGRAPHICS OF MY UNIVERSE — who I targeted
-    var universeGender = data.universe_gender_breakdown || [];
-    var universeAge = data.universe_age_buckets || [];
-    var universeParty = data.universe_party_breakdown || [];
-    if (totalVoters > 0) {
-      // First-time-voter footer (mirrors the "Voters I Missed" version) —
-      // highlights newly-engaged voters in the universe and gives a CSV
-      // download so Luis can personally follow up with them.
-      var universeFirstTime = data.universe_first_time_count || 0;
-      var uFirstTimePct = totalVoters > 0 ? Math.round(universeFirstTime / totalVoters * 100) : 0;
-      var uFooterHtml = '<div style="margin-top:8px;padding:8px 10px;background:#052e16;border:1px solid #166534;border-radius:4px;display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap">' +
-        '<span style="font-size:16px">🆕</span>' +
-        '<div style="flex:1;min-width:200px"><strong style="color:#86efac">' + universeFirstTime.toLocaleString() + '</strong> <span style="color:#94a3b8">first-time / low-propensity voters</span> (' + uFirstTimePct + '% of universe)</div>' +
-        '<a class="btn btn-sm" style="background:#166534;border-color:#14532d;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-first-time-voters">⬇ Download CSV</a>' +
-        '</div>';
-
-      html += renderDemographicsBlock({
-        title: '📊 Demographics of My Universe',
-        bg: '#0f1a10',
-        border: '#166534',
-        accent: '#22c55e',
-        total: totalVoters,
-        gender: universeGender,
-        age: universeAge,
-        party: universeParty,
-        partyTotals: data.universe_party_totals,
-        footer: uFooterHtml
-      });
-    }
+    // (Demographics of My Universe was moved up above the Early Voter
+    // Analysis block — it lives at the universe top level now since it
+    // describes everyone I targeted, not early voters specifically.)
 
     // 📬 DEMOGRAPHICS OF VBM VOTERS IN MY UNIVERSE — separate view of mail
     // ballots so numbers can be cross-checked against the county's VBM
