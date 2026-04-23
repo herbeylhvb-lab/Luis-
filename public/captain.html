@@ -1815,8 +1815,12 @@ function renderListVoters() {
     var row = document.createElement('div');
     row.className = 'right-voter' + (_selectedVoterIds.has(v.id) ? ' selected' : '');
     if (isChild) row.style.cssText = (row.style.cssText || '') + ';border-left:3px solid #3b82f6;margin-left:16px;background:#0f172a';
-    // P26 party highlight
-    if (_currentP26Tab !== 'all' && v.p26_party) {
+    // P26 party highlight — only add the colored left border when a P26
+    // filter is actually selected (Set has entries). Was using the old
+    // singular _currentP26Tab which I removed when converting to multi-
+    // select; that undefined reference crashed renderListVoters and
+    // stopped voter rows from rendering at all.
+    if (_currentP26Tabs && _currentP26Tabs.size > 0 && v.p26_party) {
       if (v.p26_party === 'DEM') row.style.borderLeft = '4px solid #3b82f6';
       else if (v.p26_party === 'REP') row.style.borderLeft = '4px solid #ef4444';
     }
