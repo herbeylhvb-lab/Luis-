@@ -78,14 +78,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .sidebar-btn:hover{border-color:#f59e0b;color:#f59e0b}
 
 /* Center panel */
-.center-panel{width:340px;flex-shrink:0;overflow-y:auto;padding:20px}
+.center-panel{width:340px;flex-shrink:0;overflow-y:auto;overflow-x:hidden;padding:20px;min-width:0}
 .search-bar{position:relative;margin-bottom:20px}
 .search-bar input{width:100%;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px 18px;color:#e2e8f0;font-size:15px;outline:none}
 .search-bar input:focus{border-color:#f59e0b}
 .search-bar .hint{font-size:12px;color:#64748b;white-space:nowrap;flex-shrink:0}
 
-.voter-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;animation:fadeIn 0.2s ease}
-.voter-card .voter-top{display:flex;justify-content:space-between;align-items:flex-start}
+.voter-card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;animation:fadeIn 0.2s ease;max-width:100%;min-width:0;overflow-wrap:break-word;word-break:break-word}
+.voter-card .voter-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;min-width:0}
 .voter-card .voter-name{font-weight:700;font-size:16px}
 .voter-card .voter-addr{color:#94a3b8;font-size:13px;margin-top:4px}
 .voter-card .voter-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
@@ -2146,10 +2146,12 @@ async function searchVoters() {
     top.className = 'voter-top';
 
     var nameDiv = document.createElement('div');
-    nameDiv.style.cursor = 'pointer';
+    nameDiv.style.cssText = 'cursor:pointer;min-width:0;flex:1';
     nameDiv.addEventListener('click', (function(voter) { return function() { showVoterDetail(voter); }; })(v));
     var nameRow = document.createElement('div');
-    nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
+    // flex-wrap so name + Not Voted + On Your List + Age badges reflow onto
+    // multiple lines on narrow screens instead of pushing past the card width
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0';
     var nameEl = document.createElement('div');
     nameEl.className = 'voter-name';
     nameEl.textContent = (v.first_name || '') + (v.middle_name ? ' ' + v.middle_name : '') + ' ' + (v.last_name || '');
