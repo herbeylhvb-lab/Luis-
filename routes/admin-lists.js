@@ -977,6 +977,87 @@ router.get('/admin-lists/:id/stats', (req, res) => {
       AND COALESCE(v.elections_voted, 0) <= 1
   `).get(req.params.id) || { n: 0 }).n;
 
+  // ─── VOTE-BY-MAIL (VBM) SEPARATE COUNTS ─────────────────────────
+  // Mail ballots are a distinct GOTV channel with different
+  // demographics and tactics than in-person early voting. Luis wants
+  // to see VBM stats broken out separately, not lumped into "early
+  // voted" totals.
+  //
+  // Definition: early_voted_method IN ('mail','absentee','vbm','mail-in',
+  // 'mail_ballot','mailed'). Normalized to lowercase to survive casing
+  // differences in uploaded CSVs.
+  const VBM_METHOD_CLAUSE = `LOWER(TRIM(COALESCE(v.early_voted_method,''))) IN ('mail','absentee','vbm','mail-in','mail_ballot','mailed')`;
+  const EARLY_INPERSON_CLAUSE = `LOWER(TRIM(COALESCE(v.early_voted_method,''))) IN ('early','in-person','early_in_person','walk-in','walk_in')`;
+
+  // Count voters in universe who voted by mail (and split: my universe,
+  // race-wide, outside-universe).
+  const universeVbmCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}
+  `).get(req.params.id) || { n: 0 }).n;
+
+  const universeEarlyInPersonCount = (db.prepare(`
+    SELECT COUNT(*) as n FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1 AND ${EARLY_INPERSON_CLAUSE}
+  `).get(req.params.id) || { n: 0 }).n;
+
+  const raceVbmCount = detectedRaceCol && detectedRaceVal
+    ? (db.prepare(`SELECT COUNT(*) as n FROM voters v WHERE ${raceScopedWhere} AND ${VBM_METHOD_CLAUSE}`).get(...raceScopedParams) || { n: 0 }).n
+    : (db.prepare(`SELECT COUNT(*) as n FROM voters v WHERE v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}`).get() || { n: 0 }).n;
+
+  // VBM demographics for voters in the universe
+  const universeVbmGender = db.prepare(`
+    SELECT
+      CASE
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('M','MALE') THEN 'Male'
+        WHEN UPPER(TRIM(COALESCE(v.gender,''))) IN ('F','FEMALE') THEN 'Female'
+        ELSE 'Unknown'
+      END as gender_label,
+      COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}
+    GROUP BY gender_label
+  `).all(req.params.id);
+
+  const universeVbmAge = db.prepare(`
+    SELECT
+      CASE
+        WHEN v.age IS NULL OR v.age = 0 THEN '9 Unknown'
+        WHEN v.age < 35 THEN '1 18-34'
+        WHEN v.age < 50 THEN '2 35-49'
+        WHEN v.age < 65 THEN '3 50-64'
+        WHEN v.age < 75 THEN '4 65-74'
+        ELSE '5 75+'
+      END as bucket,
+      COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}
+    GROUP BY bucket
+    ORDER BY bucket
+  `).all(req.params.id).map(r => ({ range: r.bucket.substring(2), count: r.count }));
+
+  const universeVbmParty = db.prepare(`
+    SELECT COALESCE(NULLIF(TRIM(v.party_score), ''), 'Unknown') as party, COUNT(*) as count
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}
+    GROUP BY party
+    ORDER BY count DESC
+  `).all(req.params.id);
+
+  const universeVbmPartyTotals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'D%' THEN 1 ELSE 0 END) as dem,
+      SUM(CASE WHEN UPPER(TRIM(COALESCE(v.party_score, ''))) LIKE 'R%' THEN 1 ELSE 0 END) as rep
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1 AND ${VBM_METHOD_CLAUSE}
+  `).get(req.params.id) || { dem: 0, rep: 0 };
+
   // ─── DEMOGRAPHICS OF MY UNIVERSE (the voters I targeted) ───
   // Same shape as outside-voter demographics, but flipped: these are the
   // voters IN my list. Compare side-by-side against outside demographics
@@ -1224,6 +1305,15 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     outside_first_time_count: outsideFirstTimeCount,
     // Same for voters inside the universe (newly engaged — target these)
     universe_first_time_count: universeFirstTimeCount,
+    // Vote-by-Mail (VBM) counts — separate from in-person early voting
+    universe_vbm_count: universeVbmCount,
+    universe_early_inperson_count: universeEarlyInPersonCount,
+    race_vbm_count: raceVbmCount,
+    // VBM demographics for voters in the universe
+    universe_vbm_gender_breakdown: universeVbmGender,
+    universe_vbm_age_buckets: universeVbmAge,
+    universe_vbm_party_breakdown: universeVbmParty,
+    universe_vbm_party_totals: universeVbmPartyTotals,
     // Who are the voters in MY universe (the ones I targeted)
     universe_gender_breakdown: universeGenderRows,
     universe_age_buckets: universeAgeRows,
