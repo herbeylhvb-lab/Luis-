@@ -1578,6 +1578,15 @@ try {
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('phone_update_password', 'CHANGE_ME')").run();
 } catch(e) {}
 
+// Per-captain phone-edit unlock state — persists across login/logout for
+// 30 days so captains don't re-enter the password every session. Cleared
+// implicitly when admin rotates the password (stored password_at_unlock
+// stops matching current). Explicit values:
+//   phone_edit_unlocked_until: ISO timestamp; null = not unlocked
+//   phone_edit_password_at_unlock: password value at time of unlock
+addColumn("ALTER TABLE captains ADD COLUMN phone_edit_unlocked_until TEXT DEFAULT NULL");
+addColumn("ALTER TABLE captains ADD COLUMN phone_edit_password_at_unlock TEXT DEFAULT NULL");
+
 // Re-run the 4→10 bump idempotently. Walks created between the first
 // migration and the code change that sets max_walkers=10 explicitly on
 // INSERT would still be at 4 (the column default). This catches them

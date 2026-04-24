@@ -512,6 +512,10 @@ router.get('/captains/me', (req, res) => {
   // Candidates with their names so the text modal can offer a "Vote for:"
   // picker. Primary first (is_primary), then shared candidates alpha.
   captain.candidates = collectCaptainCandidates(captain.id, captain.candidate_id);
+  // Phone-edit unlock status — true if captain unlocked within the last
+  // 30 days AND the password hasn't been rotated since. Lets the UI skip
+  // the password prompt for already-unlocked captains.
+  captain.phone_edit_unlocked = isPhoneEditStillUnlocked(captain);
 
   // Mirror the shape of /captains/login so the client can reuse its
   // same post-login wire-up code (team, lists, sub-captains, etc.)
@@ -607,6 +611,10 @@ router.post('/captains/login', captainLoginLimiter, (req, res) => {
   // Candidates with their names so the text modal can offer a "Vote for:"
   // picker (same shape as /captains/me).
   captain.candidates = collectCaptainCandidates(captain.id, captain.candidate_id);
+  // Phone-edit unlock status — true if the 30-day DB unlock is still
+  // valid AND password hasn't rotated. Lets the UI skip the password
+  // prompt for captains who already unlocked recently.
+  captain.phone_edit_unlocked = isPhoneEditStillUnlocked(captain);
 
   captain.team_members = db.prepare('SELECT * FROM captain_team_members WHERE captain_id = ? ORDER BY name').all(captain.id);
   // Include candidate race info for race filter (direct or shared)
@@ -1154,19 +1162,31 @@ router.post('/captains/:id/phone-log', requireCaptainAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// Middleware guard for endpoints that mutate voter phone data. Two checks:
-// (1) captain must have unlocked phone edit mode in this session, and
-// (2) the password they unlocked with must still be the current one —
-// if admin rotated, we boot them and make them re-enter the new code.
+// Middleware guard for endpoints that mutate voter phone data. Unlock is
+// stored per-captain in the DB (not session) so it persists for 30 days
+// across logins. Three failure modes:
+//   PASSWORD_REQUIRED  — captain never unlocked, or unlock expired
+//   PASSWORD_CHANGED   — admin rotated since captain's unlock, booted
+// Admin users (req.session.userId) bypass the unlock check entirely.
 function requirePhoneEditUnlocked(req, res, next) {
-  if (!req.session || !req.session.phoneEditUnlocked) {
+  if (req.session && req.session.userId) return next();
+  const captainId = req.session && req.session.captainId;
+  if (!captainId) return res.status(401).json({ error: 'Not logged in.' });
+  const captain = db.prepare('SELECT phone_edit_unlocked_until, phone_edit_password_at_unlock FROM captains WHERE id = ?').get(captainId);
+  if (!captain || !captain.phone_edit_unlocked_until) {
     return res.status(401).json({ error: 'Phone edit password required.', code: 'PASSWORD_REQUIRED' });
   }
+  // Check the unlock hasn't expired
+  const expiresAt = new Date(captain.phone_edit_unlocked_until).getTime();
+  if (isNaN(expiresAt) || Date.now() > expiresAt) {
+    db.prepare('UPDATE captains SET phone_edit_unlocked_until = NULL, phone_edit_password_at_unlock = NULL WHERE id = ?').run(captainId);
+    return res.status(401).json({ error: 'Your phone edit access expired. Re-enter the password.', code: 'PASSWORD_REQUIRED' });
+  }
+  // Check the password hasn't been rotated since unlock
   const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
   const current = setting && setting.value ? setting.value : '';
-  if (req.session.phonePasswordAtAuth !== current) {
-    delete req.session.phoneEditUnlocked;
-    delete req.session.phonePasswordAtAuth;
+  if (captain.phone_edit_password_at_unlock !== current) {
+    db.prepare('UPDATE captains SET phone_edit_unlocked_until = NULL, phone_edit_password_at_unlock = NULL WHERE id = ?').run(captainId);
     return res.status(401).json({ error: 'Password has changed, please re-enter it.', code: 'PASSWORD_CHANGED' });
   }
   next();
@@ -1198,10 +1218,24 @@ function canCaptainSeeVoter(captainId, voterId) {
 // Slot name → column name. Keeps the enum / column mapping in one place.
 const PHONE_SLOTS = { primary: 'phone', secondary: 'secondary_phone', tertiary: 'tertiary_phone' };
 
-// Captain enters the shared phone-edit password. On success, flip a session
-// flag + stash the password value used at auth time. When admin rotates
-// the password, the stored value no longer matches and the captain is
-// forced to re-enter — see requirePhoneEditUnlocked above.
+// Returns true if this captain row's phone-edit unlock is still valid:
+// not expired AND password hasn't been rotated. Reads the current
+// phone_update_password from settings. Safe to call with any captain obj
+// that includes phone_edit_unlocked_until and phone_edit_password_at_unlock.
+function isPhoneEditStillUnlocked(captain) {
+  if (!captain || !captain.phone_edit_unlocked_until) return false;
+  const expiresAt = new Date(captain.phone_edit_unlocked_until).getTime();
+  if (isNaN(expiresAt) || Date.now() > expiresAt) return false;
+  const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
+  const current = setting && setting.value ? setting.value : '';
+  return captain.phone_edit_password_at_unlock === current;
+}
+
+// Captain enters the shared phone-edit password. On success, unlock state
+// is persisted on the captain row for 30 days — survives logout/login so
+// captains don't re-enter every session. Admin rotating the password
+// instantly invalidates all unlocks (password_at_unlock stops matching).
+const PHONE_EDIT_UNLOCK_DAYS = 30;
 router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptainAuth, (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required.' });
@@ -1213,9 +1247,12 @@ router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptai
   if (String(password) !== current) {
     return res.status(401).json({ error: 'Incorrect password.' });
   }
-  req.session.phoneEditUnlocked = true;
-  req.session.phonePasswordAtAuth = current;
-  req.session.save(() => res.json({ success: true }));
+  // 30-day unlock stored on the captain row
+  const captainId = parseInt(req.params.id, 10);
+  const expiresAt = new Date(Date.now() + PHONE_EDIT_UNLOCK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE captains SET phone_edit_unlocked_until = ?, phone_edit_password_at_unlock = ? WHERE id = ?')
+    .run(expiresAt, current, captainId);
+  res.json({ success: true, unlocked_until: expiresAt });
 });
 
 // Replace one phone slot on a voter. Old value is retired to the audit log
