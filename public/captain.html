@@ -2644,9 +2644,16 @@ async function showVoterDetail(voter) {
   });
   if (!anyPhone) {
     var noPhone = document.createElement('div');
-    noPhone.style.cssText = 'font-size:12px;color:#64748b;font-style:italic';
+    noPhone.style.cssText = 'font-size:12px;color:#64748b;font-style:italic;margin-bottom:8px';
     noPhone.textContent = '(No phone numbers on file)';
     phonesSection.appendChild(noPhone);
+    // For voters with zero phones, expose a no-password "Add Phone Number"
+    // button — adding to a vacuum is risk-free, no need for the gate.
+    var addBtn = document.createElement('button');
+    addBtn.style.cssText = 'display:inline-block;padding:8px 14px;background:#3b82f6;border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer';
+    addBtn.textContent = '\u2795 Add Phone Number';
+    addBtn.addEventListener('click', function() { showAddPhoneModal(voter); });
+    phonesSection.appendChild(addBtn);
   }
   box.appendChild(phonesSection);
 
@@ -5198,6 +5205,68 @@ function showUpdatePhoneModal(voter, slot, oldValue) {
         requirePhoneEditUnlocked(function() { showUpdatePhoneModal(voter, slot, oldValue); });
         return;
       }
+      err.style.display = 'block';
+      err.textContent = (e && e.error) || 'Save failed.';
+      saveBtn.disabled = false;
+    });
+  }
+  saveBtn.addEventListener('click', submit);
+  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
+  btnRow.appendChild(saveBtn);
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  setTimeout(function() { input.focus(); }, 50);
+}
+
+// Add a phone number to a voter that has no phones at all. No password
+// gate because the server enforces "all slots empty" — there's no data
+// to overwrite, so a typo here is no worse than the starting state.
+function showAddPhoneModal(voter) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:360px;width:100%';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:16px;color:#e2e8f0;font-weight:600;margin-bottom:8px';
+  title.textContent = '\u2795 Add Phone Number';
+  box.appendChild(title);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:12px;line-height:1.4';
+  sub.textContent = 'Saved as the primary number for ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim() + '.';
+  box.appendChild(sub);
+  var input = document.createElement('input');
+  input.type = 'tel';
+  input.placeholder = 'Phone number (10 digits)';
+  input.autocomplete = 'off';
+  input.style.cssText = 'width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:14px;box-sizing:border-box;margin-bottom:12px';
+  box.appendChild(input);
+  var err = document.createElement('div');
+  err.style.cssText = 'font-size:12px;color:#ef4444;margin-bottom:8px;display:none';
+  box.appendChild(err);
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'flex:1;padding:10px;background:transparent;border:1px solid #334155;border-radius:6px;color:#94a3b8;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  btnRow.appendChild(cancelBtn);
+  var saveBtn = document.createElement('button');
+  saveBtn.style.cssText = 'flex:1;padding:10px;background:#3b82f6;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer';
+  saveBtn.textContent = 'Save';
+  function submit() {
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
+    apiPost('/api/captains/' + captainState.captain.id + '/add-phone', {
+      voter_id: voter.id, new_phone: input.value
+    })
+    .then(function() {
+      overlay.remove();
+      closeModal('voterDetailModal');
+      if (typeof loadListVoters === 'function') { try { loadListVoters(); } catch(e) {} }
+      showToast('Phone added.', 'success');
+    })
+    .catch(function(e) {
       err.style.display = 'block';
       err.textContent = (e && e.error) || 'Save failed.';
       saveBtn.disabled = false;

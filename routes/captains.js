@@ -1335,6 +1335,47 @@ router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditUnl
   res.json({ success: true });
 });
 
+// Add a phone number to a voter that has NO phones in any slot. No password
+// gate because there's no existing data to lose — adding to a vacuum is safe.
+// Once the voter has any phone, further changes use the gated update/erase
+// flow. This unblocks the common case of captains collecting fresh contact
+// info during canvassing on voters who came in with empty phone fields.
+router.post('/captains/:id/add-phone', requireCaptainAuth, (req, res) => {
+  const { voter_id, new_phone } = req.body;
+  if (!voter_id || !new_phone) return res.status(400).json({ error: 'voter_id and new_phone required.' });
+  const digits = String(new_phone).replace(/\D/g, '');
+  if (digits.length < 10) return res.status(400).json({ error: 'Phone must be at least 10 digits.' });
+
+  const captainId = parseInt(req.params.id, 10);
+  if (!req.session.userId && !canCaptainSeeVoter(captainId, voter_id)) {
+    return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+
+  const voter = db.prepare('SELECT phone, secondary_phone, tertiary_phone FROM voters WHERE id = ?').get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+
+  // Hard guard: this endpoint only works for voters with ZERO phones in
+  // every slot. If any slot has data, the captain needs the password-
+  // gated update flow — protects existing data from being silently
+  // overwritten by an unauthenticated add.
+  const hasAny = (voter.phone && voter.phone.trim()) ||
+                 (voter.secondary_phone && voter.secondary_phone.trim()) ||
+                 (voter.tertiary_phone && voter.tertiary_phone.trim());
+  if (hasAny) {
+    return res.status(409).json({ error: 'Voter already has a phone — use the password-gated update flow.' });
+  }
+
+  const byLabel = 'Captain #' + req.params.id;
+  const txn = db.transaction(() => {
+    db.prepare("UPDATE voters SET phone = ?, updated_at = datetime('now') WHERE id = ?").run(digits, voter_id);
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'added', ?, ?, datetime('now'))"
+    ).run(voter_id, 'Slot: primary \u00B7 Added: ' + digits + ' (voter had no prior phones)', byLabel);
+  });
+  txn();
+  res.json({ success: true });
+});
+
 router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
   const { voter_id, phone, email } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id is required.' });
