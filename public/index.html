@@ -359,6 +359,41 @@ tr:hover td{background:#1e293b80}
         <button class="btn btn-primary" id="btnTestSmtp">Test SMTP</button>
         <button class="btn btn-secondary" id="btnSaveSmtp" style="margin-left:8px">Save Email Settings</button>
       </div>
+
+      <!-- ==================== PHONE TOOLS ADMIN ==================== -->
+      <div class="card" id="phoneToolsSection">
+        <h3>&#128222; Phone Tools</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:14px">
+          Captains can tap a phone icon on any voter to call directly. For phone-number corrections,
+          captains need the password below. Share it with trusted captains; rotate to revoke access.
+        </p>
+
+        <!-- Password display + controls -->
+        <div style="background:#0b1628;border:1px solid #1e40af;border-radius:8px;padding:14px;margin-bottom:16px">
+          <div style="font-size:11px;color:#93c5fd;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Phone Edit Password</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="phoneUpdatePasswordField" type="text" readonly style="flex:1;min-width:160px;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-family:monospace;font-size:15px">
+            <button class="btn btn-secondary" onclick="changePhoneUpdatePassword()">Change</button>
+            <button class="btn btn-primary" onclick="rotatePhoneUpdatePassword()">Generate Random</button>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:8px;line-height:1.4">
+            Rotating the password instantly invalidates any captain's unlocked phone-edit session.
+            They'll need to enter the new code before they can fix another number.
+            Captains stay unlocked for 30 days after entering a valid password.
+          </div>
+        </div>
+
+        <!-- Recent Phone Changes -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Recent Phone Changes (last 30 days)</div>
+            <button class="btn btn-xs btn-secondary" onclick="loadRecentPhoneChanges()">&#8635; Refresh</button>
+          </div>
+          <div id="recentPhoneChangesList" style="max-height:400px;overflow-y:auto">
+            <div style="color:#64748b;font-size:12px;font-style:italic;padding:12px">Loading...</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ==================== CONTACTS ==================== -->
@@ -17324,6 +17359,148 @@ async function removeBadNumbers() {
     alert('Failed: ' + (e.message || 'Unknown error'));
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// PHONE TOOLS — ADMIN HELPERS
+// ═══════════════════════════════════════════════════════════════════
+
+async function loadPhoneUpdatePassword() {
+  var field = document.getElementById('phoneUpdatePasswordField');
+  if (!field) return;
+  try {
+    var r = await api('/api/admin/phone-update-password');
+    field.value = (r && r.password) || '';
+  } catch(e) {
+    field.value = '(error loading)';
+  }
+}
+
+async function changePhoneUpdatePassword() {
+  var pw = prompt('Set new phone-edit password:\n\n(Captains will need this code to update voter phone numbers.)');
+  if (pw === null) return; // cancelled
+  pw = String(pw).trim();
+  if (pw.length < 4) { alert('Password must be at least 4 characters.'); return; }
+  try {
+    await apiPut('/api/admin/phone-update-password', { password: pw });
+    await loadPhoneUpdatePassword();
+    alert('Password updated.\n\nCaptains who had the old password must re-enter this new one before they can edit phones.');
+  } catch(e) {
+    alert('Update failed: ' + ((e && e.error) || e.message || 'unknown'));
+  }
+}
+
+async function rotatePhoneUpdatePassword() {
+  if (!confirm('Generate a new random password?\n\nAll captains will need the new code to edit phones. Their 30-day unlocks will be invalidated.')) return;
+  try {
+    var r = await apiPost('/api/admin/phone-update-password/rotate', {});
+    await loadPhoneUpdatePassword();
+    alert('New password: ' + (r && r.password) + '\n\nCopy this and share with trusted captains.');
+  } catch(e) {
+    alert('Rotate failed: ' + ((e && e.error) || e.message || 'unknown'));
+  }
+}
+
+async function loadRecentPhoneChanges() {
+  var el = document.getElementById('recentPhoneChangesList');
+  if (!el) return;
+  el.innerHTML = '';
+  var loading = document.createElement('div');
+  loading.style.cssText = 'color:#64748b;font-size:12px;font-style:italic;padding:12px';
+  loading.textContent = 'Loading...';
+  el.appendChild(loading);
+  try {
+    var r = await api('/api/admin/phone-changes?days=30');
+    el.innerHTML = '';
+    if (!r || !r.changes || r.changes.length === 0) {
+      var empty = document.createElement('div');
+      empty.style.cssText = 'font-size:12px;color:#64748b;font-style:italic;padding:12px';
+      empty.textContent = 'No phone changes in the last 30 days.';
+      el.appendChild(empty);
+      return;
+    }
+    r.changes.forEach(function(c) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;margin-bottom:6px;display:flex;gap:10px;align-items:flex-start;font-size:12px';
+
+      // Left: color bar indicating the kind of change
+      var resultColor = { replaced: '#3b82f6', erased: '#ef4444', promoted: '#22c55e', reverted: '#a855f7' };
+      var bar = document.createElement('div');
+      bar.style.cssText = 'width:4px;align-self:stretch;background:' + (resultColor[c.result] || '#64748b') + ';border-radius:2px;flex-shrink:0';
+      row.appendChild(bar);
+
+      // Middle: info
+      var info = document.createElement('div');
+      info.style.flex = '1';
+      info.style.minWidth = '0';
+      var line1 = document.createElement('div');
+      line1.style.cssText = 'color:#e2e8f0;font-weight:600';
+      line1.textContent = c.voter_name + '  —  ' + (c.result || '').toUpperCase();
+      info.appendChild(line1);
+      var line2 = document.createElement('div');
+      line2.style.cssText = 'color:#94a3b8;font-size:11px;margin-top:2px;word-break:break-word';
+      line2.textContent = c.notes || '';
+      info.appendChild(line2);
+      var line3 = document.createElement('div');
+      line3.style.cssText = 'color:#64748b;font-size:10px;margin-top:2px';
+      var ts = (c.contacted_at || '').replace('T', ' ').substring(0, 16);
+      line3.textContent = c.contacted_by + '  ·  ' + ts;
+      info.appendChild(line3);
+      row.appendChild(info);
+
+      // Right: revert button (only for replaced/erased)
+      if (c.result === 'replaced' || c.result === 'erased') {
+        var revertBtn = document.createElement('button');
+        revertBtn.className = 'btn btn-xs btn-secondary';
+        revertBtn.style.flexShrink = '0';
+        revertBtn.textContent = '\u21B6 Revert';
+        revertBtn.addEventListener('click', async function() {
+          if (!confirm('Restore the old number for ' + c.voter_name + '?')) return;
+          try {
+            await apiPost('/api/admin/phone-changes/' + c.audit_id + '/revert', {});
+            await loadRecentPhoneChanges();
+            alert('Reverted.');
+          } catch(e) {
+            alert('Revert failed: ' + ((e && e.error) || e.message || 'unknown'));
+          }
+        });
+        row.appendChild(revertBtn);
+      }
+      el.appendChild(row);
+    });
+  } catch(e) {
+    el.innerHTML = '';
+    var errEl = document.createElement('div');
+    errEl.style.cssText = 'color:#ef4444;font-size:12px;padding:12px';
+    errEl.textContent = 'Error loading changes: ' + ((e && e.error) || e.message || 'unknown');
+    el.appendChild(errEl);
+  }
+}
+
+// Load on first view of the messaging setup page (the section lives there).
+// The existing nav-item click handler switches pages; we hook into the same
+// flow by listening for when the Messaging Setup nav item is clicked.
+document.addEventListener('DOMContentLoaded', function() {
+  var navItem = document.querySelector('[data-page="messaging"]');
+  if (navItem) {
+    navItem.addEventListener('click', function() {
+      // Defer so the page becomes visible first, then populate
+      setTimeout(function() {
+        if (document.getElementById('phoneToolsSection')) {
+          loadPhoneUpdatePassword();
+          loadRecentPhoneChanges();
+        }
+      }, 50);
+    });
+  }
+  // Also run once on first load in case Messaging is the default page
+  setTimeout(function() {
+    var page = document.getElementById('page-messaging');
+    if (page && page.classList && page.classList.contains('active') && document.getElementById('phoneToolsSection')) {
+      loadPhoneUpdatePassword();
+      loadRecentPhoneChanges();
+    }
+  }, 500);
+});
 
 </script>
 </body>
