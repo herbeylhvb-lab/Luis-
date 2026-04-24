@@ -2043,6 +2043,36 @@ function renderListVoters() {
 
     row.appendChild(info);
 
+    // Tap-to-call icon — one tap launches iPhone dialer with primary phone
+    // pre-filled, logs the dial attempt server-side. Greyed out + disabled
+    // when voter has no primary phone. stopPropagation so tapping the
+    // icon doesn't also open the voter detail card.
+    var phoneDigits = String(v.phone || '').replace(/\D/g, '');
+    var hasPhone = phoneDigits.length >= 10;
+    var callBtn = document.createElement('button');
+    callBtn.className = 'phone-call-btn';
+    callBtn.style.cssText = 'padding:6px 10px;background:' + (hasPhone ? '#22c55e' : '#334155') +
+      ';border:none;border-radius:6px;color:' + (hasPhone ? '#fff' : '#64748b') +
+      ';font-size:14px;cursor:' + (hasPhone ? 'pointer' : 'not-allowed') +
+      ';margin-left:6px;flex-shrink:0';
+    callBtn.textContent = '\uD83D\uDCDE';
+    callBtn.title = hasPhone ? 'Call ' + v.phone : 'No phone on file';
+    callBtn.disabled = !hasPhone;
+    if (hasPhone) {
+      callBtn.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        // Fire-and-forget log; don't block the tel: navigation
+        try {
+          apiPost('/api/captains/' + captainState.captain.id + '/phone-log', {
+            voter_id: v.id, phone_called: phoneDigits
+          }).catch(function() {});
+        } catch(e) {}
+        var full = (phoneDigits.length === 10) ? '+1' + phoneDigits : '+' + phoneDigits;
+        window.location.href = 'tel:' + full;
+      });
+    }
+    row.appendChild(callBtn);
+
     if (captainState.selectedListType !== 'all-team') {
       var btn = document.createElement('button');
       btn.className = 'remove-btn';
