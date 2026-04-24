@@ -17434,7 +17434,10 @@ async function loadRecentPhoneChanges() {
       info.style.minWidth = '0';
       var line1 = document.createElement('div');
       line1.style.cssText = 'color:#e2e8f0;font-weight:600';
-      line1.textContent = c.voter_name + '  —  ' + (c.result || '').toUpperCase();
+      // Null guards — voter_name can be NULL if a voter was deleted between
+      // the audit row and this query; contacted_by is set to 'Admin' for
+      // reverts but could theoretically be NULL on imported data.
+      line1.textContent = (c.voter_name || '(unknown voter)') + '  —  ' + (c.result || '').toUpperCase();
       info.appendChild(line1);
       var line2 = document.createElement('div');
       line2.style.cssText = 'color:#94a3b8;font-size:11px;margin-top:2px;word-break:break-word';
@@ -17443,7 +17446,7 @@ async function loadRecentPhoneChanges() {
       var line3 = document.createElement('div');
       line3.style.cssText = 'color:#64748b;font-size:10px;margin-top:2px';
       var ts = (c.contacted_at || '').replace('T', ' ').substring(0, 16);
-      line3.textContent = c.contacted_by + '  ·  ' + ts;
+      line3.textContent = (c.contacted_by || '(system)') + '  ·  ' + ts;
       info.appendChild(line3);
       row.appendChild(info);
 

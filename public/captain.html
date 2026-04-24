@@ -5188,9 +5188,17 @@ function showUpdatePhoneModal(voter, slot, oldValue) {
   saveBtn.textContent = 'Save';
   function submit() {
     if (saveBtn.disabled) return;
+    // Client-side digit validation — saves a wasted round-trip and gives
+    // a clear inline error before the network even gets touched.
+    var digits = (input.value || '').replace(/\D/g, '');
+    if (digits.length < 10) {
+      err.style.display = 'block';
+      err.textContent = 'Enter a 10-digit phone number.';
+      return;
+    }
     saveBtn.disabled = true;
     apiPost('/api/captains/' + captainState.captain.id + '/update-phone', {
-      voter_id: voter.id, slot: slot, new_phone: input.value
+      voter_id: voter.id, slot: slot, new_phone: digits
     })
     .then(function() {
       overlay.remove();
@@ -5256,9 +5264,16 @@ function showAddPhoneModal(voter) {
   saveBtn.textContent = 'Save';
   function submit() {
     if (saveBtn.disabled) return;
+    // Client-side digit validation. Same rule as update-phone.
+    var digits = (input.value || '').replace(/\D/g, '');
+    if (digits.length < 10) {
+      err.style.display = 'block';
+      err.textContent = 'Enter a 10-digit phone number.';
+      return;
+    }
     saveBtn.disabled = true;
     apiPost('/api/captains/' + captainState.captain.id + '/add-phone', {
-      voter_id: voter.id, new_phone: input.value
+      voter_id: voter.id, new_phone: digits
     })
     .then(function() {
       overlay.remove();
@@ -5286,11 +5301,27 @@ function showAddPhoneModal(voter) {
 // promotes — we just reload the list.
 function confirmErasePhone(voter, slot, oldValue) {
   var msg = 'Erase ' + slot + ' phone (' + oldValue + ')?\n\n';
-  if (slot === 'primary' && voter.secondary_phone) {
-    msg += 'Your secondary number (' + voter.secondary_phone + ') will be promoted to primary.\n\n';
+  // Mirror the server's auto-promote rule: any downstream slot can promote,
+  // not just secondary. Show the captain what'll move into primary so they
+  // aren't surprised.
+  if (slot === 'primary') {
+    if (voter.secondary_phone) {
+      msg += 'Your secondary number (' + voter.secondary_phone + ') will be promoted to primary.\n\n';
+    } else if (voter.tertiary_phone) {
+      msg += 'Your tertiary number (' + voter.tertiary_phone + ') will be promoted to primary.\n\n';
+    }
   }
   msg += 'The old number stays in the audit log and admin can restore it.';
   if (!confirm(msg)) return;
+  // Call the actual eraser. Splitting the prompt from the network call
+  // prevents the post-PASSWORD_CHANGED retry from re-prompting with a
+  // second confirm() dialog (annoying — captain just confirmed once).
+  doErasePhone(voter, slot);
+}
+
+// Inner helper: just fires the request. Re-used by the PASSWORD_CHANGED
+// retry path so captains don't have to confirm twice.
+function doErasePhone(voter, slot) {
   apiPost('/api/captains/' + captainState.captain.id + '/erase-phone', {
     voter_id: voter.id, slot: slot
   })
@@ -5302,7 +5333,7 @@ function confirmErasePhone(voter, slot, oldValue) {
   .catch(function(e) {
     if (e && e.code === 'PASSWORD_CHANGED') {
       _phoneEditUnlocked = false;
-      requirePhoneEditUnlocked(function() { confirmErasePhone(voter, slot, oldValue); });
+      requirePhoneEditUnlocked(function() { doErasePhone(voter, slot); });
       return;
     }
     alert('Erase failed: ' + ((e && e.error) || 'unknown error'));
