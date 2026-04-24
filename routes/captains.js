@@ -1105,6 +1105,44 @@ router.post('/captains/:id/text-log', requireCaptainAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// Log a tap-to-call attempt. Fire-and-forget from the client (tel: takes
+// over the browser before the response arrives). Same voter-ownership
+// check as text-log so captains can't stamp fake call records on voters
+// they don't have access to.
+router.post('/captains/:id/phone-log', requireCaptainAuth, (req, res) => {
+  const { voter_id, phone_called } = req.body;
+  if (!voter_id) return res.status(400).json({ error: 'voter_id required.' });
+  const captainId = parseInt(req.params.id, 10);
+  if (isNaN(captainId)) return res.status(400).json({ error: 'Invalid captain id.' });
+
+  // Admin users (req.session.userId) bypass the captain ownership check.
+  if (!req.session.userId) {
+    const canSee = db.prepare(`
+      WITH RECURSIVE team AS (
+        SELECT id FROM captains WHERE id = ?
+        UNION ALL
+        SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
+      )
+      SELECT 1 FROM (
+        SELECT clv.voter_id FROM captain_list_voters clv
+          JOIN captain_lists cl ON cl.id = clv.list_id
+          WHERE cl.captain_id IN (SELECT id FROM team) AND clv.voter_id = ?
+        UNION
+        SELECT alv.voter_id FROM admin_list_voters alv
+          JOIN admin_lists al ON al.id = alv.list_id
+          WHERE al.assigned_captain_id IN (SELECT id FROM team) AND alv.voter_id = ?
+      ) LIMIT 1
+    `).get(captainId, voter_id, voter_id);
+    if (!canSee) return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+
+  const byLabel = 'Captain #' + req.params.id;
+  db.prepare(
+    "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Call', 'dialed', ?, ?, datetime('now'))"
+  ).run(voter_id, (phone_called || '').toString().slice(0, 30), byLabel);
+  res.json({ success: true });
+});
+
 router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
   const { voter_id, phone, email } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id is required.' });
