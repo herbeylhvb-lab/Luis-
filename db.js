@@ -1571,6 +1571,13 @@ try {
   }
 } catch(e) {}
 
+// Seed the phone-edit shared secret. Admin must rotate this to a real value
+// before captains can use the voter-phone editing feature. See design doc
+// at docs/plans/2026-04-24-phone-tools-design.md for rationale.
+try {
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('phone_update_password', 'CHANGE_ME')").run();
+} catch(e) {}
+
 // Re-run the 4→10 bump idempotently. Walks created between the first
 // migration and the code change that sets max_walkers=10 explicitly on
 // INSERT would still be at 4 (the column default). This catches them
