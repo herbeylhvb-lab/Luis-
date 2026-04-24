@@ -7,6 +7,17 @@ const { phoneDigits, normalizePhone } = require('../utils');
 
 const captainLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
 
+// Rate limiter for phone-edit password attempts. Keyed on captain session
+// so each captain has their own bucket. 10 attempts per 15 min is gentle
+// enough not to frustrate fat-fingered captains but tight enough to make
+// brute-forcing the shared password impractical.
+const phoneEditAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyGenerator: (req) => (req.session && req.session.captainId) ? String(req.session.captainId) : req.ip,
+  message: { error: 'Too many password attempts. Wait 15 minutes and try again.' }
+});
+
 // Collect the unique set of (race_type, race_value) pairs this captain can
 // filter by — pulls from their primary candidate (captains.candidate_id) +
 // any shared candidates (captain_candidates). Dedupe by type+value so two
@@ -1141,6 +1152,26 @@ router.post('/captains/:id/phone-log', requireCaptainAuth, (req, res) => {
     "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Call', 'dialed', ?, ?, datetime('now'))"
   ).run(voter_id, (phone_called || '').toString().slice(0, 30), byLabel);
   res.json({ success: true });
+});
+
+// Captain enters the shared phone-edit password. On success, flip a session
+// flag + stash the password value used at auth time. When admin rotates
+// the password, the stored value no longer matches and the captain is
+// forced to re-enter — see requirePhoneEditUnlocked in the next task.
+router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptainAuth, (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required.' });
+  const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
+  const current = setting && setting.value ? setting.value : '';
+  if (!current || current === 'CHANGE_ME') {
+    return res.status(503).json({ error: 'Phone editing not enabled yet — admin must set a password first.' });
+  }
+  if (String(password) !== current) {
+    return res.status(401).json({ error: 'Incorrect password.' });
+  }
+  req.session.phoneEditUnlocked = true;
+  req.session.phonePasswordAtAuth = current;
+  req.session.save(() => res.json({ success: true }));
 });
 
 router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
