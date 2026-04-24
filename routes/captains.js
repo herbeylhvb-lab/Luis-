@@ -1826,4 +1826,93 @@ router.post('/captains/:id/transfer-voters', requireCaptainAuth, (req, res) => {
   }
 });
 
+// ===================== ADMIN: PHONE TOOLS MANAGEMENT =====================
+
+// Admin-only guard. Paired with the existing requireAuth in server.js the
+// request already reaches here only if userId is on the session, but we
+// keep this as a defense-in-depth check.
+function requireAdminForPhoneTools(req, res, next) {
+  if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Admin login required.' });
+  next();
+}
+
+// Pull the utils for the rotate endpoint. Same alphabet as walk join codes.
+const { generateAlphaCode } = require('../utils');
+
+// Admin reads the current phone-update password. Admin needs visibility
+// so they can share it verbally / via Slack with trusted captains.
+router.get('/admin/phone-update-password', requireAdminForPhoneTools, (req, res) => {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
+  res.json({ password: row ? row.value : '' });
+});
+
+// Admin sets an explicit new password. Rotation side effect: captains with
+// phone_edit_password_at_unlock != new value get booted on next edit.
+router.put('/admin/phone-update-password', requireAdminForPhoneTools, (req, res) => {
+  const { password } = req.body;
+  if (!password || String(password).trim().length < 4) {
+    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
+  }
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone_update_password', ?)").run(String(password).trim());
+  res.json({ success: true });
+});
+
+// Admin rotates to a random 6-char code. Same alphabet as walk join codes
+// (A-Z + 2-9 minus O/0/I/1) so the code is easy to type/speak without typos.
+router.post('/admin/phone-update-password/rotate', requireAdminForPhoneTools, (req, res) => {
+  const newPw = generateAlphaCode(6);
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('phone_update_password', ?)").run(newPw);
+  res.json({ password: newPw });
+});
+
+// Recent phone changes for admin oversight. Default 30 days. Joined on
+// voters for the name column. Limit at 500 so a year of changes can't
+// blow up the admin UI.
+router.get('/admin/phone-changes', requireAdminForPhoneTools, (req, res) => {
+  const days = parseInt(req.query.days, 10) || 30;
+  const rows = db.prepare(`
+    SELECT vc.id AS audit_id, vc.voter_id, vc.result, vc.notes, vc.contacted_by, vc.contacted_at,
+           (v.first_name || ' ' || v.last_name) AS voter_name
+    FROM voter_contacts vc
+    JOIN voters v ON v.id = vc.voter_id
+    WHERE vc.contact_type = 'PhoneUpdate'
+      AND vc.contacted_at >= datetime('now', ?)
+    ORDER BY vc.contacted_at DESC
+    LIMIT 500
+  `).all('-' + days + ' days');
+  res.json({ changes: rows });
+});
+
+// Admin reverts a specific audit row. Parses the notes field to extract
+// the slot and the old value. Only works for 'replaced' and 'erased'
+// rows since 'promoted' doesn't have a single old value and 'reverted'
+// is the revert itself.
+router.post('/admin/phone-changes/:audit_id/revert', requireAdminForPhoneTools, (req, res) => {
+  const auditId = parseInt(req.params.audit_id, 10);
+  const row = db.prepare("SELECT * FROM voter_contacts WHERE id = ? AND contact_type = 'PhoneUpdate'").get(auditId);
+  if (!row) return res.status(404).json({ error: 'Audit row not found.' });
+  if (row.result !== 'replaced' && row.result !== 'erased') {
+    return res.status(400).json({ error: 'Can only revert replaced or erased changes.' });
+  }
+  const slotMatch = (row.notes || '').match(/Slot:\s*(primary|secondary|tertiary)/);
+  const oldMatch = (row.notes || '').match(/Old:\s*([^\s\u00B7]+)/);
+  if (!slotMatch) return res.status(400).json({ error: 'Cannot parse slot from audit row.' });
+
+  const slot = slotMatch[1];
+  const col = PHONE_SLOTS[slot];
+  const oldValue = oldMatch ? oldMatch[1] : '';
+  if (oldValue === '(empty)' || oldValue === '') {
+    return res.status(400).json({ error: 'No old value to restore.' });
+  }
+
+  const txn = db.transaction(() => {
+    db.prepare(`UPDATE voters SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`).run(oldValue, row.voter_id);
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reverted', ?, 'Admin', datetime('now'))"
+    ).run(row.voter_id, 'Reverted audit #' + auditId + ' \u00B7 Slot: ' + slot + ' \u00B7 Restored: ' + oldValue);
+  });
+  txn();
+  res.json({ success: true });
+});
+
 module.exports = router;
