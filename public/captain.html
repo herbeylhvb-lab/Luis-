@@ -2567,9 +2567,10 @@ async function showVoterDetail(voter) {
     birthYearDisplay = 'Born ~' + estYear + ' (est.)';
   }
 
+  // Phones now live in their own section below the grid — they're
+  // individually tappable for the action menu (Call / Update / Mark Bad).
   var fields = [
     ['Address', (voter.address || '') + (voter.city ? ', ' + voter.city : '') + (voter.state ? ', ' + voter.state : '') + (voter.zip ? ' ' + voter.zip : '')],
-    ['Phone', voter.phone || 'N/A'],
     ['Email', voter.email || 'N/A'],
     ['Age', voter.age ? voter.age + ' years old' : 'N/A'],
     ['Born', birthYearDisplay],
@@ -2579,7 +2580,6 @@ async function showVoterDetail(voter) {
     ['Reg #', voter.registration_number || 'N/A'],
     ['Tags', voter.tags || 'None']
   ];
-  if (voter.secondary_phone) fields.push(['Alt Phone', voter.secondary_phone]);
   if (voter.middle_name) fields.splice(0, 0, ['Middle Name', voter.middle_name]);
 
   fields.forEach(function(f) {
@@ -2593,6 +2593,57 @@ async function showVoterDetail(voter) {
     grid.appendChild(val);
   });
   box.appendChild(grid);
+
+  // ─── Phone numbers section ─────────────────────────────────────────
+  // All 3 slots rendered as individually tappable rows. Tap opens the
+  // action menu (Call / Update / Mark as No Longer Valid). Update and
+  // Mark Bad require the shared phone-edit password (once per 30 days).
+  var phonesSection = document.createElement('div');
+  phonesSection.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px';
+  var phonesTitle = document.createElement('div');
+  phonesTitle.style.cssText = 'font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px';
+  phonesTitle.textContent = '\uD83D\uDCDE Phone Numbers';
+  phonesSection.appendChild(phonesTitle);
+
+  var slotLabels = { primary: 'Primary', secondary: 'Secondary', tertiary: 'Tertiary' };
+  var slotCols   = { primary: 'phone',   secondary: 'secondary_phone', tertiary: 'tertiary_phone' };
+  var slotTypes  = { primary: 'phone_type', secondary: 'secondary_phone_type', tertiary: 'tertiary_phone_type' };
+  var anyPhone = false;
+  ['primary', 'secondary', 'tertiary'].forEach(function(slot) {
+    var val = (voter[slotCols[slot]] || '').toString().trim();
+    if (!val) return;
+    anyPhone = true;
+    var ptype = (voter[slotTypes[slot]] || '').toString().trim();
+    var phoneRow = document.createElement('div');
+    phoneRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px;margin:4px 0;background:#1e293b;border:1px solid #334155;border-radius:6px;cursor:pointer;transition:background 0.1s';
+    phoneRow.addEventListener('mouseenter', function() { phoneRow.style.background = '#334155'; });
+    phoneRow.addEventListener('mouseleave', function() { phoneRow.style.background = '#1e293b'; });
+    var slotLbl = document.createElement('span');
+    slotLbl.style.cssText = 'font-size:10px;color:#64748b;text-transform:uppercase;min-width:70px';
+    slotLbl.textContent = slotLabels[slot];
+    phoneRow.appendChild(slotLbl);
+    var num = document.createElement('span');
+    num.style.cssText = 'font-size:14px;color:#e2e8f0;font-family:monospace;flex:1';
+    num.textContent = val;
+    phoneRow.appendChild(num);
+    if (ptype) {
+      var tp = document.createElement('span');
+      tp.style.cssText = 'font-size:10px;color:#94a3b8';
+      tp.textContent = ptype;
+      phoneRow.appendChild(tp);
+    }
+    phoneRow.addEventListener('click', (function(s, v) { return function() {
+      showPhoneActionMenu(voter, s, v);
+    }; })(slot, val));
+    phonesSection.appendChild(phoneRow);
+  });
+  if (!anyPhone) {
+    var noPhone = document.createElement('div');
+    noPhone.style.cssText = 'font-size:12px;color:#64748b;font-style:italic';
+    noPhone.textContent = '(No phone numbers on file)';
+    phonesSection.appendChild(noPhone);
+  }
+  box.appendChild(phonesSection);
 
   // Early voting status banner
   var evStatusDiv = document.createElement('div');
