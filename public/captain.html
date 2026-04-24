@@ -540,6 +540,11 @@ async function loginCaptain() {
 // manual code entry) and tryRestoreCaptainSession() (on page refresh).
 function bootCaptainPortal(captain) {
   captainState.captain = captain;
+  // Hydrate the phone-edit unlock flag from the server. Backend reports
+  // true when captain.phone_edit_unlocked_until is in the future AND the
+  // password hasn't been rotated. Lets the UI skip the password prompt
+  // for captains who already unlocked within the last 30 days.
+  _phoneEditUnlocked = !!captain.phone_edit_unlocked;
   // Backward-compat: keep race_type/race_value fields populated from the
   // primary (first) race so any legacy code still reads them. Newer code
   // reads captain.races[] directly for multi-race support.
@@ -2891,6 +2896,12 @@ var _bulkTextGroupBatch = 0;
 // Null = no candidate picked (placeholders render as empty strings).
 var _bulkTextCandidate = null;
 
+// Mirror of the server-side "has this captain unlocked phone edit mode?"
+// Initialized from captainState.captain.phone_edit_unlocked after login.
+// Flipped to true after a successful phone-edit-auth; flipped to false
+// when server returns PASSWORD_CHANGED or the 30-day unlock expires.
+var _phoneEditUnlocked = false;
+
 // Pick the default candidate for this captain on modal open.
 // Preference order: (1) last-used (localStorage), (2) primary candidate,
 // (3) first candidate in the list, (4) null.
@@ -5011,6 +5022,222 @@ async function removeTeamMember(memberId, name) {
       showToast('Failed to remove team member: ' + (data.error || 'Unknown error'), 'warn');
     }
   } catch (e) { showToast('Failed to remove team member: ' + (e.message || 'Unknown error'), 'warn'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PHONE EDIT FLOW — action menu + password unlock + update + erase
+// ═══════════════════════════════════════════════════════════════════
+
+// Open the "what do you want to do with this phone?" menu when a captain
+// taps a phone number row on the voter detail card.
+function showPhoneActionMenu(voter, slot, phoneValue) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:360px;width:100%';
+
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:16px;color:#e2e8f0;font-weight:600;margin-bottom:4px';
+  title.textContent = phoneValue;
+  box.appendChild(title);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:16px';
+  sub.textContent = slot.charAt(0).toUpperCase() + slot.slice(1) + ' phone';
+  box.appendChild(sub);
+
+  function mkBtn(label, bg, onClick) {
+    var b = document.createElement('button');
+    b.style.cssText = 'display:block;width:100%;padding:12px;margin-bottom:8px;background:' + bg + ';border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer';
+    b.textContent = label;
+    b.addEventListener('click', function() { overlay.remove(); onClick(); });
+    box.appendChild(b);
+  }
+
+  mkBtn('\uD83D\uDCF1 Call This Number', '#22c55e', function() {
+    var digits = String(phoneValue).replace(/\D/g, '');
+    try {
+      apiPost('/api/captains/' + captainState.captain.id + '/phone-log', {
+        voter_id: voter.id, phone_called: digits
+      }).catch(function() {});
+    } catch(e) {}
+    var full = (digits.length === 10) ? '+1' + digits : '+' + digits;
+    window.location.href = 'tel:' + full;
+  });
+  mkBtn('\u270F\uFE0F Update to a New Number', '#3b82f6', function() {
+    requirePhoneEditUnlocked(function() { showUpdatePhoneModal(voter, slot, phoneValue); });
+  });
+  mkBtn('\u274C Mark as No Longer Valid', '#ef4444', function() {
+    requirePhoneEditUnlocked(function() { confirmErasePhone(voter, slot, phoneValue); });
+  });
+  var cancel = document.createElement('button');
+  cancel.style.cssText = 'display:block;width:100%;padding:10px;margin-top:4px;background:transparent;border:1px solid #334155;border-radius:8px;color:#94a3b8;cursor:pointer';
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', function() { overlay.remove(); });
+  box.appendChild(cancel);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+// Prompt for the shared phone-edit password if the captain hasn't
+// unlocked yet (or unlock expired / password rotated). On success,
+// calls `callback()`. On failure, keeps the prompt open for retry.
+function requirePhoneEditUnlocked(callback) {
+  if (_phoneEditUnlocked) return callback();
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:360px;width:100%';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:16px;color:#e2e8f0;font-weight:600;margin-bottom:8px';
+  title.textContent = '\uD83D\uDD12 Enter phone edit password';
+  box.appendChild(title);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:12px;line-height:1.4';
+  sub.textContent = 'Ask your admin for the current code. Once entered, you stay unlocked for 30 days.';
+  box.appendChild(sub);
+  var input = document.createElement('input');
+  input.type = 'password';
+  input.autocomplete = 'off';
+  input.style.cssText = 'width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:14px;box-sizing:border-box;margin-bottom:12px';
+  input.placeholder = 'Password';
+  box.appendChild(input);
+  var err = document.createElement('div');
+  err.style.cssText = 'font-size:12px;color:#ef4444;margin-bottom:8px;display:none';
+  box.appendChild(err);
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'flex:1;padding:10px;background:transparent;border:1px solid #334155;border-radius:6px;color:#94a3b8;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  btnRow.appendChild(cancelBtn);
+  var submitBtn = document.createElement('button');
+  submitBtn.style.cssText = 'flex:1;padding:10px;background:#22c55e;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer';
+  submitBtn.textContent = 'Unlock';
+  function submit() {
+    if (submitBtn.disabled) return;
+    submitBtn.disabled = true;
+    apiPost('/api/captains/' + captainState.captain.id + '/phone-edit-auth', { password: input.value })
+      .then(function() {
+        _phoneEditUnlocked = true;
+        overlay.remove();
+        callback();
+      })
+      .catch(function(e) {
+        err.style.display = 'block';
+        err.textContent = (e && e.error) || 'Incorrect password.';
+        submitBtn.disabled = false;
+      });
+  }
+  submitBtn.addEventListener('click', submit);
+  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
+  btnRow.appendChild(submitBtn);
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  setTimeout(function() { input.focus(); }, 50);
+}
+
+// Prompt for a new phone number and submit the update. On 401
+// PASSWORD_CHANGED (admin rotated), clear local flag and re-prompt.
+function showUpdatePhoneModal(voter, slot, oldValue) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:360px;width:100%';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:16px;color:#e2e8f0;font-weight:600;margin-bottom:8px';
+  title.textContent = 'Update ' + slot + ' phone';
+  box.appendChild(title);
+  var oldLbl = document.createElement('div');
+  oldLbl.style.cssText = 'font-size:12px;color:#94a3b8;margin-bottom:4px';
+  oldLbl.textContent = 'Old: ' + oldValue;
+  box.appendChild(oldLbl);
+  var warn = document.createElement('div');
+  warn.style.cssText = 'font-size:11px;color:#f59e0b;margin-bottom:12px';
+  warn.textContent = '\u26A0\uFE0F The old number will be erased from this slot (kept in audit log).';
+  box.appendChild(warn);
+  var input = document.createElement('input');
+  input.type = 'tel';
+  input.placeholder = 'New number (10 digits)';
+  input.autocomplete = 'off';
+  input.style.cssText = 'width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:14px;box-sizing:border-box;margin-bottom:12px';
+  box.appendChild(input);
+  var err = document.createElement('div');
+  err.style.cssText = 'font-size:12px;color:#ef4444;margin-bottom:8px;display:none';
+  box.appendChild(err);
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'flex:1;padding:10px;background:transparent;border:1px solid #334155;border-radius:6px;color:#94a3b8;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  btnRow.appendChild(cancelBtn);
+  var saveBtn = document.createElement('button');
+  saveBtn.style.cssText = 'flex:1;padding:10px;background:#3b82f6;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer';
+  saveBtn.textContent = 'Save';
+  function submit() {
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
+    apiPost('/api/captains/' + captainState.captain.id + '/update-phone', {
+      voter_id: voter.id, slot: slot, new_phone: input.value
+    })
+    .then(function() {
+      overlay.remove();
+      closeModal('voterDetailModal');
+      if (typeof loadListVoters === 'function') { try { loadListVoters(); } catch(e) {} }
+      showToast('Phone updated.', 'success');
+    })
+    .catch(function(e) {
+      if (e && e.code === 'PASSWORD_CHANGED') {
+        _phoneEditUnlocked = false;
+        overlay.remove();
+        requirePhoneEditUnlocked(function() { showUpdatePhoneModal(voter, slot, oldValue); });
+        return;
+      }
+      err.style.display = 'block';
+      err.textContent = (e && e.error) || 'Save failed.';
+      saveBtn.disabled = false;
+    });
+  }
+  saveBtn.addEventListener('click', submit);
+  input.addEventListener('keydown', function(e) { if (e.key === 'Enter') submit(); });
+  btnRow.appendChild(saveBtn);
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  setTimeout(function() { input.focus(); }, 50);
+}
+
+// Confirm + submit erase. Uses confirm() for simplicity (single-action
+// decision). On erase of primary with secondary present, server auto-
+// promotes — we just reload the list.
+function confirmErasePhone(voter, slot, oldValue) {
+  var msg = 'Erase ' + slot + ' phone (' + oldValue + ')?\n\n';
+  if (slot === 'primary' && voter.secondary_phone) {
+    msg += 'Your secondary number (' + voter.secondary_phone + ') will be promoted to primary.\n\n';
+  }
+  msg += 'The old number stays in the audit log and admin can restore it.';
+  if (!confirm(msg)) return;
+  apiPost('/api/captains/' + captainState.captain.id + '/erase-phone', {
+    voter_id: voter.id, slot: slot
+  })
+  .then(function() {
+    closeModal('voterDetailModal');
+    if (typeof loadListVoters === 'function') { try { loadListVoters(); } catch(e) {} }
+    showToast('Phone erased.', 'success');
+  })
+  .catch(function(e) {
+    if (e && e.code === 'PASSWORD_CHANGED') {
+      _phoneEditUnlocked = false;
+      requirePhoneEditUnlocked(function() { confirmErasePhone(voter, slot, oldValue); });
+      return;
+    }
+    alert('Erase failed: ' + ((e && e.error) || 'unknown error'));
+  });
 }
 </script>
 </body>
