@@ -3,7 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { randomBytes } = require('crypto');
-const { phoneDigits, normalizePhone } = require('../utils');
+const { phoneDigits, normalizePhone, generateAlphaCode } = require('../utils');
 
 const captainLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many login attempts. Try again in 15 minutes.' } });
 
@@ -1128,14 +1128,16 @@ router.post('/captains/:id/text-log', requireCaptainAuth, (req, res) => {
 // over the browser before the response arrives). Same voter-ownership
 // check as text-log so captains can't stamp fake call records on voters
 // they don't have access to.
-router.post('/captains/:id/phone-log', requireCaptainAuth, (req, res) => {
+router.post('/captains/:id/phone-log', requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
   const { voter_id, phone_called } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id required.' });
-  const captainId = parseInt(req.params.id, 10);
-  if (isNaN(captainId)) return res.status(400).json({ error: 'Invalid captain id.' });
+  // Use session captainId — requirePhoneEditSelf already asserted URL :id
+  // matches session, but staying consistent with the other phone endpoints.
+  const captainId = req.session.captainId;
 
   // Admin users (req.session.userId) bypass the captain ownership check.
   if (!req.session.userId) {
+    if (!captainId) return res.status(401).json({ error: 'Captain session required.' });
     const canSee = db.prepare(`
       WITH RECURSIVE team AS (
         SELECT id FROM captains WHERE id = ?
@@ -1218,6 +1220,23 @@ function canCaptainSeeVoter(captainId, voterId) {
 // Slot name → column name. Keeps the enum / column mapping in one place.
 const PHONE_SLOTS = { primary: 'phone', secondary: 'secondary_phone', tertiary: 'tertiary_phone' };
 
+// Phone tools are self-service — a captain can only edit phones / unlock
+// password / log calls *as themselves*. The URL :id parameter must match
+// the session captain (or the caller is an admin). This prevents one
+// captain from writing an unlock onto another captain's row, or running
+// edits in a parent-acts-on-child mode (which the broader requireCaptainAuth
+// hierarchy allows for read-only endpoints but not for these mutations).
+function requirePhoneEditSelf(req, res, next) {
+  // Admin (logged-in user) can act on behalf of any captain.
+  if (req.session && req.session.userId) return next();
+  const sessionCaptainId = req.session && req.session.captainId;
+  const urlCaptainId = parseInt(req.params.id, 10);
+  if (!sessionCaptainId || isNaN(urlCaptainId) || sessionCaptainId !== urlCaptainId) {
+    return res.status(403).json({ error: 'Phone tools can only be used as yourself.' });
+  }
+  next();
+}
+
 // Returns true if this captain row's phone-edit unlock is still valid:
 // not expired AND password hasn't been rotated. Reads the current
 // phone_update_password from settings. Safe to call with any captain obj
@@ -1236,7 +1255,7 @@ function isPhoneEditStillUnlocked(captain) {
 // captains don't re-enter every session. Admin rotating the password
 // instantly invalidates all unlocks (password_at_unlock stops matching).
 const PHONE_EDIT_UNLOCK_DAYS = 30;
-router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptainAuth, (req, res) => {
+router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required.' });
   const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
@@ -1247,8 +1266,13 @@ router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptai
   if (String(password) !== current) {
     return res.status(401).json({ error: 'Incorrect password.' });
   }
-  // 30-day unlock stored on the captain row
-  const captainId = parseInt(req.params.id, 10);
+  // 30-day unlock stored on the captain's own row. Always use the session
+  // captainId (NOT req.params.id) so a stray :id can't write the unlock
+  // onto another captain. Admin (no session.captainId) is excluded by the
+  // guard below — admins don't need to "unlock" since requirePhoneEditUnlocked
+  // bypasses for userId.
+  const captainId = req.session.captainId;
+  if (!captainId) return res.status(401).json({ error: 'Captain session required.' });
   const expiresAt = new Date(Date.now() + PHONE_EDIT_UNLOCK_DAYS * 24 * 60 * 60 * 1000).toISOString();
   db.prepare('UPDATE captains SET phone_edit_unlocked_until = ?, phone_edit_password_at_unlock = ? WHERE id = ?')
     .run(expiresAt, current, captainId);
@@ -1257,14 +1281,18 @@ router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptai
 
 // Replace one phone slot on a voter. Old value is retired to the audit log
 // (voter_contacts) so nothing is ever lost. Gated by password unlock.
-router.post('/captains/:id/update-phone', requireCaptainAuth, requirePhoneEditUnlocked, (req, res) => {
+router.post('/captains/:id/update-phone', requireCaptainAuth, requirePhoneEditSelf, requirePhoneEditUnlocked, (req, res) => {
   const { voter_id, slot, new_phone } = req.body;
   if (!voter_id || !slot || !new_phone) return res.status(400).json({ error: 'voter_id, slot, and new_phone required.' });
   if (!PHONE_SLOTS[slot]) return res.status(400).json({ error: 'Invalid slot.' });
   const digits = String(new_phone).replace(/\D/g, '');
   if (digits.length < 10) return res.status(400).json({ error: 'Phone must be at least 10 digits.' });
 
-  const captainId = parseInt(req.params.id, 10);
+  // Use session captainId for the ownership check so the actor is always
+  // the authenticated principal — req.params.id is just bookkeeping after
+  // requirePhoneEditSelf asserts they match. Admin (req.session.userId)
+  // bypasses ownership entirely.
+  const captainId = req.session.captainId;
   if (!req.session.userId && !canCaptainSeeVoter(captainId, voter_id)) {
     return res.status(403).json({ error: 'Voter is not on any of your lists.' });
   }
@@ -1292,12 +1320,13 @@ router.post('/captains/:id/update-phone', requireCaptainAuth, requirePhoneEditUn
 // promote secondary to primary (and tertiary to secondary if present) so
 // the voter stays callable/textable. Audit rows capture both the erase
 // and the promote for accountability.
-router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditUnlocked, (req, res) => {
+router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditSelf, requirePhoneEditUnlocked, (req, res) => {
   const { voter_id, slot } = req.body;
   if (!voter_id || !slot) return res.status(400).json({ error: 'voter_id and slot required.' });
   if (!PHONE_SLOTS[slot]) return res.status(400).json({ error: 'Invalid slot.' });
 
-  const captainId = parseInt(req.params.id, 10);
+  // Same self-actor rule as update-phone.
+  const captainId = req.session.captainId;
   if (!req.session.userId && !canCaptainSeeVoter(captainId, voter_id)) {
     return res.status(403).json({ error: 'Voter is not on any of your lists.' });
   }
@@ -1308,22 +1337,38 @@ router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditUnl
 
   const txn = db.transaction(() => {
     const oldValue = voter[PHONE_SLOTS[slot]] || '';
-    if (slot === 'primary' && voter.secondary_phone) {
-      // Auto-promote: secondary → primary, tertiary → secondary, tertiary cleared
-      const newPrimary = voter.secondary_phone;
-      const newSecondary = voter.tertiary_phone || '';
+    // Auto-promote when erasing primary, regardless of which downstream slot
+    // is filled. If only tertiary exists (secondary empty), promote tertiary
+    // straight to primary. Without this branch, tertiary would be orphaned
+    // with no primary visible — a real data-integrity bug.
+    const hasDownstream = !!(voter.secondary_phone || voter.tertiary_phone);
+    if (slot === 'primary' && hasDownstream) {
+      // Pick best available downstream as new primary; what's left fills secondary.
+      let newPrimary, newSecondary;
+      let promoteNote;
+      if (voter.secondary_phone) {
+        // Secondary present (with or without tertiary)
+        newPrimary = voter.secondary_phone;
+        newSecondary = voter.tertiary_phone || '';
+        promoteNote = 'Promoted secondary \u2192 primary: ' + newPrimary +
+          (voter.tertiary_phone ? ' \u00B7 tertiary \u2192 secondary: ' + voter.tertiary_phone : '');
+      } else {
+        // Only tertiary present — skip the empty secondary slot
+        newPrimary = voter.tertiary_phone;
+        newSecondary = '';
+        promoteNote = 'Promoted tertiary \u2192 primary: ' + newPrimary;
+      }
       db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', updated_at = datetime('now') WHERE id = ?")
         .run(newPrimary, newSecondary, voter_id);
       db.prepare(
         "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
       ).run(voter_id, 'Slot: primary \u00B7 Old: ' + oldValue, byLabel);
-      const promoteNote = 'Promoted secondary \u2192 primary: ' + newPrimary +
-        (voter.tertiary_phone ? ' \u00B7 tertiary \u2192 secondary: ' + voter.tertiary_phone : '');
       db.prepare(
         "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'promoted', ?, ?, datetime('now'))"
       ).run(voter_id, promoteNote, byLabel);
     } else {
-      // Simple clear — no promotion
+      // Simple clear — no promotion (erasing a non-primary slot, OR erasing
+      // primary on a voter with no downstream phones at all)
       const col = PHONE_SLOTS[slot];
       db.prepare(`UPDATE voters SET ${col} = '', updated_at = datetime('now') WHERE id = ?`).run(voter_id);
       db.prepare(
@@ -1340,13 +1385,16 @@ router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditUnl
 // Once the voter has any phone, further changes use the gated update/erase
 // flow. This unblocks the common case of captains collecting fresh contact
 // info during canvassing on voters who came in with empty phone fields.
-router.post('/captains/:id/add-phone', requireCaptainAuth, (req, res) => {
+router.post('/captains/:id/add-phone', requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
   const { voter_id, new_phone } = req.body;
   if (!voter_id || !new_phone) return res.status(400).json({ error: 'voter_id and new_phone required.' });
   const digits = String(new_phone).replace(/\D/g, '');
   if (digits.length < 10) return res.status(400).json({ error: 'Phone must be at least 10 digits.' });
 
-  const captainId = parseInt(req.params.id, 10);
+  // Same self-actor rule as update/erase-phone, even though add-phone
+  // doesn't gate on the password — the actor must still be the session
+  // captain so audit attribution is correct.
+  const captainId = req.session.captainId;
   if (!req.session.userId && !canCaptainSeeVoter(captainId, voter_id)) {
     return res.status(403).json({ error: 'Voter is not on any of your lists.' });
   }
@@ -1876,9 +1924,6 @@ function requireAdminForPhoneTools(req, res, next) {
   if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Admin login required.' });
   next();
 }
-
-// Pull the utils for the rotate endpoint. Same alphabet as walk join codes.
-const { generateAlphaCode } = require('../utils');
 
 // Admin reads the current phone-update password. Admin needs visibility
 // so they can share it verbally / via Slack with trusted captains.
