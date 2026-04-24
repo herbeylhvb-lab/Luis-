@@ -1154,10 +1154,54 @@ router.post('/captains/:id/phone-log', requireCaptainAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// Middleware guard for endpoints that mutate voter phone data. Two checks:
+// (1) captain must have unlocked phone edit mode in this session, and
+// (2) the password they unlocked with must still be the current one —
+// if admin rotated, we boot them and make them re-enter the new code.
+function requirePhoneEditUnlocked(req, res, next) {
+  if (!req.session || !req.session.phoneEditUnlocked) {
+    return res.status(401).json({ error: 'Phone edit password required.', code: 'PASSWORD_REQUIRED' });
+  }
+  const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
+  const current = setting && setting.value ? setting.value : '';
+  if (req.session.phonePasswordAtAuth !== current) {
+    delete req.session.phoneEditUnlocked;
+    delete req.session.phonePasswordAtAuth;
+    return res.status(401).json({ error: 'Password has changed, please re-enter it.', code: 'PASSWORD_CHANGED' });
+  }
+  next();
+}
+
+// Shared voter-ownership check. Voter must be on some list in the captain's
+// team tree (their own lists, descendants' lists, or admin lists assigned
+// to any of them). Admin users (req.session.userId) bypass this check.
+function canCaptainSeeVoter(captainId, voterId) {
+  const row = db.prepare(`
+    WITH RECURSIVE team AS (
+      SELECT id FROM captains WHERE id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
+    )
+    SELECT 1 FROM (
+      SELECT clv.voter_id FROM captain_list_voters clv
+        JOIN captain_lists cl ON cl.id = clv.list_id
+        WHERE cl.captain_id IN (SELECT id FROM team) AND clv.voter_id = ?
+      UNION
+      SELECT alv.voter_id FROM admin_list_voters alv
+        JOIN admin_lists al ON al.id = alv.list_id
+        WHERE al.assigned_captain_id IN (SELECT id FROM team) AND alv.voter_id = ?
+    ) LIMIT 1
+  `).get(captainId, voterId, voterId);
+  return !!row;
+}
+
+// Slot name → column name. Keeps the enum / column mapping in one place.
+const PHONE_SLOTS = { primary: 'phone', secondary: 'secondary_phone', tertiary: 'tertiary_phone' };
+
 // Captain enters the shared phone-edit password. On success, flip a session
 // flag + stash the password value used at auth time. When admin rotates
 // the password, the stored value no longer matches and the captain is
-// forced to re-enter — see requirePhoneEditUnlocked in the next task.
+// forced to re-enter — see requirePhoneEditUnlocked above.
 router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptainAuth, (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required.' });
@@ -1172,6 +1216,86 @@ router.post('/captains/:id/phone-edit-auth', phoneEditAuthLimiter, requireCaptai
   req.session.phoneEditUnlocked = true;
   req.session.phonePasswordAtAuth = current;
   req.session.save(() => res.json({ success: true }));
+});
+
+// Replace one phone slot on a voter. Old value is retired to the audit log
+// (voter_contacts) so nothing is ever lost. Gated by password unlock.
+router.post('/captains/:id/update-phone', requireCaptainAuth, requirePhoneEditUnlocked, (req, res) => {
+  const { voter_id, slot, new_phone } = req.body;
+  if (!voter_id || !slot || !new_phone) return res.status(400).json({ error: 'voter_id, slot, and new_phone required.' });
+  if (!PHONE_SLOTS[slot]) return res.status(400).json({ error: 'Invalid slot.' });
+  const digits = String(new_phone).replace(/\D/g, '');
+  if (digits.length < 10) return res.status(400).json({ error: 'Phone must be at least 10 digits.' });
+
+  const captainId = parseInt(req.params.id, 10);
+  if (!req.session.userId && !canCaptainSeeVoter(captainId, voter_id)) {
+    return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+
+  const col = PHONE_SLOTS[slot];
+  const voter = db.prepare(`SELECT ${col} AS old_value FROM voters WHERE id = ?`).get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+
+  const byLabel = 'Captain #' + req.params.id;
+  const txn = db.transaction(() => {
+    db.prepare(`UPDATE voters SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`).run(digits, voter_id);
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'replaced', ?, ?, datetime('now'))"
+    ).run(
+      voter_id,
+      'Slot: ' + slot + ' \u00B7 Old: ' + (voter.old_value || '(empty)') + ' \u2192 New: ' + digits,
+      byLabel
+    );
+  });
+  txn();
+  res.json({ success: true });
+});
+
+// Erase a phone slot. If primary is erased and secondary exists, auto-
+// promote secondary to primary (and tertiary to secondary if present) so
+// the voter stays callable/textable. Audit rows capture both the erase
+// and the promote for accountability.
+router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditUnlocked, (req, res) => {
+  const { voter_id, slot } = req.body;
+  if (!voter_id || !slot) return res.status(400).json({ error: 'voter_id and slot required.' });
+  if (!PHONE_SLOTS[slot]) return res.status(400).json({ error: 'Invalid slot.' });
+
+  const captainId = parseInt(req.params.id, 10);
+  if (!req.session.userId && !canCaptainSeeVoter(captainId, voter_id)) {
+    return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+
+  const voter = db.prepare('SELECT phone, secondary_phone, tertiary_phone FROM voters WHERE id = ?').get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  const byLabel = 'Captain #' + req.params.id;
+
+  const txn = db.transaction(() => {
+    const oldValue = voter[PHONE_SLOTS[slot]] || '';
+    if (slot === 'primary' && voter.secondary_phone) {
+      // Auto-promote: secondary → primary, tertiary → secondary, tertiary cleared
+      const newPrimary = voter.secondary_phone;
+      const newSecondary = voter.tertiary_phone || '';
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', updated_at = datetime('now') WHERE id = ?")
+        .run(newPrimary, newSecondary, voter_id);
+      db.prepare(
+        "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
+      ).run(voter_id, 'Slot: primary \u00B7 Old: ' + oldValue, byLabel);
+      const promoteNote = 'Promoted secondary \u2192 primary: ' + newPrimary +
+        (voter.tertiary_phone ? ' \u00B7 tertiary \u2192 secondary: ' + voter.tertiary_phone : '');
+      db.prepare(
+        "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'promoted', ?, ?, datetime('now'))"
+      ).run(voter_id, promoteNote, byLabel);
+    } else {
+      // Simple clear — no promotion
+      const col = PHONE_SLOTS[slot];
+      db.prepare(`UPDATE voters SET ${col} = '', updated_at = datetime('now') WHERE id = ?`).run(voter_id);
+      db.prepare(
+        "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
+      ).run(voter_id, 'Slot: ' + slot + ' \u00B7 Old: ' + oldValue, byLabel);
+    }
+  });
+  txn();
+  res.json({ success: true });
 });
 
 router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
