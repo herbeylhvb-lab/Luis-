@@ -15,5 +15,16 @@ eq('case-insensitive', levenshtein('Smith', 'smith'), 0);
 eq('empty vs filled', levenshtein('', 'smith'), 5);
 eq('totally different', levenshtein('bob', 'robert'), 4);
 
+// === isNicknameOf() ===
+const { isNicknameOf } = require('../utils');
+
+eq('Bob is nickname of Robert', isNicknameOf('Bob', 'Robert'), true);
+eq('Robert is nickname of Bob (reverse)', isNicknameOf('Robert', 'Bob'), true);
+eq('case-insensitive', isNicknameOf('bob', 'ROBERT'), true);
+eq('Liz is nickname of Elizabeth', isNicknameOf('Liz', 'Elizabeth'), true);
+eq('Lupe is nickname of Guadalupe', isNicknameOf('Lupe', 'Guadalupe'), true);
+eq('not a nickname', isNicknameOf('Bob', 'William'), false);
+eq('same name not a nickname', isNicknameOf('Robert', 'Robert'), false);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

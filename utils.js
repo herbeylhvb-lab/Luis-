@@ -151,3 +151,23 @@ function levenshtein(a, b) {
 }
 
 module.exports.levenshtein = levenshtein;
+
+const NICKNAMES = require('./utils/nicknames');
+
+function isNicknameOf(a, b) {
+  if (!a || !b) return false;
+  const lowerA = a.toLowerCase();
+  const lowerB = b.toLowerCase();
+  if (lowerA === lowerB) return false;
+  for (const formal in NICKNAMES) {
+    const informals = NICKNAMES[formal].map(n => n.toLowerCase());
+    const formalLower = formal.toLowerCase();
+    if ((lowerA === formalLower && informals.includes(lowerB)) ||
+        (lowerB === formalLower && informals.includes(lowerA))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+module.exports.isNicknameOf = isNicknameOf;
