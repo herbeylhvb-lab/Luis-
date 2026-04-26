@@ -13,3 +13,9 @@ coverage/
 database.sqlite
 campaign.db
 captains.db
+
+# Capacitor / iOS native build artifacts
+ios/App/Pods/
+ios/App/build/
+ios/App/.symlinks/
+ios/DerivedData/

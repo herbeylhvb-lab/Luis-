@@ -1,0 +1,10 @@
+{
+  "appId": "com.campaigntext.app",
+  "appName": "CampaignText",
+  "webDir": "public",
+  "server": {
+    "_comment_url": "TODO: Confirm Railway URL with user. Currently using the default Railway-generated subdomain. If a custom domain is in use (e.g. campaign-text.com), replace the value below.",
+    "url": "https://campaign-text-hq.up.railway.app",
+    "cleartext": false
+  }
+}
