@@ -2133,23 +2133,15 @@ function renderListVoters() {
       nameRow.appendChild(orBadge);
       row.classList.add('out-of-race');
     }
-    // "Texted" badge — shows when this voter received a personal text
-    // from the captain's phone (logged via the bulk-text flow).
-    if (v.last_texted_at) {
-      var days = daysSince(v.last_texted_at);
-      var tbadge = document.createElement('span');
-      tbadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid #3b82f6';
-      tbadge.textContent = days === 0 ? '\uD83D\uDCF1 Texted today' : days === 1 ? '\uD83D\uDCF1 Texted 1d' : '\uD83D\uDCF1 Texted ' + days + 'd';
-      tbadge.title = 'Last texted: ' + (v.last_texted_at || '').replace('T', ' ').slice(0, 16);
-      nameRow.appendChild(tbadge);
-    }
-    if (v.age) {
-      var ageBadge2 = document.createElement('span');
-      ageBadge2.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3);white-space:nowrap';
-      ageBadge2.textContent = v.age;
-      nameRow.appendChild(ageBadge2);
-    }
     info.appendChild(nameRow);
+    // Age moved out of the name row — renders on its own line under the
+    // name so it never crowds the name on narrow screens.
+    if (v.age) {
+      var ageLine = document.createElement('div');
+      ageLine.style.cssText = 'font-size:11px;color:#a78bfa;margin-top:2px;font-weight:600';
+      ageLine.textContent = 'Age ' + v.age;
+      info.appendChild(ageLine);
+    }
     var a = document.createElement('div');
     a.className = 'addr';
     a.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
@@ -2771,7 +2763,8 @@ async function showVoterDetail(voter) {
     ['Support', (voter.support_level || 'unknown').replace(/_/g, ' ')],
     ['Precinct', voter.precinct || 'N/A'],
     ['Reg #', voter.registration_number || 'N/A'],
-    ['Tags', voter.tags || 'None']
+    ['Tags', voter.tags || 'None'],
+    ['Last Texted', formatLastTextedDisplay(voter.last_texted_at)]
   ];
   if (voter.middle_name) fields.splice(0, 0, ['Middle Name', voter.middle_name]);
 
@@ -3292,6 +3285,23 @@ function daysSince(iso) {
   var then = new Date(iso);
   if (isNaN(then.getTime())) return null;
   return Math.floor((Date.now() - then.getTime()) / 86400000);
+}
+
+// Human-friendly "Last Texted" display for the voter detail card. Mirrors
+// the badge wording the captain's list used to show ("Texted today",
+// "Texted 1d") while normalizing SQLite UTC timestamps the same way
+// formatCallTimestamp does.
+function formatLastTextedDisplay(s) {
+  if (!s) return 'Not yet';
+  var iso = String(s).replace(' ', 'T');
+  if (!/[Z+\-]\d?\d?:?\d?\d?$/.test(iso)) iso += 'Z';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return 'N/A';
+  var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 30) return days + ' days ago';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // SQLite stores datetimes as 'YYYY-MM-DD HH:MM:SS' in UTC (datetime('now')
