@@ -115,6 +115,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .right-voter:last-child{border-bottom:none}
 .right-voter .name{font-weight:600;color:#e2e8f0}
 .right-voter .addr{color:#64748b;font-size:12px;margin-top:2px}
+
+/* Swipe-to-delete: each row is wrapped in .voter-row-wrap. The wrap provides
+   the overflow-clip and houses the Delete button revealed when the inner
+   row translates left. Two-step confirm on the button means deleting takes
+   a slide + Delete tap + Confirm tap — three intentional actions. */
+.voter-row-wrap{position:relative;overflow:hidden}
+.voter-row-wrap .right-voter{will-change:transform;transition:transform 0.2s ease;background:#1e293b}
+.voter-row-wrap.swiping .right-voter{transition:none}
+.voter-row-wrap.swipe-open .right-voter{transform:translateX(-104px)}
+.swipe-delete-overlay{position:absolute;top:0;right:0;bottom:0;display:flex;align-items:stretch;pointer-events:none}
+.voter-row-wrap.swipe-open .swipe-delete-overlay{pointer-events:auto}
+.swipe-delete-btn{background:#ef4444;color:#fff;border:none;width:104px;font-weight:700;font-size:14px;cursor:pointer;letter-spacing:0.5px;font-family:inherit;padding:0}
+.swipe-delete-btn:active{background:#dc2626}
+.swipe-delete-btn.confirm{background:#7f1d1d;animation:swipe-confirm-pulse 0.9s ease-in-out infinite}
+@keyframes swipe-confirm-pulse{0%,100%{background:#7f1d1d}50%{background:#ef4444}}
 .remove-btn{background:none;border:none;color:#ef4444;cursor:pointer;font-size:16px;padding:4px 8px;border-radius:4px}
 .remove-btn:hover{background:#450a0a}
 
@@ -144,7 +159,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   }
   .app-layout{
     flex-direction:column;
-    height:calc(100vh - 52px - 62px);
+    height:calc(100dvh - var(--app-header-h,56px) - 62px);
     overflow:hidden
   }
   .sidebar,.center-panel,.right-panel{
@@ -161,8 +176,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   .voter-card .voter-addr{font-size:12px}
   .right-voter{padding:8px 10px;font-size:12px}
   .search-bar input{padding:12px 14px;font-size:14px}
-  .app-header{padding:10px 14px}
-  .app-header h1{font-size:16px}
+
+  /* Header: tighter padding, allow greeting to wrap below title without breaking layout */
+  .app-header{padding:10px 14px;flex-wrap:wrap;gap:6px;row-gap:4px}
+  .app-header > div:first-child{flex:1 1 0;min-width:0}
+  .app-header h1{font-size:16px;line-height:1.2}
+  .app-header .info{font-size:12px;margin-top:2px;overflow-wrap:anywhere}
+  .btn-leave{flex-shrink:0;padding:6px 12px;font-size:12px}
+
+  /* Search row: hide redundant hint (placeholder already conveys it), keep Clear inline */
+  .search-bar .hint{display:none}
+
+  /* More Filters: collapse 2-column grid to single column on phones */
+  #moreFiltersPanel > div{grid-template-columns:1fr!important;gap:10px!important}
+  #moreFiltersPanel .form-group[style*="grid-column"]{grid-column:auto!important}
+
+  /* Login card: tighten on small screens */
+  .login-screen{padding:1rem}
+  .login-card{padding:1.5rem 1.25rem}
+
+  /* Modal: more breathing room on narrow phones */
+  .modal-box{padding:20px;border-radius:12px;width:94%}
 }
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
@@ -1305,11 +1339,20 @@ function onVoterDragEnd(e, voterId) {
 // ========== TOUCH DRAG-DROP FOR IPAD/MOBILE ==========
 var _touchDragState = null;
 var _touchGhost = null;
+// Currently-open swipe-to-delete wrapper (only one row can be open at a time).
+// Read by initSwipeGesture and the document-level tap-outside handler.
+var _activeSwipeWrap = null;
 
 function initTouchDrag(row, voterId) {
   var longPressTimer = null;
   row.addEventListener('touchstart', function(e) {
     longPressTimer = setTimeout(function() {
+      // Bail if the user is mid-swipe — slide-to-delete wins over long-press
+      // drag. The .voter-row-wrap parent gets a 'swiping' class as soon as
+      // initSwipeGesture detects horizontal-first motion, so this check is
+      // the coordination point between the two touch systems.
+      var w = row.parentElement;
+      if (w && w.classList.contains('swiping')) return;
       e.preventDefault();
       _touchDragState = { voterId: voterId, row: row, startY: e.touches[0].clientY };
       row.classList.add('dragging');
@@ -1391,6 +1434,91 @@ function initTouchDrag(row, voterId) {
     document.querySelectorAll('.right-voter').forEach(function(r) { r.style.outline = ''; });
   });
 }
+
+// Slide-to-delete gesture for a wrapped voter row. Listens on the .voter-row-wrap
+// and translates the inner .right-voter horizontally. Coordinates with the
+// long-press drag handler above via the 'swiping' class on the wrap.
+//
+// Thresholds:
+//   - 10px horizontal-first motion to enter swipe mode (cancels long-press drag)
+//   - 40% of -104px snap distance to commit to "open" on release
+function initSwipeGesture(wrap, row) {
+  var SNAP_X = -104;
+  var startX = 0, startY = 0, baseX = 0, isSwiping = false;
+
+  wrap.addEventListener('touchstart', function(e) {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    baseX = wrap.classList.contains('swipe-open') ? SNAP_X : 0;
+    isSwiping = false;
+  }, { passive: true });
+
+  wrap.addEventListener('touchmove', function(e) {
+    if (e.touches.length !== 1) return;
+    var dx = e.touches[0].clientX - startX;
+    var dy = e.touches[0].clientY - startY;
+    if (!isSwiping) {
+      // Require horizontal motion to dominate over vertical to enter swipe
+      // mode — otherwise users trying to scroll the list would accidentally
+      // drag rows around.
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        isSwiping = true;
+        wrap.classList.add('swiping');
+        // Close any other open swipe row so only one delete drawer is visible
+        if (_activeSwipeWrap && _activeSwipeWrap !== wrap) {
+          _activeSwipeWrap.classList.remove('swipe-open');
+          _activeSwipeWrap = null;
+        }
+      } else {
+        return;
+      }
+    }
+    // Clamp: never past 0 to the right, and only ~40% past snap for rubber-band
+    var x = Math.min(0, Math.max(SNAP_X * 1.4, baseX + dx));
+    row.style.transform = 'translateX(' + x + 'px)';
+  }, { passive: true });
+
+  wrap.addEventListener('touchend', function(e) {
+    wrap.classList.remove('swiping');
+    if (!isSwiping) return;
+    var dx = e.changedTouches[0].clientX - startX;
+    var x = baseX + dx;
+    var open = x < SNAP_X * 0.4;
+    row.style.transform = '';
+    if (open) {
+      wrap.classList.add('swipe-open');
+      _activeSwipeWrap = wrap;
+    } else {
+      wrap.classList.remove('swipe-open');
+      if (_activeSwipeWrap === wrap) _activeSwipeWrap = null;
+      // Reset any pending Confirm state when the drawer closes
+      var btn = wrap.querySelector('.swipe-delete-btn.confirm');
+      if (btn) { btn.classList.remove('confirm'); btn.textContent = 'Delete'; }
+    }
+    isSwiping = false;
+  }, { passive: true });
+
+  wrap.addEventListener('touchcancel', function() {
+    wrap.classList.remove('swiping');
+    if (isSwiping) {
+      row.style.transform = '';
+      isSwiping = false;
+    }
+  }, { passive: true });
+}
+
+// Tap anywhere outside an open swipe row to close it. Captured at document
+// level so it works regardless of where the tap lands. Skipped when the tap
+// is inside the open wrap itself (so the Delete button still receives it).
+document.addEventListener('touchstart', function(e) {
+  if (!_activeSwipeWrap) return;
+  if (_activeSwipeWrap.contains(e.target)) return;
+  _activeSwipeWrap.classList.remove('swipe-open');
+  var btn = _activeSwipeWrap.querySelector('.swipe-delete-btn.confirm');
+  if (btn) { btn.classList.remove('confirm'); btn.textContent = 'Delete'; }
+  _activeSwipeWrap = null;
+}, { passive: true });
 
 function setupDropTarget(el, listId, listName) {
   el.addEventListener('dragover', function(e) {
@@ -1952,7 +2080,7 @@ function renderListVoters() {
     info.style.cssText = 'cursor:pointer;flex:1;min-width:0';
     info.addEventListener('click', (function(voter) { return function() { showVoterDetail(voter); }; })(v));
     var nameRow = document.createElement('div');
-    nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:4px;min-width:0';
     var n = document.createElement('div');
     n.className = 'name';
     n.textContent = (v.first_name || '') + (v.middle_name ? ' ' + v.middle_name : '') + ' ' + (v.last_name || '');
@@ -1966,7 +2094,7 @@ function renderListVoters() {
     if (v.early_voted) {
       var bc = votedBadgeColor(v);
       evBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;white-space:nowrap;background:' + bc.bg + ';color:' + bc.color + ';border:1px solid ' + bc.border;
-      evBadge.textContent = votedLabel(v) + (v.early_voted_date ? ' ' + v.early_voted_date : '');
+      evBadge.textContent = votedLabel(v);
       evBadge.title = 'Voted' + (v.early_voted_date ? ' on ' + v.early_voted_date : '') + (v.early_voted_ballot ? ' (' + v.early_voted_ballot + ')' : '');
     } else {
       evBadge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b;white-space:nowrap';
@@ -2087,7 +2215,43 @@ function renderListVoters() {
       row.appendChild(btn);
     }
 
-    return row;
+    if (captainState.selectedListType === 'all-team') return row;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'voter-row-wrap';
+    wrap.appendChild(row);
+
+    var delOverlay = document.createElement('div');
+    delOverlay.className = 'swipe-delete-overlay';
+    var delBtn = document.createElement('button');
+    delBtn.className = 'swipe-delete-btn';
+    delBtn.textContent = 'Delete';
+    delBtn.setAttribute('aria-label', 'Delete voter');
+    var confirmTimer = null;
+    delBtn.addEventListener('click', (function(vid) { return function(e) {
+      e.stopPropagation();
+      if (delBtn.classList.contains('confirm')) {
+        clearTimeout(confirmTimer);
+        delBtn.classList.remove('confirm');
+        delBtn.textContent = 'Delete';
+        wrap.classList.remove('swipe-open');
+        if (_activeSwipeWrap === wrap) _activeSwipeWrap = null;
+        removeVoterFromListNoConfirm(vid);
+      } else {
+        delBtn.classList.add('confirm');
+        delBtn.textContent = 'Tap to confirm';
+        clearTimeout(confirmTimer);
+        confirmTimer = setTimeout(function() {
+          delBtn.classList.remove('confirm');
+          delBtn.textContent = 'Delete';
+        }, 3000);
+      }
+    }; })(v.id));
+    delOverlay.appendChild(delBtn);
+    wrap.appendChild(delOverlay);
+
+    initSwipeGesture(wrap, row);
+    return wrap;
   }
 
   // Render top-level voters with children nested underneath
@@ -2657,6 +2821,59 @@ async function showVoterDetail(voter) {
   }
   box.appendChild(phonesSection);
 
+  // ─── Call history section ─────────────────────────────────────────
+  // Recent tap-to-call attempts (logged automatically by the 📞 button on
+  // each row). Lets the captain see when this voter was last dialed and
+  // by whom, so they don't double-call within the same day.
+  var callHistorySection = document.createElement('div');
+  callHistorySection.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px';
+  var callTitle = document.createElement('div');
+  callTitle.style.cssText = 'font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px';
+  callTitle.textContent = '📞 Call History';
+  callHistorySection.appendChild(callTitle);
+  var callList = document.createElement('div');
+  callList.style.cssText = 'font-size:12px';
+  var callLoading = document.createElement('div');
+  callLoading.style.cssText = 'color:#64748b;font-style:italic';
+  callLoading.textContent = 'Loading…';
+  callList.appendChild(callLoading);
+  callHistorySection.appendChild(callList);
+  box.appendChild(callHistorySection);
+
+  api('/api/captains/' + captainState.captain.id + '/voters/' + voter.id + '/call-history').then(function(data) {
+    var calls = (data && data.calls) || [];
+    callList.textContent = '';
+    if (!calls.length) {
+      var none = document.createElement('div');
+      none.style.cssText = 'color:#64748b;font-style:italic';
+      none.textContent = 'No calls logged yet. Tap the 📞 button on the row to dial.';
+      callList.appendChild(none);
+      return;
+    }
+    calls.forEach(function(c) {
+      var item = document.createElement('div');
+      item.style.cssText = 'display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid #1e293b;align-items:baseline';
+      var when = document.createElement('span');
+      when.style.cssText = 'color:#e2e8f0;font-size:12px';
+      when.textContent = formatCallTimestamp(c.contacted_at);
+      item.appendChild(when);
+      var meta = document.createElement('span');
+      meta.style.cssText = 'color:#94a3b8;font-size:11px;text-align:right';
+      var parts = [];
+      if (c.notes) parts.push(c.notes);
+      if (c.contacted_by) parts.push(c.contacted_by);
+      meta.textContent = parts.join(' • ');
+      item.appendChild(meta);
+      callList.appendChild(item);
+    });
+  }).catch(function() {
+    callList.textContent = '';
+    var err = document.createElement('div');
+    err.style.cssText = 'color:#ef4444;font-style:italic';
+    err.textContent = 'Could not load call history.';
+    callList.appendChild(err);
+  });
+
   // Early voting status banner
   var evStatusDiv = document.createElement('div');
   evStatusDiv.style.cssText = 'border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px;font-weight:600';
@@ -3051,6 +3268,28 @@ function daysSince(iso) {
   var then = new Date(iso);
   if (isNaN(then.getTime())) return null;
   return Math.floor((Date.now() - then.getTime()) / 86400000);
+}
+
+// SQLite stores datetimes as 'YYYY-MM-DD HH:MM:SS' in UTC (datetime('now')
+// returns UTC). JS's Date constructor needs a 'T' and 'Z' to parse it as
+// UTC; without those, browsers treat it as local time and shift it by the
+// timezone offset. Normalize before parsing so call-history times match
+// the wall-clock time the captain pressed the button.
+function formatCallTimestamp(s) {
+  if (!s) return '';
+  var iso = String(s).replace(' ', 'T');
+  if (!/[Z+\-]\d?\d?:?\d?\d?$/.test(iso)) iso += 'Z';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return s;
+  var now = new Date();
+  var sameDay = d.toDateString() === now.toDateString();
+  var yesterday = new Date(now.getTime() - 86400000).toDateString() === d.toDateString();
+  var time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return 'Today ' + time;
+  if (yesterday) return 'Yesterday ' + time;
+  var sameYear = d.getFullYear() === now.getFullYear();
+  var dateOpts = sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' };
+  return d.toLocaleDateString([], dateOpts) + ' ' + time;
 }
 
 // Entry from the floating-action-bar "💬 Text" button. Uses selected
@@ -4130,6 +4369,14 @@ function showToast(msg, type) {
 async function removeVoterFromList(voterId) {
   if (!captainState.selectedListId) return;
   if (!confirm('Remove this voter from the list?')) return;
+  return removeVoterFromListNoConfirm(voterId);
+}
+
+// Same delete path, no native confirm() dialog — used by the swipe-to-delete
+// gesture, which already requires its own two-step (Delete → Confirm) tap
+// inside the row itself, so an extra browser dialog would just be noise.
+async function removeVoterFromListNoConfirm(voterId) {
+  if (!captainState.selectedListId) return;
   try {
     await api(getListApiBase() + '/voters/' + voterId, { method: 'DELETE' });
     await loadListVoters();

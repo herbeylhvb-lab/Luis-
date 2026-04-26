@@ -1164,6 +1164,41 @@ router.post('/captains/:id/phone-log', requireCaptainAuth, requirePhoneEditSelf,
   res.json({ success: true });
 });
 
+// Recent tap-to-call history for one voter — shown in the captain's voter
+// detail card. Mirrors the ownership check used by the POST so a captain
+// can only read history for voters reachable through their team's lists.
+router.get('/captains/:id/voters/:voter_id/call-history', requireCaptainAuth, (req, res) => {
+  const voterId = parseInt(req.params.voter_id, 10);
+  if (!voterId) return res.status(400).json({ error: 'voter_id required.' });
+  const captainId = req.session.captainId;
+
+  if (!req.session.userId) {
+    if (!captainId) return res.status(401).json({ error: 'Captain session required.' });
+    const canSee = db.prepare(`
+      WITH RECURSIVE team AS (
+        SELECT id FROM captains WHERE id = ?
+        UNION ALL
+        SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
+      )
+      SELECT 1 FROM (
+        SELECT clv.voter_id FROM captain_list_voters clv
+          JOIN captain_lists cl ON cl.id = clv.list_id
+          WHERE cl.captain_id IN (SELECT id FROM team) AND clv.voter_id = ?
+        UNION
+        SELECT alv.voter_id FROM admin_list_voters alv
+          JOIN admin_lists al ON al.id = alv.list_id
+          WHERE al.assigned_captain_id IN (SELECT id FROM team) AND alv.voter_id = ?
+      ) LIMIT 1
+    `).get(captainId, voterId, voterId);
+    if (!canSee) return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+
+  const calls = db.prepare(
+    "SELECT id, result, notes, contacted_by, contacted_at FROM voter_contacts WHERE voter_id = ? AND contact_type = 'Call' ORDER BY contacted_at DESC LIMIT 25"
+  ).all(voterId);
+  res.json({ calls });
+});
+
 // Middleware guard for endpoints that mutate voter phone data. Unlock is
 // stored per-captain in the DB (not session) so it persists for 30 days
 // across logins. Three failure modes:
