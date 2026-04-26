@@ -4,7 +4,62 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Block Captain Portal</title>
+<!-- Twemoji fallback: replaces unicode emojis with inline SVG images from
+     a CDN. The iOS 26.3 simulator runtime ships without Apple Color Emoji,
+     so the crown / phone / tab icons render as ? boxes; on a real iPhone
+     this is unnecessary but harmless. Async load so it doesn't block the
+     login screen render — emojis will swap in once parsed. -->
+<script src="https://cdn.jsdelivr.net/npm/twemoji@14.0.2/dist/twemoji.min.js" crossorigin="anonymous" defer></script>
+<script>
+(function () {
+  var TWEMOJI_OPTS = {
+    folder: 'svg',
+    ext: '.svg',
+    base: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/',
+    className: 'twemoji-img'
+  };
+  function parseAll() {
+    if (window.twemoji && document.body) {
+      window.twemoji.parse(document.body, TWEMOJI_OPTS);
+    }
+  }
+  // Wait for both Twemoji script load AND DOM ready, then parse once.
+  function whenReady(cb) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', cb);
+    } else {
+      cb();
+    }
+  }
+  whenReady(function () {
+    if (window.twemoji) parseAll();
+    else window.addEventListener('load', parseAll);
+    // Watch for dynamically-added content (voter lists, candidate cards,
+    // wizard contacts, etc.) and parse them too. Without this, only the
+    // static page content gets emoji images; dynamic rows render as ?.
+    var observer = new MutationObserver(function (mutations) {
+      if (!window.twemoji) return;
+      mutations.forEach(function (m) {
+        m.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1) {
+            window.twemoji.parse(node, TWEMOJI_OPTS);
+          }
+        });
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+})();
+</script>
 <style>
+/* Twemoji renders each emoji as an inline <img>. Match font-size so the
+   image scales with surrounding text and doesn't push line height. */
+img.twemoji-img {
+  height: 1em;
+  width: 1em;
+  vertical-align: -0.125em;
+  display: inline-block;
+}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
 /* Prevent iOS Safari from auto-zooming when tapping form fields on iPhone.
