@@ -5767,13 +5767,16 @@ function showActionMenu(voterId, phone, confirmData) {
     menu.appendChild(addHouseBtn);
   }
 
-  // Action buttons
+  // Action buttons. The wizard is for ADDING VOTERS TO THE LIST, not texting
+  // — texting belongs to the bulk-text feature accessed from the voter list
+  // view. Keeping the action menu focused on "next contact" keeps captains
+  // moving through their address book quickly.
   var btnRow = makeEl('div', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' });
-  var textBtn = makeEl('button', { text: 'Text now' });
-  textBtn.addEventListener('click', function() { textVoter(c, phone); });
-  var nextBtn = makeEl('button', { text: 'Next contact' });
+  var nextBtn = makeEl('button', {
+    text: 'Next contact →',
+    style: 'background:#22c55e;color:#fff;padding:10px 16px;border:none;border-radius:6px;font-weight:600;cursor:pointer'
+  });
   nextBtn.addEventListener('click', advance);
-  btnRow.appendChild(textBtn);
   btnRow.appendChild(nextBtn);
   menu.appendChild(btnRow);
 }
