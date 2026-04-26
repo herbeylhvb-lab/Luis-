@@ -37,16 +37,28 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
   // LIKE so we match across (123) 456-7890, +11234567890, 1234567890, etc.
   const phoneDigits = (phone || '').replace(/\D/g, '');
   let phoneMatchedCandidates = [];
+  // Redacted log: only first 3 + last 2 of the digits, so we can debug
+  // format issues without leaking full phone numbers in Railway logs.
+  const redactedPhone = phoneDigits.length > 5
+    ? phoneDigits.slice(0, 3) + '***' + phoneDigits.slice(-2)
+    : (phoneDigits ? '***' : '(empty)');
   if (phoneDigits.length >= 10) {
     const last10 = phoneDigits.slice(-10);
-    const phoneRows = db.prepare(`
+    // Pull every voter row that has SOME phone, strip non-digits in JS, and
+    // check if the stripped form ends with our last10. Doing this in JS
+    // (rather than nested SQL REPLACEs) is exhaustive — there's no special
+    // separator we forget to strip. At ~30k voters this is still <50ms.
+    const allRows = db.prepare(`
       SELECT id, first_name, last_name, age, gender, address, city, zip,
              phone, phone_validated_at
       FROM voters
-      WHERE phone != ''
-        AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '(', ''), ')', ''), '-', ''), ' ', ''), '+', ''), '.', '') LIKE ?
-      LIMIT 5
-    `).all('%' + last10);
+      WHERE phone != '' AND phone IS NOT NULL
+    `).all();
+    const phoneRows = allRows.filter(v => {
+      const stripped = String(v.phone || '').replace(/\D/g, '');
+      return stripped.length >= 10 && stripped.slice(-10) === last10;
+    }).slice(0, 5);
+    console.log('[match-candidates] phone=' + redactedPhone + ' digits=' + phoneDigits.length + ' last10=' + last10.slice(0, 3) + '***' + last10.slice(-2) + ' phoneMatches=' + phoneRows.length + ' totalVotersWithPhones=' + allRows.length);
     phoneMatchedCandidates = phoneRows.map(v => ({
       voterId: v.id,
       firstName: v.first_name,
@@ -59,6 +71,8 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
       score: 1.0,
       matchType: 'phone',
     }));
+  } else {
+    console.log('[match-candidates] phone=' + redactedPhone + ' digits=' + phoneDigits.length + ' (skipping phone-match)');
   }
 
   function fetchAndScore(scope) {
