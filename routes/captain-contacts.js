@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
-const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { scoreCandidate, normalizePhone } = require('../utils');
 
@@ -296,26 +295,22 @@ router.post('/captain/add-household', confirmLimiter, requireCaptainOrAdmin, (re
 // Only removes the captain_list_voters rows; the voters themselves stay
 // in the voter file. UI surfaces the trigger button only when the captain
 // has "Select All" engaged (see captain.html bulkDeleteSelected).
-router.post('/captain/bulk-remove-from-list', confirmLimiter, requireCaptainOrAdmin, async (req, res) => {
+router.post('/captain/bulk-remove-from-list', confirmLimiter, requireCaptainOrAdmin, (req, res) => {
   const { listId, voterIds, adminPassword } = req.body || {};
   if (!listId || !Array.isArray(voterIds) || voterIds.length === 0 || !adminPassword) {
     return res.status(400).json({ error: 'listId, voterIds[], adminPassword required' });
   }
   try {
-    // Verify the password matches SOME admin user in the database. We
-    // don't require the caller to know an admin USERNAME — any admin
-    // password is sufficient. This is the same friction model as a
-    // shared-secret unlock: the password is the gate, the captain still
-    // owns the action via their own captain session.
-    const admins = db.prepare(`SELECT password_hash FROM users WHERE role = 'admin'`).all();
-    if (!admins.length) {
-      return res.status(503).json({ error: 'No admin users configured' });
+    // Use the SAME shared-secret password the captain already knows for
+    // editing voter phone numbers (settings.phone_update_password). One
+    // password for all admin-gated captain actions, instead of forcing
+    // captains to remember a different secret per feature.
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
+    const current = setting && setting.value ? setting.value : '';
+    if (!current || current === 'CHANGE_ME') {
+      return res.status(503).json({ error: 'Admin password not set yet — set it under HQ admin settings.' });
     }
-    let valid = false;
-    for (const a of admins) {
-      if (await bcrypt.compare(adminPassword, a.password_hash)) { valid = true; break; }
-    }
-    if (!valid) {
+    if (String(adminPassword) !== current) {
       return res.status(401).json({ error: 'Wrong admin password' });
     }
     const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(listId);
