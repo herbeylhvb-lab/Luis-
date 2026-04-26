@@ -17,7 +17,7 @@ function requireCaptainOrAdmin(req, res, next) {
 }
 
 router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (req, res) => {
-  const { firstName, lastName, age, captainId } = req.body || {};
+  const { firstName, lastName, age, captainId, phone } = req.body || {};
   const fn = (firstName || '').trim();
   const ln = (lastName || '').trim();
   if (!fn || !ln || age == null) {
@@ -30,6 +30,36 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
   const ageMin = Math.max(1, ageNum - 5);
   const ageMax = Math.min(130, ageNum + 5);
   const lastInitial = ln[0];
+
+  // PHONE-FIRST match: if the contact has a phone number that's already in
+  // the voter file, that's a much stronger signal than fuzzy name matching.
+  // Strip everything to digits, take last 10 (US-format), do a digit-only
+  // LIKE so we match across (123) 456-7890, +11234567890, 1234567890, etc.
+  const phoneDigits = (phone || '').replace(/\D/g, '');
+  let phoneMatchedCandidates = [];
+  if (phoneDigits.length >= 10) {
+    const last10 = phoneDigits.slice(-10);
+    const phoneRows = db.prepare(`
+      SELECT id, first_name, last_name, age, gender, address, city, zip,
+             phone, phone_validated_at
+      FROM voters
+      WHERE phone != ''
+        AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '(', ''), ')', ''), '-', ''), ' ', ''), '+', ''), '.', '') LIKE ?
+      LIMIT 5
+    `).all('%' + last10);
+    phoneMatchedCandidates = phoneRows.map(v => ({
+      voterId: v.id,
+      firstName: v.first_name,
+      lastName: v.last_name,
+      age: v.age,
+      address: v.address,
+      city: v.city,
+      currentPhone: v.phone || '',
+      phoneValidatedAt: v.phone_validated_at || null,
+      score: 1.0,
+      matchType: 'phone',
+    }));
+  }
 
   function fetchAndScore(scope) {
     let rows;
@@ -70,18 +100,37 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
       .slice(0, 5);
   }
 
-  let candidates, scope;
+  let nameCandidates, scope;
   if (captainId) {
-    candidates = fetchAndScore('list');
+    nameCandidates = fetchAndScore('list');
     scope = 'list';
-    if (candidates.length === 0) {
-      candidates = fetchAndScore('broader');
+    if (nameCandidates.length === 0) {
+      nameCandidates = fetchAndScore('broader');
       scope = 'broader';
     }
   } else {
-    candidates = fetchAndScore('broader');
+    nameCandidates = fetchAndScore('broader');
     scope = 'broader';
   }
+
+  // Merge phone matches (score 1.0, matchType 'phone') with name+age matches.
+  // Phone matches always sort to the top. Dedupe by voterId so the same voter
+  // doesn't appear twice if they match both ways.
+  const seen = new Set();
+  const merged = [];
+  phoneMatchedCandidates.forEach(c => {
+    if (seen.has(c.voterId)) return;
+    seen.add(c.voterId);
+    merged.push(c);
+  });
+  nameCandidates.forEach(c => {
+    if (seen.has(c.voterId)) return;
+    seen.add(c.voterId);
+    merged.push(Object.assign({ matchType: 'name' }, c));
+  });
+  // Already sorted within each group; phone matches already at top.
+  const candidates = merged.slice(0, 5);
+  if (phoneMatchedCandidates.length > 0) scope = 'phone';
   res.json({ candidates, scope });
 });
 

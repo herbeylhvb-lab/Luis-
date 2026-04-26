@@ -5492,7 +5492,7 @@ document.getElementById('mcFindMatchesBtn').addEventListener('click', async func
   btn.textContent = 'Searching...';
   try {
     var data = await apiPost('/api/captain/match-candidates', {
-      firstName: c.firstName, lastName: c.lastName, age: age
+      firstName: c.firstName, lastName: c.lastName, age: age, phone: c.phone || ''
     });
     renderCandidates((data && data.candidates) || [], (data && data.scope) || 'broader');
   } catch (err) {
