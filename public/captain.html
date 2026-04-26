@@ -5508,6 +5508,7 @@ function renderCandidates(candidates, scope) {
   clearChildren(list);
   if (!candidates.length) {
     list.appendChild(makeEl('p', { text: 'No matches found.', style: 'color:#94a3b8' }));
+    appendSearchDbButton(list);
     return;
   }
   list.appendChild(makeEl('p', {
@@ -5527,24 +5528,113 @@ function renderCandidates(candidates, scope) {
       style: 'color:#94a3b8'
     }));
     row.appendChild(document.createElement('br'));
-    row.appendChild(makeEl('span', {
-      text: 'Current phone: ' + (v.currentPhone || '(none)') + ' · Score: ' + (typeof v.score === 'number' ? v.score.toFixed(2) : '?'),
-      style: 'color:#64748b'
-    }));
+    var scoreText = 'Current phone: ' + (v.currentPhone || '(none)') +
+      ' · Score: ' + (typeof v.score === 'number' ? v.score.toFixed(2) : '?');
+    if (v.matchType === 'phone') scoreText += ' · 📞 phone match';
+    row.appendChild(makeEl('span', { text: scoreText, style: 'color:#64748b' }));
     row.addEventListener('click', function() {
       confirmMatch(v.voterId, window._mcContacts[window._mcIndex].phone);
     });
     list.appendChild(row);
   });
+
+  // If the top candidate isn't a perfect match (no phone match found),
+  // offer a manual database search so the captain can find the right
+  // voter when fuzzy name matching missed them.
+  var topScore = candidates[0] && candidates[0].score;
+  if (topScore == null || topScore < 1.0) {
+    appendSearchDbButton(list);
+  }
+}
+
+function appendSearchDbButton(list) {
+  var btn = makeEl('button', {
+    text: '🔍 Search database for this person',
+    style: 'margin-top:10px;padding:10px;width:100%;background:#334155;color:#e2e8f0;border:none;border-radius:6px;cursor:pointer',
+  });
+  btn.addEventListener('click', openSearchDbStep);
+  list.appendChild(btn);
+}
+
+async function openSearchDbStep() {
+  var list = document.getElementById('mcCandidateList');
+  clearChildren(list);
+  list.appendChild(makeEl('p', {
+    text: 'Search the voter file. Type any part of name, address, or phone:',
+    style: 'color:#94a3b8;margin-bottom:6px',
+  }));
+  var input = document.createElement('input');
+  input.type = 'search';
+  input.id = 'mcDbSearchInput';
+  input.placeholder = 'e.g. Villarreal, 123 Main, 9563466902';
+  input.style.cssText = 'width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:16px';
+  list.appendChild(input);
+  var results = makeEl('div', { style: 'margin-top:10px' });
+  results.id = 'mcDbSearchResults';
+  list.appendChild(results);
+
+  var debounce = null;
+  input.addEventListener('input', function() {
+    clearTimeout(debounce);
+    var q = input.value.trim();
+    if (q.length < 2) { clearChildren(results); return; }
+    debounce = setTimeout(function() { runSearchDbQuery(q, results); }, 250);
+  });
+  input.focus();
+}
+
+async function runSearchDbQuery(q, resultsEl) {
+  clearChildren(resultsEl);
+  resultsEl.appendChild(makeEl('p', { text: 'Searching…', style: 'color:#94a3b8' }));
+  try {
+    var capId = (captainState && captainState.captain && captainState.captain.id) || 0;
+    var data = await api('/api/captains/' + capId + '/search?q=' + encodeURIComponent(q) + '&limit=10');
+    var voters = (data && data.voters) || [];
+    clearChildren(resultsEl);
+    if (!voters.length) {
+      resultsEl.appendChild(makeEl('p', { text: 'No voters found.', style: 'color:#94a3b8' }));
+      return;
+    }
+    voters.forEach(function(v) {
+      var row = makeEl('div', {
+        style: 'padding:10px;border:1px solid #334155;border-radius:6px;margin:6px 0;cursor:pointer'
+      });
+      row.appendChild(makeEl('strong', { text: (v.first_name || '') + ' ' + (v.last_name || '') }));
+      if (v.age) row.appendChild(makeEl('span', { text: ' · age ' + v.age }));
+      row.appendChild(document.createElement('br'));
+      row.appendChild(makeEl('span', {
+        text: (v.address || '') + ', ' + (v.city || ''),
+        style: 'color:#94a3b8'
+      }));
+      row.appendChild(document.createElement('br'));
+      row.appendChild(makeEl('span', {
+        text: 'Current phone: ' + (v.phone || '(none)'),
+        style: 'color:#64748b'
+      }));
+      row.addEventListener('click', function() {
+        confirmMatch(v.id, window._mcContacts[window._mcIndex].phone);
+      });
+      resultsEl.appendChild(row);
+    });
+  } catch (err) {
+    clearChildren(resultsEl);
+    resultsEl.appendChild(makeEl('p', {
+      text: 'Search failed: ' + (err && err.message ? err.message : 'unknown error'),
+      style: 'color:#ef4444',
+    }));
+  }
 }
 
 async function confirmMatch(voterId, phone) {
-  if (!confirm('Update this voter\'s phone to ' + phone + '?')) return;
+  if (!confirm('Update this voter\'s phone to ' + phone + ' and add them to your list?')) return;
   try {
-    var data = await apiPost('/api/captain/confirm-match', { voterId: voterId, phone: phone });
+    var listId = (captainState && captainState.selectedListId) || null;
+    var data = await apiPost('/api/captain/confirm-match', {
+      voterId: voterId, phone: phone, listId: listId
+    });
     if (data && data.success) {
       window._mcResults.matched++;
-      showActionMenu(voterId, phone);
+      showActionMenu(voterId, phone, data);
     } else {
       showToast('Update failed: ' + ((data && data.error) || 'unknown error'));
     }
@@ -5553,18 +5643,107 @@ async function confirmMatch(voterId, phone) {
   }
 }
 
-function showActionMenu(voterId, phone) {
+function showActionMenu(voterId, phone, confirmData) {
   var menu = document.getElementById('mcActionMenu');
   clearChildren(menu);
   menu.style.display = 'block';
-  menu.appendChild(makeEl('p', { text: 'Updated.' }));
   var c = window._mcContacts[window._mcIndex];
+  confirmData = confirmData || {};
+
+  // Status line — phone updated + list-add result.
+  var statusText = '✅ Phone updated';
+  if (confirmData.addedToList) {
+    var listName = (captainState && captainState.selectedListName) ? captainState.selectedListName : 'your list';
+    statusText += ' · added to ' + listName;
+  } else if (confirmData.alreadyOnList) {
+    statusText += ' · already on your list';
+  }
+  menu.appendChild(makeEl('p', { text: statusText, style: 'color:#22c55e' }));
+
+  // Household section — checkboxes pre-checked for voters NOT yet on list,
+  // shown disabled+checked for those already on the list.
+  var household = (confirmData.household || []);
+  if (household.length > 0) {
+    var headerStyle = 'color:#94a3b8;margin-top:10px;font-size:14px';
+    menu.appendChild(makeEl('p', {
+      text: 'Other people at this address (' + household.length + '):',
+      style: headerStyle,
+    }));
+    household.forEach(function(h) {
+      var label = makeEl('label', {
+        style: 'display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #334155;cursor:pointer'
+      });
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.voterId = String(h.voterId);
+      cb.checked = !h.onList;
+      cb.disabled = !!h.onList;
+      var info = makeEl('span', {
+        text: (h.firstName || '') + ' ' + (h.lastName || '') +
+              (h.age ? ' · age ' + h.age : '') +
+              (h.onList ? ' (on your list)' : ''),
+        style: h.onList ? 'color:#64748b' : 'color:#e2e8f0',
+      });
+      label.appendChild(cb);
+      label.appendChild(info);
+      menu.appendChild(label);
+    });
+
+    var addHouseBtn = makeEl('button', {
+      text: 'Add household to list',
+      style: 'margin-top:10px;width:100%;padding:10px;background:#f59e0b;color:#000;border:none;border-radius:6px;font-weight:600;cursor:pointer',
+    });
+    addHouseBtn.addEventListener('click', function() {
+      addHouseholdFromMenu(voterId, addHouseBtn);
+    });
+    menu.appendChild(addHouseBtn);
+  }
+
+  // Action buttons
+  var btnRow = makeEl('div', { style: 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap' });
   var textBtn = makeEl('button', { text: 'Text now' });
   textBtn.addEventListener('click', function() { textVoter(c, phone); });
-  var nextBtn = makeEl('button', { text: 'Next contact', style: 'margin-left:8px' });
+  var nextBtn = makeEl('button', { text: 'Next contact' });
   nextBtn.addEventListener('click', advance);
-  menu.appendChild(textBtn);
-  menu.appendChild(nextBtn);
+  btnRow.appendChild(textBtn);
+  btnRow.appendChild(nextBtn);
+  menu.appendChild(btnRow);
+}
+
+async function addHouseholdFromMenu(parentVoterId, btn) {
+  var listId = captainState && captainState.selectedListId;
+  if (!listId) { showToast('Pick a list first'); return; }
+  var menu = document.getElementById('mcActionMenu');
+  var voterIds = [];
+  menu.querySelectorAll('input[type=checkbox]:checked:not(:disabled)').forEach(function(cb) {
+    var id = parseInt(cb.dataset.voterId, 10);
+    if (id) voterIds.push(id);
+  });
+  if (!voterIds.length) { showToast('No household members selected'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
+  try {
+    var data = await apiPost('/api/captain/add-household', {
+      listId: listId, parentVoterId: parentVoterId, voterIds: voterIds,
+    });
+    if (data && data.success) {
+      btn.textContent = '✅ Added ' + (data.added || 0) +
+        (data.alreadyThere ? ' (' + data.alreadyThere + ' already on list)' : '');
+      btn.disabled = true;
+      // Disable the checkboxes — those voters are now on the list.
+      menu.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
+        cb.disabled = true;
+      });
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Add household to list';
+      showToast('Add failed: ' + ((data && data.error) || 'unknown'));
+    }
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Add household to list';
+    showToast('Add failed: ' + (err && err.message ? err.message : 'network error'));
+  }
 }
 
 function textVoter(contact, phone) {
