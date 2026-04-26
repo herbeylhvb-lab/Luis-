@@ -814,6 +814,76 @@ router.delete('/candidates/:id/lists/:listId/voters/:voterId', requireCandidateA
   res.json({ success: true });
 });
 
+// Bulk-remove voters from a list (admin OR captain list under this candidate),
+// gated by the same shared admin password used for phone-edit unlocks.
+// Voter records remain in the voter file; only list memberships are dropped.
+router.post('/candidates/:id/lists/:listId/bulk-remove-with-password', requireCandidateAuth, (req, res) => {
+  const { voterIds, adminPassword } = req.body || {};
+  const listId = parseInt(req.params.listId, 10);
+  const candidateId = parseInt(req.params.id, 10);
+  if (!listId || !Array.isArray(voterIds) || voterIds.length === 0 || !adminPassword) {
+    return res.status(400).json({ error: 'voterIds[], adminPassword required' });
+  }
+  // Same shared password as captain phone-edit and bulk-remove flows.
+  const setting = db.prepare("SELECT value FROM settings WHERE key = 'phone_update_password'").get();
+  const current = setting && setting.value ? setting.value : '';
+  if (!current || current === 'CHANGE_ME') {
+    return res.status(503).json({ error: 'Admin password not set yet — set it under HQ admin settings.' });
+  }
+  if (String(adminPassword) !== current) {
+    return res.status(401).json({ error: 'Wrong admin password' });
+  }
+
+  // Figure out which table the list lives in. Right-panel can show either an
+  // admin_list owned by this candidate OR a captain_list whose captain is
+  // owned by / shared with this candidate.
+  let tableName = null;
+  const adminList = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(listId, candidateId);
+  if (adminList) {
+    tableName = 'admin_list_voters';
+  } else {
+    const captainList = db.prepare(`
+      SELECT cl.id FROM captain_lists cl
+      JOIN captains c ON cl.captain_id = c.id
+      WHERE cl.id = ?
+        AND (c.candidate_id = ? OR EXISTS (
+          SELECT 1 FROM captain_candidates cc
+          WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+        ))
+    `).get(listId, candidateId, candidateId);
+    if (captainList) tableName = 'captain_list_voters';
+  }
+  if (!tableName) {
+    // Admin session bypasses ownership for either table — last-resort fallback.
+    if (req.session.userId) {
+      const anyAdmin = db.prepare('SELECT id FROM admin_lists WHERE id = ?').get(listId);
+      if (anyAdmin) tableName = 'admin_list_voters';
+      else {
+        const anyCaptain = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(listId);
+        if (anyCaptain) tableName = 'captain_list_voters';
+      }
+    }
+  }
+  if (!tableName) return res.status(404).json({ error: 'List not found in your campaign' });
+
+  const remove = db.prepare(`DELETE FROM ${tableName} WHERE list_id = ? AND voter_id = ?`);
+  let removed = 0;
+  const tx = db.transaction(() => {
+    for (const id of voterIds) {
+      const vid = parseInt(id, 10);
+      if (!vid) continue;
+      const r = remove.run(listId, vid);
+      if (r.changes) removed++;
+    }
+  });
+  tx();
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Candidate ' + (req.session.candidateId || req.session.userId || '?') +
+    ' bulk-removed ' + removed + ' voter(s) from ' + tableName + ' list ' + listId
+  );
+  res.json({ success: true, removed, table: tableName });
+});
+
 // View voters on a captain's list (read-only for candidate)
 router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth, (req, res) => {
   const listId = req.params.listId;

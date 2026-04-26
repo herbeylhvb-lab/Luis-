@@ -411,6 +411,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
           <select id="fabTargetList"></select>
           <button class="btn btn-sm btn-success" onclick="doTransfer(false)">Copy</button>
           <button class="btn btn-sm btn-primary" onclick="doTransfer(true)">Move</button>
+          <!-- Bulk delete: only visible when Select All is engaged. Requires
+               admin password — same secret used to unlock voter phone edits. -->
+          <button id="fabBulkDeleteBtn" class="btn btn-sm btn-danger" style="display:none" onclick="bulkDeleteSelected()" title="Remove all selected voters from this list (admin password required)">&#128465; Delete All</button>
           <button class="btn btn-sm btn-secondary" onclick="clearVoterSelection()">Cancel</button>
         </div>
       </div>
@@ -527,11 +530,17 @@ function updateSelectionUI() {
   });
   // Update select-all checkbox
   var selectAllCb = document.getElementById('selectAllCheckbox');
+  var totalVisible = document.querySelectorAll('.right-voter[data-voter-id]').length;
+  var allSelected = totalVisible > 0 && selectedVoterIds.size === totalVisible;
   if (selectAllCb) {
-    var total = document.querySelectorAll('.right-voter[data-voter-id]').length;
-    selectAllCb.checked = total > 0 && selectedVoterIds.size === total;
-    selectAllCb.indeterminate = selectedVoterIds.size > 0 && selectedVoterIds.size < total;
+    selectAllCb.checked = allSelected;
+    selectAllCb.indeterminate = selectedVoterIds.size > 0 && selectedVoterIds.size < totalVisible;
   }
+  // Show the bulk-delete button only when EVERY visible voter is selected.
+  // Picking a few voters individually never surfaces the destructive option;
+  // candidate has to explicitly Select All first.
+  var deleteBtn = document.getElementById('fabBulkDeleteBtn');
+  if (deleteBtn) deleteBtn.style.display = allSelected ? 'inline-flex' : 'none';
   // Update selected count display
   var countEl = document.getElementById('selectAllCount');
   if (countEl) {
@@ -559,6 +568,41 @@ function toggleSelectAll() {
 function clearVoterSelection() {
   selectedVoterIds.clear();
   updateSelectionUI();
+}
+
+async function bulkDeleteSelected() {
+  if (selectedVoterIds.size === 0) { alert('No voters selected.'); return; }
+  if (!currentRightPanelListId) { alert('No list selected.'); return; }
+  var voterIds = Array.from(selectedVoterIds);
+  var n = voterIds.length;
+  if (!confirm('Remove ' + n + ' voter' + (n !== 1 ? 's' : '') + ' from this list?\n\nThis only removes them from the list — they stay in the voter file. An admin password is required.')) return;
+  var pw = prompt('Enter admin password to delete ' + n + ' voter' + (n !== 1 ? 's' : '') + ':');
+  if (pw == null || pw.length === 0) return;
+  try {
+    var data = await apiPost(
+      '/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-remove-with-password',
+      { voterIds: voterIds, adminPassword: pw }
+    );
+    if (data && data.success) {
+      alert(data.removed + ' voter' + (data.removed !== 1 ? 's' : '') + ' removed.');
+      selectedVoterIds.clear();
+      // Refresh the right panel list view.
+      if (typeof openRightPanelListId === 'function') {
+        try { await openRightPanelListId(currentRightPanelListId); } catch (e) {}
+      } else if (typeof loadCandidatePortal === 'function') {
+        try { await loadCandidatePortal(); } catch (e) {}
+      }
+    } else {
+      alert('Delete failed: ' + ((data && data.error) || 'unknown error'));
+    }
+  } catch (err) {
+    var msg = (err && err.message) || 'network error';
+    if (msg.toLowerCase().indexOf('password') !== -1 || msg.indexOf('401') !== -1) {
+      alert('Wrong admin password — try again');
+    } else {
+      alert('Delete failed: ' + msg);
+    }
+  }
 }
 
 async function doTransfer(removeFromSource) {
