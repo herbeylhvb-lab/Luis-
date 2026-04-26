@@ -171,3 +171,16 @@ function isNicknameOf(a, b) {
 }
 
 module.exports.isNicknameOf = isNicknameOf;
+
+function scoreCandidate(contact, voter) {
+  const lastA = contact.lastName || '', lastB = voter.last_name || '';
+  const firstA = contact.firstName || '', firstB = voter.first_name || '';
+  const lastNameScore = 1 - levenshtein(lastA, lastB) / Math.max(lastA.length, lastB.length, 1);
+  const levFirstScore = 1 - levenshtein(firstA, firstB) / Math.max(firstA.length, firstB.length, 1);
+  const firstNameScore = isNicknameOf(firstA, firstB) ? 1.0 : levFirstScore;
+  const ageGap = Math.abs((contact.age || 0) - (voter.age || 0));
+  const ageScore = Math.max(0, 1 - ageGap / 10);
+  return 0.5 * lastNameScore + 0.3 * firstNameScore + 0.2 * ageScore;
+}
+
+module.exports.scoreCandidate = scoreCandidate;
