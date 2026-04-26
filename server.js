@@ -322,6 +322,7 @@ app.use('/api', require('./routes/ai'));
 app.use('/api', require('./routes/p2p'));
 app.use('/api', require('./routes/volunteers'));
 app.use('/api', require('./routes/captains'));
+app.use('/api', require('./routes/captain-contacts'));
 app.use('/api', require('./routes/candidates'));
 app.use('/api', require('./routes/email'));
 app.use('/api', require('./routes/admin-lists'));
