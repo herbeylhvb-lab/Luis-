@@ -477,10 +477,19 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top)) max(20
       <section id="mcStep2" style="display:none">
         <p id="mcContactProgress" style="color:#94a3b8"></p>
         <div id="mcContactCard" style="padding:8px;background:#0f172a;border-radius:6px;margin:8px 0"></div>
-        <label>Probable age:
-          <input type="number" id="mcAgeInput" min="1" max="130" style="width:80px">
-        </label>
-        <button id="mcFindMatchesBtn">Find Matches</button>
+        <!-- Age + City inputs: hidden by default, only shown when phone match
+             fails or contact has no phone. JS toggles display via #mcAgeCityRow. -->
+        <div id="mcAgeCityRow" style="display:none;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:8px">
+          <label style="display:flex;flex-direction:column;font-size:13px;color:#94a3b8">
+            Probable age
+            <input type="number" id="mcAgeInput" min="1" max="130" style="width:90px;margin-top:4px">
+          </label>
+          <label style="display:flex;flex-direction:column;font-size:13px;color:#94a3b8;flex:1;min-width:120px">
+            City (optional)
+            <input type="text" id="mcCityInput" placeholder="e.g. Brownsville" style="margin-top:4px">
+          </label>
+        </div>
+        <button id="mcFindMatchesBtn" style="display:none">Find Matches</button>
         <div id="mcCandidateList" style="margin-top:12px"></div>
         <div id="mcActionMenu" style="display:none;margin-top:12px"></div>
         <button id="mcSkipBtn" style="margin-top:8px">Skip &mdash; not in voter file</button>
@@ -5477,22 +5486,81 @@ function renderCurrentContact() {
   card.appendChild(document.createElement('br'));
   card.appendChild(makeEl('span', { text: c.phone || '', style: 'color:#94a3b8' }));
 
+  // Reset the form fields and result regions for the new contact.
   document.getElementById('mcAgeInput').value = '';
+  var cityInput = document.getElementById('mcCityInput');
+  if (cityInput) cityInput.value = '';
+  // Keep the age+city form HIDDEN by default — we try phone first.
+  var ageRow = document.getElementById('mcAgeCityRow');
+  if (ageRow) ageRow.style.display = 'none';
+  document.getElementById('mcFindMatchesBtn').style.display = 'none';
   clearChildren(document.getElementById('mcCandidateList'));
   document.getElementById('mcActionMenu').style.display = 'none';
+
+  // Auto-try phone match first. If contact has a phone with 10+ digits,
+  // hit the API with phone-only and see if it lands a perfect match.
+  // No captain action needed — the screen shows results or the age form.
+  var phoneDigits = String(c.phone || '').replace(/\D/g, '');
+  if (phoneDigits.length >= 10) {
+    autoPhoneSearch(c);
+  } else {
+    showAgeCityForm('No phone on this contact — enter age and city to search:');
+  }
+}
+
+async function autoPhoneSearch(contact) {
+  var listEl = document.getElementById('mcCandidateList');
+  clearChildren(listEl);
+  listEl.appendChild(makeEl('p', { text: 'Looking up phone…', style: 'color:#94a3b8' }));
+  try {
+    var data = await apiPost('/api/captain/match-candidates', {
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      phone: contact.phone || '',
+      // Intentionally omit age — phone-only first.
+    });
+    var candidates = (data && data.candidates) || [];
+    var hasPhoneMatch = candidates.some(function (c) { return c.matchType === 'phone'; });
+    if (hasPhoneMatch) {
+      renderCandidates(candidates, data.scope || 'phone');
+    } else {
+      // No phone match — fall back to the age + city form so captain can
+      // disambiguate by name/age/location.
+      showAgeCityForm('No phone match found. Enter age and city to search by name:');
+    }
+  } catch (err) {
+    showAgeCityForm('Phone lookup failed. Enter age and city to search:');
+  }
+}
+
+function showAgeCityForm(headerText) {
+  var listEl = document.getElementById('mcCandidateList');
+  clearChildren(listEl);
+  listEl.appendChild(makeEl('p', { text: headerText, style: 'color:#94a3b8;margin-bottom:8px' }));
+  var ageRow = document.getElementById('mcAgeCityRow');
+  if (ageRow) ageRow.style.display = 'flex';
+  document.getElementById('mcFindMatchesBtn').style.display = 'inline-block';
+  var ageInput = document.getElementById('mcAgeInput');
+  if (ageInput) ageInput.focus();
 }
 
 document.getElementById('mcFindMatchesBtn').addEventListener('click', async function () {
   var c = window._mcContacts[window._mcIndex];
   var age = parseInt(document.getElementById('mcAgeInput').value, 10);
   if (!age) { showToast('Enter a probable age first.'); return; }
+  var cityInput = document.getElementById('mcCityInput');
+  var city = cityInput ? cityInput.value.trim() : '';
   var btn = this;
   var origText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = 'Searching...';
+  btn.textContent = 'Searching…';
   try {
     var data = await apiPost('/api/captain/match-candidates', {
-      firstName: c.firstName, lastName: c.lastName, age: age, phone: c.phone || ''
+      firstName: c.firstName,
+      lastName: c.lastName,
+      age: age,
+      city: city,
+      phone: c.phone || '',
     });
     renderCandidates((data && data.candidates) || [], (data && data.scope) || 'broader');
   } catch (err) {

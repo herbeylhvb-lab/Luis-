@@ -17,25 +17,34 @@ function requireCaptainOrAdmin(req, res, next) {
 }
 
 router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (req, res) => {
-  const { firstName, lastName, age, captainId, phone } = req.body || {};
+  const { firstName, lastName, age, captainId, phone, city } = req.body || {};
   const fn = (firstName || '').trim();
   const ln = (lastName || '').trim();
-  if (!fn || !ln || age == null) {
-    return res.status(400).json({ error: 'firstName, lastName, age required' });
+  const ct = (city || '').trim();
+  const phoneDigitsCheck = (phone || '').replace(/\D/g, '');
+  // Either phone-only mode (just lookup by phone) OR name+age mode is fine.
+  // We need at least one viable strategy or there's nothing to search.
+  const hasPhoneStrategy = phoneDigitsCheck.length >= 10;
+  const hasNameAgeStrategy = !!(fn && ln && age != null);
+  if (!hasPhoneStrategy && !hasNameAgeStrategy) {
+    return res.status(400).json({ error: 'phone OR (firstName + lastName + age) required' });
   }
-  const ageNum = parseInt(age, 10);
-  if (isNaN(ageNum) || ageNum < 1 || ageNum > 130) {
-    return res.status(400).json({ error: 'age must be 1-130' });
+  let ageNum = null, ageMin = 1, ageMax = 130;
+  if (age != null) {
+    ageNum = parseInt(age, 10);
+    if (isNaN(ageNum) || ageNum < 1 || ageNum > 130) {
+      return res.status(400).json({ error: 'age must be 1-130' });
+    }
+    ageMin = Math.max(1, ageNum - 5);
+    ageMax = Math.min(130, ageNum + 5);
   }
-  const ageMin = Math.max(1, ageNum - 5);
-  const ageMax = Math.min(130, ageNum + 5);
-  const lastInitial = ln[0];
+  const lastInitial = ln ? ln[0] : '';
 
   // PHONE-FIRST match: if the contact has a phone number that's already in
   // the voter file, that's a much stronger signal than fuzzy name matching.
   // Strip everything to digits, take last 10 (US-format), do a digit-only
   // LIKE so we match across (123) 456-7890, +11234567890, 1234567890, etc.
-  const phoneDigits = (phone || '').replace(/\D/g, '');
+  const phoneDigits = phoneDigitsCheck;
   let phoneMatchedCandidates = [];
   // Redacted log: only first 3 + last 2 of the digits, so we can debug
   // format issues without leaking full phone numbers in Railway logs.
@@ -76,28 +85,23 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
   }
 
   function fetchAndScore(scope) {
-    let rows;
+    if (!hasNameAgeStrategy) return [];
+    // Build the SQL dynamically: last-initial filter, age range, optional
+    // captain-list scope, optional city filter.
+    let sql = `SELECT id, first_name, last_name, age, gender, address, city, zip,
+                      phone, phone_validated_at
+               FROM voters
+               WHERE LOWER(SUBSTR(last_name, 1, 1)) = LOWER(?)
+                 AND age BETWEEN ? AND ?`;
+    const params = [lastInitial, ageMin, ageMax];
+    if (ct) { sql += ' AND LOWER(city) LIKE ?'; params.push('%' + ct.toLowerCase() + '%'); }
     if (scope === 'list' && captainId) {
-      rows = db.prepare(`
-        SELECT id, first_name, last_name, age, gender, address, city, zip,
-               phone, phone_validated_at
-        FROM voters
-        WHERE LOWER(SUBSTR(last_name, 1, 1)) = LOWER(?)
-          AND age BETWEEN ? AND ?
-          AND id IN (SELECT voter_id FROM captain_list_voters
-                     WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?))
-        LIMIT 100
-      `).all(lastInitial, ageMin, ageMax, captainId);
-    } else {
-      rows = db.prepare(`
-        SELECT id, first_name, last_name, age, gender, address, city, zip,
-               phone, phone_validated_at
-        FROM voters
-        WHERE LOWER(SUBSTR(last_name, 1, 1)) = LOWER(?)
-          AND age BETWEEN ? AND ?
-        LIMIT 100
-      `).all(lastInitial, ageMin, ageMax);
+      sql += ` AND id IN (SELECT voter_id FROM captain_list_voters
+                         WHERE list_id IN (SELECT id FROM captain_lists WHERE captain_id = ?))`;
+      params.push(captainId);
     }
+    sql += ' LIMIT 100';
+    const rows = db.prepare(sql).all(...params);
     return rows.map(v => ({
       voterId: v.id,
       firstName: v.first_name,
@@ -114,17 +118,22 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
       .slice(0, 5);
   }
 
-  let nameCandidates, scope;
-  if (captainId) {
-    nameCandidates = fetchAndScore('list');
-    scope = 'list';
-    if (nameCandidates.length === 0) {
+  // Skip name+age search entirely if the caller didn't supply name+age
+  // (phone-only mode). fetchAndScore returns [] when hasNameAgeStrategy
+  // is false, but we keep the conditional clear for readability.
+  let nameCandidates = [], scope = 'phone';
+  if (hasNameAgeStrategy) {
+    if (captainId) {
+      nameCandidates = fetchAndScore('list');
+      scope = 'list';
+      if (nameCandidates.length === 0) {
+        nameCandidates = fetchAndScore('broader');
+        scope = 'broader';
+      }
+    } else {
       nameCandidates = fetchAndScore('broader');
       scope = 'broader';
     }
-  } else {
-    nameCandidates = fetchAndScore('broader');
-    scope = 'broader';
   }
 
   // Merge phone matches (score 1.0, matchType 'phone') with name+age matches.
