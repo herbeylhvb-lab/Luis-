@@ -5280,8 +5280,10 @@ document.getElementById('mcFileInput').addEventListener('change', async function
   window._mcResults = { matched: 0, skipped: 0 };
   if (contacts.length > 0) {
     document.getElementById('mcStep1').style.display = 'none';
-    document.getElementById('mcStep2').style.display = 'block';
-    renderCurrentContact();
+    // Use the same preview-and-sort flow as the native multi-select picker:
+    // fetch phone-match counts, sort phone matches first, show summary,
+    // captain taps Start to enter the per-contact wizard.
+    runPreviewAndStartWizard(contacts);
   }
 });
 
@@ -5451,10 +5453,94 @@ function updateContinueBtn() {
     window._mcIndex = 0;
     window._mcResults = { matched: 0, skipped: 0 };
     document.getElementById('mcStepSelect').style.display = 'none';
-    document.getElementById('mcStep2').style.display = 'block';
-    renderCurrentContact();
+    // Pre-flight: ask the server which selected contacts have phone matches,
+    // sort phone-matched ones to the front (1-tap confirms come first), and
+    // show the captain a summary of how many are easy vs need manual entry.
+    runPreviewAndStartWizard(selected);
   });
 })();
+
+async function runPreviewAndStartWizard(contacts) {
+  var step2 = document.getElementById('mcStep2');
+  step2.style.display = 'block';
+  // Brief loading state — show in the candidate list area.
+  var listEl = document.getElementById('mcCandidateList');
+  clearChildren(listEl);
+  document.getElementById('mcContactProgress').textContent = '';
+  document.getElementById('mcContactCard').textContent = '';
+  listEl.appendChild(makeEl('p', {
+    text: 'Looking up phone numbers for ' + contacts.length + ' contacts…',
+    style: 'color:#94a3b8',
+  }));
+  try {
+    var data = await apiPost('/api/captain/preview-matches', {
+      contacts: contacts.map(function(c) {
+        return { firstName: c.firstName, lastName: c.lastName, phone: c.phone };
+      }),
+    });
+    var results = (data && data.results) || [];
+    // Tag each contact with its phone-match status, then sort phone matches first.
+    var tagged = contacts.map(function(c, i) {
+      var r = results[i] || {};
+      return Object.assign({}, c, {
+        _hasPhoneMatch: !!r.hasPhoneMatch,
+        _hasPhone: !!r.hasPhone,
+      });
+    });
+    tagged.sort(function(a, b) {
+      if (a._hasPhoneMatch && !b._hasPhoneMatch) return -1;
+      if (!a._hasPhoneMatch && b._hasPhoneMatch) return 1;
+      // Within each group, contacts with phones first, then those without.
+      if (a._hasPhone && !b._hasPhone) return -1;
+      if (!a._hasPhone && b._hasPhone) return 1;
+      return 0;
+    });
+    window._mcContacts = tagged;
+    var phoneCount = (data && data.phoneMatchCount) || 0;
+    var manualCount = contacts.length - phoneCount;
+    showPreviewSummary(phoneCount, manualCount);
+  } catch (err) {
+    // Preview failed — proceed without sorting.
+    window._mcContacts = contacts;
+    renderCurrentContact();
+  }
+}
+
+function showPreviewSummary(phoneCount, manualCount) {
+  var listEl = document.getElementById('mcCandidateList');
+  clearChildren(listEl);
+  document.getElementById('mcContactProgress').textContent = '';
+  document.getElementById('mcContactCard').textContent = '';
+  document.getElementById('mcActionMenu').style.display = 'none';
+
+  var box = makeEl('div', {
+    style: 'padding:14px;background:#1e293b;border:1px solid #334155;border-radius:8px;margin-bottom:8px',
+  });
+  box.appendChild(makeEl('p', {
+    text: phoneCount + ' phone matches found',
+    style: 'color:#22c55e;font-weight:600;font-size:18px;margin-bottom:6px',
+  }));
+  if (manualCount > 0) {
+    box.appendChild(makeEl('p', {
+      text: manualCount + ' need age + city to search by name',
+      style: 'color:#94a3b8;font-size:14px',
+    }));
+  }
+  box.appendChild(makeEl('p', {
+    text: 'Phone matches will come first — one-tap confirms. Then we work on the rest.',
+    style: 'color:#64748b;font-size:13px;margin-top:6px',
+  }));
+  listEl.appendChild(box);
+
+  var startBtn = makeEl('button', {
+    text: 'Start →',
+    style: 'width:100%;padding:14px;background:#f59e0b;color:#000;border:none;border-radius:8px;font-weight:600;font-size:16px;cursor:pointer',
+  });
+  startBtn.addEventListener('click', function() {
+    renderCurrentContact();
+  });
+  listEl.appendChild(startBtn);
+}
 
 // Safe DOM helpers — used everywhere user-controlled data flows into
 // the page. NEVER use innerHTML with vCard/CSV/voter data.

@@ -16,6 +16,32 @@ function requireCaptainOrAdmin(req, res, next) {
   return res.status(401).json({ error: 'Authentication required' });
 }
 
+// Pre-flight phone-only check: takes an array of contacts (just phone needed)
+// and tells the client which ones the voter file already knows by number.
+// Used by the wizard to show "X of Y phone matches found" up front and to
+// sort contacts so phone matches process first (1-tap confirms).
+router.post('/captain/preview-matches', matchLimiter, requireCaptainOrAdmin, (req, res) => {
+  const { contacts } = req.body || {};
+  if (!Array.isArray(contacts)) {
+    return res.status(400).json({ error: 'contacts[] required' });
+  }
+  // One scan of voters.phone to build a Set of last-10-digit suffixes.
+  // Then constant-time lookup per contact. <50ms even at 30k voters.
+  const allRows = db.prepare("SELECT phone FROM voters WHERE phone != '' AND phone IS NOT NULL").all();
+  const voterDigitSet = new Set();
+  for (const v of allRows) {
+    const s = String(v.phone || '').replace(/\D/g, '');
+    if (s.length >= 10) voterDigitSet.add(s.slice(-10));
+  }
+  const results = contacts.map(c => {
+    const digits = String((c && c.phone) || '').replace(/\D/g, '');
+    if (digits.length < 10) return { hasPhoneMatch: false, hasPhone: false };
+    return { hasPhoneMatch: voterDigitSet.has(digits.slice(-10)), hasPhone: true };
+  });
+  const phoneMatchCount = results.filter(r => r.hasPhoneMatch).length;
+  res.json({ results, phoneMatchCount, totalCount: contacts.length });
+});
+
 router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (req, res) => {
   const { firstName, lastName, age, captainId, phone, city } = req.body || {};
   const fn = (firstName || '').trim();
