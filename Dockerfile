@@ -30,6 +30,7 @@ COPY routes/ ./routes/
 COPY providers/ ./providers/
 COPY middleware/ ./middleware/
 COPY lib/ ./lib/
+COPY utils/ ./utils/
 # Public files change most often (UI edits) — keep as last COPY
 COPY public/ ./public/
 
