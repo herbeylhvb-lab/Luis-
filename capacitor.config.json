@@ -3,7 +3,7 @@
   "appName": "CampaignText",
   "webDir": "public",
   "server": {
-    "url": "https://campaigntext-production.up.railway.app",
+    "url": "https://campaigntext-production.up.railway.app/captain",
     "cleartext": false
   }
 }
