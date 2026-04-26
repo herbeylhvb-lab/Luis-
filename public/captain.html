@@ -382,6 +382,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <p id="mcParseStatus" style="color:#94a3b8;margin-top:8px"></p>
       </section>
 
+      <!-- Multi-select step (native only): captain picks which contacts to match. -->
+      <section id="mcStepSelect" style="display:none">
+        <p id="mcSelectHeader" style="color:#94a3b8;margin-bottom:8px">Select contacts to match:</p>
+        <div style="margin-bottom:8px">
+          <button id="mcSelectAllBtn" type="button">Select All</button>
+          <button id="mcSelectNoneBtn" type="button" style="margin-left:8px">Select None</button>
+        </div>
+        <div id="mcContactSelectList" style="max-height:50vh;overflow-y:auto;border:1px solid #334155;border-radius:6px"></div>
+        <button id="mcSelectContinueBtn" type="button" disabled style="margin-top:12px;width:100%;padding:12px;background:#f59e0b;color:#000;border:none;border-radius:8px;font-weight:600">Continue with 0 selected</button>
+      </section>
+
       <section id="mcStep2" style="display:none">
         <p id="mcContactProgress" style="color:#94a3b8"></p>
         <div id="mcContactCard" style="padding:8px;background:#0f172a;border-radius:6px;margin:8px 0"></div>
@@ -5174,36 +5185,137 @@ document.getElementById('mcFileInput').addEventListener('change', async function
       return;
     }
     try {
-      // Ask for permission first. iOS will only prompt the captain once;
-      // subsequent calls return the cached state.
       var perm = await Contacts.requestPermissions();
       if (perm && perm.contacts === 'denied') {
         if (typeof showToast === 'function') showToast('Contacts permission denied. Enable it in iOS Settings to use this feature.');
         return;
       }
-      // Open the native picker. projection tells the plugin which fields to
-      // populate on the returned contact — we only need name + phones.
-      var result = await Contacts.pickContact({
+      // getContacts returns ALL the user's contacts so we can build a multi-select UI.
+      // pickContact (single) is the iOS picker default and forced captains to walk
+      // through one at a time, which doesn't scale for hundreds of contacts.
+      var result = await Contacts.getContacts({
         projection: { name: true, phones: true },
       });
-      if (!result || !result.contact) return; // captain cancelled
-      var c = result.contact;
-      var firstPhone = (c.phones && c.phones.length > 0 && c.phones[0].number) || '';
-      var contacts = [{
-        firstName: (c.name && c.name.given) || '',
-        lastName:  (c.name && c.name.family) || '',
-        phone:     firstPhone,
-      }];
-      window._mcContacts = contacts;
-      window._mcIndex = 0;
-      window._mcResults = { matched: 0, skipped: 0 };
-      document.getElementById('mcStep1').style.display = 'none';
-      document.getElementById('mcStep2').style.display = 'block';
-      renderCurrentContact();
+      var allContacts = (result && result.contacts) || [];
+      if (!allContacts.length) {
+        if (typeof showToast === 'function') showToast('No contacts found');
+        return;
+      }
+      showContactSelectStep(allContacts);
     } catch (err) {
       var msg = (err && err.message) ? err.message : 'unknown error';
-      if (typeof showToast === 'function') showToast('Could not pick contact: ' + msg);
+      if (typeof showToast === 'function') showToast('Could not load contacts: ' + msg);
     }
+  });
+})();
+
+// Show the multi-select list of contacts (native only). Captain checks the
+// boxes for contacts they want to match, then taps Continue. Selected
+// contacts are pushed into window._mcContacts for the existing wizard.
+function showContactSelectStep(allContacts) {
+  document.getElementById('mcStep1').style.display = 'none';
+  var selectStep = document.getElementById('mcStepSelect');
+  if (!selectStep) return;
+
+  // Filter out contacts with no name AND no phone (junk entries).
+  var validContacts = allContacts.filter(function (c) {
+    var hasName = !!((c.name && c.name.given) || (c.name && c.name.family));
+    var hasPhone = !!(c.phones && c.phones[0] && c.phones[0].number);
+    return hasName || hasPhone;
+  });
+
+  validContacts.sort(function (a, b) {
+    var aLast = ((a.name && a.name.family) || '').toLowerCase();
+    var bLast = ((b.name && b.name.family) || '').toLowerCase();
+    if (aLast !== bLast) return aLast < bLast ? -1 : 1;
+    var aFirst = ((a.name && a.name.given) || '').toLowerCase();
+    var bFirst = ((b.name && b.name.given) || '').toLowerCase();
+    return aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
+  });
+
+  document.getElementById('mcSelectHeader').textContent =
+    'Select contacts to match (' + validContacts.length + ' total):';
+
+  var listEl = document.getElementById('mcContactSelectList');
+  clearChildren(listEl);
+
+  validContacts.forEach(function (c, i) {
+    var label = makeEl('label', {
+      style: 'display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #334155;cursor:pointer'
+    });
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.idx = String(i);
+    cb.addEventListener('change', updateContinueBtn);
+    var firstName = (c.name && c.name.given) || '';
+    var lastName = (c.name && c.name.family) || '';
+    var phone = (c.phones && c.phones[0] && c.phones[0].number) || '';
+    var displayName = (firstName + ' ' + lastName).trim() || '(no name)';
+    var info = makeEl('span', {
+      text: displayName + (phone ? ' · ' + phone : ''),
+    });
+    label.appendChild(cb);
+    label.appendChild(info);
+    listEl.appendChild(label);
+  });
+
+  // Cache for the Continue button to read selected items.
+  window._mcAllContacts = validContacts;
+  selectStep.style.display = 'block';
+  updateContinueBtn();
+}
+
+function updateContinueBtn() {
+  var listEl = document.getElementById('mcContactSelectList');
+  var btn = document.getElementById('mcSelectContinueBtn');
+  if (!listEl || !btn) return;
+  var n = listEl.querySelectorAll('input[type=checkbox]:checked').length;
+  btn.textContent = 'Continue with ' + n + ' selected';
+  btn.disabled = (n === 0);
+}
+
+(function wireSelectStepButtons() {
+  var allBtn = document.getElementById('mcSelectAllBtn');
+  var noneBtn = document.getElementById('mcSelectNoneBtn');
+  var continueBtn = document.getElementById('mcSelectContinueBtn');
+  if (!allBtn || !noneBtn || !continueBtn) return;
+
+  allBtn.addEventListener('click', function () {
+    document.querySelectorAll('#mcContactSelectList input[type=checkbox]').forEach(function (cb) {
+      cb.checked = true;
+    });
+    updateContinueBtn();
+  });
+  noneBtn.addEventListener('click', function () {
+    document.querySelectorAll('#mcContactSelectList input[type=checkbox]').forEach(function (cb) {
+      cb.checked = false;
+    });
+    updateContinueBtn();
+  });
+  continueBtn.addEventListener('click', function () {
+    var selected = [];
+    var allContacts = window._mcAllContacts || [];
+    document.querySelectorAll('#mcContactSelectList input[type=checkbox]:checked').forEach(function (cb) {
+      var idx = parseInt(cb.dataset.idx, 10);
+      var c = allContacts[idx];
+      if (c) {
+        selected.push({
+          firstName: (c.name && c.name.given) || '',
+          lastName: (c.name && c.name.family) || '',
+          phone: (c.phones && c.phones[0] && c.phones[0].number) || '',
+        });
+      }
+    });
+    if (!selected.length) {
+      if (typeof showToast === 'function') showToast('Select at least one contact');
+      return;
+    }
+    window._mcContacts = selected;
+    window._mcIndex = 0;
+    window._mcResults = { matched: 0, skipped: 0 };
+    document.getElementById('mcStepSelect').style.display = 'none';
+    document.getElementById('mcStep2').style.display = 'block';
+    renderCurrentContact();
   });
 })();
 
@@ -5331,26 +5443,37 @@ function textVoter(contact, phone) {
   var captainName = (typeof captainState !== 'undefined' && captainState.captain && captainState.captain.name) || 'your block captain';
   var body = 'Hi ' + (contact.firstName || '') + ', this is ' + captainName + '.';
   var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
   if (isNative) {
-    // @byteowls/capacitor-sms registers as `SmsManager` and exposes
-    // SmsManager.send({ numbers, text }) which wraps iOS
-    // MFMessageComposeViewController (the in-app message sheet).
+    // Native iOS path. Always returns at the end of this branch — never falls
+    // through to the sms: URL fallback, because that fallback would full-app-
+    // switch to Messages.app and break the in-app UX promise of Phase 2.
     var SmsManager = window.Capacitor.Plugins && window.Capacitor.Plugins.SmsManager;
-    if (SmsManager && typeof SmsManager.send === 'function') {
-      SmsManager.send({ numbers: [phone], text: body }).catch(function (err) {
-        // User cancelling the sheet rejects with SEND_CANCELLED — that's fine,
-        // not worth a toast. Surface only real failures.
-        var code = (err && (err.code || err.message)) || '';
-        if (code === 'SEND_CANCELLED') return;
-        if (typeof showToast === 'function') {
-          showToast('Could not open Messages: ' + ((err && err.message) ? err.message : 'unknown'));
-        }
-      });
-      return;
+    try {
+      if (!SmsManager) throw new Error('SmsManager plugin not registered');
+      // Capacitor 7's plugin proxy makes any method call return a Promise; we
+      // do not pre-check typeof .send because the proxy may dynamically
+      // generate it. If the call itself throws synchronously, the catch below
+      // handles it.
+      var sendResult = SmsManager.send({ numbers: [phone], text: body });
+      if (sendResult && typeof sendResult.then === 'function') {
+        sendResult.catch(function (err) {
+          var code = (err && (err.code || err.message)) || '';
+          if (code === 'SEND_CANCELLED') return; // user dismissed sheet
+          if (typeof showToast === 'function') {
+            showToast('Could not open Messages: ' + ((err && err.message) ? err.message : 'unknown'));
+          }
+        });
+      }
+    } catch (e) {
+      if (typeof showToast === 'function') {
+        showToast('SMS plugin error: ' + ((e && e.message) || 'unknown'));
+      }
     }
-    // Fallback: native build but plugin failed to load. Use the URL scheme;
-    // it briefly switches to Messages.app then returns.
+    return;
   }
+
+  // Web fallback only — launches Messages app via URL scheme.
   window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(body);
 }
 
@@ -5388,11 +5511,13 @@ document.getElementById('mcStartOverBtn').addEventListener('click', function () 
   document.getElementById('mcFileInput').value = '';
   document.getElementById('mcParseStatus').textContent = '';
   document.getElementById('mcStep3').style.display = 'none';
+  document.getElementById('mcStepSelect').style.display = 'none';
   document.getElementById('mcStep1').style.display = 'block';
 });
 
 document.getElementById('matchContactsBtn').addEventListener('click', function() {
   document.getElementById('mcStep1').style.display = 'block';
+  document.getElementById('mcStepSelect').style.display = 'none';
   document.getElementById('mcStep2').style.display = 'none';
   document.getElementById('mcStep3').style.display = 'none';
   document.getElementById('matchContactsModal').style.display = 'block';
