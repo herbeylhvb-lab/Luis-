@@ -5330,13 +5330,28 @@ function showActionMenu(voterId, phone) {
 function textVoter(contact, phone) {
   var captainName = (typeof captainState !== 'undefined' && captainState.captain && captainState.captain.name) || 'your block captain';
   var body = 'Hi ' + (contact.firstName || '') + ', this is ' + captainName + '.';
-  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
-    if (window.Capacitor.Plugins && window.Capacitor.Plugins.SMS) {
-      window.Capacitor.Plugins.SMS.send({ numbers: [phone], text: body });
+  var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (isNative) {
+    // @byteowls/capacitor-sms registers as `SmsManager` and exposes
+    // SmsManager.send({ numbers, text }) which wraps iOS
+    // MFMessageComposeViewController (the in-app message sheet).
+    var SmsManager = window.Capacitor.Plugins && window.Capacitor.Plugins.SmsManager;
+    if (SmsManager && typeof SmsManager.send === 'function') {
+      SmsManager.send({ numbers: [phone], text: body }).catch(function (err) {
+        // User cancelling the sheet rejects with SEND_CANCELLED — that's fine,
+        // not worth a toast. Surface only real failures.
+        var code = (err && (err.code || err.message)) || '';
+        if (code === 'SEND_CANCELLED') return;
+        if (typeof showToast === 'function') {
+          showToast('Could not open Messages: ' + ((err && err.message) ? err.message : 'unknown'));
+        }
+      });
+      return;
     }
-  } else {
-    window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(body);
+    // Fallback: native build but plugin failed to load. Use the URL scheme;
+    // it briefly switches to Messages.app then returns.
   }
+  window.location.href = 'sms:' + phone + '?&body=' + encodeURIComponent(body);
 }
 
 document.getElementById('mcSkipBtn').addEventListener('click', function() {
