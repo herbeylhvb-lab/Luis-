@@ -5133,6 +5133,159 @@ document.getElementById('mcFileInput').addEventListener('change', async function
   }
 });
 
+// Safe DOM helpers — used everywhere user-controlled data flows into
+// the page. NEVER use innerHTML with vCard/CSV/voter data.
+function clearChildren(el) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+}
+
+function makeEl(tag, opts) {
+  var el = document.createElement(tag);
+  if (opts) {
+    if (opts.text) el.textContent = opts.text;
+    if (opts.cls) el.className = opts.cls;
+    if (opts.style) el.setAttribute('style', opts.style);
+    if (opts.data) for (var k in opts.data) el.dataset[k] = opts.data[k];
+  }
+  return el;
+}
+
+function renderCurrentContact() {
+  var c = window._mcContacts[window._mcIndex];
+  if (!c) return finishWizard();
+
+  document.getElementById('mcContactProgress').textContent =
+    'Contact ' + (window._mcIndex + 1) + ' of ' + window._mcContacts.length;
+
+  var card = document.getElementById('mcContactCard');
+  clearChildren(card);
+  card.appendChild(makeEl('strong', { text: (c.firstName || '') + ' ' + (c.lastName || '') }));
+  card.appendChild(document.createElement('br'));
+  card.appendChild(makeEl('span', { text: c.phone || '', style: 'color:#94a3b8' }));
+
+  document.getElementById('mcAgeInput').value = '';
+  clearChildren(document.getElementById('mcCandidateList'));
+  document.getElementById('mcActionMenu').style.display = 'none';
+}
+
+document.getElementById('mcFindMatchesBtn').addEventListener('click', async function() {
+  var c = window._mcContacts[window._mcIndex];
+  var age = parseInt(document.getElementById('mcAgeInput').value, 10);
+  if (!age) { alert('Enter a probable age first.'); return; }
+  var r = await fetch('/api/captain/match-candidates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ firstName: c.firstName, lastName: c.lastName, age: age }),
+  });
+  var data = await r.json();
+  renderCandidates(data.candidates || [], data.scope || 'list');
+});
+
+function renderCandidates(candidates, scope) {
+  var list = document.getElementById('mcCandidateList');
+  clearChildren(list);
+  if (!candidates.length) {
+    list.appendChild(makeEl('p', { text: 'No matches found.', style: 'color:#94a3b8' }));
+    return;
+  }
+  list.appendChild(makeEl('p', {
+    text: 'Top ' + candidates.length + ' candidates (' + scope + '):',
+    style: 'color:#94a3b8'
+  }));
+  candidates.forEach(function(v) {
+    var row = makeEl('div', {
+      cls: 'candidate-card',
+      style: 'padding:10px;border:1px solid #334155;border-radius:6px;margin:6px 0;cursor:pointer'
+    });
+    row.appendChild(makeEl('strong', { text: (v.firstName || '') + ' ' + (v.lastName || '') }));
+    row.appendChild(makeEl('span', { text: ' · age ' + v.age }));
+    row.appendChild(document.createElement('br'));
+    row.appendChild(makeEl('span', {
+      text: (v.address || '') + ', ' + (v.city || ''),
+      style: 'color:#94a3b8'
+    }));
+    row.appendChild(document.createElement('br'));
+    row.appendChild(makeEl('span', {
+      text: 'Current phone: ' + (v.currentPhone || '(none)') + ' · Score: ' + (typeof v.score === 'number' ? v.score.toFixed(2) : v.score),
+      style: 'color:#64748b'
+    }));
+    row.addEventListener('click', function() {
+      confirmMatch(v.voterId, window._mcContacts[window._mcIndex].phone);
+    });
+    list.appendChild(row);
+  });
+}
+
+async function confirmMatch(voterId, phone) {
+  if (!confirm('Update this voter\'s phone to ' + phone + '?')) return;
+  var r = await fetch('/api/captain/confirm-match', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voterId: voterId, phone: phone }),
+  });
+  var data = await r.json();
+  if (data.success) {
+    window._mcResults.matched++;
+    showActionMenu(voterId, phone);
+  } else {
+    alert('Update failed: ' + (data.error || 'unknown'));
+  }
+}
+
+function showActionMenu(voterId, phone) {
+  var menu = document.getElementById('mcActionMenu');
+  clearChildren(menu);
+  menu.style.display = 'block';
+  menu.appendChild(makeEl('p', { text: 'Updated.' }));
+  var c = window._mcContacts[window._mcIndex];
+  var textBtn = makeEl('button', { text: 'Text now' });
+  textBtn.addEventListener('click', function() { textVoter(c, phone); });
+  var nextBtn = makeEl('button', { text: 'Next contact', style: 'margin-left:8px' });
+  nextBtn.addEventListener('click', advance);
+  menu.appendChild(textBtn);
+  menu.appendChild(nextBtn);
+}
+
+function textVoter(contact, phone) {
+  var captainName = (typeof captainState !== 'undefined' && captainState.captain && captainState.captain.name) || 'your block captain';
+  var body = 'Hi ' + (contact.firstName || '') + ', this is ' + captainName + '.';
+  if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+    if (window.Capacitor.Plugins && window.Capacitor.Plugins.SMS) {
+      window.Capacitor.Plugins.SMS.send({ numbers: [phone], text: body });
+    }
+  } else {
+    window.location.href = 'sms:' + phone + '&body=' + encodeURIComponent(body);
+  }
+}
+
+document.getElementById('mcSkipBtn').addEventListener('click', function() {
+  window._mcResults.skipped++;
+  advance();
+});
+
+function advance() {
+  window._mcIndex++;
+  renderCurrentContact();
+}
+
+function finishWizard() {
+  document.getElementById('mcStep2').style.display = 'none';
+  document.getElementById('mcStep3').style.display = 'block';
+  document.getElementById('mcSummary').textContent =
+    window._mcResults.matched + ' matched · ' + window._mcResults.skipped + ' skipped';
+}
+
+document.getElementById('mcCloseBtn').addEventListener('click', function() {
+  document.getElementById('matchContactsModal').style.display = 'none';
+});
+
+document.getElementById('matchContactsBtn').addEventListener('click', function() {
+  document.getElementById('mcStep1').style.display = 'block';
+  document.getElementById('mcStep2').style.display = 'none';
+  document.getElementById('mcStep3').style.display = 'none';
+  document.getElementById('matchContactsModal').style.display = 'block';
+});
+
 // ===================== TEAM MANAGEMENT =====================
 
 function shareTeamCode(name, code) {
