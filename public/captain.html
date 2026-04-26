@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Block Captain Portal</title>
 <!-- Twemoji fallback: replaces unicode emojis with inline SVG images from
      a CDN. The iOS 26.3 simulator runtime ships without Apple Color Emoji,
@@ -99,7 +99,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple Color
 .back-link:hover{color:#e2e8f0}
 
 /* Main layout */
-.app-header{background:#1e293b;border-bottom:1px solid #334155;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
+.app-header{background:#1e293b;border-bottom:1px solid #334155;padding:max(12px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 12px max(20px, env(safe-area-inset-left));display:flex;align-items:center;justify-content:space-between}
 .app-header h1{font-size:18px;font-weight:700}
 .app-header h1 span{color:#f59e0b}
 .app-header .info{font-size:13px;color:#94a3b8}
@@ -251,7 +251,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple Color
   .search-bar input{padding:12px 14px;font-size:14px}
 
   /* Header: tighter padding, allow greeting to wrap below title without breaking layout */
-  .app-header{padding:10px 14px;flex-wrap:wrap;gap:6px;row-gap:4px}
+  .app-header{padding:max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left));flex-wrap:wrap;gap:6px;row-gap:4px}
   .app-header > div:first-child{flex:1 1 0;min-width:0}
   .app-header h1{font-size:16px;line-height:1.2}
   .app-header .info{font-size:12px;margin-top:2px;overflow-wrap:anywhere}
