@@ -6,7 +6,7 @@
 <title>Block Captain Portal</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
 /* Prevent iOS Safari from auto-zooming when tapping form fields on iPhone.
    iOS zooms any input/select/textarea with font-size < 16px. Force 16px on
    touch devices — users can still pinch-zoom manually via the viewport.
@@ -1709,22 +1709,28 @@ async function loadListVoters() {
   nameEl.textContent = captainState.selectedListName;
   document.getElementById('rightListSub').textContent = voters.length + ' voter' + (voters.length !== 1 ? 's' : '');
 
-  // Add Upload CSV + Download buttons to right header
+  // Wrap Download + Upload in a flex pill so they stay side-by-side on
+  // narrow screens. The parent has flex-wrap which was wrapping the second
+  // button onto its own row at iPhone-width viewports.
   var oldCsvBtn = document.getElementById('btnUploadCsv');
   if (oldCsvBtn) oldCsvBtn.remove();
   var oldDlBtn = document.getElementById('btnDownloadList');
   if (oldDlBtn) oldDlBtn.remove();
+  var oldBtnGroup = document.getElementById('btnListActions');
+  if (oldBtnGroup) oldBtnGroup.remove();
   var headerRow = nameEl.parentNode;
   headerRow.style.cssText = 'padding:16px;border-bottom:1px solid #334155;display:flex;align-items:center;flex-wrap:wrap;gap:8px';
 
-  // Download button
+  var btnGroup = document.createElement('div');
+  btnGroup.id = 'btnListActions';
+  btnGroup.style.cssText = 'display:flex;gap:8px;margin-left:auto;flex-wrap:nowrap';
+
   var dlBtn = document.createElement('button');
   dlBtn.id = 'btnDownloadList';
   dlBtn.className = 'btn btn-xs btn-captain';
-  dlBtn.style.marginLeft = 'auto';
   dlBtn.textContent = '\u2B07 Download';
   dlBtn.addEventListener('click', function() { downloadListCsv(); });
-  headerRow.appendChild(dlBtn);
+  btnGroup.appendChild(dlBtn);
 
   if (captainState.selectedListType !== 'assigned') {
     var csvBtn = document.createElement('button');
@@ -1732,8 +1738,9 @@ async function loadListVoters() {
     csvBtn.className = 'btn btn-xs btn-captain';
     csvBtn.textContent = '\uD83D\uDCC4 Upload CSV';
     csvBtn.addEventListener('click', function() { openCsvImportModal(); });
-    headerRow.appendChild(csvBtn);
+    btnGroup.appendChild(csvBtn);
   }
+  headerRow.appendChild(btnGroup);
 
   renderListVoters();
 }
@@ -5561,6 +5568,14 @@ document.getElementById('matchContactsBtn').addEventListener('click', function()
   document.getElementById('mcStep2').style.display = 'none';
   document.getElementById('mcStep3').style.display = 'none';
   document.getElementById('matchContactsModal').style.display = 'block';
+  // On native, skip the modal-then-tap-picker step: immediately trigger
+  // the contacts permission prompt + multi-select flow. Saves one tap.
+  // If permission is denied the picker button remains visible to retry.
+  var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (isNative) {
+    var nativeBtn = document.getElementById('mcNativePickBtn');
+    if (nativeBtn) nativeBtn.click();
+  }
 });
 
 // ===================== TEAM MANAGEMENT =====================
