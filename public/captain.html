@@ -5703,6 +5703,15 @@ async function confirmMatch(voterId, phone) {
     if (data && data.success) {
       window._mcResults.matched++;
       showActionMenu(voterId, phone, data);
+      // Refresh the list view + sidebar in the background so the captain
+      // sees their newly-added voter the moment they close the wizard.
+      // Fire-and-forget — don't block the wizard on these.
+      if (data.addedToList && typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
+        try { loadListVoters(); } catch (e) {}
+      }
+      if (typeof refreshSidebar === 'function') {
+        try { refreshSidebar(); } catch (e) {}
+      }
     } else {
       showToast('Update failed: ' + ((data && data.error) || 'unknown error'));
     }
@@ -5807,6 +5816,14 @@ async function addHouseholdFromMenu(parentVoterId, btn) {
       menu.querySelectorAll('input[type=checkbox]').forEach(function(cb) {
         cb.disabled = true;
       });
+      // Refresh the list view + sidebar so the captain sees the new
+      // household entries the moment they close the wizard.
+      if (typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
+        try { loadListVoters(); } catch (e) {}
+      }
+      if (typeof refreshSidebar === 'function') {
+        try { refreshSidebar(); } catch (e) {}
+      }
     } else {
       btn.disabled = false;
       btn.textContent = 'Add household to list';
