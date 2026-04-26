@@ -149,12 +149,13 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
 });
 
 router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (req, res) => {
-  const { voterId, phone } = req.body || {};
+  const { voterId, phone, listId } = req.body || {};
   if (!voterId || !phone) {
     return res.status(400).json({ error: 'voterId and phone required' });
   }
   const normalized = normalizePhone(phone) || phone;
   try {
+    // 1) Update phone + audit fields
     const result = db.prepare(`
       UPDATE voters
       SET phone = ?, phone_validated_at = datetime('now'), phone_type = 'mobile'
@@ -163,10 +164,80 @@ router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (re
     if (result.changes === 0) {
       return res.status(404).json({ error: 'voter not found' });
     }
-    res.json({ success: true, voterId, phone: normalized });
+
+    // 2) Add to captain's list if listId provided. Idempotent — captain
+    //    can confirm twice without duplicating the list entry.
+    let addedToList = false;
+    let alreadyOnList = false;
+    if (listId) {
+      const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(listId);
+      if (list) {
+        const existing = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(listId, voterId);
+        if (existing) {
+          alreadyOnList = true;
+        } else {
+          db.prepare('INSERT INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)').run(listId, voterId);
+          addedToList = true;
+        }
+      }
+    }
+
+    // 3) Look up household members so the captain can choose to add them too.
+    //    Match on exact address string — same approach as
+    //    /api/captains/:id/household (routes/captains.js:925). Filters out
+    //    the primary voter and entries with no address.
+    const primary = db.prepare('SELECT address FROM voters WHERE id = ?').get(voterId);
+    let household = [];
+    if (primary && primary.address && primary.address.trim()) {
+      household = db.prepare(`
+        SELECT v.id AS voterId, v.first_name AS firstName, v.last_name AS lastName,
+               v.age, v.address, v.city, v.phone AS currentPhone,
+               EXISTS(SELECT 1 FROM captain_list_voters WHERE list_id = ? AND voter_id = v.id) AS onList
+        FROM voters v
+        WHERE v.address = ? AND v.id != ?
+        ORDER BY v.last_name, v.first_name
+        LIMIT 20
+      `).all(listId || 0, primary.address, voterId);
+      household = household.map(h => Object.assign({}, h, { onList: !!h.onList }));
+    }
+
+    res.json({ success: true, voterId, phone: normalized, addedToList, alreadyOnList, household });
   } catch (err) {
     console.error('confirm-match error:', err.message);
     res.status(500).json({ error: 'update failed' });
+  }
+});
+
+// Bulk-add household members (or any voter set) to a captain's list, nested
+// under a parent voter so the list view groups them together.
+router.post('/captain/add-household', confirmLimiter, requireCaptainOrAdmin, (req, res) => {
+  const { listId, parentVoterId, voterIds } = req.body || {};
+  if (!listId || !parentVoterId || !Array.isArray(voterIds) || voterIds.length === 0) {
+    return res.status(400).json({ error: 'listId, parentVoterId, voterIds[] required' });
+  }
+  try {
+    const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(listId);
+    if (!list) return res.status(404).json({ error: 'List not found' });
+    const parentOnList = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(listId, parentVoterId);
+    if (!parentOnList) return res.status(400).json({ error: 'Parent voter not on this list — confirm-match first.' });
+
+    const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id, parent_voter_id) VALUES (?, ?, ?)');
+    const setParent = db.prepare('UPDATE captain_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?');
+    let added = 0, alreadyThere = 0;
+    const tx = db.transaction(() => {
+      for (const id of voterIds) {
+        const vid = parseInt(id, 10);
+        if (!vid || vid === parentVoterId) continue;
+        const r = insert.run(listId, vid, parentVoterId);
+        if (r.changes) added++;
+        else { setParent.run(parentVoterId, listId, vid); alreadyThere++; }
+      }
+    });
+    tx();
+    res.json({ success: true, added, alreadyThere });
+  } catch (err) {
+    console.error('add-household error:', err.message);
+    res.status(500).json({ error: 'add-household failed' });
   }
 });
 
