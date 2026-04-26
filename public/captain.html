@@ -4123,13 +4123,58 @@ window.addEventListener('pagehide', function() {
   lockBackgroundScroll(false);
 });
 
+// Shared helper: send SMS via the native iOS in-app sheet when running inside
+// Capacitor, otherwise fall back to the sms: URL scheme (which app-switches
+// to Messages.app). Used by all "Text" buttons in the captain dashboard.
+function _captainSendSms(numbers, body) {
+  var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (isNative) {
+    var SmsManager = window.Capacitor.Plugins && window.Capacitor.Plugins.SmsManager;
+    try {
+      if (!SmsManager) throw new Error('SmsManager plugin not registered');
+      var sendResult = SmsManager.send({ numbers: numbers, text: body });
+      if (sendResult && typeof sendResult.then === 'function') {
+        sendResult.catch(function (err) {
+          var code = (err && (err.code || err.message)) || '';
+          if (code === 'SEND_CANCELLED') return;
+          if (typeof showToast === 'function') {
+            showToast('Could not open Messages: ' + ((err && err.message) ? err.message : 'unknown'));
+          }
+        });
+      }
+    } catch (e) {
+      if (typeof showToast === 'function') {
+        showToast('SMS plugin error: ' + ((e && e.message) || 'unknown'));
+      }
+    }
+    return;
+  }
+  // Web fallback. iOS Safari + Android Chrome both honor `?&body=`.
+  // Single recipient form: sms:NUMBER?&body=...
+  // Multi-recipient form (iOS 14+): sms:&addresses=N1,N2&body=...
+  var smsUrl;
+  if (numbers.length === 1) {
+    smsUrl = 'sms:' + numbers[0].replace(/\D/g, '') + '?&body=' + encodeURIComponent(body);
+  } else {
+    var addresses = numbers.map(function (p) {
+      var d = (p || '').replace(/\D/g, '');
+      if (d.length === 10) return '+1' + d;
+      if (d.length === 11 && d.charAt(0) === '1') return '+' + d;
+      return d.length >= 10 ? '+' + d : null;
+    }).filter(function (p) { return !!p; });
+    smsUrl = 'sms:&addresses=' + addresses.join(',') + '&body=' + encodeURIComponent(body || '');
+  }
+  window.location.href = smsUrl;
+}
+
 function sendTextToVoter(voter, overrideBody) {
   var phoneDigits = (voter.phone || '').replace(/\D/g, '');
   if (phoneDigits.length === 0) return;
   var body = overrideBody != null ? overrideBody : fillTemplate(_bulkTextTemplate, voter);
-  // Log to server BEFORE opening the sms: URL — once the Messages app
-  // takes over, we don't get a callback. Fire-and-forget; network errors
-  // shouldn't block the send.
+  // Log first — on web, sms: URL hands off to Messages and we lose control;
+  // on native, the in-app sheet keeps control but logging before sending is
+  // still the right place because the captain may dismiss the sheet without
+  // sending and we still want a record of the intent.
   try {
     apiPost('/api/captains/' + captainState.captain.id + '/text-log', {
       voter_id: voter.id,
@@ -4137,10 +4182,7 @@ function sendTextToVoter(voter, overrideBody) {
       message_preview: body
     }).catch(function() { /* non-fatal */ });
   } catch (e) { /* non-fatal */ }
-  // iOS + Android: sms:+digits?&body=encoded — the &body form works
-  // across more iOS versions than ?body= alone.
-  var smsUrl = 'sms:' + phoneDigits + '?&body=' + encodeURIComponent(body);
-  window.location.href = smsUrl;
+  _captainSendSms([phoneDigits], body);
 }
 
 // Group send — opens a single sms: URL with all recipients comma-
@@ -4179,12 +4221,10 @@ function sendGroupTextToVoters(voters, template) {
       } catch (e) { /* non-fatal */ }
     });
   }
-  // iOS 14+ multi-recipient format: sms:&addresses=+1...,+1...&body=...
-  // The leading "sms:&" (no path) is required — iOS parses the query
-  // string only when there's nothing between "sms:" and "&". Android
-  // also accepts this form on modern versions.
-  var smsUrl = 'sms:&addresses=' + phones.join(',') + '&body=' + encodeURIComponent(body || '');
-  window.location.href = smsUrl;
+  // _captainSendSms picks the native in-app sheet (multiple recipients
+  // supported by MFMessageComposeViewController) when running inside
+  // Capacitor, otherwise falls back to the sms:&addresses= URL scheme.
+  _captainSendSms(phones, body || '');
 }
 
 function showAddVoterModal(voter) {
