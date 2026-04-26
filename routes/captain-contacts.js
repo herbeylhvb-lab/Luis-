@@ -9,7 +9,9 @@ const confirmLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, message: { erro
 
 router.post('/captain/match-candidates', matchLimiter, (req, res) => {
   const { firstName, lastName, age, captainId } = req.body || {};
-  if (!firstName || !lastName || age == null) {
+  const fn = (firstName || '').trim();
+  const ln = (lastName || '').trim();
+  if (!fn || !ln || age == null) {
     return res.status(400).json({ error: 'firstName, lastName, age required' });
   }
   const ageNum = parseInt(age, 10);
@@ -18,7 +20,7 @@ router.post('/captain/match-candidates', matchLimiter, (req, res) => {
   }
   const ageMin = Math.max(1, ageNum - 5);
   const ageMax = Math.min(130, ageNum + 5);
-  const lastInitial = lastName[0] || '';
+  const lastInitial = ln[0];
 
   function fetchAndScore(scope) {
     let rows;
@@ -52,16 +54,22 @@ router.post('/captain/match-candidates', matchLimiter, (req, res) => {
       city: v.city,
       currentPhone: v.phone || '',
       phoneValidatedAt: v.phone_validated_at || null,
-      score: scoreCandidate({ firstName, lastName, age: ageNum }, v),
+      score: scoreCandidate({ firstName: fn, lastName: ln, age: ageNum }, v),
     }))
       .filter(c => c.score >= 0.4)
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
   }
 
-  let candidates = fetchAndScore('list');
-  let scope = 'list';
-  if (candidates.length === 0) {
+  let candidates, scope;
+  if (captainId) {
+    candidates = fetchAndScore('list');
+    scope = 'list';
+    if (candidates.length === 0) {
+      candidates = fetchAndScore('broader');
+      scope = 'broader';
+    }
+  } else {
     candidates = fetchAndScore('broader');
     scope = 'broader';
   }

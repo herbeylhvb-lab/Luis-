@@ -83,6 +83,12 @@ async function waitForServer(tries = 30) {
   r = await req('POST', '/api/captain/match-candidates', { firstName: 'Zachariah', lastName: 'Q', age: 99 });
   ok('no match returns empty candidates', r.body.candidates.length === 0);
 
+  r = await req('POST', '/api/captain/match-candidates', { firstName: '  ', lastName: 'Smith', age: 50 });
+  ok('rejects whitespace-only firstName', r.status === 400);
+
+  r = await req('POST', '/api/captain/match-candidates', { firstName: 'Bob', lastName: '   ', age: 50 });
+  ok('rejects whitespace-only lastName', r.status === 400);
+
   r = await req('POST', '/api/captain/confirm-match', { voterId: 1, phone: '(555) 123-4567' });
   ok('confirm-match returns 200', r.status === 200);
   ok('confirm-match returns success', r.body.success === true);
