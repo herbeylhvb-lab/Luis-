@@ -14,7 +14,10 @@ const captainLoginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, messa
 const phoneEditAuthLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  keyGenerator: (req) => (req.session && req.session.captainId) ? String(req.session.captainId) : req.ip,
+  // Wrap req.ip with the lib's ipKeyGenerator helper so IPv6 addresses are
+  // bucketed by /56 prefix (otherwise individual IPv6 addresses bypass limits
+  // and v8 of express-rate-limit prints a startup ValidationError).
+  keyGenerator: (req) => (req.session && req.session.captainId) ? String(req.session.captainId) : rateLimit.ipKeyGenerator(req.ip),
   message: { error: 'Too many password attempts. Wait 15 minutes and try again.' }
 });
 
