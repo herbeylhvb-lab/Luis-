@@ -445,6 +445,9 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top)) max(20
         <select id="fabTargetList"></select>
         <button class="btn btn-xs btn-captain" onclick="transferVoters(false)">Copy</button>
         <button class="btn btn-xs btn-primary" onclick="transferVoters(true)">Move</button>
+        <!-- Bulk delete: only visible when "Select All" is engaged. Requires
+             admin password — captain shouldn't accidentally lose work. -->
+        <button id="fabBulkDeleteBtn" class="btn btn-xs btn-danger" style="display:none" onclick="bulkDeleteSelected()" title="Remove all selected voters from this list (admin password required)">&#128465; Delete All</button>
         <button class="btn btn-xs btn-secondary" onclick="clearVoterSelection()">Cancel</button>
       </div>
     </div>
@@ -1394,8 +1397,56 @@ function updateSelectionUI() {
   }
   var fabCount = document.getElementById('fabCount');
   if (fabCount) fabCount.textContent = _selectedVoterIds.size + ' voter' + (_selectedVoterIds.size !== 1 ? 's' : '') + ' selected';
+  // Show the bulk-delete button ONLY when Select All is engaged (i.e., every
+  // visible/filtered voter is checked). Captain selecting a few voters
+  // individually doesn't surface the destructive option — they have to
+  // explicitly "select all" first, then re-confirm via admin password.
+  var deleteBtn = document.getElementById('fabBulkDeleteBtn');
+  if (deleteBtn) {
+    var allSelected = filtered.length > 0 && _selectedVoterIds.size === filtered.length;
+    deleteBtn.style.display = allSelected ? 'inline-flex' : 'none';
+  }
   // Populate target list dropdown
   populateTransferTargets();
+}
+
+async function bulkDeleteSelected() {
+  if (_selectedVoterIds.size === 0) { showToast('No voters selected'); return; }
+  var listId = captainState.selectedListId;
+  if (!listId) { showToast('Pick a list first'); return; }
+  var voterIds = Array.from(_selectedVoterIds);
+  var n = voterIds.length;
+  var listName = captainState.selectedListName || 'this list';
+  if (!confirm('Remove ' + n + ' voter' + (n !== 1 ? 's' : '') + ' from "' + listName + '"?\n\nThis only removes them from your list — they stay in the voter file. An admin password is required.')) return;
+  // Prompt for admin password. We use a window.prompt() instead of a custom
+  // modal to keep this destructive action friction-y; the OS native dialog
+  // also lets the captain cancel by tapping outside.
+  var pw = prompt('Enter admin password to delete ' + n + ' voter' + (n !== 1 ? 's' : '') + ' from "' + listName + '":');
+  if (pw == null || pw.length === 0) return; // cancelled or empty
+  try {
+    var data = await apiPost('/api/captain/bulk-remove-from-list', {
+      listId: listId, voterIds: voterIds, adminPassword: pw,
+    });
+    if (data && data.success) {
+      showToast(data.removed + ' voter' + (data.removed !== 1 ? 's' : '') + ' removed from list', 'success');
+      _selectedVoterIds.clear();
+      if (typeof loadListVoters === 'function') {
+        try { await loadListVoters(); } catch (e) {}
+      }
+      if (typeof refreshSidebar === 'function') {
+        try { refreshSidebar(); } catch (e) {}
+      }
+    } else {
+      showToast('Delete failed: ' + ((data && data.error) || 'unknown error'));
+    }
+  } catch (err) {
+    var msg = (err && err.message) || 'network error';
+    if (msg.toLowerCase().indexOf('password') !== -1 || msg.indexOf('401') !== -1) {
+      showToast('Wrong admin password — try again');
+    } else {
+      showToast('Delete failed: ' + msg);
+    }
+  }
 }
 
 function populateTransferTargets() {

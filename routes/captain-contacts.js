@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { scoreCandidate, normalizePhone } = require('../utils');
 
@@ -288,6 +289,58 @@ router.post('/captain/add-household', confirmLimiter, requireCaptainOrAdmin, (re
   } catch (err) {
     console.error('add-household error:', err.message);
     res.status(500).json({ error: 'add-household failed' });
+  }
+});
+
+// Bulk-remove voters from a captain's list — gated by an admin password.
+// Only removes the captain_list_voters rows; the voters themselves stay
+// in the voter file. UI surfaces the trigger button only when the captain
+// has "Select All" engaged (see captain.html bulkDeleteSelected).
+router.post('/captain/bulk-remove-from-list', confirmLimiter, requireCaptainOrAdmin, async (req, res) => {
+  const { listId, voterIds, adminPassword } = req.body || {};
+  if (!listId || !Array.isArray(voterIds) || voterIds.length === 0 || !adminPassword) {
+    return res.status(400).json({ error: 'listId, voterIds[], adminPassword required' });
+  }
+  try {
+    // Verify the password matches SOME admin user in the database. We
+    // don't require the caller to know an admin USERNAME — any admin
+    // password is sufficient. This is the same friction model as a
+    // shared-secret unlock: the password is the gate, the captain still
+    // owns the action via their own captain session.
+    const admins = db.prepare(`SELECT password_hash FROM users WHERE role = 'admin'`).all();
+    if (!admins.length) {
+      return res.status(503).json({ error: 'No admin users configured' });
+    }
+    let valid = false;
+    for (const a of admins) {
+      if (await bcrypt.compare(adminPassword, a.password_hash)) { valid = true; break; }
+    }
+    if (!valid) {
+      return res.status(401).json({ error: 'Wrong admin password' });
+    }
+    const list = db.prepare('SELECT id FROM captain_lists WHERE id = ?').get(listId);
+    if (!list) return res.status(404).json({ error: 'List not found' });
+    // Bulk delete in a transaction so partial failures don't leave the
+    // list in a half-removed state.
+    const remove = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
+    let removed = 0;
+    const tx = db.transaction(() => {
+      for (const id of voterIds) {
+        const vid = parseInt(id, 10);
+        if (!vid) continue;
+        const r = remove.run(listId, vid);
+        if (r.changes) removed++;
+      }
+    });
+    tx();
+    db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+      'Captain ' + (req.session.captainId || req.session.userId || '?') +
+      ' bulk-removed ' + removed + ' voter(s) from list ' + listId + ' (admin password)'
+    );
+    res.json({ success: true, removed });
+  } catch (err) {
+    console.error('bulk-remove error:', err.message);
+    res.status(500).json({ error: 'bulk-remove failed' });
   }
 });
 

@@ -252,6 +252,7 @@ app.use((req, res, next) => {
       req.path === '/api/captain/confirm-match' ||
       req.path === '/api/captain/add-household' ||
       req.path === '/api/captain/preview-matches' ||
+      req.path === '/api/captain/bulk-remove-from-list' ||
       req.path === '/api/voters-cities') {
     return next();
   }
