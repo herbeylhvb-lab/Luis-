@@ -248,6 +248,8 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/captains\/\d+\/search/) ||
       req.path.match(/^\/api\/captains\/\d+\/household/) ||
       req.path.match(/^\/api\/captains\/\d+\/transfer-voters/) ||
+      req.path === '/api/captain/match-candidates' ||
+      req.path === '/api/captain/confirm-match' ||
       req.path === '/api/voters-cities') {
     return next();
   }

@@ -7,7 +7,16 @@ const { scoreCandidate, normalizePhone } = require('../utils');
 const matchLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, message: { error: 'Too many match requests.' } });
 const confirmLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, message: { error: 'Too many confirm requests.' } });
 
-router.post('/captain/match-candidates', matchLimiter, (req, res) => {
+// Allow either an admin session OR a captain portal session — both are
+// legitimate callers of these endpoints. The path is allow-listed in
+// server.js so the global admin requireAuth middleware doesn't fire,
+// but we still need to verify SOMEONE is authenticated.
+function requireCaptainOrAdmin(req, res, next) {
+  if (req.session && (req.session.captainId || req.session.userId)) return next();
+  return res.status(401).json({ error: 'Authentication required' });
+}
+
+router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (req, res) => {
   const { firstName, lastName, age, captainId } = req.body || {};
   const fn = (firstName || '').trim();
   const ln = (lastName || '').trim();
@@ -76,7 +85,7 @@ router.post('/captain/match-candidates', matchLimiter, (req, res) => {
   res.json({ candidates, scope });
 });
 
-router.post('/captain/confirm-match', confirmLimiter, (req, res) => {
+router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (req, res) => {
   const { voterId, phone } = req.body || {};
   if (!voterId || !phone) {
     return res.status(400).json({ error: 'voterId and phone required' });
