@@ -164,14 +164,29 @@ router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (re
   }
   const normalized = normalizePhone(phone) || phone;
   try {
-    // 1) Update phone + audit fields
-    const result = db.prepare(`
-      UPDATE voters
-      SET phone = ?, phone_validated_at = datetime('now'), phone_type = 'mobile'
-      WHERE id = ?
-    `).run(normalized, voterId);
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'voter not found' });
+    // 1) Check if voter exists and whether their stored phone already
+    //    matches. If it matches we skip the phone overwrite — no need to
+    //    write the same value — but still bump phone_validated_at to record
+    //    that a captain confirmed this number is still good.
+    const existing = db.prepare('SELECT phone FROM voters WHERE id = ?').get(voterId);
+    if (!existing) return res.status(404).json({ error: 'voter not found' });
+    const existingDigits = String(existing.phone || '').replace(/\D/g, '').slice(-10);
+    const newDigits = String(normalized || '').replace(/\D/g, '').slice(-10);
+    const phoneAlreadyMatches = existingDigits.length >= 10 && existingDigits === newDigits;
+    if (phoneAlreadyMatches) {
+      // Phone is already correct on the voter record — only refresh
+      // validation timestamp + ensure phone_type is mobile.
+      db.prepare(`
+        UPDATE voters
+        SET phone_validated_at = datetime('now'), phone_type = 'mobile'
+        WHERE id = ?
+      `).run(voterId);
+    } else {
+      db.prepare(`
+        UPDATE voters
+        SET phone = ?, phone_validated_at = datetime('now'), phone_type = 'mobile'
+        WHERE id = ?
+      `).run(normalized, voterId);
     }
 
     // 2) Add to captain's list if listId provided. Idempotent — captain
@@ -210,7 +225,7 @@ router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (re
       household = household.map(h => Object.assign({}, h, { onList: !!h.onList }));
     }
 
-    res.json({ success: true, voterId, phone: normalized, addedToList, alreadyOnList, household });
+    res.json({ success: true, voterId, phone: normalized, phoneAlreadyMatches, addedToList, alreadyOnList, household });
   } catch (err) {
     console.error('confirm-match error:', err.message);
     res.status(500).json({ error: 'update failed' });

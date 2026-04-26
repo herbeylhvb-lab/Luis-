@@ -5718,8 +5718,10 @@ function showActionMenu(voterId, phone, confirmData) {
   var c = window._mcContacts[window._mcIndex];
   confirmData = confirmData || {};
 
-  // Status line — phone updated + list-add result.
-  var statusText = '✅ Phone updated';
+  // Status line — phone outcome + list-add result. If the contact's phone
+  // already matched the voter record, we don't say "phone updated" because
+  // we didn't actually change the number, just confirmed it.
+  var statusText = confirmData.phoneAlreadyMatches ? '✅ Confirmed' : '✅ Phone updated';
   if (confirmData.addedToList) {
     var listName = (captainState && captainState.selectedListName) ? captainState.selectedListName : 'your list';
     statusText += ' · added to ' + listName;
