@@ -5,7 +5,7 @@
 module.exports = {
   // Male
   'Robert':    ['Bob', 'Bobby', 'Rob', 'Robbie', 'Bert'],
-  'William':   ['Will', 'Bill', 'Billy', 'Willie', 'Liam'],
+  'William':   ['Will', 'Bill', 'Billy', 'Willie'],
   'James':     ['Jim', 'Jimmy', 'Jamie'],
   'John':      ['Jon', 'Johnny', 'Jack'],
   'Richard':   ['Rich', 'Rick', 'Ricky', 'Dick', 'Richie'],
