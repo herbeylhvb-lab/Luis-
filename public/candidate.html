@@ -536,11 +536,11 @@ function updateSelectionUI() {
     selectAllCb.checked = allSelected;
     selectAllCb.indeterminate = selectedVoterIds.size > 0 && selectedVoterIds.size < totalVisible;
   }
-  // Show the bulk-delete button only when EVERY visible voter is selected.
-  // Picking a few voters individually never surfaces the destructive option;
-  // candidate has to explicitly Select All first.
+  // Show the bulk-delete button whenever any voters are selected. Admin
+  // password prompt is the friction gate — candidate still has to type
+  // the shared password before any voters are removed.
   var deleteBtn = document.getElementById('fabBulkDeleteBtn');
-  if (deleteBtn) deleteBtn.style.display = allSelected ? 'inline-flex' : 'none';
+  if (deleteBtn) deleteBtn.style.display = selectedVoterIds.size > 0 ? 'inline-flex' : 'none';
   // Update selected count display
   var countEl = document.getElementById('selectAllCount');
   if (countEl) {

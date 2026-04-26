@@ -1397,14 +1397,12 @@ function updateSelectionUI() {
   }
   var fabCount = document.getElementById('fabCount');
   if (fabCount) fabCount.textContent = _selectedVoterIds.size + ' voter' + (_selectedVoterIds.size !== 1 ? 's' : '') + ' selected';
-  // Show the bulk-delete button ONLY when Select All is engaged (i.e., every
-  // visible/filtered voter is checked). Captain selecting a few voters
-  // individually doesn't surface the destructive option — they have to
-  // explicitly "select all" first, then re-confirm via admin password.
+  // Show the bulk-delete button whenever ANY voters are selected. The admin
+  // password prompt is the friction gate — captain still has to type the
+  // shared password before any voters are removed.
   var deleteBtn = document.getElementById('fabBulkDeleteBtn');
   if (deleteBtn) {
-    var allSelected = filtered.length > 0 && _selectedVoterIds.size === filtered.length;
-    deleteBtn.style.display = allSelected ? 'inline-flex' : 'none';
+    deleteBtn.style.display = _selectedVoterIds.size > 0 ? 'inline-flex' : 'none';
   }
   // Populate target list dropdown
   populateTransferTargets();
