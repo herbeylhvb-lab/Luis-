@@ -83,6 +83,17 @@ async function waitForServer(tries = 30) {
   r = await req('POST', '/api/captain/match-candidates', { firstName: 'Zachariah', lastName: 'Q', age: 99 });
   ok('no match returns empty candidates', r.body.candidates.length === 0);
 
+  r = await req('POST', '/api/captain/confirm-match', { voterId: 1, phone: '(555) 123-4567' });
+  ok('confirm-match returns 200', r.status === 200);
+  ok('confirm-match returns success', r.body.success === true);
+  const updated = db.prepare('SELECT phone, phone_validated_at, phone_type FROM voters WHERE id = ?').get(1);
+  ok('voter phone updated', updated.phone && updated.phone.includes('555'));
+  ok('phone_validated_at set', !!updated.phone_validated_at);
+  ok('phone_type set to mobile', updated.phone_type === 'mobile');
+
+  r = await req('POST', '/api/captain/confirm-match', { phone: '5551112222' });
+  ok('rejects missing voterId', r.status === 400);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   serverProc.kill();
   // Best-effort cleanup of the tmp DB dir

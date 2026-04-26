@@ -69,7 +69,25 @@ router.post('/captain/match-candidates', matchLimiter, (req, res) => {
 });
 
 router.post('/captain/confirm-match', confirmLimiter, (req, res) => {
-  res.status(501).json({ error: 'not implemented yet' });
+  const { voterId, phone } = req.body || {};
+  if (!voterId || !phone) {
+    return res.status(400).json({ error: 'voterId and phone required' });
+  }
+  const normalized = normalizePhone(phone) || phone;
+  try {
+    const result = db.prepare(`
+      UPDATE voters
+      SET phone = ?, phone_validated_at = datetime('now'), phone_type = 'mobile'
+      WHERE id = ?
+    `).run(normalized, voterId);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'voter not found' });
+    }
+    res.json({ success: true, voterId, phone: normalized });
+  } catch (err) {
+    console.error('confirm-match error:', err.message);
+    res.status(500).json({ error: 'update failed' });
+  }
 });
 
 module.exports = router;
