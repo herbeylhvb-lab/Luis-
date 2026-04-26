@@ -375,7 +375,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <h3 id="mcTitle">Match Contacts to Voters</h3>
 
       <section id="mcStep1">
-        <p>Upload your iPhone Contacts as a vCard (.vcf) or CSV file.</p>
+        <!-- Native iOS Contact Picker — only visible inside Capacitor WebView (Wave 4). -->
+        <button id="mcNativePickBtn" style="display:none;margin-bottom:10px">Pick from iPhone Contacts</button>
+        <p id="mcUploadLabel">Upload your iPhone Contacts as a vCard (.vcf) or CSV file.</p>
         <input type="file" id="mcFileInput" accept=".vcf,.csv,text/vcard,text/csv">
         <p id="mcParseStatus" style="color:#94a3b8;margin-top:8px"></p>
       </section>
@@ -5134,6 +5136,76 @@ document.getElementById('mcFileInput').addEventListener('change', async function
     renderCurrentContact();
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave 4: Native iOS Contact Picker (Capacitor only).
+//
+// When the page is running inside the Capacitor WebView,
+// window.Capacitor.isNativePlatform() returns true and the contacts plugin
+// is registered globally as window.Capacitor.Plugins.Contacts. We expose a
+// "Pick from iPhone Contacts" button that calls into the native iOS contact
+// picker (CNContactPickerViewController) via @capacitor-community/contacts.
+//
+// On the web (any browser), the button stays hidden and the existing
+// vCard/CSV upload flow is the only option.
+// ─────────────────────────────────────────────────────────────────────────────
+(function setupNativeContactPicker() {
+  var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  var nativeBtn = document.getElementById('mcNativePickBtn');
+  if (!nativeBtn) return;
+
+  if (!isNative) {
+    // On web: leave the button hidden, leave the file input visible.
+    return;
+  }
+
+  // On native: show the picker button and hide the web-only file upload UI
+  // so captains see only the option that actually works on their device.
+  nativeBtn.style.display = 'inline-block';
+  var fileInput = document.getElementById('mcFileInput');
+  var fileLabel = document.getElementById('mcUploadLabel');
+  if (fileInput) fileInput.style.display = 'none';
+  if (fileLabel) fileLabel.style.display = 'none';
+
+  nativeBtn.addEventListener('click', async function () {
+    var Contacts = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Contacts;
+    if (!Contacts) {
+      if (typeof showToast === 'function') showToast('Contacts plugin not available');
+      return;
+    }
+    try {
+      // Ask for permission first. iOS will only prompt the captain once;
+      // subsequent calls return the cached state.
+      var perm = await Contacts.requestPermissions();
+      if (perm && perm.contacts === 'denied') {
+        if (typeof showToast === 'function') showToast('Contacts permission denied. Enable it in iOS Settings to use this feature.');
+        return;
+      }
+      // Open the native picker. projection tells the plugin which fields to
+      // populate on the returned contact — we only need name + phones.
+      var result = await Contacts.pickContact({
+        projection: { name: true, phones: true },
+      });
+      if (!result || !result.contact) return; // captain cancelled
+      var c = result.contact;
+      var firstPhone = (c.phones && c.phones.length > 0 && c.phones[0].number) || '';
+      var contacts = [{
+        firstName: (c.name && c.name.given) || '',
+        lastName:  (c.name && c.name.family) || '',
+        phone:     firstPhone,
+      }];
+      window._mcContacts = contacts;
+      window._mcIndex = 0;
+      window._mcResults = { matched: 0, skipped: 0 };
+      document.getElementById('mcStep1').style.display = 'none';
+      document.getElementById('mcStep2').style.display = 'block';
+      renderCurrentContact();
+    } catch (err) {
+      var msg = (err && err.message) ? err.message : 'unknown error';
+      if (typeof showToast === 'function') showToast('Could not pick contact: ' + msg);
+    }
+  });
+})();
 
 // Safe DOM helpers — used everywhere user-controlled data flows into
 // the page. NEVER use innerHTML with vCard/CSV/voter data.
