@@ -3291,15 +3291,26 @@ function daysSince(iso) {
 // the badge wording the captain's list used to show ("Texted today",
 // "Texted 1d") while normalizing SQLite UTC timestamps the same way
 // formatCallTimestamp does.
+//
+// Uses CALENDAR-DAY comparison (not 24-hour buckets). A text sent at 11pm
+// shows as "Yesterday" the next morning, not "Today" — the user thinks in
+// wall-clock days, and SQLite stores in UTC so a 24-hour math approach
+// would drift across midnight differently than the user expects.
 function formatLastTextedDisplay(s) {
   if (!s) return 'Not yet';
   var iso = String(s).replace(' ', 'T');
   if (!/[Z+\-]\d?\d?:?\d?\d?$/.test(iso)) iso += 'Z';
   var d = new Date(iso);
   if (isNaN(d.getTime())) return 'N/A';
-  var days = Math.floor((Date.now() - d.getTime()) / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
+  var now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Today';
+  var yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  // Older: count local-calendar-day difference (DST-safe — using Y/M/D
+  // constructors and rounding handles spring-forward / fall-back).
+  var dD = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  var dN = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  var days = Math.round((dN - dD) / 86400000);
   if (days < 30) return days + ' days ago';
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -3316,11 +3327,12 @@ function formatCallTimestamp(s) {
   var d = new Date(iso);
   if (isNaN(d.getTime())) return s;
   var now = new Date();
-  var sameDay = d.toDateString() === now.toDateString();
-  var yesterday = new Date(now.getTime() - 86400000).toDateString() === d.toDateString();
+  // Yesterday computed from Y/M/D constructor (DST-safe — `now - 86400000`
+  // can land on the wrong calendar day during spring-forward / fall-back).
+  var yesterdayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   var time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (sameDay) return 'Today ' + time;
-  if (yesterday) return 'Yesterday ' + time;
+  if (d.toDateString() === now.toDateString()) return 'Today ' + time;
+  if (d.toDateString() === yesterdayDate.toDateString()) return 'Yesterday ' + time;
   var sameYear = d.getFullYear() === now.getFullYear();
   var dateOpts = sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' };
   return d.toLocaleDateString([], dateOpts) + ' ' + time;
