@@ -5053,6 +5053,86 @@ async function confirmCsvMatches() {
   }
 }
 
+// ===================== MATCH CONTACTS WIZARD (Wave 3) =====================
+// Captain uploads their iPhone Contacts (.vcf) or a CSV. We parse it
+// browser-side, then for each contact we ask the captain for an age,
+// query /api/captain/match-candidates, and let them pick the best
+// voter to update with that contact's phone number.
+//
+// CRITICAL: every dynamic node uses createElement + textContent — never
+// innerHTML with user-controlled data. Malicious vCard/CSV could
+// otherwise inject scripts.
+
+function parseVCard(text) {
+  var cards = text.split(/BEGIN:VCARD/i).slice(1);
+  var out = [];
+  for (var i = 0; i < cards.length; i++) {
+    var block = cards[i];
+    var lines = block.split(/\r?\n/);
+    var firstName = '', lastName = '', phone = '';
+    for (var j = 0; j < lines.length; j++) {
+      var line = lines[j];
+      if (/^N[:;]/i.test(line)) {
+        var parts = line.replace(/^N[^:]*:/i, '').split(';');
+        lastName = (parts[0] || '').trim();
+        firstName = (parts[1] || '').trim();
+      } else if (/^FN[:;]/i.test(line) && !firstName) {
+        var fn = line.replace(/^FN[^:]*:/i, '').trim().split(/\s+/);
+        firstName = fn[0] || '';
+        lastName = fn.slice(1).join(' ') || '';
+      } else if (/^TEL/i.test(line) && !phone) {
+        phone = line.replace(/^TEL[^:]*:/i, '').trim();
+      }
+    }
+    if (firstName || lastName) out.push({ firstName: firstName, lastName: lastName, phone: phone });
+  }
+  return out;
+}
+
+function parseCSV(text) {
+  var lines = text.trim().split(/\r?\n/);
+  var headers = lines[0].split(',').map(function(h) { return h.trim().toLowerCase(); });
+  var idxOf = function(names) {
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i];
+      var idx = headers.indexOf(n);
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
+  var fi = idxOf(['first', 'firstname', 'first_name', 'first name']);
+  var li = idxOf(['last', 'lastname', 'last_name', 'last name']);
+  var pi = idxOf(['phone', 'phone number', 'mobile', 'cell']);
+  var out = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = lines[i].split(',').map(function(c) { return c.trim(); });
+    var row = {
+      firstName: fi >= 0 ? cols[fi] : '',
+      lastName: li >= 0 ? cols[li] : '',
+      phone: pi >= 0 ? cols[pi] : '',
+    };
+    if (row.firstName || row.lastName) out.push(row);
+  }
+  return out;
+}
+
+document.getElementById('mcFileInput').addEventListener('change', async function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var text = await file.text();
+  var isVcf = file.name.toLowerCase().endsWith('.vcf') || text.indexOf('BEGIN:VCARD') !== -1;
+  var contacts = isVcf ? parseVCard(text) : parseCSV(text);
+  document.getElementById('mcParseStatus').textContent = 'Parsed ' + contacts.length + ' contacts.';
+  window._mcContacts = contacts;
+  window._mcIndex = 0;
+  window._mcResults = { matched: 0, skipped: 0 };
+  if (contacts.length > 0) {
+    document.getElementById('mcStep1').style.display = 'none';
+    document.getElementById('mcStep2').style.display = 'block';
+    renderCurrentContact();
+  }
+});
+
 // ===================== TEAM MANAGEMENT =====================
 
 function shareTeamCode(name, code) {
