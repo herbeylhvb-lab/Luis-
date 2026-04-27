@@ -199,15 +199,11 @@ router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (re
     const existingDigits = String(existing.phone || '').replace(/\D/g, '').slice(-10);
     const newDigits = String(normalized || '').replace(/\D/g, '').slice(-10);
     const phoneAlreadyMatches = existingDigits.length >= 10 && existingDigits === newDigits;
-    if (phoneAlreadyMatches) {
-      // Phone is already correct on the voter record — only refresh
-      // validation timestamp + ensure phone_type is mobile.
-      db.prepare(`
-        UPDATE voters
-        SET phone_validated_at = datetime('now'), phone_type = 'mobile'
-        WHERE id = ?
-      `).run(voterId);
-    } else {
+    // Only touch the voter record when we actually have new data:
+    //   - phone is missing or different → write the new phone, mark validated
+    // If the phone already matches the contact, leave the voter row alone.
+    // Adding the voter to the captain's list still happens regardless.
+    if (!phoneAlreadyMatches) {
       db.prepare(`
         UPDATE voters
         SET phone = ?, phone_validated_at = datetime('now'), phone_type = 'mobile'
