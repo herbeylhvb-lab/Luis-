@@ -2,25 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- theme-color tints the iOS status bar (when added to home screen as a
+     PWA) and Android Chrome's URL bar to match the app header. -->
+<meta name="theme-color" content="#1e293b">
 <title>Block Captain Portal</title>
-<!-- Capacitor opt-in: when running inside the iOS native app the WebView
-     extends under the Dynamic Island, so we need viewport-fit=cover plus
-     env(safe-area-inset-*) padding. On regular Safari we leave the meta
-     viewport alone — iOS Safari already insets content below the status
-     bar by default, and adding viewport-fit would create an unwanted
-     dark blue bar at the top of the page. -->
+<!-- Capacitor opt-in: WebView extends under the Dynamic Island. We now
+     also use viewport-fit=cover on regular Safari so env(safe-area-inset-*)
+     resolves to real values everywhere — that's how the welcome bar gets
+     pushed below the speaker on iPhone 14+. The "dark bar around the
+     speaker" is intentional: see html background below. -->
 <script>
 (function () {
   if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
     document.documentElement.classList.add('is-capacitor');
-    var meta = document.querySelector('meta[name="viewport"]');
-    if (meta) {
-      var content = meta.getAttribute('content') || '';
-      if (content.indexOf('viewport-fit') === -1) {
-        meta.setAttribute('content', content + ', viewport-fit=cover');
-      }
-    }
   }
 })();
 </script>
@@ -81,6 +76,11 @@ img.twemoji-img {
   display: inline-block;
 }
 *{margin:0;padding:0;box-sizing:border-box}
+/* html background matches the app-header so the safe-area zone (the strip
+   above the page content, where the iPhone Dynamic Island / speaker lives)
+   visually extends the header bar. Without this, the page bg shows through
+   the safe-area zone and creates an obvious seam. */
+html{background:#1e293b}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
 /* Prevent iOS Safari from auto-zooming when tapping form fields on iPhone.
    iOS zooms any input/select/textarea with font-size < 16px. Force 16px on
@@ -119,12 +119,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Apple Color
 .back-link:hover{color:#e2e8f0}
 
 /* Main layout */
-.app-header{background:#1e293b;border-bottom:1px solid #334155;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
+/* App header — top padding uses env(safe-area-inset-top) so the welcome
+   text and Match Contacts button sit BELOW the iPhone Dynamic Island /
+   ear-speaker, never behind it. max() falls back to 12px on devices
+   without a safe area. Same pattern for left/right (notch in landscape). */
+.app-header{background:#1e293b;border-bottom:1px solid #334155;padding:max(12px, env(safe-area-inset-top, 12px)) max(20px, env(safe-area-inset-right, 20px)) 12px max(20px, env(safe-area-inset-left, 20px));display:flex;align-items:center;justify-content:space-between}
 /* Capacitor (iOS native app) extends the WebView under the Dynamic Island.
    Add safe-area padding ONLY when html.is-capacitor is set (see JS below).
    Web Safari is unchanged — iOS Safari already insets content below the
    status bar, so we don't want a tall blue bar on regular web. */
-html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 12px max(20px, env(safe-area-inset-left))}
+/* is-capacitor override is now redundant — base .app-header rule above
+   already uses env() padding for all contexts. Kept for backward compat
+   in case anything inspects the class. */
+html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) max(20px, env(safe-area-inset-right, 20px)) 12px max(20px, env(safe-area-inset-left, 20px))}
 .app-header h1{font-size:18px;font-weight:700}
 .app-header h1 span{color:#f59e0b}
 .app-header .info{font-size:13px;color:#94a3b8}
@@ -277,9 +284,11 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top)) max(20
   .right-voter{padding:8px 10px;font-size:12px}
   .search-bar input{padding:12px 14px;font-size:14px}
 
-  /* Header: tighter padding, allow greeting to wrap below title without breaking layout */
-  .app-header{padding:10px 14px;flex-wrap:wrap;gap:6px;row-gap:4px}
-  html.is-capacitor .app-header{padding:max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left))}
+  /* Header: tighter padding on mobile, but still respect the iPhone
+     safe-area inset on top. Welcome / Match Contacts get pushed below
+     the Dynamic Island regardless of Capacitor vs Safari. */
+  .app-header{padding:max(10px, env(safe-area-inset-top, 10px)) max(14px, env(safe-area-inset-right, 14px)) 10px max(14px, env(safe-area-inset-left, 14px));flex-wrap:wrap;gap:6px;row-gap:4px}
+  html.is-capacitor .app-header{padding:max(10px, env(safe-area-inset-top, 10px)) max(14px, env(safe-area-inset-right, 14px)) 10px max(14px, env(safe-area-inset-left, 14px))}
   .app-header > div:first-child{flex:1 1 0;min-width:0}
   .app-header h1{font-size:16px;line-height:1.2}
   .app-header .info{font-size:12px;margin-top:2px;overflow-wrap:anywhere}
@@ -5745,10 +5754,19 @@ function renderCandidates(candidates, scope) {
     text: 'Top ' + candidates.length + ' candidates (' + scope + '):',
     style: 'color:#94a3b8'
   }));
+
+  // Candidate rows live inside their own bounded scroll container. The
+  // search-database button below sits OUTSIDE this container so the
+  // captain can always reach it without scrolling past all the candidates.
+  // Two-zone layout: list scrolls in its window, action stays visible.
+  var candWindow = makeEl('div', {
+    style: 'max-height:35dvh;max-height:35vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:4px;border:1px solid #334155;border-radius:6px;background:#0f172a'
+  });
+
   candidates.forEach(function(v) {
     var row = makeEl('div', {
       cls: 'candidate-card',
-      style: 'padding:10px;border:1px solid #334155;border-radius:6px;margin:6px 0;cursor:pointer'
+      style: 'padding:10px;border:1px solid #334155;border-radius:6px;margin:6px 0;cursor:pointer;background:#1e293b'
     });
     row.appendChild(makeEl('strong', { text: (v.firstName || '') + ' ' + (v.lastName || '') }));
     row.appendChild(makeEl('span', { text: ' · age ' + v.age }));
@@ -5767,14 +5785,20 @@ function renderCandidates(candidates, scope) {
       // to show 'Update phone' or 'Add to list' wording.
       confirmMatch(v.voterId, window._mcContacts[window._mcIndex].phone, v.currentPhone || '');
     });
-    list.appendChild(row);
+    candWindow.appendChild(row);
   });
+  list.appendChild(candWindow);
 
-  // If the top candidate isn't a perfect match (no phone match found),
-  // offer a manual database search so the captain can find the right
-  // voter when fuzzy name matching missed them.
+  // Search-DB button OUTSIDE the candidate scroll window. Always visible
+  // below the list — captain doesn't have to scroll candidates to reach
+  // it. Shown when the top match isn't a perfect score (most common case).
   var topScore = candidates[0] && candidates[0].score;
   if (topScore == null || topScore < 1.0) {
+    var divider = makeEl('div', {
+      style: 'margin:8px 0 4px;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;text-align:center'
+    });
+    divider.textContent = '— or —';
+    list.appendChild(divider);
     appendSearchDbButton(list);
   }
 }
