@@ -12643,7 +12643,10 @@ async function viewCandidateMasterList() {
   document.body.appendChild(overlay);
 
   try {
-    var data = await api('/api/candidates/' + _candidateDetailId + '/master-list');
+    // Request the full pool — endpoint defaults to a paginated page (5000),
+    // which truncated the table for any candidate with more voters than
+    // that. Pass a high limit so admin sees every name in one request.
+    var data = await api('/api/candidates/' + _candidateDetailId + '/master-list?limit=100000');
     var voters = data.voters || [];
     var allMasterVoters = voters.slice();
     // Use totalUniqueVoters (the real distinct count across admin + captain

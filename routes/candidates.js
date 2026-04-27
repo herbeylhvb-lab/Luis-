@@ -983,7 +983,10 @@ router.delete('/candidates/:id/lists/:listId/voters/:voterId/parent', requireCan
 // Master list: all unique voters across ALL lists with source info
 router.get('/candidates/:id/master-list', requireCandidateAuth, (req, res) => {
   const candidateIdParam = req.params.id;
-  const limit = Math.min(parseInt(req.query.limit) || 5000, 10000);
+  // Default high enough to cover most candidates' full voter pool in one
+  // request. Cap at 100k to protect the server from a runaway query.
+  // Smaller campaigns can still request a smaller page via ?limit=.
+  const limit = Math.min(parseInt(req.query.limit) || 100000, 100000);
   const offset = parseInt(req.query.offset) || 0;
 
   // Step 1: Get unique voter IDs with proper pagination
