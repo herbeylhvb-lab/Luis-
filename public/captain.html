@@ -534,6 +534,11 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
         <div id="mcCandidateList" style="margin-top:12px;max-height:50dvh;max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-right:4px"></div>
         <div id="mcActionMenu" style="display:none;margin-top:12px"></div>
         <button id="mcSkipBtn" style="margin-top:8px">Skip &mdash; not in voter file</button>
+        <!-- Pause button — saves the current session to localStorage so
+             the captain can come back later and continue from where they
+             left off. Persistent per-captain (other captains on the same
+             device get their own saved session). -->
+        <button id="mcPauseBtn" style="margin-top:8px;width:100%;padding:10px;background:transparent;border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;cursor:pointer;font-weight:600">⏸ Pause &mdash; resume later</button>
       </section>
 
       <section id="mcStep3" style="display:none">
@@ -3408,6 +3413,77 @@ function getCaptainStorageKey(suffix) {
   return 'cap_' + cid + '_' + suffix;
 }
 
+// ─── Match-Contacts session persistence (pause/resume) ──────────────
+// Captain can stop mid-list and pick up later from the same place. The
+// state is keyed per-captain so two captains on the same device don't
+// collide. Cleared on completion or explicit "start fresh".
+function saveContactsState() {
+  try {
+    if (!window._mcContacts || window._mcContacts.length === 0) return;
+    var state = {
+      contacts: window._mcContacts,
+      index: window._mcIndex,
+      deferred: window._mcDeferred || [],
+      phase2: !!window._mcPhase2,
+      results: window._mcResults || { matched: 0, skipped: 0 },
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem(getCaptainStorageKey('mc_session'), JSON.stringify(state));
+  } catch (e) { /* localStorage full / disabled — not fatal */ }
+}
+function loadContactsState() {
+  try {
+    var raw = localStorage.getItem(getCaptainStorageKey('mc_session'));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function clearContactsState() {
+  try { localStorage.removeItem(getCaptainStorageKey('mc_session')); } catch (e) {}
+}
+
+// ─── Processed-contacts memory ──────────────────────────────────────
+// Tracks every contact the captain has already gone through. Keyed by
+// phone digits (stable across CSV / vCard / iPhone import sources). On
+// next import, contacts whose phone is already in the map get filtered
+// out — captain doesn't re-process people they've already seen.
+// Outcome lets us later support "retry unmatched" if the captain wants.
+function getProcessedContacts() {
+  try {
+    var raw = localStorage.getItem(getCaptainStorageKey('mc_processed'));
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+function recordContactProcessed(contact, outcome) {
+  if (!contact) return;
+  var phone = String(contact.phone || '').replace(/\D/g, '');
+  if (!phone) return; // can only dedupe by phone — skip if missing
+  try {
+    var map = getProcessedContacts();
+    map[phone] = {
+      firstName: contact.firstName || '',
+      lastName: contact.lastName || '',
+      outcome: outcome,
+      processedAt: new Date().toISOString()
+    };
+    localStorage.setItem(getCaptainStorageKey('mc_processed'), JSON.stringify(map));
+  } catch (e) {}
+}
+// Filter a contact list to only the ones not already processed. Returns
+// { fresh: [...], skippedCount: N } so the UI can tell the captain how
+// many were filtered out.
+function filterAlreadyProcessed(contacts) {
+  var processed = getProcessedContacts();
+  var fresh = [];
+  var skippedCount = 0;
+  contacts.forEach(function(c) {
+    var phone = String(c.phone || '').replace(/\D/g, '');
+    if (phone && processed[phone]) skippedCount++;
+    else fresh.push(c);
+  });
+  return { fresh: fresh, skippedCount: skippedCount };
+}
+
 function getDefaultTextTemplate() {
   var captainName = (captainState.captain && captainState.captain.name) || '';
   return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote for {candidate} in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
@@ -5377,6 +5453,10 @@ document.getElementById('mcFileInput').addEventListener('change', async function
   window._mcContacts = contacts;
   window._mcIndex = 0;
   window._mcResults = { matched: 0, skipped: 0 };
+  // Reset two-phase state for the fresh batch — no contacts deferred yet,
+  // and we start in phase 1 (auto phone-match flow).
+  window._mcDeferred = [];
+  window._mcPhase2 = false;
   if (contacts.length > 0) {
     document.getElementById('mcStep1').style.display = 'none';
     // Use the same preview-and-sort flow as the native multi-select picker:
@@ -5548,14 +5628,32 @@ function updateContinueBtn() {
       if (typeof showToast === 'function') showToast('Select at least one contact');
       return;
     }
-    window._mcContacts = selected;
+    // Filter out contacts already processed in previous sessions so the
+    // captain doesn't redo work. They can override via the toast confirm
+    // if they want to retry seen contacts (e.g., if data has changed).
+    var filtered = filterAlreadyProcessed(selected);
+    var fresh = filtered.fresh;
+    if (filtered.skippedCount > 0) {
+      var keepAll = confirm(filtered.skippedCount + ' of these contacts were already processed in previous sessions and will be skipped (' + fresh.length + ' new to process).\n\nClick Cancel to include them anyway (e.g., to retry the ones you couldn’t find before).');
+      if (!keepAll) {
+        // Captain wants to include previously-processed too
+        fresh = selected;
+      }
+    }
+    if (!fresh.length) {
+      if (typeof showToast === 'function') showToast('All selected contacts were already processed.');
+      return;
+    }
+    window._mcContacts = fresh;
     window._mcIndex = 0;
     window._mcResults = { matched: 0, skipped: 0 };
+    window._mcDeferred = [];
+    window._mcPhase2 = false;
     document.getElementById('mcStepSelect').style.display = 'none';
     // Pre-flight: ask the server which selected contacts have phone matches,
     // sort phone-matched ones to the front (1-tap confirms come first), and
     // show the captain a summary of how many are easy vs need manual entry.
-    runPreviewAndStartWizard(selected);
+    runPreviewAndStartWizard(fresh);
   });
 })();
 
@@ -5708,9 +5806,18 @@ async function autoPhoneSearch(contact) {
     var hasPhoneMatch = candidates.some(function (c) { return c.matchType === 'phone'; });
     if (hasPhoneMatch) {
       renderCandidates(candidates, data.scope || 'phone');
+    } else if (!window._mcPhase2) {
+      // PHASE 1: defer no-phone-match contacts so the captain breezes through
+      // all the easy auto-matches first. We come back to these in phase 2
+      // (with the age+city form / DB search). Captain doesn't have to bounce
+      // between "easy click" and "hard search" interleaved.
+      window._mcDeferred = window._mcDeferred || [];
+      window._mcDeferred.push(contact);
+      advance();
     } else {
-      // No phone match — fall back to the age + city form so captain can
-      // disambiguate by name/age/location.
+      // PHASE 2: this contact was already deferred. Show the age+city form
+      // so the captain can disambiguate by name/age/location, then optionally
+      // fall back to manual database search.
       showAgeCityForm('No phone match found. Enter age and city to search by name:');
     }
   } catch (err) {
@@ -6116,6 +6223,8 @@ function showPreviewMenu(voterId, phone, data, opts) {
   });
   skipBtn.addEventListener('click', function () {
     window._mcResults.skipped++;
+    // Record skipped from preview-menu so re-imports don't replay this contact.
+    recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
     advance();
   });
   btnRow.appendChild(addBtn);
@@ -6164,6 +6273,8 @@ async function finalizeAdd(voterId, phone, previewData, btn) {
     }
     var addedTotal = 1 + householdIds.length;
     showToast('Added ' + addedTotal + ' to list', 'success');
+    // Record this contact as processed so future imports skip them.
+    recordContactProcessed(window._mcContacts[window._mcIndex], 'matched');
     advance();
   } catch (err) {
     btn.disabled = false; btn.textContent = 'Add to list';
@@ -6327,20 +6438,62 @@ function textVoter(contact, phone) {
 
 document.getElementById('mcSkipBtn').addEventListener('click', function() {
   window._mcResults.skipped++;
+  // Record skipped — captain is saying "this person isn't in the file."
+  // Future imports won't show them again unless captain explicitly
+  // overrides via the "include previously-seen" toggle.
+  recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
   advance();
 });
 
 function advance() {
   window._mcIndex++;
+  // End of phase 1: if we have deferred (no-phone-match) contacts queued,
+  // switch to phase 2 to process them with the age+city / DB-search flow.
+  if (window._mcIndex >= window._mcContacts.length &&
+      !window._mcPhase2 &&
+      window._mcDeferred && window._mcDeferred.length > 0) {
+    showPhase2Transition();
+    return;
+  }
+  // Persist progress so the captain can pause + resume later.
+  saveContactsState();
+  renderCurrentContact();
+}
+
+// Show a "starting phase 2" message and swap to the deferred queue.
+function showPhase2Transition() {
+  var deferred = window._mcDeferred || [];
+  window._mcContacts = deferred;
+  window._mcDeferred = [];
+  window._mcIndex = 0;
+  window._mcPhase2 = true;
+  saveContactsState();
+  // Announce the phase transition so the captain understands why the
+  // queue suddenly grew. Using alert because confirm() blocks until tap,
+  // which is ideal here — we want them to acknowledge before continuing.
+  alert(deferred.length + ' contact' + (deferred.length !== 1 ? 's' : '') +
+    ' had no phone match. Now going through them so you can search the voter file by name, age, or city.');
   renderCurrentContact();
 }
 
 function finishWizard() {
+  // Wizard complete — clear the saved session so the next "Match Contacts"
+  // open starts fresh instead of offering to resume.
+  clearContactsState();
+  window._mcDeferred = [];
+  window._mcPhase2 = false;
   document.getElementById('mcStep2').style.display = 'none';
   document.getElementById('mcStep3').style.display = 'block';
   document.getElementById('mcSummary').textContent =
     window._mcResults.matched + ' matched · ' + window._mcResults.skipped + ' skipped';
 }
+
+// Pause button — save state, close modal. Captain can return later.
+document.getElementById('mcPauseBtn').addEventListener('click', function () {
+  saveContactsState();
+  document.getElementById('matchContactsModal').style.display = 'none';
+  showToast('Paused. Tap "Match Contacts" again to resume.');
+});
 
 document.getElementById('mcCloseBtn').addEventListener('click', function() {
   document.getElementById('matchContactsModal').style.display = 'none';
@@ -6364,6 +6517,34 @@ document.getElementById('mcStartOverBtn').addEventListener('click', function () 
 });
 
 document.getElementById('matchContactsBtn').addEventListener('click', function() {
+  // Check for a paused session — offer to resume from where the captain
+  // left off. Resume restores the queue, index, deferred list, and phase
+  // marker, then jumps straight to mcStep2 to keep matching.
+  var saved = loadContactsState();
+  if (saved && saved.contacts && saved.contacts.length > 0) {
+    var totalRemaining = (saved.contacts.length - (saved.index || 0)) + (saved.deferred || []).length;
+    var phaseLabel = saved.phase2 ? ' (in phase 2 — manual search)' : '';
+    var savedDate = (saved.savedAt || '').split('T')[0];
+    if (confirm('Resume your previous Match Contacts session?\n\n' +
+        totalRemaining + ' contact' + (totalRemaining !== 1 ? 's' : '') + ' remaining' + phaseLabel +
+        '\nSaved: ' + savedDate +
+        '\n\nOK = Resume · Cancel = Start fresh')) {
+      window._mcContacts = saved.contacts;
+      window._mcIndex = saved.index || 0;
+      window._mcDeferred = saved.deferred || [];
+      window._mcPhase2 = !!saved.phase2;
+      window._mcResults = saved.results || { matched: 0, skipped: 0 };
+      document.getElementById('mcStep1').style.display = 'none';
+      document.getElementById('mcStepSelect').style.display = 'none';
+      document.getElementById('mcStep2').style.display = 'block';
+      document.getElementById('mcStep3').style.display = 'none';
+      document.getElementById('matchContactsModal').style.display = 'block';
+      renderCurrentContact();
+      return;
+    }
+    // User picked "Start fresh" — wipe the saved session
+    clearContactsState();
+  }
   document.getElementById('mcStep1').style.display = 'block';
   document.getElementById('mcStepSelect').style.display = 'none';
   document.getElementById('mcStep2').style.display = 'none';
