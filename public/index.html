@@ -2608,6 +2608,32 @@ tr:hover td{background:#1e293b80}
 
     <!-- ==================== GOTV CHASE ==================== -->
     <div class="page" id="page-gotv">
+      <!-- Universe + Candidate selectors. When a universe is picked, the
+           page below shows scoped early-voting analytics (same data shown
+           on the Universes tab). When a candidate is picked, the chase
+           list builder filters by that candidate's race/district. -->
+      <div class="card" style="margin-bottom:0;border-color:#1e40af;background:#0b1628">
+        <h3 style="margin-bottom:8px">🎯 Scope</h3>
+        <p style="color:#94a3b8;margin-bottom:16px;font-size:13px">Pick a universe and candidate to see early-voting numbers for that target list. Leave both blank to see whole-DB stats below.</p>
+        <div class="form-row-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group">
+            <label>Universe</label>
+            <select id="gotvUniverseSelect" onchange="onGotvUniverseChange()">
+              <option value="">— All voters (whole DB) —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Candidate</label>
+            <select id="gotvCandidateSelect" onchange="onGotvCandidateChange()">
+              <option value="">— No candidate filter —</option>
+            </select>
+          </div>
+        </div>
+        <!-- Universe-scoped early voter analytics rendered here when a
+             universe is picked. Hidden until then. -->
+        <div id="gotvUniverseStatsBox" style="display:none;margin-top:16px"></div>
+      </div>
+
       <div class="stats-grid" id="gotvStats">
         <div class="stat-card"><div class="label">Total Voters</div><div class="value" id="gotvTotal">0</div></div>
         <div class="stat-card"><div class="label">Already Voted</div><div class="value" style="color:#22c55e" id="gotvVoted">0</div><div class="sub" id="gotvVotedPct">0%</div></div>
@@ -16545,19 +16571,186 @@ async function loadBroadcastHistory() {
 
 // ===================== GOTV CHASE =====================
 async function loadGotvPage() {
+  loadGotvUniverseDropdown();
+  loadGotvCandidateDropdown();
   loadGotvStats();
   loadGotvPrecincts();
 }
 
+// Populate the GOTV Universe dropdown from /api/admin-lists. Persist the
+// chosen universe in sessionStorage so refreshing the page or switching
+// tabs remembers the selection.
+async function loadGotvUniverseDropdown() {
+  var sel = document.getElementById('gotvUniverseSelect');
+  if (!sel) return;
+  try {
+    var data = await api('/api/admin-lists');
+    var lists = data.lists || data || [];
+    var saved = sessionStorage.getItem('gotvUniverseId') || '';
+    sel.innerHTML = '<option value="">— All voters (whole DB) —</option>';
+    lists.forEach(function(l) {
+      var opt = document.createElement('option');
+      opt.value = l.id;
+      opt.textContent = l.name + (l.voter_count ? ' (' + l.voter_count.toLocaleString() + ')' : '');
+      sel.appendChild(opt);
+    });
+    if (saved && [].some.call(sel.options, function(o) { return o.value === saved; })) {
+      sel.value = saved;
+      // Render the stats for the saved selection
+      onGotvUniverseChange();
+    }
+  } catch (e) { console.warn('Could not load universes for GOTV:', e.message); }
+}
+
+// Populate the GOTV Candidate dropdown from /api/candidates. The picked
+// candidate's race becomes a scope filter on the chase list and stats.
+async function loadGotvCandidateDropdown() {
+  var sel = document.getElementById('gotvCandidateSelect');
+  if (!sel) return;
+  try {
+    var data = await api('/api/candidates');
+    var candidates = data.candidates || data || [];
+    var saved = sessionStorage.getItem('gotvCandidateId') || '';
+    sel.innerHTML = '<option value="">— No candidate filter —</option>';
+    candidates.forEach(function(c) {
+      var opt = document.createElement('option');
+      opt.value = c.id;
+      // Pack race info into data attrs so we can scope queries without
+      // re-fetching the candidate detail.
+      opt.setAttribute('data-race-type', c.race_type || '');
+      opt.setAttribute('data-race-value', c.race_value || '');
+      var raceLabel = c.race_value ? ' — ' + c.race_value : '';
+      opt.textContent = c.name + raceLabel;
+      sel.appendChild(opt);
+    });
+    if (saved && [].some.call(sel.options, function(o) { return o.value === saved; })) {
+      sel.value = saved;
+    }
+  } catch (e) { console.warn('Could not load candidates for GOTV:', e.message); }
+}
+
+// When the universe selection changes, fetch its rich stats and render
+// a focused early-voting analytics block below the dropdown.
+async function onGotvUniverseChange() {
+  var sel = document.getElementById('gotvUniverseSelect');
+  var listId = sel.value;
+  var box = document.getElementById('gotvUniverseStatsBox');
+  sessionStorage.setItem('gotvUniverseId', listId || '');
+  if (!listId) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    // Refresh whole-DB GOTV stats too so the cards below match
+    loadGotvStats();
+    loadGotvPrecincts();
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = '<div style="color:#64748b;text-align:center;padding:16px">Loading universe stats...</div>';
+  try {
+    var data = await api('/api/admin-lists/' + listId + '/stats');
+    box.innerHTML = renderGotvUniverseStats(data, listId);
+  } catch (e) {
+    box.innerHTML = '<div style="color:#ef4444;padding:12px">Error loading universe stats: ' + escHtml(e.message || 'unknown') + '</div>';
+  }
+}
+
+// When candidate changes, persist + re-load the stats cards and precinct
+// table so the GOTV view reflects the new race scope immediately.
+function onGotvCandidateChange() {
+  var sel = document.getElementById('gotvCandidateSelect');
+  sessionStorage.setItem('gotvCandidateId', sel.value || '');
+  loadGotvStats();
+  loadGotvPrecincts();
+}
+
+// Helper: returns { race_col, race_val } from the selected candidate, or
+// null if no candidate / no race set on that candidate. Used to scope
+// /api/gotv/* queries.
+function getGotvRaceFilter() {
+  var sel = document.getElementById('gotvCandidateSelect');
+  if (!sel || !sel.value) return null;
+  var opt = sel.options[sel.selectedIndex];
+  var raceType = opt.getAttribute('data-race-type');
+  var raceValue = opt.getAttribute('data-race-value');
+  if (!raceType || !raceValue) return null;
+  return { race_col: raceType, race_val: raceValue };
+}
+
+// Renders a focused early-voting analytics block from /api/admin-lists/:id/stats.
+// Mirrors the "Early Voter Analysis" section of the Universes page so captains
+// see familiar numbers in the same layout.
+function renderGotvUniverseStats(data, listId) {
+  var totalVoters = data.total_voters || 0;
+  var earlyVoted = data.early_voted || 0;
+  var notVoted = totalVoters - earlyVoted;
+  var votedPct = totalVoters > 0 ? Math.round(earlyVoted / totalVoters * 100) : 0;
+  var universeVbm = data.universe_vbm_count || 0;
+  var universeEarlyInPerson = data.universe_early_inperson_count || 0;
+  var vbmPct = totalVoters > 0 ? Math.round(universeVbm / totalVoters * 100) : 0;
+  var eipPct = totalVoters > 0 ? Math.round(universeEarlyInPerson / totalVoters * 100) : 0;
+  var districtTurnoutNum = data.district_early_voted || 0;
+  var raceUniversePct = districtTurnoutNum > 0 ? Math.round(earlyVoted / districtTurnoutNum * 100) : 0;
+  var raceOutsideCount = data.early_voted_outside || 0;
+  var raceTurnoutLabel = (data.detected_race_column && data.detected_race_value)
+    ? 'in ' + escHtml(data.detected_race_value)
+    : 'in whole DB (no race)';
+
+  var html = '';
+  html += '<div style="padding:14px;background:#0b1220;border:1px solid #1e40af;border-radius:8px">';
+  html += '<h5 style="color:#60a5fa;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px">🎯 Early Voter Analysis · This Universe</h5>';
+  html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">';
+  // Universe section
+  html += '<div style="flex:1;min-width:280px">';
+  html += '<div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">📍 Your Universe (' + totalVoters.toLocaleString() + ' voters)</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
+  html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted Early (total)</div><div class="value" style="color:#86efac;font-size:18px">' + earlyVoted.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + votedPct + '% of universe</div></div>';
+  html += '<div class="stat-card" style="background:#1e293b;padding:10px;border-left:3px solid #60a5fa"><div class="label" style="color:#93c5fd">Early In-Person</div><div class="value" style="color:#60a5fa;font-size:18px">' + universeEarlyInPerson.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + eipPct + '% of universe</div></div>';
+  html += '<div class="stat-card" style="background:#1e293b;padding:10px;border-left:3px solid #f472b6"><div class="label" style="color:#f9a8d4">Voted by Mail</div><div class="value" style="color:#f472b6;font-size:18px">' + universeVbm.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + vbmPct + '% of universe</div></div>';
+  html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Not Yet Voted</div><div class="value" style="color:#f59e0b;font-size:18px">' + notVoted.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + (100 - votedPct) + '% remaining</div></div>';
+  html += '</div></div>';
+  // Race section
+  html += '<div style="flex:1;min-width:280px">';
+  html += '<div style="font-size:10px;color:#22d3ee;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🗳️ Whole Race · ' + raceTurnoutLabel + '</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
+  html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">Race Voted</div><div class="value" style="color:#67e8f9;font-size:18px">' + districtTurnoutNum.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">total votes in district</div></div>';
+  html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">My Share</div><div class="value" style="color:#22d3ee;font-size:18px">' + raceUniversePct + '%</div><div style="font-size:11px;color:#64748b">' + earlyVoted.toLocaleString() + ' of ' + districtTurnoutNum.toLocaleString() + '</div></div>';
+  html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">Voted Outside</div><div class="value" style="color:#a5f3fc;font-size:18px">' + raceOutsideCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">voted, not in universe</div></div>';
+  html += '</div></div>';
+  html += '</div>';
+
+  // Progress bar for the universe
+  html += '<div style="margin-top:8px;display:flex;align-items:center;gap:8px">';
+  html += '<div style="flex:1;background:#334155;border-radius:8px;height:18px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:8px;transition:width .5s;width:' + votedPct + '%"></div></div>';
+  html += '<span style="font-size:13px;font-weight:600;min-width:50px;color:#e2e8f0">' + votedPct + '%</span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:#64748b;margin-top:4px">' + earlyVoted.toLocaleString() + ' of ' + totalVoters.toLocaleString() + ' voters in this universe have voted early</div>';
+
+  // Quick action buttons — link to chase list scoped to this universe
+  html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">';
+  html += '<a class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv?exclude_voted=1">⬇ Export Not-Voted CSV</a>';
+  html += '<a class="btn btn-sm btn-secondary" style="text-decoration:none" href="#" onclick="document.getElementById(\'gotvUniverseSelect\').focus(); return false;">🔄 Refresh</a>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
 async function loadGotvStats() {
   try {
-    // Use race filter from dashboard settings for GOTV stats
+    // Race filter precedence: GOTV's own candidate dropdown wins over the
+    // global dashboard race filter. Lets captains scope GOTV to a specific
+    // candidate's race without affecting other tabs.
     var raceParams = [];
-    var raceVal = document.getElementById('dashRaceFilter').value;
-    if (raceVal) {
-      var parts = raceVal.split('|');
-      raceParams.push('race_col=' + encodeURIComponent(parts[0]));
-      raceParams.push('race_val=' + encodeURIComponent(parts[1]));
+    var gotvRace = getGotvRaceFilter();
+    if (gotvRace) {
+      raceParams.push('race_col=' + encodeURIComponent(gotvRace.race_col));
+      raceParams.push('race_val=' + encodeURIComponent(gotvRace.race_val));
+    } else {
+      var raceVal = document.getElementById('dashRaceFilter').value;
+      if (raceVal) {
+        var parts = raceVal.split('|');
+        raceParams.push('race_col=' + encodeURIComponent(parts[0]));
+        raceParams.push('race_val=' + encodeURIComponent(parts[1]));
+      }
     }
     var gotvUrl = '/api/gotv/stats' + (raceParams.length ? '?' + raceParams.join('&') : '');
     var data = await api(gotvUrl);
@@ -16587,9 +16780,16 @@ async function loadGotvStats() {
 
 async function loadGotvPrecincts() {
   try {
+    // Same precedence as loadGotvStats — GOTV candidate wins.
     var raceParams = [];
-    var raceVal = document.getElementById('dashRaceFilter').value;
-    if (raceVal) { var parts = raceVal.split('|'); raceParams.push('race_col=' + encodeURIComponent(parts[0])); raceParams.push('race_val=' + encodeURIComponent(parts[1])); }
+    var gotvRace = getGotvRaceFilter();
+    if (gotvRace) {
+      raceParams.push('race_col=' + encodeURIComponent(gotvRace.race_col));
+      raceParams.push('race_val=' + encodeURIComponent(gotvRace.race_val));
+    } else {
+      var raceVal = document.getElementById('dashRaceFilter').value;
+      if (raceVal) { var parts = raceVal.split('|'); raceParams.push('race_col=' + encodeURIComponent(parts[0])); raceParams.push('race_val=' + encodeURIComponent(parts[1])); }
+    }
     var data = await api('/api/gotv/stats' + (raceParams.length ? '?' + raceParams.join('&') : ''));
     var tbody = document.getElementById('gotvPrecinctBody');
     if (!data.byPrecinct || data.byPrecinct.length === 0) {
