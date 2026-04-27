@@ -308,8 +308,20 @@ app.use((req, res, next) => {
   requireAuth(req, res, next);
 });
 
-// Serve static files for authenticated users (ETag enabled by default for cache validation)
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '10m' }));
+// Serve static files for authenticated users (ETag enabled by default for
+// cache validation). HTML files use no-cache so deploys propagate instantly:
+// the browser still revalidates with ETag (returns 304 if unchanged, ~30
+// bytes), but never serves stale HTML from local cache. Other assets keep
+// the 10-minute cache for performance — they change rarely and benefit
+// from fewer round-trips.
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '10m',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+}));
 
 const { generateJoinCode, asyncHandler, phoneDigits, personalizeTemplate } = require('./utils');
 
