@@ -266,7 +266,11 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
   }
   .app-layout{
     flex-direction:column;
-    height:calc(100dvh - var(--app-header-h,56px) - 62px);
+    /* Subtract header + tab bar + bottom safe-area inset so the layout
+       fills exactly the visible area on iPhones with Dynamic Island /
+       home indicator. Without the env() term, content can extend behind
+       the tabs and the floating action bar appears clipped. */
+    height:calc(100dvh - var(--app-header-h,56px) - 62px - env(safe-area-inset-bottom, 0px));
     overflow:hidden
   }
   .sidebar,.center-panel,.right-panel{
@@ -325,7 +329,12 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
 .drop-highlight{outline:2px dashed #f59e0b!important;outline-offset:-2px;background:rgba(245,158,11,0.08)!important}
 
 @media(max-width:900px){
-  .floating-action-bar{position:fixed;bottom:62px;left:0;right:0;flex-wrap:wrap;padding:10px 12px}
+  /* Float above the mobile tab bar. The tab bar is fixed at bottom:0 with
+     padding-bottom: env(safe-area-inset-bottom), so on iPhones with the
+     Dynamic Island / home indicator, its total height is ~62px + safe-area.
+     The action bar's bottom offset must match that, otherwise it sits
+     behind the tabs (the bug we're fixing). */
+  .floating-action-bar{position:fixed;bottom:calc(62px + env(safe-area-inset-bottom, 0px));left:0;right:0;flex-wrap:wrap;padding:10px 12px}
   .floating-action-bar select{min-width:100px}
 }
 
