@@ -466,6 +466,7 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
       <div class="floating-action-bar" id="floatingActionBar">
         <span class="fab-count" id="fabCount">0 voters selected</span>
         <button class="btn btn-xs" style="background:#22c55e;border-color:#16a34a;color:#fff" onclick="startBulkTextFlow()" title="Send a personal text to each selected voter from your phone">&#128172; Text</button>
+        <button class="btn btn-xs" style="background:#3b82f6;border-color:#2563eb;color:#fff" onclick="startBulkPhoneBankFlow()" title="Call each selected voter one at a time from your phone">&#128222; Phone Bank</button>
         <span style="color:#64748b;font-size:13px">Send to &rarr;</span>
         <select id="fabTargetList"></select>
         <button class="btn btn-xs btn-captain" onclick="transferVoters(false)">Copy</button>
@@ -4497,6 +4498,275 @@ function sendGroupTextToVoters(voters, template) {
   // supported by MFMessageComposeViewController) when running inside
   // Capacitor, otherwise falls back to the sms:&addresses= URL scheme.
   _captainSendSms(phones, body || '');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BULK PHONE BANK FLOW — parallel to bulk text but for voice calls
+// ═══════════════════════════════════════════════════════════════════
+// Captain selects multiple voters, taps 📞 Phone Bank in the floating
+// action bar, modal walks them through one voter at a time. Each voter
+// shows all 3 phone numbers — captain taps a number to dial, the call
+// goes through their carrier, captain comes back and taps Next.
+// Pause/resume mirrors the bulk-text architecture.
+
+var _bulkPhoneQueue = [];
+var _bulkPhoneIndex = 0;
+
+window.startBulkPhoneBankFlow = function() {
+  if (_selectedVoterIds.size === 0) {
+    alert('Select one or more voters first.');
+    return;
+  }
+  var allVoters = _currentListVoters || [];
+  var selected = allVoters.filter(function(v) { return _selectedVoterIds.has(v.id); });
+  startBulkPhoneFromVoters(selected);
+};
+
+function startBulkPhoneFromVoters(voters) {
+  // Offer to resume a saved queue if one exists. Pause/resume mirrors
+  // the bulk-text pattern — same UX language captains already know.
+  var saved = loadBulkPhoneState();
+  if (saved && saved.queue && saved.queue.length > 0 && saved.index < saved.queue.length) {
+    var remaining = saved.queue.length - saved.index;
+    if (confirm('Resume your previous phone-bank session?\n\n' + remaining + ' voter' + (remaining !== 1 ? 's' : '') + ' remaining\nSaved: ' + (saved.savedAt || '').split('T')[0] + '\n\nOK = Resume · Cancel = Start fresh with current selection')) {
+      _bulkPhoneQueue = saved.queue;
+      _bulkPhoneIndex = saved.index || 0;
+      renderBulkPhoneModal();
+      return;
+    }
+    clearBulkPhoneState();
+  }
+
+  // Filter — only voters with at least one phone digit. Skip phoneless.
+  var noPhone = 0;
+  var queue = voters.filter(function(v) {
+    var anyPhone =
+      String(v.phone || '').replace(/\D/g, '').length >= 10 ||
+      String(v.secondary_phone || '').replace(/\D/g, '').length >= 10 ||
+      String(v.tertiary_phone || '').replace(/\D/g, '').length >= 10;
+    if (!anyPhone) noPhone++;
+    return anyPhone;
+  });
+  if (queue.length === 0) {
+    alert('No selected voters have a phone number on file.');
+    return;
+  }
+  if (noPhone > 0) {
+    if (!confirm(queue.length + ' voter' + (queue.length !== 1 ? 's' : '') + ' queued.\n\nSkipping ' + noPhone + ' without any phone on file.\n\nContinue?')) return;
+  }
+  _bulkPhoneQueue = queue;
+  _bulkPhoneIndex = 0;
+  saveBulkPhoneState();
+  renderBulkPhoneModal();
+}
+
+function saveBulkPhoneState() {
+  try {
+    if (!_bulkPhoneQueue || _bulkPhoneQueue.length === 0) return;
+    localStorage.setItem(getCaptainStorageKey('phone_queue_state'), JSON.stringify({
+      queue: _bulkPhoneQueue,
+      index: _bulkPhoneIndex,
+      savedAt: new Date().toISOString()
+    }));
+  } catch (e) {}
+}
+function loadBulkPhoneState() {
+  try {
+    var raw = localStorage.getItem(getCaptainStorageKey('phone_queue_state'));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function clearBulkPhoneState() {
+  try { localStorage.removeItem(getCaptainStorageKey('phone_queue_state')); } catch (e) {}
+}
+
+function closeBulkPhoneModal() {
+  var el = document.getElementById('bulkPhoneModal');
+  if (el) el.remove();
+  if (typeof lockBackgroundScroll === 'function') lockBackgroundScroll(false);
+}
+
+function renderBulkPhoneModal() {
+  // Tear down existing instance (preserve scroll like the text modal does).
+  var prev = document.getElementById('bulkPhoneModal');
+  if (prev) prev.remove();
+  if (typeof lockBackgroundScroll === 'function') lockBackgroundScroll(true);
+
+  var queue = _bulkPhoneQueue;
+  // End of queue → done screen + clear state
+  if (_bulkPhoneIndex >= queue.length) {
+    clearBulkPhoneState();
+    var doneOverlay = document.createElement('div');
+    doneOverlay.id = 'bulkPhoneModal';
+    doneOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:center;justify-content:center;padding:max(20px, env(safe-area-inset-top, 20px)) 12px max(20px, env(safe-area-inset-bottom, 20px))';
+    var doneBox = document.createElement('div');
+    doneBox.style.cssText = 'background:#1e293b;border:1px solid #22c55e;border-radius:12px;padding:20px;max-width:420px;width:100%;text-align:center';
+    doneBox.appendChild(makeEl('h3', { text: '✅ All done!', style: 'color:#22c55e;margin:0 0 8px 0' }));
+    doneBox.appendChild(makeEl('p', { text: 'You called through ' + queue.length + ' voter' + (queue.length !== 1 ? 's' : '') + '. Nice work.', style: 'color:#94a3b8;margin:0 0 16px 0' }));
+    var closeDoneBtn = makeEl('button', {
+      text: 'Close',
+      style: 'padding:10px 24px;background:#22c55e;border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer'
+    });
+    closeDoneBtn.addEventListener('click', closeBulkPhoneModal);
+    doneBox.appendChild(closeDoneBtn);
+    doneOverlay.appendChild(doneBox);
+    document.body.appendChild(doneOverlay);
+    return;
+  }
+
+  var voter = queue[_bulkPhoneIndex];
+  var remaining = queue.length - _bulkPhoneIndex;
+
+  // Build the modal overlay + box. Padding respects iPhone safe-area
+  // top/bottom so the modal clears the Dynamic Island and home indicator.
+  var overlay = document.createElement('div');
+  overlay.id = 'bulkPhoneModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:max(20px, env(safe-area-inset-top, 20px)) 12px max(20px, env(safe-area-inset-bottom, 20px));overscroll-behavior:contain;-webkit-overflow-scrolling:touch';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px;max-width:480px;width:100%;max-height:calc(100dvh - 40px);max-height:calc(100vh - 40px);overflow-y:auto;margin:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch';
+
+  // Title + progress
+  box.appendChild(makeEl('h3', {
+    text: '📞 Phone Bank',
+    style: 'margin:0 0 4px 0;font-size:18px;color:#e2e8f0'
+  }));
+  box.appendChild(makeEl('div', {
+    text: 'Voter ' + (_bulkPhoneIndex + 1) + ' of ' + queue.length + ' · ' + remaining + ' remaining',
+    style: 'font-size:12px;color:#94a3b8;margin-bottom:12px'
+  }));
+
+  // Voter card
+  var card = makeEl('div', {
+    style: 'padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:12px'
+  });
+  card.appendChild(makeEl('div', {
+    text: ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim(),
+    style: 'font-size:16px;font-weight:700;color:#e2e8f0'
+  }));
+  var meta = [];
+  if (voter.age) meta.push(voter.age + ' years');
+  if (voter.city) meta.push(voter.city);
+  if (voter.support_level && voter.support_level !== 'unknown') {
+    meta.push(String(voter.support_level).replace(/_/g, ' '));
+  }
+  if (meta.length > 0) {
+    card.appendChild(makeEl('div', {
+      text: meta.join(' · '),
+      style: 'font-size:12px;color:#94a3b8;margin-top:2px'
+    }));
+  }
+  if (voter.address) {
+    card.appendChild(makeEl('div', {
+      text: voter.address + (voter.zip ? ' ' + voter.zip : ''),
+      style: 'font-size:12px;color:#94a3b8;margin-top:2px'
+    }));
+  }
+  box.appendChild(card);
+
+  // All 3 phone slots — each one gets its own tap-to-call button. Captain
+  // can try primary, then secondary if no answer. The /phone-log endpoint
+  // records every dial attempt for the voter contact history.
+  var phonesTitle = makeEl('div', {
+    text: '📞 Tap a number to call',
+    style: 'font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px'
+  });
+  box.appendChild(phonesTitle);
+
+  var slotLabels = { primary: 'Primary', secondary: 'Secondary', tertiary: 'Tertiary' };
+  var slotCols = { primary: 'phone', secondary: 'secondary_phone', tertiary: 'tertiary_phone' };
+  var slotTypes = { primary: 'phone_type', secondary: 'secondary_phone_type', tertiary: 'tertiary_phone_type' };
+  var anyPhone = false;
+  ['primary', 'secondary', 'tertiary'].forEach(function(slot) {
+    var raw = String(voter[slotCols[slot]] || '').trim();
+    var digits = raw.replace(/\D/g, '');
+    if (digits.length < 10) return;
+    anyPhone = true;
+    var btn = document.createElement('button');
+    btn.style.cssText = 'display:flex;align-items:center;gap:10px;width:100%;padding:12px;margin-bottom:6px;background:#22c55e;border:none;border-radius:8px;color:#fff;font-size:15px;font-weight:600;cursor:pointer';
+    var lbl = document.createElement('span');
+    lbl.style.cssText = 'font-size:10px;background:rgba(0,0,0,0.2);padding:3px 8px;border-radius:9999px;flex-shrink:0';
+    lbl.textContent = slotLabels[slot];
+    btn.appendChild(lbl);
+    var num = document.createElement('span');
+    num.style.flex = '1';
+    num.style.textAlign = 'left';
+    num.style.fontFamily = 'monospace';
+    num.textContent = raw;
+    btn.appendChild(num);
+    var type = (voter[slotTypes[slot]] || '').toString().trim();
+    if (type) {
+      var typeBadge = document.createElement('span');
+      typeBadge.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.7)';
+      typeBadge.textContent = type;
+      btn.appendChild(typeBadge);
+    }
+    var icon = document.createElement('span');
+    icon.style.fontSize = '18px';
+    icon.textContent = '📞';
+    btn.appendChild(icon);
+    btn.addEventListener('click', function() {
+      // Fire-and-forget log; don't block the tel: navigation
+      try {
+        apiPost('/api/captains/' + captainState.captain.id + '/phone-log', {
+          voter_id: voter.id, phone_called: digits
+        }).catch(function() {});
+      } catch (e) {}
+      var full = (digits.length === 10) ? '+1' + digits : '+' + digits;
+      window.location.href = 'tel:' + full;
+    });
+    box.appendChild(btn);
+  });
+  if (!anyPhone) {
+    box.appendChild(makeEl('div', {
+      text: '(No phone numbers on file)',
+      style: 'font-size:13px;color:#64748b;font-style:italic;padding:12px;text-align:center'
+    }));
+  }
+
+  // Action buttons row — Next is primary, Skip / Pause / Cancel secondary
+  var nextBtn = document.createElement('button');
+  nextBtn.style.cssText = 'display:block;width:100%;padding:14px;margin-top:16px;background:#3b82f6;border:none;border-radius:8px;color:#fff;font-size:16px;font-weight:700;cursor:pointer';
+  nextBtn.textContent = 'Next voter ▶';
+  nextBtn.addEventListener('click', function() {
+    _bulkPhoneIndex++;
+    saveBulkPhoneState();
+    renderBulkPhoneModal();
+  });
+  box.appendChild(nextBtn);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+  function mkSecondary(label, bg, onClick) {
+    var b = document.createElement('button');
+    b.style.cssText = 'flex:1;padding:10px;background:' + bg + ';border:1px solid #334155;border-radius:6px;color:#e2e8f0;cursor:pointer;font-size:13px';
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    btnRow.appendChild(b);
+  }
+  mkSecondary('Skip', 'transparent', function() {
+    _bulkPhoneIndex++;
+    saveBulkPhoneState();
+    renderBulkPhoneModal();
+  });
+  mkSecondary('⏸️ Pause', 'transparent', function() {
+    saveBulkPhoneState();
+    closeBulkPhoneModal();
+    showToast('Paused. Tap 📞 Phone Bank again to resume.');
+  });
+  mkSecondary('Cancel', 'transparent', function() {
+    if (confirm('Cancel the rest of the queue?')) {
+      clearBulkPhoneState();
+      closeBulkPhoneModal();
+    }
+  });
+  box.appendChild(btnRow);
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) { saveBulkPhoneState(); closeBulkPhoneModal(); }
+  });
+  document.body.appendChild(overlay);
 }
 
 function showAddVoterModal(voter) {
