@@ -479,21 +479,34 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top)) max(20
 
       <section id="mcStep2" style="display:none">
         <p id="mcContactProgress" style="color:#94a3b8"></p>
-        <div id="mcContactCard" style="padding:8px;background:#0f172a;border-radius:6px;margin:8px 0"></div>
+        <!-- Goal contact card is sticky so it stays visible as the captain
+             scrolls through candidate matches below. Critical UX: without
+             this, matching 50+ candidates pushes the contact info offscreen
+             and captains have to scroll back up to remember who they're for. -->
+        <div id="mcContactCard" style="padding:8px;background:#0f172a;border-radius:6px;margin:8px 0;position:sticky;top:0;z-index:5;border:1px solid #1e40af"></div>
         <!-- Age + City inputs: hidden by default, only shown when phone match
-             fails or contact has no phone. JS toggles display via #mcAgeCityRow. -->
+             fails or contact has no phone. JS toggles display via #mcAgeCityRow.
+             City is a select populated from /api/voters-cities (same source as
+             the main search dropdown), so captains pick a known city instead
+             of typing — removes typo-driven false negatives. -->
         <div id="mcAgeCityRow" style="display:none;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:8px">
           <label style="display:flex;flex-direction:column;font-size:13px;color:#94a3b8">
             Probable age
             <input type="number" id="mcAgeInput" min="1" max="130" style="width:90px;margin-top:4px">
           </label>
-          <label style="display:flex;flex-direction:column;font-size:13px;color:#94a3b8;flex:1;min-width:120px">
-            City (optional)
-            <input type="text" id="mcCityInput" placeholder="e.g. Brownsville" style="margin-top:4px">
+          <label style="display:flex;flex-direction:column;font-size:13px;color:#94a3b8;flex:1;min-width:140px">
+            City
+            <select id="mcCityInput" style="margin-top:4px">
+              <option value="">All Cities</option>
+            </select>
           </label>
         </div>
         <button id="mcFindMatchesBtn" style="display:none">Find Matches</button>
-        <div id="mcCandidateList" style="margin-top:12px"></div>
+        <!-- Candidate results scroll inside this bounded box so the page
+             itself doesn't grow. max-height uses dvh on modern browsers
+             with vh fallback (older Safari) to keep the box stable when
+             the iOS toolbar shows/hides. -->
+        <div id="mcCandidateList" style="margin-top:12px;max-height:50dvh;max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-right:4px"></div>
         <div id="mcActionMenu" style="display:none;margin-top:12px"></div>
         <button id="mcSkipBtn" style="margin-top:8px">Skip &mdash; not in voter file</button>
       </section>
@@ -2578,13 +2591,22 @@ function csvEscape(val) {
 async function loadCapCityFilter() {
   try {
     var data = await api('/api/voters-cities');
-    var sel = document.getElementById('capCityFilter');
-    if (!sel) return;
-    sel.innerHTML = '<option value="">All Cities</option>';
-    (data.cities || []).forEach(function(c) {
-      var opt = document.createElement('option');
-      opt.value = c; opt.textContent = c;
-      sel.appendChild(opt);
+    var cities = data.cities || [];
+    // Populate the regular search dropdown AND the contact-matching modal's
+    // city select from the same source. DRY — both use the canonical list
+    // of cities present in the voter universe.
+    ['capCityFilter', 'mcCityInput'].forEach(function(id) {
+      var sel = document.getElementById(id);
+      if (!sel) return;
+      // Preserve the currently selected value across re-loads.
+      var prev = sel.value;
+      sel.innerHTML = '<option value="">All Cities</option>';
+      cities.forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        sel.appendChild(opt);
+      });
+      if (prev) sel.value = prev;
     });
   } catch (err) { console.warn('City filter load failed:', err.message); }
 }
@@ -5764,10 +5786,36 @@ function appendSearchDbButton(list) {
 async function openSearchDbStep() {
   var list = document.getElementById('mcCandidateList');
   clearChildren(list);
+  // Read the city the captain selected on the matching screen — if any,
+  // the universe search is locked to that city so we don't drown them in
+  // results from across the county.
+  var citySel = document.getElementById('mcCityInput');
+  var lockedCity = (citySel && citySel.value || '').trim();
+  var prompt = lockedCity
+    ? 'Search the voter file in ' + lockedCity + '. Type any part of name, address, or phone:'
+    : 'Search the voter file. Type any part of name, address, or phone:';
   list.appendChild(makeEl('p', {
-    text: 'Search the voter file. Type any part of name, address, or phone:',
+    text: prompt,
     style: 'color:#94a3b8;margin-bottom:6px',
   }));
+  // If a city is locked, give the captain an obvious way to clear it
+  // and broaden the search county-wide.
+  if (lockedCity) {
+    var clearBar = makeEl('div', {
+      style: 'background:#0b1628;border:1px solid #1e40af;border-radius:6px;padding:6px 10px;margin-bottom:8px;display:flex;align-items:center;gap:8px;font-size:12px'
+    });
+    clearBar.appendChild(makeEl('span', { text: '🔒 Locked to ' + lockedCity, style: 'color:#93c5fd;flex:1' }));
+    var clearBtn = makeEl('button', {
+      text: 'Search all cities',
+      style: 'background:#334155;border:none;border-radius:4px;color:#e2e8f0;padding:4px 10px;font-size:11px;cursor:pointer'
+    });
+    clearBtn.addEventListener('click', function() {
+      if (citySel) citySel.value = '';
+      openSearchDbStep(); // re-render without the lock
+    });
+    clearBar.appendChild(clearBtn);
+    list.appendChild(clearBar);
+  }
   var input = document.createElement('input');
   input.type = 'search';
   input.id = 'mcDbSearchInput';
@@ -5783,17 +5831,19 @@ async function openSearchDbStep() {
     clearTimeout(debounce);
     var q = input.value.trim();
     if (q.length < 2) { clearChildren(results); return; }
-    debounce = setTimeout(function() { runSearchDbQuery(q, results); }, 250);
+    debounce = setTimeout(function() { runSearchDbQuery(q, results, lockedCity); }, 250);
   });
   input.focus();
 }
 
-async function runSearchDbQuery(q, resultsEl) {
+async function runSearchDbQuery(q, resultsEl, lockedCity) {
   clearChildren(resultsEl);
   resultsEl.appendChild(makeEl('p', { text: 'Searching…', style: 'color:#94a3b8' }));
   try {
     var capId = (captainState && captainState.captain && captainState.captain.id) || 0;
-    var data = await api('/api/captains/' + capId + '/search?q=' + encodeURIComponent(q) + '&limit=10');
+    var url = '/api/captains/' + capId + '/search?q=' + encodeURIComponent(q) + '&limit=10';
+    if (lockedCity) url += '&city=' + encodeURIComponent(lockedCity);
+    var data = await api(url);
     var voters = (data && data.voters) || [];
     clearChildren(resultsEl);
     if (!voters.length) {
