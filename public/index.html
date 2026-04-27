@@ -12646,9 +12646,16 @@ async function viewCandidateMasterList() {
     var data = await api('/api/candidates/' + _candidateDetailId + '/master-list');
     var voters = data.voters || [];
     var allMasterVoters = voters.slice();
-    var totalAppearances = data.totalAppearances || 0;
+    // Use totalUniqueVoters (the real distinct count across admin + captain
+    // lists). voters.length is just the current page (default 5000), so
+    // showing it as the headline made small-page exports look like
+    // shrinking voter pools.
+    var totalUnique = data.totalUniqueVoters != null ? data.totalUniqueVoters : voters.length;
     var overlapCount = data.overlaps || 0;
-    sub.textContent = voters.length + ' unique voter' + (voters.length !== 1 ? 's' : '') + ' \u00B7 ' + totalAppearances + ' total appearances';
+    sub.textContent = totalUnique + ' unique voter' + (totalUnique !== 1 ? 's' : '');
+    if (voters.length < totalUnique) {
+      sub.textContent += ' \u00B7 showing first ' + voters.length;
+    }
     if (overlapCount > 0) {
       sub.textContent += ' \u00B7 ' + overlapCount + ' on multiple lists';
     }
