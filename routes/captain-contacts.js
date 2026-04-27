@@ -183,6 +183,52 @@ router.post('/captain/match-candidates', matchLimiter, requireCaptainOrAdmin, (r
   res.json({ candidates, scope });
 });
 
+// Read-only preview: returns voter info, phone-match status, list-membership
+// status, and household members at the same address. No writes happen here.
+// The wizard calls this when the captain taps a candidate, shows the household
+// with checkboxes, and only on the captain's next click does confirm-match
+// + add-household actually write to the database.
+router.post('/captain/preview-confirm', confirmLimiter, requireCaptainOrAdmin, (req, res) => {
+  const { voterId, phone, listId } = req.body || {};
+  if (!voterId) return res.status(400).json({ error: 'voterId required' });
+  try {
+    const voter = db.prepare('SELECT id, first_name, last_name, age, address, city, phone FROM voters WHERE id = ?').get(voterId);
+    if (!voter) return res.status(404).json({ error: 'voter not found' });
+    const newDigits = String(phone || '').replace(/\D/g, '').slice(-10);
+    const existingDigits = String(voter.phone || '').replace(/\D/g, '').slice(-10);
+    const phoneAlreadyMatches = newDigits.length >= 10 && existingDigits === newDigits;
+    let alreadyOnList = false;
+    if (listId) {
+      const onList = db.prepare('SELECT id FROM captain_list_voters WHERE list_id = ? AND voter_id = ?').get(listId, voterId);
+      alreadyOnList = !!onList;
+    }
+    let household = [];
+    if (voter.address && voter.address.trim()) {
+      household = db.prepare(`
+        SELECT v.id AS voterId, v.first_name AS firstName, v.last_name AS lastName,
+               v.age, v.address, v.city, v.phone AS currentPhone,
+               EXISTS(SELECT 1 FROM captain_list_voters WHERE list_id = ? AND voter_id = v.id) AS onList
+        FROM voters v
+        WHERE v.address = ? AND v.id != ?
+        ORDER BY v.last_name, v.first_name
+        LIMIT 20
+      `).all(listId || 0, voter.address, voterId);
+      household = household.map(h => Object.assign({}, h, { onList: !!h.onList }));
+    }
+    res.json({
+      voter: {
+        voterId: voter.id, firstName: voter.first_name, lastName: voter.last_name,
+        age: voter.age, address: voter.address, city: voter.city,
+        currentPhone: voter.phone || ''
+      },
+      phoneAlreadyMatches, alreadyOnList, household,
+    });
+  } catch (err) {
+    console.error('preview-confirm error:', err.message);
+    res.status(500).json({ error: 'preview failed' });
+  }
+});
+
 router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (req, res) => {
   const { voterId, phone, listId } = req.body || {};
   if (!voterId || !phone) {

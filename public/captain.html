@@ -5831,38 +5831,151 @@ async function runSearchDbQuery(q, resultsEl) {
 }
 
 async function confirmMatch(voterId, phone, currentVoterPhone) {
-  // Compare last-10-digits to decide which prompt to show. If the voter
-  // already has the contact's phone on file, we won't update the voter
-  // record — just add them to the list — so don't promise a phone update.
-  var contactDigits = String(phone || '').replace(/\D/g, '').slice(-10);
-  var voterDigits = String(currentVoterPhone || '').replace(/\D/g, '').slice(-10);
-  var phonesMatch = contactDigits.length >= 10 && contactDigits === voterDigits;
-  var promptMsg = phonesMatch
-    ? 'Add this voter to your list?'
-    : 'Update this voter\'s phone to ' + phone + ' and add them to your list?';
-  if (!confirm(promptMsg)) return;
+  // PREVIEW FIRST — fetch household + phone-match info read-only, show the
+  // captain a single review screen with primary + household checkboxes,
+  // then on a single 'Add' click do the actual writes (confirm-match for
+  // the primary + add-household for selected family). Captain decides who
+  // joins the list before anything is committed.
+  var listId = (captainState && captainState.selectedListId) || null;
   try {
-    var listId = (captainState && captainState.selectedListId) || null;
-    var data = await apiPost('/api/captain/confirm-match', {
-      voterId: voterId, phone: phone, listId: listId
+    var data = await apiPost('/api/captain/preview-confirm', {
+      voterId: voterId, phone: phone, listId: listId,
     });
-    if (data && data.success) {
-      window._mcResults.matched++;
-      showActionMenu(voterId, phone, data);
-      // Refresh the list view + sidebar in the background so the captain
-      // sees their newly-added voter the moment they close the wizard.
-      // Fire-and-forget — don't block the wizard on these.
-      if (data.addedToList && typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
-        try { loadListVoters(); } catch (e) {}
-      }
-      if (typeof refreshSidebar === 'function') {
-        try { refreshSidebar(); } catch (e) {}
-      }
-    } else {
-      showToast('Update failed: ' + ((data && data.error) || 'unknown error'));
+    if (!data || !data.voter) {
+      showToast('Preview failed: ' + ((data && data.error) || 'unknown error'));
+      return;
     }
+    showPreviewMenu(voterId, phone, data);
   } catch (err) {
-    showToast('Update failed: ' + (err && err.message ? err.message : 'network error'));
+    showToast('Preview failed: ' + (err && err.message ? err.message : 'network error'));
+  }
+}
+
+function showPreviewMenu(voterId, phone, data) {
+  // Hide candidate list, swap in the preview/decision menu.
+  clearChildren(document.getElementById('mcCandidateList'));
+  var menu = document.getElementById('mcActionMenu');
+  clearChildren(menu);
+  menu.style.display = 'block';
+
+  var v = data.voter;
+
+  // Header — what we're about to do for the primary voter.
+  var phoneInfo = data.phoneAlreadyMatches
+    ? 'phone already matches'
+    : 'phone will be added/updated';
+  var listInfo = data.alreadyOnList
+    ? ' · already on your list'
+    : '';
+  var header = makeEl('div', { style: 'padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:8px' });
+  header.appendChild(makeEl('strong', { text: (v.firstName || '') + ' ' + (v.lastName || '') }));
+  if (v.age) header.appendChild(makeEl('span', { text: ' · age ' + v.age, style: 'color:#94a3b8' }));
+  header.appendChild(document.createElement('br'));
+  header.appendChild(makeEl('span', { text: (v.address || '') + ', ' + (v.city || ''), style: 'color:#94a3b8;font-size:13px' }));
+  header.appendChild(document.createElement('br'));
+  header.appendChild(makeEl('span', { text: phoneInfo + listInfo, style: 'color:#64748b;font-size:12px' }));
+  menu.appendChild(header);
+
+  // Household checkboxes (pre-checked unless already on list).
+  var household = data.household || [];
+  if (household.length > 0) {
+    menu.appendChild(makeEl('p', {
+      text: 'Other people at this address (' + household.length + '):',
+      style: 'color:#94a3b8;margin-top:8px;font-size:14px',
+    }));
+    household.forEach(function (h) {
+      var label = makeEl('label', {
+        style: 'display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #334155;cursor:pointer',
+      });
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.voterId = String(h.voterId);
+      cb.checked = !h.onList;
+      cb.disabled = !!h.onList;
+      var info = makeEl('span', {
+        text: (h.firstName || '') + ' ' + (h.lastName || '') +
+              (h.age ? ' · age ' + h.age : '') +
+              (h.onList ? ' (on your list)' : ''),
+        style: h.onList ? 'color:#64748b' : 'color:#e2e8f0',
+      });
+      label.appendChild(cb);
+      label.appendChild(info);
+      menu.appendChild(label);
+    });
+  } else {
+    menu.appendChild(makeEl('p', {
+      text: 'No other voters at this address.',
+      style: 'color:#64748b;margin-top:8px;font-size:13px',
+    }));
+  }
+
+  // Action buttons. 'Add to list' commits everything; Skip moves on.
+  var btnRow = makeEl('div', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' });
+  var addBtn = makeEl('button', {
+    text: 'Add to list',
+    style: 'padding:10px 16px;background:#22c55e;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer',
+  });
+  addBtn.addEventListener('click', function () {
+    finalizeAdd(voterId, phone, data, addBtn);
+  });
+  var skipBtn = makeEl('button', {
+    text: 'Skip',
+    style: 'padding:10px 16px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;cursor:pointer',
+  });
+  skipBtn.addEventListener('click', function () {
+    window._mcResults.skipped++;
+    advance();
+  });
+  btnRow.appendChild(addBtn);
+  btnRow.appendChild(skipBtn);
+  menu.appendChild(btnRow);
+}
+
+async function finalizeAdd(voterId, phone, previewData, btn) {
+  var listId = (captainState && captainState.selectedListId) || null;
+  if (!listId) { showToast('Pick a list first'); return; }
+  // Snapshot which household voters the captain wants before disabling.
+  var menu = document.getElementById('mcActionMenu');
+  var householdIds = [];
+  menu.querySelectorAll('input[type=checkbox]:checked:not(:disabled)').forEach(function (cb) {
+    var id = parseInt(cb.dataset.voterId, 10);
+    if (id) householdIds.push(id);
+  });
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
+  try {
+    // 1) Confirm-match writes the primary (phone update if needed +
+    //    list-add). Always runs — the captain tapped this candidate.
+    var primaryRes = await apiPost('/api/captain/confirm-match', {
+      voterId: voterId, phone: phone, listId: listId,
+    });
+    if (!(primaryRes && primaryRes.success)) {
+      btn.disabled = false; btn.textContent = 'Add to list';
+      showToast('Add failed: ' + ((primaryRes && primaryRes.error) || 'unknown'));
+      return;
+    }
+    // 2) If captain checked any household members, add them in one bulk call.
+    if (householdIds.length > 0) {
+      try {
+        await apiPost('/api/captain/add-household', {
+          listId: listId, parentVoterId: voterId, voterIds: householdIds,
+        });
+      } catch (e) { /* non-fatal — primary already added */ }
+    }
+    // 3) Tally + refresh + advance to next contact.
+    window._mcResults.matched++;
+    if (typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
+      try { loadListVoters(); } catch (e) {}
+    }
+    if (typeof refreshSidebar === 'function') {
+      try { refreshSidebar(); } catch (e) {}
+    }
+    var addedTotal = 1 + householdIds.length;
+    showToast('Added ' + addedTotal + ' to list', 'success');
+    advance();
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Add to list';
+    showToast('Add failed: ' + (err && err.message ? err.message : 'network error'));
   }
 }
 
