@@ -5845,13 +5845,21 @@ async function openSearchDbStep() {
     clearBar.appendChild(clearBtn);
     list.appendChild(clearBar);
   }
+  // Search input stays OUTSIDE the results scroll window so it never
+  // disappears as the captain scrolls through candidate matches. Same
+  // two-zone pattern as renderCandidates above: input + lock banner are
+  // in the outer container, results are bounded to their own scroll box.
   var input = document.createElement('input');
   input.type = 'search';
   input.id = 'mcDbSearchInput';
   input.placeholder = 'e.g. Villarreal, 123 Main, 9563466902';
   input.style.cssText = 'width:100%;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:16px';
   list.appendChild(input);
-  var results = makeEl('div', { style: 'margin-top:10px' });
+  // Results live in their own bounded scroll container — the captain can
+  // scroll through 30+ matches without losing the search input from view.
+  var results = makeEl('div', {
+    style: 'margin-top:10px;max-height:35dvh;max-height:35vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:4px;border:1px solid #334155;border-radius:6px;background:#0f172a'
+  });
   results.id = 'mcDbSearchResults';
   list.appendChild(results);
 
