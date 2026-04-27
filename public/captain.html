@@ -5736,7 +5736,9 @@ function renderCandidates(candidates, scope) {
     if (v.matchType === 'phone') scoreText += ' · 📞 phone match';
     row.appendChild(makeEl('span', { text: scoreText, style: 'color:#64748b' }));
     row.addEventListener('click', function() {
-      confirmMatch(v.voterId, window._mcContacts[window._mcIndex].phone);
+      // Pass the voter's existing phone so confirmMatch can decide whether
+      // to show 'Update phone' or 'Add to list' wording.
+      confirmMatch(v.voterId, window._mcContacts[window._mcIndex].phone, v.currentPhone || '');
     });
     list.appendChild(row);
   });
@@ -5828,8 +5830,17 @@ async function runSearchDbQuery(q, resultsEl) {
   }
 }
 
-async function confirmMatch(voterId, phone) {
-  if (!confirm('Update this voter\'s phone to ' + phone + ' and add them to your list?')) return;
+async function confirmMatch(voterId, phone, currentVoterPhone) {
+  // Compare last-10-digits to decide which prompt to show. If the voter
+  // already has the contact's phone on file, we won't update the voter
+  // record — just add them to the list — so don't promise a phone update.
+  var contactDigits = String(phone || '').replace(/\D/g, '').slice(-10);
+  var voterDigits = String(currentVoterPhone || '').replace(/\D/g, '').slice(-10);
+  var phonesMatch = contactDigits.length >= 10 && contactDigits === voterDigits;
+  var promptMsg = phonesMatch
+    ? 'Add this voter to your list?'
+    : 'Update this voter\'s phone to ' + phone + ' and add them to your list?';
+  if (!confirm(promptMsg)) return;
   try {
     var listId = (captainState && captainState.selectedListId) || null;
     var data = await apiPost('/api/captain/confirm-match', {
