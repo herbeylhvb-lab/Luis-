@@ -5855,6 +5855,22 @@ async function runSearchDbQuery(q, resultsEl, lockedCity) {
       resultsEl.appendChild(makeEl('p', { text: 'No voters found.', style: 'color:#94a3b8' }));
       return;
     }
+    // Pull the contact's phone so we can preview "this number will be saved
+    // to whichever voter you tap" — captains were missing the fact that
+    // tapping a search result updates the voter's phone record.
+    var contact = window._mcContacts[window._mcIndex] || {};
+    var contactPhoneRaw = (contact.phone || '').toString();
+    var contactDigits = contactPhoneRaw.replace(/\D/g, '');
+    var contactDisplay = contactPhoneRaw || '(no phone on contact)';
+    if (contactDigits) {
+      // Banner above results — clear callout that tapping commits the phone.
+      var banner = makeEl('div', {
+        style: 'background:#0b1628;border:1px solid #1e40af;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#93c5fd'
+      });
+      banner.textContent = '📞 Tap any voter below to save ' + contactDisplay +
+        ' (' + (contact.firstName || '') + ' ' + (contact.lastName || '') + '’s number) to that voter’s record.';
+      resultsEl.appendChild(banner);
+    }
     voters.forEach(function(v) {
       var row = makeEl('div', {
         style: 'padding:10px;border:1px solid #334155;border-radius:6px;margin:6px 0;cursor:pointer'
@@ -5867,12 +5883,31 @@ async function runSearchDbQuery(q, resultsEl, lockedCity) {
         style: 'color:#94a3b8'
       }));
       row.appendChild(document.createElement('br'));
-      row.appendChild(makeEl('span', {
-        text: 'Current phone: ' + (v.phone || '(none)'),
-        style: 'color:#64748b'
-      }));
+      // Show what will change. If voter has the same phone, label it as
+      // "matches"; if different/missing, label it as "will update".
+      var voterDigits = String(v.phone || '').replace(/\D/g, '').slice(-10);
+      var contactDigits10 = contactDigits.slice(-10);
+      var phoneLabel;
+      var phoneColor;
+      if (!contactDigits10) {
+        phoneLabel = 'Current phone: ' + (v.phone || '(none)');
+        phoneColor = '#64748b';
+      } else if (voterDigits === contactDigits10) {
+        phoneLabel = '✅ Phone already matches';
+        phoneColor = '#22c55e';
+      } else if (!voterDigits) {
+        phoneLabel = '✏️ Will save phone: ' + contactDisplay;
+        phoneColor = '#3b82f6';
+      } else {
+        phoneLabel = '✏️ Will replace ' + (v.phone || '') + ' with ' + contactDisplay;
+        phoneColor = '#3b82f6';
+      }
+      row.appendChild(makeEl('span', { text: phoneLabel, style: 'color:' + phoneColor }));
       row.addEventListener('click', function() {
-        confirmMatch(v.id, window._mcContacts[window._mcIndex].phone);
+        // Pass the 3rd arg (currentVoterPhone) so the preview-confirm step
+        // can label the action correctly — same shape as the candidate-card
+        // click handler at the top of mcStep2.
+        confirmMatch(v.id, contactPhoneRaw, v.phone || '');
       });
       resultsEl.appendChild(row);
     });
@@ -5916,20 +5951,36 @@ function showPreviewMenu(voterId, phone, data) {
   var v = data.voter;
 
   // Header — what we're about to do for the primary voter.
-  var phoneInfo = data.phoneAlreadyMatches
-    ? 'phone already matches'
-    : 'phone will be added/updated';
-  var listInfo = data.alreadyOnList
-    ? ' · already on your list'
-    : '';
   var header = makeEl('div', { style: 'padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:8px' });
   header.appendChild(makeEl('strong', { text: (v.firstName || '') + ' ' + (v.lastName || '') }));
   if (v.age) header.appendChild(makeEl('span', { text: ' · age ' + v.age, style: 'color:#94a3b8' }));
   header.appendChild(document.createElement('br'));
   header.appendChild(makeEl('span', { text: (v.address || '') + ', ' + (v.city || ''), style: 'color:#94a3b8;font-size:13px' }));
-  header.appendChild(document.createElement('br'));
-  header.appendChild(makeEl('span', { text: phoneInfo + listInfo, style: 'color:#64748b;font-size:12px' }));
   menu.appendChild(header);
+
+  // Phone-update notice — make it visible (color-coded box, not gray
+  // small-print under the address). Captains were missing the fact that
+  // confirming a match also writes the contact's phone to the voter.
+  if (!data.phoneAlreadyMatches && phone) {
+    var phoneNotice = makeEl('div', {
+      style: 'background:#0b1628;border:1px solid #1e40af;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;color:#93c5fd'
+    });
+    phoneNotice.textContent = '📞 Phone ' + phone + ' will be saved to this voter';
+    menu.appendChild(phoneNotice);
+  } else if (data.phoneAlreadyMatches) {
+    var phoneOk = makeEl('div', {
+      style: 'background:#052e16;border:1px solid #22c55e;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;color:#86efac'
+    });
+    phoneOk.textContent = '✅ Phone already on file matches';
+    menu.appendChild(phoneOk);
+  }
+  if (data.alreadyOnList) {
+    var listOk = makeEl('div', {
+      style: 'background:#1e1b4b;border:1px solid #6366f1;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;color:#a5b4fc'
+    });
+    listOk.textContent = '✓ Already on your list';
+    menu.appendChild(listOk);
+  }
 
   // Household checkboxes (pre-checked unless already on list).
   var household = data.household || [];
@@ -5965,9 +6016,17 @@ function showPreviewMenu(voterId, phone, data) {
   }
 
   // Action buttons. 'Add to list' commits everything; Skip moves on.
+  // Button label dynamically reflects what will happen — list add vs phone
+  // save vs both — so the captain knows exactly what 'Add' is going to do.
+  var actionWords = [];
+  if (!data.alreadyOnList) actionWords.push('add to list');
+  if (!data.phoneAlreadyMatches && phone) actionWords.push('save phone');
+  var addLabel = actionWords.length > 0
+    ? '✓ ' + actionWords.join(' & ').replace(/^\w/, function(c) { return c.toUpperCase(); })
+    : '✓ Confirm';
   var btnRow = makeEl('div', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' });
   var addBtn = makeEl('button', {
-    text: 'Add to list',
+    text: addLabel,
     style: 'padding:10px 16px;background:#22c55e;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer',
   });
   addBtn.addEventListener('click', function () {
