@@ -461,6 +461,10 @@ var captainListVoters = [];
 var selectedVoterIds = new Set();
 var currentRightPanelVoters = []; // voters currently rendered in right panel
 var currentRightPanelListId = null; // the list ID currently shown in right panel
+// Type of the right-panel list: 'admin' (candidate's own list, stored in
+// admin_list_voters) or 'captain' (captain-owned, stored in captain_list_voters).
+// Sent with transfer requests so the backend writes to the correct table.
+var currentRightPanelListType = null;
 var _raceFilter = 'all'; // current race filter state
 var _votedStatus = 'all'; // current voted filter state
 var draggedVoterIds = []; // IDs being dragged
@@ -484,20 +488,23 @@ function populateFabTargetList() {
   sel.textContent = '';
   var lists = candidateData.lists || [];
   var captains = candidateData.captains || [];
-  // Add candidate's own lists
+  // Two list namespaces with potentially overlapping IDs (admin_lists.id 5
+  // can coexist with captain_lists.id 5). Prefix the option values with
+  // 'admin-' or 'captain-' so the backend always knows which table to
+  // mutate. Skipping the current list now compares both id AND type so
+  // we don't accidentally hide a same-id list from the other namespace.
   lists.forEach(function(l) {
-    if (l.id === currentRightPanelListId) return; // skip current
+    if (l.id === currentRightPanelListId && currentRightPanelListType === 'admin') return;
     var opt = document.createElement('option');
-    opt.value = 'list-' + l.id;
+    opt.value = 'admin-' + l.id;
     opt.textContent = l.name;
     sel.appendChild(opt);
   });
-  // Add captain lists
   captains.forEach(function(cap) {
     (cap.lists || []).forEach(function(cl) {
-      if (cl.id === currentRightPanelListId) return;
+      if (cl.id === currentRightPanelListId && currentRightPanelListType === 'captain') return;
       var opt = document.createElement('option');
-      opt.value = 'list-' + cl.id;
+      opt.value = 'captain-' + cl.id;
       opt.textContent = cap.name + ': ' + cl.name;
       sel.appendChild(opt);
     });
@@ -608,15 +615,23 @@ async function bulkDeleteSelected() {
 async function doTransfer(removeFromSource) {
   var sel = document.getElementById('fabTargetList');
   if (!sel || !sel.value) { alert('Please select a target list.'); return; }
-  var targetListId = parseInt(sel.value.replace('list-', ''), 10);
+  // Parse the typed dropdown value: 'admin-123' or 'captain-456'.
+  var parts = sel.value.split('-');
+  var targetListType = parts[0];   // 'admin' | 'captain'
+  var targetListId = parseInt(parts[1], 10);
   if (!targetListId || !currentRightPanelListId) return;
+  if (targetListType !== 'admin' && targetListType !== 'captain') {
+    alert('Internal error: unknown target list type. Try refreshing.'); return;
+  }
   var voterIds = Array.from(selectedVoterIds);
   if (voterIds.length === 0) return;
   try {
     await apiPost('/api/candidates/' + candidateId + '/transfer-voters', {
       voterIds: voterIds,
       targetListId: targetListId,
+      targetListType: targetListType,
       sourceListId: currentRightPanelListId,
+      sourceListType: currentRightPanelListType,
       removeFromSource: removeFromSource
     });
     alert((removeFromSource ? 'Moved' : 'Copied') + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : '') + ' successfully.');
@@ -735,9 +750,11 @@ function setupDropTargets() {
 }
 
 function showDropConfirmDialog(voterIds, targetName, listItem) {
-  // Find the list ID from the sidebar item
-  // We encode it via data attributes set during rendering
+  // Find the list ID + type from the sidebar item.
+  // We encode both via data attributes set during sidebar rendering so
+  // the backend knows whether to mutate admin_list_voters or captain_list_voters.
   var targetListId = listItem.getAttribute('data-list-id');
+  var targetListType = listItem.getAttribute('data-list-type') || 'captain';
   if (!targetListId) { alert('This captain has no lists. Create a list first before transferring voters.'); return; }
   targetListId = parseInt(targetListId, 10);
   if (isNaN(targetListId)) { alert('Invalid target list.'); return; }
@@ -758,13 +775,13 @@ function showDropConfirmDialog(voterIds, targetName, listItem) {
   var moveBtn = document.createElement('button');
   moveBtn.className = 'btn btn-sm btn-primary';
   moveBtn.textContent = 'Move';
-  moveBtn.onclick = function() { overlay.remove(); executeDrop(voterIds, targetListId, true); };
+  moveBtn.onclick = function() { overlay.remove(); executeDrop(voterIds, targetListId, targetListType, true); };
   btnRow.appendChild(moveBtn);
 
   var copyBtn = document.createElement('button');
   copyBtn.className = 'btn btn-sm btn-success';
   copyBtn.textContent = 'Copy';
-  copyBtn.onclick = function() { overlay.remove(); executeDrop(voterIds, targetListId, false); };
+  copyBtn.onclick = function() { overlay.remove(); executeDrop(voterIds, targetListId, targetListType, false); };
   btnRow.appendChild(copyBtn);
 
   var cancelBtn = document.createElement('button');
@@ -779,13 +796,18 @@ function showDropConfirmDialog(voterIds, targetName, listItem) {
   document.body.appendChild(overlay);
 }
 
-async function executeDrop(voterIds, targetListId, removeFromSource) {
+async function executeDrop(voterIds, targetListId, targetListType, removeFromSource) {
   if (!currentRightPanelListId) return;
+  if (targetListType !== 'admin' && targetListType !== 'captain') {
+    alert('Internal error: unknown target list type.'); return;
+  }
   try {
     await apiPost('/api/candidates/' + candidateId + '/transfer-voters', {
       voterIds: voterIds,
       targetListId: targetListId,
+      targetListType: targetListType,
       sourceListId: currentRightPanelListId,
+      sourceListType: currentRightPanelListType,
       removeFromSource: removeFromSource
     });
     alert((removeFromSource ? 'Moved' : 'Copied') + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : '') + ' successfully.');
@@ -1632,7 +1654,11 @@ function renderWorkspaceSidebar() {
     var isActive = workspaceSelection.type === 'captain' && workspaceSelection.id === cap.id;
     item.className = 'list-item' + (isActive ? ' active' : '');
     item.style.paddingLeft = (12 + depth * 14) + 'px';
-    if (cap.lists && cap.lists.length > 0) item.setAttribute('data-list-id', cap.lists[0].id);
+    if (cap.lists && cap.lists.length > 0) {
+      item.setAttribute('data-list-id', cap.lists[0].id);
+      // Captain rows in the sidebar represent captain-owned lists.
+      item.setAttribute('data-list-type', 'captain');
+    }
 
     if (depth > 0) {
       var indent = document.createElement('span');
@@ -1682,6 +1708,8 @@ function renderWorkspaceSidebar() {
     var isActive = workspaceSelection.type === 'list' && workspaceSelection.id === l.id;
     item.className = 'list-item' + (isActive ? ' active' : '');
     item.setAttribute('data-list-id', l.id);
+    // Sidebar "Lists" section shows the candidate's own admin lists.
+    item.setAttribute('data-list-type', 'admin');
     var left = document.createElement('div');
     left.textContent = l.name;
     item.appendChild(left);
@@ -2307,6 +2335,9 @@ function renderListVoterRows(voters, content, listId) {
   selectedVoterIds.clear();
   currentRightPanelVoters = voters;
   currentRightPanelListId = listId;
+  // This path renders voters from /candidates/:id/lists/:listId/voters,
+  // which queries admin_list_voters. Tag the type so transfers know.
+  currentRightPanelListType = 'admin';
   updateFloatingBar();
 
   if (voters.length === 0) {
@@ -2516,6 +2547,8 @@ async function removeVoterFromList(listId, voterId) {
 
 async function loadCaptainListInRight(listId, captainName) {
   currentRightPanelListId = listId;
+  // Captain-owned list — voters come from captain_list_voters.
+  currentRightPanelListType = 'captain';
   document.getElementById('rightTitle').textContent = captainName;
   document.getElementById('rightSub').textContent = 'Loading...';
   var content = document.getElementById('rightListContent');
@@ -2716,6 +2749,7 @@ function renderCaptainVoterRows(voters, container) {
 
 async function loadMasterListInRight() {
   currentRightPanelListId = null;
+  currentRightPanelListType = null;
   selectedVoterIds.clear();
   updateFloatingBar();
   document.getElementById('rightTitle').textContent = 'Master Voter List';

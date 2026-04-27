@@ -1241,10 +1241,22 @@ router.get('/walkers/:id/dashboard', (req, res) => {
   res.json({ walker, stats, leaderboard, walks });
 });
 
-// Transfer voters between captain lists under this candidate
+// Transfer voters between any of the candidate's lists. Two list namespaces
+// exist — admin_lists (candidate's own, voters in admin_list_voters) and
+// captain_lists (captain-owned, voters in captain_list_voters). The client
+// MUST specify sourceListType + targetListType so we mutate the correct
+// table. Backward compat: missing types default to 'captain' (the original
+// behavior). All 4 source/target combinations are handled.
 router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) => {
   const candidateId = parseInt(req.params.id, 10);
-  const { voterIds, targetListId, removeFromSource, sourceListId } = req.body;
+  const {
+    voterIds,
+    targetListId,
+    sourceListId,
+    removeFromSource,
+    sourceListType, // 'admin' | 'captain' (default 'captain')
+    targetListType, // 'admin' | 'captain' (default 'captain')
+  } = req.body;
 
   if (!voterIds || !Array.isArray(voterIds) || voterIds.length === 0) {
     return res.status(400).json({ error: 'voterIds array is required.' });
@@ -1254,47 +1266,63 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   if (!targetListId) return res.status(400).json({ error: 'targetListId is required.' });
   if (!sourceListId) return res.status(400).json({ error: 'sourceListId is required.' });
 
-  // Validate the candidate owns the source list (captain_lists -> captains -> owned or shared)
-  const sourceList = db.prepare(`
-    SELECT cl.id FROM captain_lists cl
-    JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
-      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-    ))
-  `).get(sourceListId, candidateId, candidateId);
-  if (!sourceList) return res.status(404).json({ error: 'Source list not found or not owned by a captain under this candidate.' });
+  const srcType = sourceListType || 'captain';
+  const tgtType = targetListType || 'captain';
+  if (srcType !== 'admin' && srcType !== 'captain') return res.status(400).json({ error: 'Invalid sourceListType.' });
+  if (tgtType !== 'admin' && tgtType !== 'captain') return res.status(400).json({ error: 'Invalid targetListType.' });
 
-  // Validate the target list belongs to any captain under this candidate (owned or shared)
-  const targetList = db.prepare(`
-    SELECT cl.id FROM captain_lists cl
-    JOIN captains c ON cl.captain_id = c.id
-    WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
-      SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
-    ))
-  `).get(targetListId, candidateId, candidateId);
-  if (!targetList) return res.status(404).json({ error: 'Target list not found or does not belong to a captain under this candidate.' });
+  // Validate ownership for each list type. Admin lists must belong to this
+  // candidate directly. Captain lists must belong to a captain under this
+  // candidate (owned via captains.candidate_id OR shared via captain_candidates).
+  function ownsAdminList(listId) {
+    return !!db.prepare('SELECT 1 FROM admin_lists WHERE id = ? AND candidate_id = ?').get(listId, candidateId);
+  }
+  function ownsCaptainList(listId) {
+    return !!db.prepare(`
+      SELECT 1 FROM captain_lists cl
+      JOIN captains c ON cl.captain_id = c.id
+      WHERE cl.id = ? AND (c.candidate_id = ? OR EXISTS (
+        SELECT 1 FROM captain_candidates cc WHERE cc.captain_id = c.id AND cc.candidate_id = ?
+      ))
+    `).get(listId, candidateId, candidateId);
+  }
+
+  const sourceOk = (srcType === 'admin') ? ownsAdminList(sourceListId) : ownsCaptainList(sourceListId);
+  if (!sourceOk) return res.status(404).json({ error: 'Source list not found or not under this candidate.' });
+  const targetOk = (tgtType === 'admin') ? ownsAdminList(targetListId) : ownsCaptainList(targetListId);
+  if (!targetOk) return res.status(404).json({ error: 'Target list not found or not under this candidate.' });
+
+  // Pick the right INSERT and DELETE per type.
+  const insertSql = (tgtType === 'admin')
+    ? 'INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)'
+    : 'INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)';
+  const deleteSql = (srcType === 'admin')
+    ? 'DELETE FROM admin_list_voters WHERE list_id = ? AND voter_id = ?'
+    : 'DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?';
 
   const doTransfer = db.transaction(() => {
-    const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
+    const insert = db.prepare(insertSql);
     let transferred = 0;
     for (const voterId of validIds) {
       const r = insert.run(targetListId, voterId);
       transferred += r.changes;
     }
 
+    let removed = 0;
     if (removeFromSource) {
-      const del = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
+      const del = db.prepare(deleteSql);
       for (const voterId of validIds) {
-        del.run(sourceListId, voterId);
+        const r = del.run(sourceListId, voterId);
+        removed += r.changes;
       }
     }
 
-    return transferred;
+    return { transferred, removed };
   });
 
   try {
-    const transferred = doTransfer();
-    res.json({ success: true, transferred, removed: !!removeFromSource });
+    const { transferred, removed } = doTransfer();
+    res.json({ success: true, transferred, removed, removeFromSource: !!removeFromSource });
   } catch (e) {
     console.error('Voter transfer error:', e.message);
     res.status(500).json({ error: 'Failed to transfer voters.' });
