@@ -5750,6 +5750,22 @@ function renderCandidates(candidates, scope) {
     appendSearchDbButton(list);
     return;
   }
+
+  // ── Auto-advance when there's an unambiguous phone match ──
+  // If exactly one candidate's phone matches the contact's phone, skip
+  // the candidate-card-click step and jump straight to the preview/
+  // household screen. Saves a tap. The preview still has a Skip button
+  // so a wrong auto-match isn't committed without captain confirmation.
+  // We require ONLY ONE phone match to avoid auto-picking when two
+  // people in the file share that number (rare — recycled numbers).
+  var phoneMatches = candidates.filter(function(c) { return c.matchType === 'phone'; });
+  if (phoneMatches.length === 1) {
+    var winner = phoneMatches[0];
+    var contact = window._mcContacts[window._mcIndex] || {};
+    confirmMatch(winner.voterId, contact.phone || '', winner.currentPhone || '', { autoMatched: true });
+    return;
+  }
+
   list.appendChild(makeEl('p', {
     text: 'Top ' + candidates.length + ' candidates (' + scope + '):',
     style: 'color:#94a3b8'
@@ -5952,12 +5968,15 @@ async function runSearchDbQuery(q, resultsEl, lockedCity) {
   }
 }
 
-async function confirmMatch(voterId, phone, currentVoterPhone) {
+async function confirmMatch(voterId, phone, currentVoterPhone, opts) {
   // PREVIEW FIRST — fetch household + phone-match info read-only, show the
   // captain a single review screen with primary + household checkboxes,
   // then on a single 'Add' click do the actual writes (confirm-match for
   // the primary + add-household for selected family). Captain decides who
   // joins the list before anything is committed.
+  // opts.autoMatched: when true, this was triggered by an automatic phone
+  // match (no captain click on a candidate card). UI surfaces this so the
+  // captain knows the match wasn't manually picked and can Skip if wrong.
   var listId = (captainState && captainState.selectedListId) || null;
   try {
     var data = await apiPost('/api/captain/preview-confirm', {
@@ -5967,13 +5986,14 @@ async function confirmMatch(voterId, phone, currentVoterPhone) {
       showToast('Preview failed: ' + ((data && data.error) || 'unknown error'));
       return;
     }
-    showPreviewMenu(voterId, phone, data);
+    showPreviewMenu(voterId, phone, data, opts || {});
   } catch (err) {
     showToast('Preview failed: ' + (err && err.message ? err.message : 'network error'));
   }
 }
 
-function showPreviewMenu(voterId, phone, data) {
+function showPreviewMenu(voterId, phone, data, opts) {
+  opts = opts || {};
   // Hide candidate list, swap in the preview/decision menu.
   clearChildren(document.getElementById('mcCandidateList'));
   var menu = document.getElementById('mcActionMenu');
@@ -5981,6 +6001,18 @@ function showPreviewMenu(voterId, phone, data) {
   menu.style.display = 'block';
 
   var v = data.voter;
+
+  // Auto-match banner — when this preview opens because the system
+  // skipped the candidate-pick step (only one phone match), tell the
+  // captain explicitly. Otherwise they might be confused why they're
+  // suddenly on the preview without having clicked anyone.
+  if (opts.autoMatched) {
+    var autoBanner = makeEl('div', {
+      style: 'background:#052e16;border:1px solid #22c55e;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#86efac'
+    });
+    autoBanner.textContent = '⚡ Auto-matched on phone — review and confirm, or Skip if wrong';
+    menu.appendChild(autoBanner);
+  }
 
   // Header — what we're about to do for the primary voter.
   var header = makeEl('div', { style: 'padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:8px' });
