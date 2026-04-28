@@ -14631,20 +14631,25 @@ async function showUniverseDashboard(listId, listName, rowEl) {
       });
     }
 
-    // 🏆 TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped)
+    // 🏆 TOP 10 PRECINCTS BY EARLY VOTE COUNT — restricted to voters
+    // inside THIS universe.  Each row shows precinct number + the dominant
+    // city (area) for that precinct so bare numbers don't have to be
+    // memorized.
     var topPrecincts = data.top_precincts_by_vote || [];
     if (topPrecincts.length > 0) {
       html += '<div style="margin-bottom:12px;padding:12px;background:#0f1a10;border:1px solid #166534;border-radius:8px">';
-      html += '<h5 style="color:#22c55e;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px">🏆 Top 10 Precincts by Early Vote</h5>';
+      html += '<h5 style="color:#22c55e;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px">🏆 Top 10 Precincts by Early Vote <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#475569">(in this universe)</span></h5>';
       // Scale bar widths against the TOP precinct so relative magnitudes are clear
       var maxPct = topPrecincts[0].voted_count || 1;
       for (var ti = 0; ti < topPrecincts.length; ti++) {
         var tp = topPrecincts[ti];
         var tpPct = Math.round(tp.voted_count / maxPct * 100);
         var rank = '#' + (ti + 1);
+        var areaTxt = tp.area ? '<span style="color:#a78bfa;font-weight:500">' + escHtml(tp.area) + '</span>' : '<span style="color:#475569">—</span>';
         html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:12px">' +
           '<div style="width:24px;color:#64748b;font-weight:700;text-align:right">' + rank + '</div>' +
-          '<div style="width:80px;color:#86efac;font-weight:600">Pct ' + escHtml(tp.precinct) + '</div>' +
+          '<div style="width:60px;color:#86efac;font-weight:600">Pct ' + escHtml(tp.precinct) + '</div>' +
+          '<div style="width:120px;font-size:11px">' + areaTxt + '</div>' +
           '<div style="flex:1;background:#1e293b;border-radius:4px;height:6px;overflow:hidden"><div style="background:#22c55e;height:100%;width:' + tpPct + '%;border-radius:4px"></div></div>' +
           '<div style="color:#94a3b8;width:100px;text-align:right">' + tp.voted_count.toLocaleString() + ' voted</div>' +
           '</div>';

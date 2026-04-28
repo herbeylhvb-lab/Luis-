@@ -1293,20 +1293,28 @@ router.get('/admin-lists/:id/stats', (req, res) => {
     WHERE ${raceScopedWhere}
   `).get(...raceScopedParams) || { dem: 0, rep: 0 };
 
-  // ─── TOP 10 PRECINCTS BY EARLY VOTE COUNT (race-scoped) ───
-  // Shows where the turnout is concentrated in the district — essential for
-  // future GOTV targeting. Counts ALL early voters in the race (not just
-  // outside-universe) because you want to know which precincts ARE voting,
-  // period.
+  // ─── TOP 10 PRECINCTS BY EARLY VOTE COUNT (UNIVERSE-scoped) ───
+  // Restricted to voters that are actually in THIS admin list (universe).
+  // Shows where YOUR voters are turning out — answers "where are MY people
+  // voting from?" rather than "where is everyone voting from?".  Includes
+  // a derived "area" label (most common city in the precinct) so bare
+  // precinct numbers are readable.
   const topPrecincts = db.prepare(`
-    SELECT v.precinct, COUNT(*) as voted_count
-    FROM voters v
-    WHERE ${raceScopedWhere}
+    SELECT v.precinct, COUNT(*) as voted_count,
+      (
+        SELECT v3.city FROM voters v3
+        WHERE v3.precinct = v.precinct AND COALESCE(v3.city, '') != ''
+        GROUP BY v3.city ORDER BY COUNT(*) DESC LIMIT 1
+      ) as area
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ?
+      AND v.early_voted = 1
       AND v.precinct IS NOT NULL AND TRIM(v.precinct) != ''
     GROUP BY v.precinct
     ORDER BY voted_count DESC
     LIMIT 10
-  `).all(...raceScopedParams);
+  `).all(req.params.id);
 
   // Support-level breakdown restricted to people who actually voted early.
   // This uses individual voters.support_level (not address-level) because
