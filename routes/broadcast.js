@@ -367,6 +367,122 @@ router.get('/gotv/confirmed-mine', (req, res) => {
   }
 });
 
+// Auto-derive projection split rates from survey response data.
+//
+// Scans surveys for questions whose options use support-level option_keys
+// (strong_support, lean_support, undecided, lean_oppose, strong_oppose,
+// unknown). For each such survey, computes the actual support distribution
+// among respondents, then derives:
+//   undecided_split = supports / (supports + opposes)        — among voters
+//                                                             who SAID undecided,
+//                                                             how do they actually
+//                                                             lean if forced?
+//   unknown_split   = supports / total responded             — among UNKNOWN
+//                                                             voters who responded,
+//                                                             what % support us?
+//
+// The "unknown" rate uses total because unknown voters could land anywhere;
+// the "undecided" rate uses only supports + opposes because undecided is
+// already its own bucket and we want the lean-when-forced split.
+//
+// Returns the latest survey's derived rates (most recent). Lists all
+// candidate surveys with their distributions so the UI can let the captain
+// pick a different survey to calibrate from.
+router.get('/gotv/survey-derived-splits', (req, res) => {
+  const surveyIdParam = req.query.survey_id ? parseInt(req.query.survey_id, 10) : null;
+
+  // Find all surveys that have at least one question with support-level
+  // option_keys. These are the candidate-preference surveys.
+  const supportKeys = ['strong_support', 'lean_support', 'support', 'supporter',
+                       'undecided', 'lean_oppose', 'strong_oppose', 'oppose', 'unknown'];
+  const placeholders = supportKeys.map(() => '?').join(',');
+
+  let candidateSurveys;
+  try {
+    candidateSurveys = db.prepare(`
+      SELECT DISTINCT s.id, s.name, s.status, s.created_at,
+        (SELECT COUNT(*) FROM survey_responses WHERE survey_id = s.id) AS response_count
+      FROM surveys s
+      WHERE EXISTS (
+        SELECT 1 FROM survey_questions q
+        JOIN survey_options o ON o.question_id = q.id
+        WHERE q.survey_id = s.id AND o.option_key IN (${placeholders})
+      )
+      ORDER BY s.created_at DESC
+    `).all(...supportKeys);
+  } catch (e) {
+    console.error('survey-derived-splits list error:', e.message);
+    return res.status(500).json({ error: 'Failed to scan surveys.' });
+  }
+
+  if (!candidateSurveys.length) {
+    return res.json({
+      surveys: [],
+      derived: null,
+      message: 'No surveys found with support-level option keys. Default rates remain in effect.'
+    });
+  }
+
+  // Pick the requested survey, or the most recent one with responses.
+  const targetSurvey = surveyIdParam
+    ? candidateSurveys.find(s => s.id === surveyIdParam)
+    : candidateSurveys.find(s => s.response_count > 0) || candidateSurveys[0];
+
+  if (!targetSurvey) {
+    return res.json({ surveys: candidateSurveys, derived: null });
+  }
+
+  // Distribution of responses by support category for the target survey.
+  const distRows = db.prepare(`
+    SELECT o.option_key, COUNT(*) AS count
+    FROM survey_responses r
+    JOIN survey_options o ON o.id = r.option_id
+    WHERE r.survey_id = ? AND o.option_key IN (${placeholders})
+    GROUP BY o.option_key
+  `).all(targetSurvey.id, ...supportKeys);
+
+  const dist = { strong_support: 0, lean_support: 0, undecided: 0,
+                 lean_oppose: 0, strong_oppose: 0, unknown: 0 };
+  for (const r of distRows) {
+    // Normalize 'support'/'supporter' into strong_support, 'oppose' into strong_oppose
+    const k = r.option_key;
+    if (k === 'support' || k === 'supporter') dist.strong_support += r.count;
+    else if (k === 'oppose') dist.strong_oppose += r.count;
+    else if (dist.hasOwnProperty(k)) dist[k] += r.count;
+  }
+
+  const supports = dist.strong_support + dist.lean_support;
+  const opposes  = dist.lean_oppose + dist.strong_oppose;
+  const undecidedCount = dist.undecided;
+  const total = supports + opposes + undecidedCount + dist.unknown;
+
+  // Derive rates. Guard against divide-by-zero — if a category has 0
+  // respondents, fall back to the standard defaults (0.5 / 0.2).
+  let undecidedSplit = 0.5;
+  let unknownSplit = 0.2;
+  if (supports + opposes > 0) {
+    // When forced to choose, what % of "undecided" likely actually lean ours?
+    // Use the supports/(supports+opposes) ratio as the proxy.
+    undecidedSplit = supports / (supports + opposes);
+  }
+  if (total > 0) {
+    // For never-asked unknowns, what % naturally support us?
+    // Use total response support rate (raw % of survey takers who back us).
+    unknownSplit = supports / total;
+  }
+
+  res.json({
+    surveys: candidateSurveys,
+    selected_survey: { id: targetSurvey.id, name: targetSurvey.name, response_count: targetSurvey.response_count },
+    distribution: dist,
+    totals: { supports, opposes, undecided: undecidedCount, unknown: dist.unknown, total },
+    derived: {
+      undecided_split: Math.round(undecidedSplit * 100) / 100,
+      unknown_split: Math.round(unknownSplit * 100) / 100
+    }
+  });
+});
+
 // GOTV Chase list — get voters who haven't voted, filtered
 router.get('/gotv/chase', (req, res) => {
   const { support, precinct, has_phone, limit: lim } = req.query;

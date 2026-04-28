@@ -2629,6 +2629,19 @@ tr:hover td{background:#1e293b80}
             </select>
           </div>
         </div>
+        <!-- Survey calibration — auto-derives undecided/unknown split rates
+             from existing survey responses if any candidate-preference
+             surveys exist. Falls back to defaults (0.5 / 0.2) otherwise. -->
+        <div id="gotvCalibrationBox" style="margin-top:12px;padding:10px;background:#1e1b4b;border:1px solid #4c1d95;border-radius:6px;font-size:12px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="color:#c4b5fd;font-weight:600">📊 Calibrate from survey:</span>
+            <select id="gotvSurveyCalibrationSelect" onchange="onGotvSurveyCalibrationChange()" style="flex:1;min-width:160px;background:#0f172a;border:1px solid #4c1d95;border-radius:4px;padding:5px 8px;color:#e2e8f0;font-size:12px">
+              <option value="">— Use default rates (50% / 20%) —</option>
+            </select>
+          </div>
+          <div id="gotvCalibrationStatus" style="margin-top:6px;color:#a5b4fc;line-height:1.5"></div>
+        </div>
+
         <!-- Confirmed + Projected + Win Projection cards. Confirmed is
              the floor (locked-in supporters who voted). Projected adds
              50% of undecided/unknown universe voters who voted. Win
@@ -16621,9 +16634,96 @@ async function loadGotvPage() {
   // applied before we render the Confirmed-Mine card and scoped stats.
   await loadGotvUniverseDropdown();
   await loadGotvCandidateDropdown();
+  await loadGotvSurveyCalibration();
   loadGotvStats();
   loadGotvPrecincts();
   loadGotvConfirmedMine();
+}
+
+// Holds the currently-selected calibration rates. Defaults match the
+// backend's defaults — overridden when a survey is picked.
+window._gotvSplitRates = { undecided_split: 0.5, unknown_split: 0.2 };
+
+// Fetch list of candidate-preference surveys + their derived rates.
+async function loadGotvSurveyCalibration() {
+  var sel = document.getElementById('gotvSurveyCalibrationSelect');
+  var status = document.getElementById('gotvCalibrationStatus');
+  if (!sel) return;
+  try {
+    var data = await api('/api/gotv/survey-derived-splits');
+    var surveys = data.surveys || [];
+    var saved = sessionStorage.getItem('gotvSurveyId') || '';
+    sel.innerHTML = '<option value="">— Use default rates (50% / 20%) —</option>';
+    surveys.forEach(function(s) {
+      var opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name + ' (' + (s.response_count || 0) + ' responses)';
+      sel.appendChild(opt);
+    });
+    if (!surveys.length) {
+      status.textContent = 'No candidate-preference surveys found yet. Using default split rates (50% undecided, 20% unknown).';
+      return;
+    }
+    if (saved && [].some.call(sel.options, function(o) { return o.value === saved; })) {
+      sel.value = saved;
+      await onGotvSurveyCalibrationChange();
+    } else {
+      // If there's a default-selected survey from the backend, show its rates
+      if (data.derived) {
+        showCalibrationStatus(data.selected_survey, data.derived, data.totals);
+      } else {
+        status.textContent = surveys.length + ' candidate-preference survey' + (surveys.length !== 1 ? 's' : '') + ' available — pick one to calibrate the projection.';
+      }
+    }
+  } catch (e) {
+    status.textContent = 'Could not load surveys (using defaults): ' + escHtml(e.message || 'unknown');
+  }
+}
+
+// When a survey is picked from the calibration dropdown, fetch its
+// derived rates and pipe them into the projection.
+async function onGotvSurveyCalibrationChange() {
+  var sel = document.getElementById('gotvSurveyCalibrationSelect');
+  var surveyId = sel.value;
+  sessionStorage.setItem('gotvSurveyId', surveyId || '');
+  if (!surveyId) {
+    window._gotvSplitRates = { undecided_split: 0.5, unknown_split: 0.2 };
+    document.getElementById('gotvCalibrationStatus').textContent = 'Using default split rates (50% undecided, 20% unknown).';
+    loadGotvConfirmedMine();
+    return;
+  }
+  try {
+    var data = await api('/api/gotv/survey-derived-splits?survey_id=' + encodeURIComponent(surveyId));
+    if (data.derived) {
+      window._gotvSplitRates = {
+        undecided_split: data.derived.undecided_split,
+        unknown_split: data.derived.unknown_split
+      };
+      showCalibrationStatus(data.selected_survey, data.derived, data.totals);
+      loadGotvConfirmedMine();
+    } else {
+      document.getElementById('gotvCalibrationStatus').textContent = 'Survey has no usable responses — keeping default rates.';
+    }
+  } catch (e) {
+    document.getElementById('gotvCalibrationStatus').textContent = 'Failed to load survey rates: ' + escHtml(e.message || 'unknown');
+  }
+}
+
+// Render a small status line explaining where the rates came from.
+function showCalibrationStatus(selectedSurvey, derived, totals) {
+  var status = document.getElementById('gotvCalibrationStatus');
+  if (!status) return;
+  var undPct = Math.round((derived.undecided_split || 0) * 100);
+  var unkPct = Math.round((derived.unknown_split || 0) * 100);
+  var msg = 'Calibrated from <strong>' + escHtml(selectedSurvey.name) + '</strong> (' +
+    (totals && totals.total ? totals.total.toLocaleString() : 0) + ' responses): ' +
+    '<strong style="color:#a5b4fc">' + undPct + '%</strong> on undecided, ' +
+    '<strong style="color:#a5b4fc">' + unkPct + '%</strong> on unknown.';
+  if (totals) {
+    msg += ' <span style="color:#94a3b8">(' + (totals.supports || 0) + ' support · ' +
+      (totals.opposes || 0) + ' oppose · ' + (totals.undecided || 0) + ' undecided)</span>';
+  }
+  status.innerHTML = msg;
 }
 
 // Populate the GOTV Universe dropdown from /api/admin-lists. Persist the
@@ -16746,6 +16846,11 @@ async function loadGotvConfirmedMine() {
   var params = [];
   if (universeId) params.push('universe_id=' + encodeURIComponent(universeId));
   if (candidateId) params.push('candidate_id=' + encodeURIComponent(candidateId));
+  // Pass calibrated split rates if a survey calibration is active.
+  // window._gotvSplitRates is set in loadGotvSurveyCalibration / onGotvSurveyCalibrationChange.
+  var rates = window._gotvSplitRates || { undecided_split: 0.5, unknown_split: 0.2 };
+  params.push('undecided_split=' + encodeURIComponent(rates.undecided_split));
+  params.push('unknown_split=' + encodeURIComponent(rates.unknown_split));
   try {
     // Run both calls in parallel — each is independent.
     var fetches = [api('/api/gotv/confirmed-mine?' + params.join('&'))];
@@ -16777,9 +16882,11 @@ async function loadGotvConfirmedMine() {
     var projBreakdown = '';
     projBreakdown += '<div>✅ Confirmed: <strong style="color:#a5b4fc">' + (data.confirmed_mine || 0).toLocaleString() + '</strong></div>';
     if (universeId) {
-      projBreakdown += '<div>🤷 Undecided who voted: <strong>' + undecided.toLocaleString() + '</strong></div>';
-      projBreakdown += '<div>❓ Unknown who voted: <strong>' + unknown.toLocaleString() + '</strong></div>';
-      projBreakdown += '<div>➕ +50% projection: <strong style="color:#fbbf24">+' + projectedExtra.toLocaleString() + '</strong></div>';
+      var undPct = Math.round((data.undecided_split || 0.5) * 100);
+      var unkPct = Math.round((data.unknown_split || 0.2) * 100);
+      projBreakdown += '<div>🤷 Undecided × ' + undPct + '%: <strong>' + Math.round(undecided * (data.undecided_split || 0.5)).toLocaleString() + '</strong> <span style="color:#64748b">(of ' + undecided.toLocaleString() + ')</span></div>';
+      projBreakdown += '<div>❓ Unknown × ' + unkPct + '%: <strong>' + Math.round(unknown * (data.unknown_split || 0.2)).toLocaleString() + '</strong> <span style="color:#64748b">(of ' + unknown.toLocaleString() + ')</span></div>';
+      projBreakdown += '<div>➕ Projection extra: <strong style="color:#fbbf24">+' + projectedExtra.toLocaleString() + '</strong></div>';
     }
     document.getElementById('gotvProjectedMineBreakdown').innerHTML = projBreakdown;
 
