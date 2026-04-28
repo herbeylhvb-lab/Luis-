@@ -2629,6 +2629,23 @@ tr:hover td{background:#1e293b80}
             </select>
           </div>
         </div>
+        <!-- "Confirmed Mine" — unique voters who voted AND are either
+             in the universe with strong/lean support OR on any captain
+             list under the candidate. Deduplicated. Refreshed when
+             either dropdown changes. -->
+        <div id="gotvConfirmedMineBox" style="display:none;margin-top:16px;padding:14px;background:#052e16;border:1px solid #16a34a;border-radius:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+            <div style="flex:1;min-width:240px">
+              <div style="font-size:11px;color:#86efac;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">✅ Votes Confirmed Mine</div>
+              <div style="font-size:32px;font-weight:700;color:#22c55e;line-height:1" id="gotvConfirmedMineValue">0</div>
+              <div style="font-size:12px;color:#86efac;margin-top:4px" id="gotvConfirmedMineSub">Voted + in universe (strong/lean support) OR on a captain's list</div>
+            </div>
+            <div style="font-size:12px;color:#94a3b8;min-width:200px;text-align:right">
+              <div id="gotvConfirmedMineBreakdown" style="line-height:1.6"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Universe-scoped early voter analytics rendered here when a
              universe is picked. Hidden until then. -->
         <div id="gotvUniverseStatsBox" style="display:none;margin-top:16px"></div>
@@ -16571,10 +16588,13 @@ async function loadBroadcastHistory() {
 
 // ===================== GOTV CHASE =====================
 async function loadGotvPage() {
-  loadGotvUniverseDropdown();
-  loadGotvCandidateDropdown();
+  // Populate dropdowns first so any saved candidate/universe selection is
+  // applied before we render the Confirmed-Mine card and scoped stats.
+  await loadGotvUniverseDropdown();
+  await loadGotvCandidateDropdown();
   loadGotvStats();
   loadGotvPrecincts();
+  loadGotvConfirmedMine();
 }
 
 // Populate the GOTV Universe dropdown from /api/admin-lists. Persist the
@@ -16639,6 +16659,9 @@ async function onGotvUniverseChange() {
   var listId = sel.value;
   var box = document.getElementById('gotvUniverseStatsBox');
   sessionStorage.setItem('gotvUniverseId', listId || '');
+  // Always recompute the Confirmed-Mine card on universe change (it depends
+  // on the universe selection AND the candidate selection independently).
+  loadGotvConfirmedMine();
   if (!listId) {
     box.style.display = 'none';
     box.innerHTML = '';
@@ -16665,13 +16688,52 @@ async function onGotvUniverseChange() {
   }
 }
 
-// When candidate changes, persist + re-load the stats cards and precinct
-// table so the GOTV view reflects the new race scope immediately.
+// When candidate changes, persist + re-load the stats cards, precinct
+// table, AND the Confirmed-Mine card so every scoped widget reflects
+// the new race immediately.
 function onGotvCandidateChange() {
   var sel = document.getElementById('gotvCandidateSelect');
   sessionStorage.setItem('gotvCandidateId', sel.value || '');
   loadGotvStats();
   loadGotvPrecincts();
+  loadGotvConfirmedMine();
+}
+
+// Fetch + render the Confirmed-Mine card. Hidden when neither universe
+// nor candidate is selected (nothing to count). Shows the deduplicated
+// total prominently, with the breakdown (universe / captain / overlap)
+// in the right column for verification.
+async function loadGotvConfirmedMine() {
+  var box = document.getElementById('gotvConfirmedMineBox');
+  if (!box) return;
+  var universeId = (document.getElementById('gotvUniverseSelect') || {}).value || '';
+  var candidateId = (document.getElementById('gotvCandidateSelect') || {}).value || '';
+  if (!universeId && !candidateId) {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  var params = [];
+  if (universeId) params.push('universe_id=' + encodeURIComponent(universeId));
+  if (candidateId) params.push('candidate_id=' + encodeURIComponent(candidateId));
+  try {
+    var data = await api('/api/gotv/confirmed-mine?' + params.join('&'));
+    document.getElementById('gotvConfirmedMineValue').textContent = (data.confirmed_mine || 0).toLocaleString();
+    var breakdown = '';
+    if (universeId) {
+      breakdown += '<div>📍 From universe (strong/lean): <strong style="color:#86efac">' + (data.universe_supporters_voted || 0).toLocaleString() + '</strong></div>';
+    }
+    if (candidateId) {
+      breakdown += '<div>👥 From captain lists: <strong style="color:#86efac">' + (data.captain_list_voted || 0).toLocaleString() + '</strong></div>';
+    }
+    if (universeId && candidateId) {
+      breakdown += '<div>🔗 In both (counted once): <strong style="color:#fbbf24">' + (data.overlap || 0).toLocaleString() + '</strong></div>';
+    }
+    document.getElementById('gotvConfirmedMineBreakdown').innerHTML = breakdown;
+  } catch (e) {
+    document.getElementById('gotvConfirmedMineValue').textContent = '—';
+    document.getElementById('gotvConfirmedMineBreakdown').innerHTML = '<span style="color:#ef4444">Error loading</span>';
+  }
 }
 
 // Helper: returns { race_col, race_val } from the selected candidate, or

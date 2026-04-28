@@ -223,6 +223,82 @@ router.get('/gotv/stats', (req, res) => {
   res.json({ total, earlyVoted, notVoted, supportersNotVoted, withPhone, bySupport, byPrecinct });
 });
 
+// "Confirmed Mine" — count of unique voters who voted AND are either:
+//   (a) in the selected universe with support_level in (strong/lean), OR
+//   (b) on any captain list under the selected candidate (primary or shared).
+// Returns the deduplicated union count plus each input set's count + their
+// overlap so the UI can show "X from universe, Y from captains, Z in both".
+//
+// Either parameter is optional — one without the other still returns the
+// matching half. If both are missing, returns zeros (nothing to count).
+router.get('/gotv/confirmed-mine', (req, res) => {
+  const universeId = req.query.universe_id ? parseInt(req.query.universe_id, 10) : null;
+  const candidateId = req.query.candidate_id ? parseInt(req.query.candidate_id, 10) : null;
+
+  if (!universeId && !candidateId) {
+    return res.json({
+      confirmed_mine: 0,
+      universe_supporters_voted: 0,
+      captain_list_voted: 0,
+      overlap: 0,
+    });
+  }
+
+  // Build the two SQL fragments conditionally so missing params just produce
+  // an empty CTE, not a broken query. SQLite handles "SELECT WHERE 1=0" as
+  // an empty result without erroring.
+  const universeCte = universeId
+    ? `SELECT v.id FROM voters v
+        JOIN admin_list_voters alv ON v.id = alv.voter_id
+        WHERE alv.list_id = ?
+          AND v.early_voted = 1
+          AND v.support_level IN ('strong_support', 'lean_support', 'supporter', 'support')`
+    : `SELECT NULL AS id WHERE 1=0`;
+
+  const captainCte = candidateId
+    ? `SELECT DISTINCT v.id FROM voters v
+        JOIN captain_list_voters clv ON v.id = clv.voter_id
+        JOIN captain_lists cl ON clv.list_id = cl.id
+        JOIN captains c ON cl.captain_id = c.id
+        WHERE v.early_voted = 1
+          AND (
+            c.candidate_id = ?
+            OR c.id IN (SELECT captain_id FROM captain_candidates WHERE candidate_id = ?)
+          )`
+    : `SELECT NULL AS id WHERE 1=0`;
+
+  const params = [];
+  if (universeId) params.push(universeId);
+  if (candidateId) params.push(candidateId, candidateId);
+
+  // Single query with three SELECTs that share the CTEs — minimizes round-trips.
+  const sql = `
+    WITH universe_supporters AS (${universeCte}),
+         captain_voters AS (${captainCte})
+    SELECT
+      (SELECT COUNT(*) FROM universe_supporters) AS universe_supporters_voted,
+      (SELECT COUNT(*) FROM captain_voters)      AS captain_list_voted,
+      (SELECT COUNT(*) FROM (
+         SELECT id FROM universe_supporters UNION SELECT id FROM captain_voters
+       ))                                         AS confirmed_mine,
+      (SELECT COUNT(*) FROM universe_supporters
+         WHERE id IN (SELECT id FROM captain_voters)) AS overlap
+  `;
+
+  try {
+    const row = db.prepare(sql).get(...params) || {};
+    res.json({
+      confirmed_mine: row.confirmed_mine || 0,
+      universe_supporters_voted: row.universe_supporters_voted || 0,
+      captain_list_voted: row.captain_list_voted || 0,
+      overlap: row.overlap || 0,
+    });
+  } catch (e) {
+    console.error('confirmed-mine error:', e.message);
+    res.status(500).json({ error: 'Failed to compute confirmed-mine count.' });
+  }
+});
+
 // GOTV Chase list — get voters who haven't voted, filtered
 router.get('/gotv/chase', (req, res) => {
   const { support, precinct, has_phone, limit: lim } = req.query;
