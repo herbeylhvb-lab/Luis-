@@ -16629,8 +16629,11 @@ async function loadGotvCandidateDropdown() {
   } catch (e) { console.warn('Could not load candidates for GOTV:', e.message); }
 }
 
-// When the universe selection changes, fetch its rich stats and render
-// a focused early-voting analytics block below the dropdown.
+// When the universe selection changes, render the FULL universe dashboard
+// (party breakdown, support level, walk status, demographics, early voter
+// analysis, race comparison, action buttons) by delegating to the existing
+// showUniverseDashboard. Same renderer used on the Universes tab — captains
+// see identical tables in both places.
 async function onGotvUniverseChange() {
   var sel = document.getElementById('gotvUniverseSelect');
   var listId = sel.value;
@@ -16645,10 +16648,18 @@ async function onGotvUniverseChange() {
     return;
   }
   box.style.display = 'block';
-  box.innerHTML = '<div style="color:#64748b;text-align:center;padding:16px">Loading universe stats...</div>';
+  // Clear and create a fresh anchor element. showUniverseDashboard inserts
+  // its rendered .universe-dashboard div as a sibling AFTER the anchor;
+  // since the anchor is inside `box`, the dashboard ends up right where
+  // we want it. The anchor itself is invisible — height:0;display:block.
+  box.innerHTML = '<div id="gotvDashAnchor" style="height:0;overflow:hidden"></div>';
+  var anchor = document.getElementById('gotvDashAnchor');
+  var listName = sel.options[sel.selectedIndex].text;
+  // Strip the trailing "(N voters)" count from the option label so the
+  // dashboard header shows just the universe name like the Universes tab.
+  listName = listName.replace(/\s*\(\d[\d,]*\)\s*$/, '').trim();
   try {
-    var data = await api('/api/admin-lists/' + listId + '/stats');
-    box.innerHTML = renderGotvUniverseStats(data, listId);
+    await showUniverseDashboard(listId, listName, anchor);
   } catch (e) {
     box.innerHTML = '<div style="color:#ef4444;padding:12px">Error loading universe stats: ' + escHtml(e.message || 'unknown') + '</div>';
   }
@@ -16676,63 +16687,9 @@ function getGotvRaceFilter() {
   return { race_col: raceType, race_val: raceValue };
 }
 
-// Renders a focused early-voting analytics block from /api/admin-lists/:id/stats.
-// Mirrors the "Early Voter Analysis" section of the Universes page so captains
-// see familiar numbers in the same layout.
-function renderGotvUniverseStats(data, listId) {
-  var totalVoters = data.total_voters || 0;
-  var earlyVoted = data.early_voted || 0;
-  var notVoted = totalVoters - earlyVoted;
-  var votedPct = totalVoters > 0 ? Math.round(earlyVoted / totalVoters * 100) : 0;
-  var universeVbm = data.universe_vbm_count || 0;
-  var universeEarlyInPerson = data.universe_early_inperson_count || 0;
-  var vbmPct = totalVoters > 0 ? Math.round(universeVbm / totalVoters * 100) : 0;
-  var eipPct = totalVoters > 0 ? Math.round(universeEarlyInPerson / totalVoters * 100) : 0;
-  var districtTurnoutNum = data.district_early_voted || 0;
-  var raceUniversePct = districtTurnoutNum > 0 ? Math.round(earlyVoted / districtTurnoutNum * 100) : 0;
-  var raceOutsideCount = data.early_voted_outside || 0;
-  var raceTurnoutLabel = (data.detected_race_column && data.detected_race_value)
-    ? 'in ' + escHtml(data.detected_race_value)
-    : 'in whole DB (no race)';
-
-  var html = '';
-  html += '<div style="padding:14px;background:#0b1220;border:1px solid #1e40af;border-radius:8px">';
-  html += '<h5 style="color:#60a5fa;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px">🎯 Early Voter Analysis · This Universe</h5>';
-  html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">';
-  // Universe section
-  html += '<div style="flex:1;min-width:280px">';
-  html += '<div style="font-size:10px;color:#60a5fa;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">📍 Your Universe (' + totalVoters.toLocaleString() + ' voters)</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
-  html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Voted Early (total)</div><div class="value" style="color:#86efac;font-size:18px">' + earlyVoted.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + votedPct + '% of universe</div></div>';
-  html += '<div class="stat-card" style="background:#1e293b;padding:10px;border-left:3px solid #60a5fa"><div class="label" style="color:#93c5fd">Early In-Person</div><div class="value" style="color:#60a5fa;font-size:18px">' + universeEarlyInPerson.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + eipPct + '% of universe</div></div>';
-  html += '<div class="stat-card" style="background:#1e293b;padding:10px;border-left:3px solid #f472b6"><div class="label" style="color:#f9a8d4">Voted by Mail</div><div class="value" style="color:#f472b6;font-size:18px">' + universeVbm.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + vbmPct + '% of universe</div></div>';
-  html += '<div class="stat-card" style="background:#1e293b;padding:10px"><div class="label">Not Yet Voted</div><div class="value" style="color:#f59e0b;font-size:18px">' + notVoted.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">' + (100 - votedPct) + '% remaining</div></div>';
-  html += '</div></div>';
-  // Race section
-  html += '<div style="flex:1;min-width:280px">';
-  html += '<div style="font-size:10px;color:#22d3ee;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">🗳️ Whole Race · ' + raceTurnoutLabel + '</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">';
-  html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">Race Voted</div><div class="value" style="color:#67e8f9;font-size:18px">' + districtTurnoutNum.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">total votes in district</div></div>';
-  html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">My Share</div><div class="value" style="color:#22d3ee;font-size:18px">' + raceUniversePct + '%</div><div style="font-size:11px;color:#64748b">' + earlyVoted.toLocaleString() + ' of ' + districtTurnoutNum.toLocaleString() + '</div></div>';
-  html += '<div class="stat-card" style="background:#0b1a1f;padding:10px;border:1px solid #155e75"><div class="label">Voted Outside</div><div class="value" style="color:#a5f3fc;font-size:18px">' + raceOutsideCount.toLocaleString() + '</div><div style="font-size:11px;color:#64748b">voted, not in universe</div></div>';
-  html += '</div></div>';
-  html += '</div>';
-
-  // Progress bar for the universe
-  html += '<div style="margin-top:8px;display:flex;align-items:center;gap:8px">';
-  html += '<div style="flex:1;background:#334155;border-radius:8px;height:18px;overflow:hidden"><div style="height:100%;background:linear-gradient(90deg,#22c55e,#4ade80);border-radius:8px;transition:width .5s;width:' + votedPct + '%"></div></div>';
-  html += '<span style="font-size:13px;font-weight:600;min-width:50px;color:#e2e8f0">' + votedPct + '%</span>';
-  html += '</div>';
-  html += '<div style="font-size:11px;color:#64748b;margin-top:4px">' + earlyVoted.toLocaleString() + ' of ' + totalVoters.toLocaleString() + ' voters in this universe have voted early</div>';
-
-  // Quick action buttons — link to chase list scoped to this universe
-  html += '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<a class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9;color:#fff;text-decoration:none" href="/api/admin-lists/' + listId + '/export-mailing-csv?exclude_voted=1">⬇ Export Not-Voted CSV</a>';
-  html += '<a class="btn btn-sm btn-secondary" style="text-decoration:none" href="#" onclick="document.getElementById(\'gotvUniverseSelect\').focus(); return false;">🔄 Refresh</a>';
-  html += '</div>';
-  html += '</div>';
-  return html;
-}
+// (renderGotvUniverseStats was removed — GOTV now reuses the full
+// showUniverseDashboard renderer defined in the Universes section so
+// captains see identical tables in both places. Single source of truth.)
 
 async function loadGotvStats() {
   try {
