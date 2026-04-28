@@ -16644,13 +16644,19 @@ async function loadGotvPage() {
 // backend's defaults — overridden when a survey is picked.
 window._gotvSplitRates = { undecided_split: 0.5, unknown_split: 0.2 };
 
-// Fetch list of candidate-preference surveys + their derived rates.
+// Fetch list of surveys with responses + their derived rates. Includes
+// candidate_id when available so multi-candidate surveys (where options
+// are candidate names like "Luis", "Martha", "Prisi") can be matched
+// against the captain's selected candidate.
 async function loadGotvSurveyCalibration() {
   var sel = document.getElementById('gotvSurveyCalibrationSelect');
   var status = document.getElementById('gotvCalibrationStatus');
   if (!sel) return;
   try {
-    var data = await api('/api/gotv/survey-derived-splits');
+    var url = '/api/gotv/survey-derived-splits';
+    var candidateId = (document.getElementById('gotvCandidateSelect') || {}).value || '';
+    if (candidateId) url += '?candidate_id=' + encodeURIComponent(candidateId);
+    var data = await api(url);
     var surveys = data.surveys || [];
     var saved = sessionStorage.getItem('gotvSurveyId') || '';
     sel.innerHTML = '<option value="">— Use default rates (50% / 20%) —</option>';
@@ -16661,27 +16667,29 @@ async function loadGotvSurveyCalibration() {
       sel.appendChild(opt);
     });
     if (!surveys.length) {
-      status.textContent = 'No candidate-preference surveys found yet. Using default split rates (50% undecided, 20% unknown).';
+      status.textContent = 'No surveys with responses yet. Using default split rates (50% undecided, 20% unknown).';
       return;
     }
     if (saved && [].some.call(sel.options, function(o) { return o.value === saved; })) {
       sel.value = saved;
       await onGotvSurveyCalibrationChange();
+    } else if (data.derived) {
+      // Use the auto-picked latest survey's rates by default.
+      window._gotvSplitRates = {
+        undecided_split: data.derived.undecided_split,
+        unknown_split: data.derived.unknown_split
+      };
+      showCalibrationStatus(data.selected_survey, data.derived, data.totals, data.distribution);
     } else {
-      // If there's a default-selected survey from the backend, show its rates
-      if (data.derived) {
-        showCalibrationStatus(data.selected_survey, data.derived, data.totals);
-      } else {
-        status.textContent = surveys.length + ' candidate-preference survey' + (surveys.length !== 1 ? 's' : '') + ' available — pick one to calibrate the projection.';
-      }
+      status.textContent = surveys.length + ' survey' + (surveys.length !== 1 ? 's' : '') + ' with responses — pick one to calibrate the projection.';
     }
   } catch (e) {
     status.textContent = 'Could not load surveys (using defaults): ' + escHtml(e.message || 'unknown');
   }
 }
 
-// When a survey is picked from the calibration dropdown, fetch its
-// derived rates and pipe them into the projection.
+// When a survey OR the candidate changes, fetch derived rates and pipe
+// into the projection. Multi-candidate surveys need candidate_id.
 async function onGotvSurveyCalibrationChange() {
   var sel = document.getElementById('gotvSurveyCalibrationSelect');
   var surveyId = sel.value;
@@ -16693,13 +16701,16 @@ async function onGotvSurveyCalibrationChange() {
     return;
   }
   try {
-    var data = await api('/api/gotv/survey-derived-splits?survey_id=' + encodeURIComponent(surveyId));
+    var url = '/api/gotv/survey-derived-splits?survey_id=' + encodeURIComponent(surveyId);
+    var candidateId = (document.getElementById('gotvCandidateSelect') || {}).value || '';
+    if (candidateId) url += '&candidate_id=' + encodeURIComponent(candidateId);
+    var data = await api(url);
     if (data.derived) {
       window._gotvSplitRates = {
         undecided_split: data.derived.undecided_split,
         unknown_split: data.derived.unknown_split
       };
-      showCalibrationStatus(data.selected_survey, data.derived, data.totals);
+      showCalibrationStatus(data.selected_survey, data.derived, data.totals, data.distribution);
       loadGotvConfirmedMine();
     } else {
       document.getElementById('gotvCalibrationStatus').textContent = 'Survey has no usable responses — keeping default rates.';
@@ -16709,19 +16720,41 @@ async function onGotvSurveyCalibrationChange() {
   }
 }
 
-// Render a small status line explaining where the rates came from.
-function showCalibrationStatus(selectedSurvey, derived, totals) {
+// Render the calibration status line + a small breakdown showing how each
+// survey option got bucketed (supports / opposes / undecided / other).
+// Helps the captain verify the matching is correct (e.g., "Luis Villarreal"
+// option went to 'supports', "Martha Sosa" went to 'opposes', etc.).
+function showCalibrationStatus(selectedSurvey, derived, totals, distribution) {
   var status = document.getElementById('gotvCalibrationStatus');
   if (!status) return;
   var undPct = Math.round((derived.undecided_split || 0) * 100);
   var unkPct = Math.round((derived.unknown_split || 0) * 100);
+  var total = (totals && totals.total) || 0;
   var msg = 'Calibrated from <strong>' + escHtml(selectedSurvey.name) + '</strong> (' +
-    (totals && totals.total ? totals.total.toLocaleString() : 0) + ' responses): ' +
-    '<strong style="color:#a5b4fc">' + undPct + '%</strong> on undecided, ' +
+    total.toLocaleString() + ' bucketed responses): ' +
+    '<strong style="color:#a5b4fc">' + undPct + '%</strong> on undecided · ' +
     '<strong style="color:#a5b4fc">' + unkPct + '%</strong> on unknown.';
   if (totals) {
-    msg += ' <span style="color:#94a3b8">(' + (totals.supports || 0) + ' support · ' +
-      (totals.opposes || 0) + ' oppose · ' + (totals.undecided || 0) + ' undecided)</span>';
+    msg += '<br><span style="color:#94a3b8;font-size:11px">' +
+      '✅ Supports: ' + (totals.supports || 0) +
+      ' · ❌ Opposes: ' + (totals.opposes || 0) +
+      ' · 🤷 Undecided: ' + (totals.undecided || 0) +
+      ' · ❓ Unknown: ' + (totals.unknown || 0) + '</span>';
+  }
+  // Show how each option was bucketed so the captain can spot mismatches.
+  if (distribution && distribution.length) {
+    msg += '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:#c4b5fd">Show option-by-option matching</summary>' +
+      '<div style="margin-top:6px;font-size:11px;background:#0f172a;border-radius:4px;padding:6px;max-height:120px;overflow-y:auto">';
+    var bucketColor = { supports: '#22c55e', opposes: '#ef4444', undecided: '#facc15', unknown: '#94a3b8', other: '#64748b' };
+    distribution.forEach(function(d) {
+      var c = bucketColor[d.bucket] || '#94a3b8';
+      msg += '<div style="line-height:1.4">' +
+        '<span style="color:' + c + ';font-weight:600">' + d.bucket + '</span> · ' +
+        '<span style="color:#e2e8f0">' + escHtml(d.option_text || d.option_key || '(no text)') + '</span> ' +
+        '<span style="color:#64748b">(' + d.count + ')</span>' +
+        '</div>';
+    });
+    msg += '</div></details>';
   }
   status.innerHTML = msg;
 }
@@ -16818,14 +16851,17 @@ async function onGotvUniverseChange() {
 }
 
 // When candidate changes, persist + re-load the stats cards, precinct
-// table, AND the Confirmed-Mine card so every scoped widget reflects
-// the new race immediately.
-function onGotvCandidateChange() {
+// table, the survey calibration (multi-candidate surveys need the
+// candidate name to match options), AND the Confirmed-Mine card.
+async function onGotvCandidateChange() {
   var sel = document.getElementById('gotvCandidateSelect');
   sessionStorage.setItem('gotvCandidateId', sel.value || '');
   loadGotvStats();
   loadGotvPrecincts();
-  loadGotvConfirmedMine();
+  // Refresh calibration first so the new rates are in window._gotvSplitRates
+  // before loadGotvConfirmedMine reads them.
+  await onGotvSurveyCalibrationChange();
+  // (loadGotvConfirmedMine is called inside the calibration handler)
 }
 
 // Fetch + render the Confirmed Mine, Projected Mine, and Win Projection
