@@ -223,38 +223,17 @@ router.get('/gotv/stats', (req, res) => {
   res.json({ total, earlyVoted, notVoted, supportersNotVoted, withPhone, bySupport, byPrecinct });
 });
 
-// "Confirmed Mine" + "Projected Mine" — count of unique voters who voted
-// and are confirmed yours, plus a projection that adds a fraction of
-// undecided/unknown universe voters who voted.
+// "Confirmed Mine" — count of unique voters who voted AND are either:
+//   (a) in the selected universe with support_level in (strong/lean), OR
+//   (b) on any captain list under the selected candidate (primary or shared).
+// Returns the deduplicated union count plus each input set's count + their
+// overlap so the UI can show "X from universe, Y from captains, Z in both".
 //
-// Default split rates:
-//   undecided_split = 0.50 — they were asked and didn't commit; truly 50/50
-//   unknown_split   = 0.20 — never reached / never asked; mostly opposition
-//                            territory but some lean yours
-// Both are query-string overridable (?undecided_split=0.6&unknown_split=0.3)
-// so you can tune per-race without code changes.
-//
-// CONFIRMED set = (universe voters with strong/lean support AND voted)
-//                 ∪ (captain-list voters under candidate AND voted),
-//                 deduplicated.
-//
-// PROJECTED EXTRA = 50% of (universe voters with undecided AND voted,
-//                            NOT already on a captain list)
-//                 + 50% of (universe voters with unknown/empty AND voted,
-//                            NOT already on a captain list).
-// The "NOT on captain list" exclusion prevents double-counting voters
-// who are already in the confirmed set via the captain path.
-//
-// projected_mine = confirmed_mine + projected_extra (rounded).
-//
-// Either parameter is optional. If both missing, returns zeros.
+// Either parameter is optional — one without the other still returns the
+// matching half. If both are missing, returns zeros (nothing to count).
 router.get('/gotv/confirmed-mine', (req, res) => {
   const universeId = req.query.universe_id ? parseInt(req.query.universe_id, 10) : null;
   const candidateId = req.query.candidate_id ? parseInt(req.query.candidate_id, 10) : null;
-  // Parse split rates with sensible defaults. Clamp to [0, 1] so a typo
-  // can't produce negative projections or > 100% leans.
-  const undecidedSplit = Math.max(0, Math.min(1, parseFloat(req.query.undecided_split) || 0.5));
-  const unknownSplit = Math.max(0, Math.min(1, parseFloat(req.query.unknown_split) || 0.2));
 
   if (!universeId && !candidateId) {
     return res.json({
@@ -262,16 +241,13 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       universe_supporters_voted: 0,
       captain_list_voted: 0,
       overlap: 0,
-      universe_undecided_voted: 0,
-      universe_unknown_voted: 0,
-      projected_mine: 0,
-      undecided_split: undecidedSplit,
-      unknown_split: unknownSplit,
     });
   }
 
-  // CTE for universe SUPPORTERS (strong/lean) — counted at 100%.
-  const universeSupportersCte = universeId
+  // Build the two SQL fragments conditionally so missing params just produce
+  // an empty CTE, not a broken query. SQLite handles "SELECT WHERE 1=0" as
+  // an empty result without erroring.
+  const universeCte = universeId
     ? `SELECT v.id FROM voters v
         JOIN admin_list_voters alv ON v.id = alv.voter_id
         WHERE alv.list_id = ?
@@ -279,26 +255,6 @@ router.get('/gotv/confirmed-mine', (req, res) => {
           AND v.support_level IN ('strong_support', 'lean_support', 'supporter', 'support')`
     : `SELECT NULL AS id WHERE 1=0`;
 
-  // CTE for universe UNDECIDED — counted at 50% in projection.
-  const universeUndecidedCte = universeId
-    ? `SELECT v.id FROM voters v
-        JOIN admin_list_voters alv ON v.id = alv.voter_id
-        WHERE alv.list_id = ?
-          AND v.early_voted = 1
-          AND v.support_level = 'undecided'`
-    : `SELECT NULL AS id WHERE 1=0`;
-
-  // CTE for universe UNKNOWN (explicit 'unknown', empty string, or NULL)
-  // — counted at 50% in projection.
-  const universeUnknownCte = universeId
-    ? `SELECT v.id FROM voters v
-        JOIN admin_list_voters alv ON v.id = alv.voter_id
-        WHERE alv.list_id = ?
-          AND v.early_voted = 1
-          AND (v.support_level = 'unknown' OR v.support_level = '' OR v.support_level IS NULL)`
-    : `SELECT NULL AS id WHERE 1=0`;
-
-  // CTE for captain-list voters under the candidate (primary or shared).
   const captainCte = candidateId
     ? `SELECT DISTINCT v.id FROM voters v
         JOIN captain_list_voters clv ON v.id = clv.voter_id
@@ -311,18 +267,14 @@ router.get('/gotv/confirmed-mine', (req, res) => {
           )`
     : `SELECT NULL AS id WHERE 1=0`;
 
-  // Param order must match CTE placeholder order.
   const params = [];
-  if (universeId) params.push(universeId);            // universe_supporters
-  if (universeId) params.push(universeId);            // universe_undecided
-  if (universeId) params.push(universeId);            // universe_unknown
-  if (candidateId) params.push(candidateId, candidateId); // captain (2 params)
+  if (universeId) params.push(universeId);
+  if (candidateId) params.push(candidateId, candidateId);
 
+  // Single query with three SELECTs that share the CTEs — minimizes round-trips.
   const sql = `
-    WITH universe_supporters AS (${universeSupportersCte}),
-         universe_undecided  AS (${universeUndecidedCte}),
-         universe_unknown    AS (${universeUnknownCte}),
-         captain_voters      AS (${captainCte})
+    WITH universe_supporters AS (${universeCte}),
+         captain_voters AS (${captainCte})
     SELECT
       (SELECT COUNT(*) FROM universe_supporters) AS universe_supporters_voted,
       (SELECT COUNT(*) FROM captain_voters)      AS captain_list_voted,
@@ -330,176 +282,21 @@ router.get('/gotv/confirmed-mine', (req, res) => {
          SELECT id FROM universe_supporters UNION SELECT id FROM captain_voters
        ))                                         AS confirmed_mine,
       (SELECT COUNT(*) FROM universe_supporters
-         WHERE id IN (SELECT id FROM captain_voters)) AS overlap,
-      -- Undecided/unknown counts EXCLUDE voters already on a captain list,
-      -- otherwise we'd add 50% on top of someone counted at 100%. Net is
-      -- only the projection-eligible voters.
-      (SELECT COUNT(*) FROM universe_undecided
-         WHERE id NOT IN (SELECT id FROM captain_voters)) AS universe_undecided_voted,
-      (SELECT COUNT(*) FROM universe_unknown
-         WHERE id NOT IN (SELECT id FROM captain_voters)) AS universe_unknown_voted
+         WHERE id IN (SELECT id FROM captain_voters)) AS overlap
   `;
 
   try {
     const row = db.prepare(sql).get(...params) || {};
-    const confirmedMine = row.confirmed_mine || 0;
-    const undecided = row.universe_undecided_voted || 0;
-    const unknown = row.universe_unknown_voted || 0;
-    // Apply per-category split rates. Defaults: 50% on undecided, 20% on
-    // unknown (unknown voters are mostly opposition territory but some
-    // lean yours — 20% is more realistic than 50/50 for cold contacts).
-    const projectedExtra = Math.round(undecided * undecidedSplit + unknown * unknownSplit);
-    const projectedMine = confirmedMine + projectedExtra;
     res.json({
-      confirmed_mine: confirmedMine,
+      confirmed_mine: row.confirmed_mine || 0,
       universe_supporters_voted: row.universe_supporters_voted || 0,
       captain_list_voted: row.captain_list_voted || 0,
       overlap: row.overlap || 0,
-      universe_undecided_voted: undecided,
-      universe_unknown_voted: unknown,
-      projected_mine: projectedMine,
-      undecided_split: undecidedSplit,
-      unknown_split: unknownSplit,
     });
   } catch (e) {
     console.error('confirmed-mine error:', e.message);
     res.status(500).json({ error: 'Failed to compute confirmed-mine count.' });
   }
-});
-
-// Auto-derive projection split rates from survey response data.
-//
-// Two matching modes:
-//   1) SUPPORT-LEVEL surveys — option_key uses words like 'strong_support',
-//      'undecided', etc. Used for "yes/no/maybe" candidate-preference polls.
-//   2) MULTI-CANDIDATE surveys — option_text/key contains candidate names
-//      (e.g., "Luis Villarreal", "Martha Sosa", "Prisi Cruz"). Triggered
-//      when candidate_id is passed: options matching that candidate's name
-//      = supports, options matching OTHER candidate names = opposes,
-//      'undecided' = undecided.
-//
-// Math (same in both modes):
-//   undecided_split = supports / (supports + opposes)  — if forced to choose
-//   unknown_split   = supports / total                 — cold-contact prior
-//
-// Lists all surveys that have responses so the UI can pick which to use.
-router.get('/gotv/survey-derived-splits', (req, res) => {
-  const surveyIdParam = req.query.survey_id ? parseInt(req.query.survey_id, 10) : null;
-  const candidateIdParam = req.query.candidate_id ? parseInt(req.query.candidate_id, 10) : null;
-
-  const supportKeys = ['strong_support', 'lean_support', 'support', 'supporter',
-                       'undecided', 'lean_oppose', 'strong_oppose', 'oppose', 'unknown'];
-  const supportPlaceholders = supportKeys.map(() => '?').join(',');
-
-  // Pull all candidates so we can build a name list for multi-candidate matching.
-  const allCandidates = db.prepare('SELECT id, name FROM candidates').all();
-
-  // List EVERY survey that has any responses — covers both support-level
-  // and multi-candidate surveys. Filter further only when needed.
-  let candidateSurveys;
-  try {
-    candidateSurveys = db.prepare(`
-      SELECT s.id, s.name, s.status, s.created_at,
-        (SELECT COUNT(*) FROM survey_responses WHERE survey_id = s.id) AS response_count
-      FROM surveys s
-      WHERE (SELECT COUNT(*) FROM survey_responses WHERE survey_id = s.id) > 0
-      ORDER BY s.created_at DESC
-    `).all();
-  } catch (e) {
-    console.error('survey-derived-splits list error:', e.message);
-    return res.status(500).json({ error: 'Failed to scan surveys.' });
-  }
-
-  if (!candidateSurveys.length) {
-    return res.json({
-      surveys: [],
-      derived: null,
-      message: 'No surveys with responses yet. Default rates remain in effect.'
-    });
-  }
-
-  const targetSurvey = surveyIdParam
-    ? candidateSurveys.find(s => s.id === surveyIdParam)
-    : candidateSurveys[0];
-
-  if (!targetSurvey) {
-    return res.json({ surveys: candidateSurveys, derived: null });
-  }
-
-  // Pull every option the survey responses point at (with text + key).
-  const optRows = db.prepare(`
-    SELECT o.id, o.option_key, o.option_text, COUNT(r.id) AS count
-    FROM survey_options o
-    JOIN survey_responses r ON r.option_id = o.id
-    WHERE r.survey_id = ?
-    GROUP BY o.id
-  `).all(targetSurvey.id);
-
-  // Bucket each option into supports / opposes / undecided / unknown / other.
-  // Two passes: first try support-level keys, then candidate-name matching.
-  let supports = 0, opposes = 0, undecidedCount = 0, unknownCount = 0;
-  const distSamples = []; // for debugging in the UI: which options went where
-
-  // Helper: case-insensitive substring match across name parts.
-  function nameMatches(text, candidateName) {
-    if (!text || !candidateName) return false;
-    const t = String(text).toLowerCase();
-    // Match if any non-trivial token of the candidate's name appears.
-    return candidateName.toLowerCase().split(/\s+/)
-      .filter(tok => tok.length >= 3) // skip "Jr.", "II", etc.
-      .some(tok => t.indexOf(tok) !== -1);
-  }
-
-  // Find the selected candidate (the one the captain is running) and the
-  // OTHER candidates (treated as "opposes").
-  const meCand = candidateIdParam ? allCandidates.find(c => c.id === candidateIdParam) : null;
-  const otherCands = allCandidates.filter(c => !meCand || c.id !== meCand.id);
-
-  for (const o of optRows) {
-    const k = (o.option_key || '').toLowerCase();
-    const t = (o.option_text || '').toLowerCase();
-    let bucket = 'other';
-
-    // 1) Try support-level keys first.
-    if (['strong_support', 'lean_support', 'support', 'supporter'].includes(k)) bucket = 'supports';
-    else if (['lean_oppose', 'strong_oppose', 'oppose'].includes(k)) bucket = 'opposes';
-    else if (k === 'undecided' || t === 'undecided') bucket = 'undecided';
-    else if (k === 'unknown' || k === '' || t === 'unknown') bucket = 'unknown';
-
-    // 2) Multi-candidate matching: if the option matches our candidate, it's
-    //    a support vote. If it matches another candidate, it's an oppose vote.
-    if (bucket === 'other' && meCand) {
-      if (nameMatches(o.option_text, meCand.name) || nameMatches(o.option_key, meCand.name)) {
-        bucket = 'supports';
-      } else if (otherCands.some(c => nameMatches(o.option_text, c.name) || nameMatches(o.option_key, c.name))) {
-        bucket = 'opposes';
-      }
-    }
-
-    if (bucket === 'supports') supports += o.count;
-    else if (bucket === 'opposes') opposes += o.count;
-    else if (bucket === 'undecided') undecidedCount += o.count;
-    else if (bucket === 'unknown') unknownCount += o.count;
-    distSamples.push({ option_text: o.option_text, option_key: o.option_key, count: o.count, bucket });
-  }
-
-  const total = supports + opposes + undecidedCount + unknownCount;
-  let undecidedSplit = 0.5;
-  let unknownSplit = 0.2;
-  if (supports + opposes > 0) undecidedSplit = supports / (supports + opposes);
-  if (total > 0) unknownSplit = supports / total;
-
-  res.json({
-    surveys: candidateSurveys,
-    selected_survey: { id: targetSurvey.id, name: targetSurvey.name, response_count: targetSurvey.response_count },
-    candidate: meCand ? { id: meCand.id, name: meCand.name } : null,
-    distribution: distSamples,
-    totals: { supports, opposes, undecided: undecidedCount, unknown: unknownCount, total },
-    derived: {
-      undecided_split: Math.round(undecidedSplit * 100) / 100,
-      unknown_split: Math.round(unknownSplit * 100) / 100
-    }
-  });
 });
 
 // GOTV Chase list — get voters who haven't voted, filtered

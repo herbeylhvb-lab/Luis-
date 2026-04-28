@@ -2629,62 +2629,20 @@ tr:hover td{background:#1e293b80}
             </select>
           </div>
         </div>
-        <!-- Survey calibration — auto-derives undecided/unknown split rates
-             from existing survey responses if any candidate-preference
-             surveys exist. Falls back to defaults (0.5 / 0.2) otherwise. -->
-        <div id="gotvCalibrationBox" style="margin-top:12px;padding:10px;background:#1e1b4b;border:1px solid #4c1d95;border-radius:6px;font-size:12px">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="color:#c4b5fd;font-weight:600">📊 Calibrate from survey:</span>
-            <select id="gotvSurveyCalibrationSelect" onchange="onGotvSurveyCalibrationChange()" style="flex:1;min-width:160px;background:#0f172a;border:1px solid #4c1d95;border-radius:4px;padding:5px 8px;color:#e2e8f0;font-size:12px">
-              <option value="">— Use default rates (50% / 20%) —</option>
-            </select>
-          </div>
-          <div id="gotvCalibrationStatus" style="margin-top:6px;color:#a5b4fc;line-height:1.5"></div>
-        </div>
-
-        <!-- Confirmed + Projected + Win Projection cards. Confirmed is
-             the floor (locked-in supporters who voted). Projected adds
-             50% of undecided/unknown universe voters who voted. Win
-             Projection compares Projected Mine to the total votes in
-             the race to give a "leading by X" / "trailing by X" call. -->
-        <div id="gotvConfirmedMineBox" style="display:none;flex-direction:column;gap:12px;margin-top:16px">
-          <!-- Confirmed Mine -->
-          <div style="padding:14px;background:#052e16;border:1px solid #16a34a;border-radius:8px">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-              <div style="flex:1;min-width:240px">
-                <div style="font-size:11px;color:#86efac;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">✅ Confirmed Mine (the floor)</div>
-                <div style="font-size:32px;font-weight:700;color:#22c55e;line-height:1" id="gotvConfirmedMineValue">0</div>
-                <div style="font-size:12px;color:#86efac;margin-top:4px">Voted + (universe strong/lean support OR on a captain's list)</div>
-              </div>
-              <div style="font-size:12px;color:#94a3b8;min-width:200px;text-align:right">
-                <div id="gotvConfirmedMineBreakdown" style="line-height:1.6"></div>
-              </div>
+        <!-- "Confirmed Mine" — unique voters who voted AND are either
+             in the universe with strong/lean support OR on any captain
+             list under the candidate. Deduplicated. Refreshed when
+             either dropdown changes. -->
+        <div id="gotvConfirmedMineBox" style="display:none;margin-top:16px;padding:14px;background:#052e16;border:1px solid #16a34a;border-radius:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+            <div style="flex:1;min-width:240px">
+              <div style="font-size:11px;color:#86efac;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">✅ Votes Confirmed Mine</div>
+              <div style="font-size:32px;font-weight:700;color:#22c55e;line-height:1" id="gotvConfirmedMineValue">0</div>
+              <div style="font-size:12px;color:#86efac;margin-top:4px" id="gotvConfirmedMineSub">Voted + in universe (strong/lean support) OR on a captain's list</div>
             </div>
-          </div>
-          <!-- Projected Mine — 50/50 split assumption -->
-          <div style="padding:14px;background:#1e1b4b;border:1px solid #6366f1;border-radius:8px">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-              <div style="flex:1;min-width:240px">
-                <div style="font-size:11px;color:#a5b4fc;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">🎯 Projected Mine (50/50 split)</div>
-                <div style="font-size:32px;font-weight:700;color:#818cf8;line-height:1" id="gotvProjectedMineValue">0</div>
-                <div style="font-size:12px;color:#a5b4fc;margin-top:4px">Confirmed + half of undecided/unknown universe voters who voted</div>
-              </div>
-              <div style="font-size:12px;color:#94a3b8;min-width:200px;text-align:right">
-                <div id="gotvProjectedMineBreakdown" style="line-height:1.6"></div>
-              </div>
+            <div style="font-size:12px;color:#94a3b8;min-width:200px;text-align:right">
+              <div id="gotvConfirmedMineBreakdown" style="line-height:1.6"></div>
             </div>
-          </div>
-          <!-- Win Projection — compares Projected Mine vs race total -->
-          <div id="gotvWinProjectionCard" style="padding:14px;border-radius:8px;display:none">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-              <div style="flex:1;min-width:280px">
-                <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px" id="gotvWinProjectionLabel">📊 Win Projection</div>
-                <div style="font-size:32px;font-weight:700;line-height:1" id="gotvWinProjectionStatus">—</div>
-                <div style="font-size:13px;margin-top:6px" id="gotvWinProjectionDetail"></div>
-              </div>
-              <div style="font-size:12px;min-width:220px;text-align:right;line-height:1.7" id="gotvWinProjectionMath"></div>
-            </div>
-            <div style="margin-top:10px;font-size:11px;color:#94a3b8;line-height:1.5" id="gotvWinProjectionAssumption"></div>
           </div>
         </div>
 
@@ -16634,129 +16592,9 @@ async function loadGotvPage() {
   // applied before we render the Confirmed-Mine card and scoped stats.
   await loadGotvUniverseDropdown();
   await loadGotvCandidateDropdown();
-  await loadGotvSurveyCalibration();
   loadGotvStats();
   loadGotvPrecincts();
   loadGotvConfirmedMine();
-}
-
-// Holds the currently-selected calibration rates. Defaults match the
-// backend's defaults — overridden when a survey is picked.
-window._gotvSplitRates = { undecided_split: 0.5, unknown_split: 0.2 };
-
-// Fetch list of surveys with responses + their derived rates. Includes
-// candidate_id when available so multi-candidate surveys (where options
-// are candidate names like "Luis", "Martha", "Prisi") can be matched
-// against the captain's selected candidate.
-async function loadGotvSurveyCalibration() {
-  var sel = document.getElementById('gotvSurveyCalibrationSelect');
-  var status = document.getElementById('gotvCalibrationStatus');
-  if (!sel) return;
-  try {
-    var url = '/api/gotv/survey-derived-splits';
-    var candidateId = (document.getElementById('gotvCandidateSelect') || {}).value || '';
-    if (candidateId) url += '?candidate_id=' + encodeURIComponent(candidateId);
-    var data = await api(url);
-    var surveys = data.surveys || [];
-    var saved = sessionStorage.getItem('gotvSurveyId') || '';
-    sel.innerHTML = '<option value="">— Use default rates (50% / 20%) —</option>';
-    surveys.forEach(function(s) {
-      var opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = s.name + ' (' + (s.response_count || 0) + ' responses)';
-      sel.appendChild(opt);
-    });
-    if (!surveys.length) {
-      status.textContent = 'No surveys with responses yet. Using default split rates (50% undecided, 20% unknown).';
-      return;
-    }
-    if (saved && [].some.call(sel.options, function(o) { return o.value === saved; })) {
-      sel.value = saved;
-      await onGotvSurveyCalibrationChange();
-    } else if (data.derived) {
-      // Use the auto-picked latest survey's rates by default.
-      window._gotvSplitRates = {
-        undecided_split: data.derived.undecided_split,
-        unknown_split: data.derived.unknown_split
-      };
-      showCalibrationStatus(data.selected_survey, data.derived, data.totals, data.distribution);
-    } else {
-      status.textContent = surveys.length + ' survey' + (surveys.length !== 1 ? 's' : '') + ' with responses — pick one to calibrate the projection.';
-    }
-  } catch (e) {
-    status.textContent = 'Could not load surveys (using defaults): ' + escHtml(e.message || 'unknown');
-  }
-}
-
-// When a survey OR the candidate changes, fetch derived rates and pipe
-// into the projection. Multi-candidate surveys need candidate_id.
-async function onGotvSurveyCalibrationChange() {
-  var sel = document.getElementById('gotvSurveyCalibrationSelect');
-  var surveyId = sel.value;
-  sessionStorage.setItem('gotvSurveyId', surveyId || '');
-  if (!surveyId) {
-    window._gotvSplitRates = { undecided_split: 0.5, unknown_split: 0.2 };
-    document.getElementById('gotvCalibrationStatus').textContent = 'Using default split rates (50% undecided, 20% unknown).';
-    loadGotvConfirmedMine();
-    return;
-  }
-  try {
-    var url = '/api/gotv/survey-derived-splits?survey_id=' + encodeURIComponent(surveyId);
-    var candidateId = (document.getElementById('gotvCandidateSelect') || {}).value || '';
-    if (candidateId) url += '&candidate_id=' + encodeURIComponent(candidateId);
-    var data = await api(url);
-    if (data.derived) {
-      window._gotvSplitRates = {
-        undecided_split: data.derived.undecided_split,
-        unknown_split: data.derived.unknown_split
-      };
-      showCalibrationStatus(data.selected_survey, data.derived, data.totals, data.distribution);
-      loadGotvConfirmedMine();
-    } else {
-      document.getElementById('gotvCalibrationStatus').textContent = 'Survey has no usable responses — keeping default rates.';
-    }
-  } catch (e) {
-    document.getElementById('gotvCalibrationStatus').textContent = 'Failed to load survey rates: ' + escHtml(e.message || 'unknown');
-  }
-}
-
-// Render the calibration status line + a small breakdown showing how each
-// survey option got bucketed (supports / opposes / undecided / other).
-// Helps the captain verify the matching is correct (e.g., "Luis Villarreal"
-// option went to 'supports', "Martha Sosa" went to 'opposes', etc.).
-function showCalibrationStatus(selectedSurvey, derived, totals, distribution) {
-  var status = document.getElementById('gotvCalibrationStatus');
-  if (!status) return;
-  var undPct = Math.round((derived.undecided_split || 0) * 100);
-  var unkPct = Math.round((derived.unknown_split || 0) * 100);
-  var total = (totals && totals.total) || 0;
-  var msg = 'Calibrated from <strong>' + escHtml(selectedSurvey.name) + '</strong> (' +
-    total.toLocaleString() + ' bucketed responses): ' +
-    '<strong style="color:#a5b4fc">' + undPct + '%</strong> on undecided · ' +
-    '<strong style="color:#a5b4fc">' + unkPct + '%</strong> on unknown.';
-  if (totals) {
-    msg += '<br><span style="color:#94a3b8;font-size:11px">' +
-      '✅ Supports: ' + (totals.supports || 0) +
-      ' · ❌ Opposes: ' + (totals.opposes || 0) +
-      ' · 🤷 Undecided: ' + (totals.undecided || 0) +
-      ' · ❓ Unknown: ' + (totals.unknown || 0) + '</span>';
-  }
-  // Show how each option was bucketed so the captain can spot mismatches.
-  if (distribution && distribution.length) {
-    msg += '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:#c4b5fd">Show option-by-option matching</summary>' +
-      '<div style="margin-top:6px;font-size:11px;background:#0f172a;border-radius:4px;padding:6px;max-height:120px;overflow-y:auto">';
-    var bucketColor = { supports: '#22c55e', opposes: '#ef4444', undecided: '#facc15', unknown: '#94a3b8', other: '#64748b' };
-    distribution.forEach(function(d) {
-      var c = bucketColor[d.bucket] || '#94a3b8';
-      msg += '<div style="line-height:1.4">' +
-        '<span style="color:' + c + ';font-weight:600">' + d.bucket + '</span> · ' +
-        '<span style="color:#e2e8f0">' + escHtml(d.option_text || d.option_key || '(no text)') + '</span> ' +
-        '<span style="color:#64748b">(' + d.count + ')</span>' +
-        '</div>';
-    });
-    msg += '</div></details>';
-  }
-  status.innerHTML = msg;
 }
 
 // Populate the GOTV Universe dropdown from /api/admin-lists. Persist the
@@ -16851,24 +16689,20 @@ async function onGotvUniverseChange() {
 }
 
 // When candidate changes, persist + re-load the stats cards, precinct
-// table, the survey calibration (multi-candidate surveys need the
-// candidate name to match options), AND the Confirmed-Mine card.
-async function onGotvCandidateChange() {
+// table, AND the Confirmed-Mine card so every scoped widget reflects
+// the new race immediately.
+function onGotvCandidateChange() {
   var sel = document.getElementById('gotvCandidateSelect');
   sessionStorage.setItem('gotvCandidateId', sel.value || '');
   loadGotvStats();
   loadGotvPrecincts();
-  // Refresh calibration first so the new rates are in window._gotvSplitRates
-  // before loadGotvConfirmedMine reads them.
-  await onGotvSurveyCalibrationChange();
-  // (loadGotvConfirmedMine is called inside the calibration handler)
+  loadGotvConfirmedMine();
 }
 
-// Fetch + render the Confirmed Mine, Projected Mine, and Win Projection
-// cards. The win projection requires the race-total vote count, which lives
-// in the universe stats endpoint — so we fire both in parallel when a
-// universe is selected. Without a universe, win projection is hidden
-// (we have no race total to compare against).
+// Fetch + render the Confirmed-Mine card. Hidden when neither universe
+// nor candidate is selected (nothing to count). Shows the deduplicated
+// total prominently, with the breakdown (universe / captain / overlap)
+// in the right column for verification.
 async function loadGotvConfirmedMine() {
   var box = document.getElementById('gotvConfirmedMineBox');
   if (!box) return;
@@ -16878,102 +16712,27 @@ async function loadGotvConfirmedMine() {
     box.style.display = 'none';
     return;
   }
-  box.style.display = 'flex';
+  box.style.display = 'block';
   var params = [];
   if (universeId) params.push('universe_id=' + encodeURIComponent(universeId));
   if (candidateId) params.push('candidate_id=' + encodeURIComponent(candidateId));
-  // Pass calibrated split rates if a survey calibration is active.
-  // window._gotvSplitRates is set in loadGotvSurveyCalibration / onGotvSurveyCalibrationChange.
-  var rates = window._gotvSplitRates || { undecided_split: 0.5, unknown_split: 0.2 };
-  params.push('undecided_split=' + encodeURIComponent(rates.undecided_split));
-  params.push('unknown_split=' + encodeURIComponent(rates.unknown_split));
   try {
-    // Run both calls in parallel — each is independent.
-    var fetches = [api('/api/gotv/confirmed-mine?' + params.join('&'))];
-    if (universeId) fetches.push(api('/api/admin-lists/' + universeId + '/stats'));
-    var results = await Promise.all(fetches);
-    var data = results[0];
-    var stats = results[1] || null;
-
-    // ── Confirmed Mine card ────────────────────────────────────────
+    var data = await api('/api/gotv/confirmed-mine?' + params.join('&'));
     document.getElementById('gotvConfirmedMineValue').textContent = (data.confirmed_mine || 0).toLocaleString();
-    var confBreakdown = '';
+    var breakdown = '';
     if (universeId) {
-      confBreakdown += '<div>📍 From universe (strong/lean): <strong style="color:#86efac">' + (data.universe_supporters_voted || 0).toLocaleString() + '</strong></div>';
+      breakdown += '<div>📍 From universe (strong/lean): <strong style="color:#86efac">' + (data.universe_supporters_voted || 0).toLocaleString() + '</strong></div>';
     }
     if (candidateId) {
-      confBreakdown += '<div>👥 From captain lists: <strong style="color:#86efac">' + (data.captain_list_voted || 0).toLocaleString() + '</strong></div>';
+      breakdown += '<div>👥 From captain lists: <strong style="color:#86efac">' + (data.captain_list_voted || 0).toLocaleString() + '</strong></div>';
     }
     if (universeId && candidateId) {
-      confBreakdown += '<div>🔗 In both (counted once): <strong style="color:#fbbf24">' + (data.overlap || 0).toLocaleString() + '</strong></div>';
+      breakdown += '<div>🔗 In both (counted once): <strong style="color:#fbbf24">' + (data.overlap || 0).toLocaleString() + '</strong></div>';
     }
-    document.getElementById('gotvConfirmedMineBreakdown').innerHTML = confBreakdown;
-
-    // ── Projected Mine card ────────────────────────────────────────
-    var projected = data.projected_mine || 0;
-    var undecided = data.universe_undecided_voted || 0;
-    var unknown = data.universe_unknown_voted || 0;
-    var projectedExtra = projected - (data.confirmed_mine || 0);
-    document.getElementById('gotvProjectedMineValue').textContent = projected.toLocaleString();
-    var projBreakdown = '';
-    projBreakdown += '<div>✅ Confirmed: <strong style="color:#a5b4fc">' + (data.confirmed_mine || 0).toLocaleString() + '</strong></div>';
-    if (universeId) {
-      var undPct = Math.round((data.undecided_split || 0.5) * 100);
-      var unkPct = Math.round((data.unknown_split || 0.2) * 100);
-      projBreakdown += '<div>🤷 Undecided × ' + undPct + '%: <strong>' + Math.round(undecided * (data.undecided_split || 0.5)).toLocaleString() + '</strong> <span style="color:#64748b">(of ' + undecided.toLocaleString() + ')</span></div>';
-      projBreakdown += '<div>❓ Unknown × ' + unkPct + '%: <strong>' + Math.round(unknown * (data.unknown_split || 0.2)).toLocaleString() + '</strong> <span style="color:#64748b">(of ' + unknown.toLocaleString() + ')</span></div>';
-      projBreakdown += '<div>➕ Projection extra: <strong style="color:#fbbf24">+' + projectedExtra.toLocaleString() + '</strong></div>';
-    }
-    document.getElementById('gotvProjectedMineBreakdown').innerHTML = projBreakdown;
-
-    // ── Win Projection card ────────────────────────────────────────
-    // Requires universe stats so we have the race total (district_early_voted).
-    // Without it we can't compare projection to a denominator.
-    var winCard = document.getElementById('gotvWinProjectionCard');
-    if (stats && stats.district_early_voted) {
-      var raceTotal = stats.district_early_voted;
-      var raceLabel = stats.detected_race_value || 'this race';
-      var otherSide = Math.max(0, raceTotal - projected);
-      var margin = projected - otherSide;       // positive = leading
-      var sharePct = raceTotal > 0 ? Math.round(projected / raceTotal * 100) : 0;
-      var status, color, bg, border, label;
-      if (margin > 0) {
-        status = '🟢 Leading by ' + margin.toLocaleString();
-        color = '#22c55e'; bg = '#052e16'; border = '#16a34a';
-        label = '📊 Win Projection — You are AHEAD';
-      } else if (margin < 0) {
-        status = '🟠 Trailing by ' + Math.abs(margin).toLocaleString();
-        color = '#f59e0b'; bg = '#451a03'; border = '#d97706';
-        label = '📊 Win Projection — You are BEHIND';
-      } else {
-        status = '🟡 Tied';
-        color = '#fbbf24'; bg = '#422006'; border = '#ca8a04';
-        label = '📊 Win Projection — Tied';
-      }
-      winCard.style.display = 'block';
-      winCard.style.background = bg;
-      winCard.style.border = '1px solid ' + border;
-      document.getElementById('gotvWinProjectionLabel').textContent = label;
-      document.getElementById('gotvWinProjectionLabel').style.color = color;
-      var statusEl = document.getElementById('gotvWinProjectionStatus');
-      statusEl.textContent = status;
-      statusEl.style.color = color;
-      document.getElementById('gotvWinProjectionDetail').textContent =
-        'Your projected ' + projected.toLocaleString() + ' vs ' + otherSide.toLocaleString() + ' for everyone else';
-      document.getElementById('gotvWinProjectionMath').innerHTML =
-        '<div>🗳️ Race total votes: <strong style="color:#67e8f9">' + raceTotal.toLocaleString() + '</strong> <span style="color:#64748b">(' + escHtml(raceLabel) + ')</span></div>' +
-        '<div>🎯 Your projected: <strong style="color:' + color + '">' + projected.toLocaleString() + '</strong></div>' +
-        '<div>📈 Your share: <strong style="color:' + color + '">' + sharePct + '%</strong></div>';
-      document.getElementById('gotvWinProjectionAssumption').innerHTML =
-        '⚠️ <strong>Assumptions:</strong> 2-way race · undecided/unknown universe voters split 50/50 · voters outside your universe are NOT yours · only counts EARLY votes so far. Election-day votes can shift this. Confirmed Mine is the floor; Projected is the realistic target.';
-    } else {
-      winCard.style.display = 'none';
-    }
+    document.getElementById('gotvConfirmedMineBreakdown').innerHTML = breakdown;
   } catch (e) {
     document.getElementById('gotvConfirmedMineValue').textContent = '—';
     document.getElementById('gotvConfirmedMineBreakdown').innerHTML = '<span style="color:#ef4444">Error loading</span>';
-    document.getElementById('gotvProjectedMineValue').textContent = '—';
-    document.getElementById('gotvWinProjectionCard').style.display = 'none';
   }
 }
 
