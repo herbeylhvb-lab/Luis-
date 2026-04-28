@@ -223,14 +223,25 @@ router.get('/gotv/stats', (req, res) => {
   res.json({ total, earlyVoted, notVoted, supportersNotVoted, withPhone, bySupport, byPrecinct });
 });
 
-// "Confirmed Mine" — count of unique voters who voted AND are either:
-//   (a) in the selected universe with support_level in (strong/lean), OR
-//   (b) on any captain list under the selected candidate (primary or shared).
-// Returns the deduplicated union count plus each input set's count + their
-// overlap so the UI can show "X from universe, Y from captains, Z in both".
+// "Confirmed Mine" + "Projected Mine" — count of unique voters who voted
+// and are confirmed yours, plus a projection that includes 50% of the
+// undecided/unknown universe voters who voted (the "split equally"
+// assumption: with no signal, a voter is as likely to be yours as not).
 //
-// Either parameter is optional — one without the other still returns the
-// matching half. If both are missing, returns zeros (nothing to count).
+// CONFIRMED set = (universe voters with strong/lean support AND voted)
+//                 ∪ (captain-list voters under candidate AND voted),
+//                 deduplicated.
+//
+// PROJECTED EXTRA = 50% of (universe voters with undecided AND voted,
+//                            NOT already on a captain list)
+//                 + 50% of (universe voters with unknown/empty AND voted,
+//                            NOT already on a captain list).
+// The "NOT on captain list" exclusion prevents double-counting voters
+// who are already in the confirmed set via the captain path.
+//
+// projected_mine = confirmed_mine + projected_extra (rounded).
+//
+// Either parameter is optional. If both missing, returns zeros.
 router.get('/gotv/confirmed-mine', (req, res) => {
   const universeId = req.query.universe_id ? parseInt(req.query.universe_id, 10) : null;
   const candidateId = req.query.candidate_id ? parseInt(req.query.candidate_id, 10) : null;
@@ -241,13 +252,14 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       universe_supporters_voted: 0,
       captain_list_voted: 0,
       overlap: 0,
+      universe_undecided_voted: 0,
+      universe_unknown_voted: 0,
+      projected_mine: 0,
     });
   }
 
-  // Build the two SQL fragments conditionally so missing params just produce
-  // an empty CTE, not a broken query. SQLite handles "SELECT WHERE 1=0" as
-  // an empty result without erroring.
-  const universeCte = universeId
+  // CTE for universe SUPPORTERS (strong/lean) — counted at 100%.
+  const universeSupportersCte = universeId
     ? `SELECT v.id FROM voters v
         JOIN admin_list_voters alv ON v.id = alv.voter_id
         WHERE alv.list_id = ?
@@ -255,6 +267,26 @@ router.get('/gotv/confirmed-mine', (req, res) => {
           AND v.support_level IN ('strong_support', 'lean_support', 'supporter', 'support')`
     : `SELECT NULL AS id WHERE 1=0`;
 
+  // CTE for universe UNDECIDED — counted at 50% in projection.
+  const universeUndecidedCte = universeId
+    ? `SELECT v.id FROM voters v
+        JOIN admin_list_voters alv ON v.id = alv.voter_id
+        WHERE alv.list_id = ?
+          AND v.early_voted = 1
+          AND v.support_level = 'undecided'`
+    : `SELECT NULL AS id WHERE 1=0`;
+
+  // CTE for universe UNKNOWN (explicit 'unknown', empty string, or NULL)
+  // — counted at 50% in projection.
+  const universeUnknownCte = universeId
+    ? `SELECT v.id FROM voters v
+        JOIN admin_list_voters alv ON v.id = alv.voter_id
+        WHERE alv.list_id = ?
+          AND v.early_voted = 1
+          AND (v.support_level = 'unknown' OR v.support_level = '' OR v.support_level IS NULL)`
+    : `SELECT NULL AS id WHERE 1=0`;
+
+  // CTE for captain-list voters under the candidate (primary or shared).
   const captainCte = candidateId
     ? `SELECT DISTINCT v.id FROM voters v
         JOIN captain_list_voters clv ON v.id = clv.voter_id
@@ -267,14 +299,18 @@ router.get('/gotv/confirmed-mine', (req, res) => {
           )`
     : `SELECT NULL AS id WHERE 1=0`;
 
+  // Param order must match CTE placeholder order.
   const params = [];
-  if (universeId) params.push(universeId);
-  if (candidateId) params.push(candidateId, candidateId);
+  if (universeId) params.push(universeId);            // universe_supporters
+  if (universeId) params.push(universeId);            // universe_undecided
+  if (universeId) params.push(universeId);            // universe_unknown
+  if (candidateId) params.push(candidateId, candidateId); // captain (2 params)
 
-  // Single query with three SELECTs that share the CTEs — minimizes round-trips.
   const sql = `
-    WITH universe_supporters AS (${universeCte}),
-         captain_voters AS (${captainCte})
+    WITH universe_supporters AS (${universeSupportersCte}),
+         universe_undecided  AS (${universeUndecidedCte}),
+         universe_unknown    AS (${universeUnknownCte}),
+         captain_voters      AS (${captainCte})
     SELECT
       (SELECT COUNT(*) FROM universe_supporters) AS universe_supporters_voted,
       (SELECT COUNT(*) FROM captain_voters)      AS captain_list_voted,
@@ -282,16 +318,32 @@ router.get('/gotv/confirmed-mine', (req, res) => {
          SELECT id FROM universe_supporters UNION SELECT id FROM captain_voters
        ))                                         AS confirmed_mine,
       (SELECT COUNT(*) FROM universe_supporters
-         WHERE id IN (SELECT id FROM captain_voters)) AS overlap
+         WHERE id IN (SELECT id FROM captain_voters)) AS overlap,
+      -- Undecided/unknown counts EXCLUDE voters already on a captain list,
+      -- otherwise we'd add 50% on top of someone counted at 100%. Net is
+      -- only the projection-eligible voters.
+      (SELECT COUNT(*) FROM universe_undecided
+         WHERE id NOT IN (SELECT id FROM captain_voters)) AS universe_undecided_voted,
+      (SELECT COUNT(*) FROM universe_unknown
+         WHERE id NOT IN (SELECT id FROM captain_voters)) AS universe_unknown_voted
   `;
 
   try {
     const row = db.prepare(sql).get(...params) || {};
+    const confirmedMine = row.confirmed_mine || 0;
+    const undecided = row.universe_undecided_voted || 0;
+    const unknown = row.universe_unknown_voted || 0;
+    // 50/50 split assumption — half of undecided + half of unknown lean ours.
+    const projectedExtra = Math.round((undecided + unknown) / 2);
+    const projectedMine = confirmedMine + projectedExtra;
     res.json({
-      confirmed_mine: row.confirmed_mine || 0,
+      confirmed_mine: confirmedMine,
       universe_supporters_voted: row.universe_supporters_voted || 0,
       captain_list_voted: row.captain_list_voted || 0,
       overlap: row.overlap || 0,
+      universe_undecided_voted: undecided,
+      universe_unknown_voted: unknown,
+      projected_mine: projectedMine,
     });
   } catch (e) {
     console.error('confirmed-mine error:', e.message);
