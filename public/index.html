@@ -2710,8 +2710,8 @@ tr:hover td{background:#1e293b80}
       <div class="card">
         <h3>Turnout by Precinct</h3>
         <div class="table-wrap">
-          <table><thead><tr><th>Precinct</th><th>Total</th><th>Voted</th><th>Remaining</th><th>Supporters Left</th><th>Turnout</th><th>Progress</th></tr></thead>
-          <tbody id="gotvPrecinctBody"><tr><td colspan="7" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table>
+          <table><thead><tr><th>Precinct</th><th>Area</th><th>Total</th><th>Voted</th><th>Remaining</th><th>Supporters Left</th><th>Turnout</th><th>Progress</th></tr></thead>
+          <tbody id="gotvPrecinctBody"><tr><td colspan="8" style="color:#64748b;text-align:center">Loading...</td></tr></tbody></table>
         </div>
       </div>
     </div>
@@ -7981,11 +7981,12 @@ async function loadEarlyVotingStats() {
     }
     if (data.byPrecinct && data.byPrecinct.length > 0) {
       html += '<div style="margin-bottom:12px"><strong style="font-size:13px;color:#94a3b8">Early Voting by Precinct</strong>';
-      html += '<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Precinct</th><th>Total</th><th>Voted</th><th>Remaining</th><th>%</th></tr></thead><tbody>';
+      html += '<div class="table-wrap" style="margin-top:8px"><table><thead><tr><th>Precinct</th><th>Area</th><th>Total</th><th>Voted</th><th>Remaining</th><th>%</th></tr></thead><tbody>';
       data.byPrecinct.forEach(function(p) {
         var rem = p.total - p.voted;
         var ppct = p.total > 0 ? Math.round(p.voted / p.total * 100) : 0;
-        html += '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total + '</td><td style="color:#22c55e">' + p.voted + '</td><td style="color:#f59e0b">' + rem + '</td><td>' + ppct + '%</td></tr>';
+        var area = p.area ? escHtml(p.area) : '<span style="color:#64748b">—</span>';
+        html += '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td style="color:#a78bfa">' + area + '</td><td>' + p.total + '</td><td style="color:#22c55e">' + p.voted + '</td><td style="color:#f59e0b">' + rem + '</td><td>' + ppct + '%</td></tr>';
       });
       html += '</tbody></table></div></div>';
     }
@@ -16790,7 +16791,11 @@ async function loadGotvStats() {
       data.byPrecinct.forEach(function(p) {
         var opt = document.createElement('option');
         opt.value = p.precinct;
-        opt.textContent = p.precinct + ' (' + p.not_voted + ' remaining)';
+        // Include the dominant city in the option label so the dropdown
+        // reads "Precinct 47 — Brownsville (1,234 remaining)" instead of
+        // just a bare number.
+        var areaLabel = p.area ? ' — ' + p.area : '';
+        opt.textContent = 'Precinct ' + p.precinct + areaLabel + ' (' + p.not_voted + ' remaining)';
         sel.appendChild(opt);
       });
     }
@@ -16812,12 +16817,13 @@ async function loadGotvPrecincts() {
     var data = await api('/api/gotv/stats' + (raceParams.length ? '?' + raceParams.join('&') : ''));
     var tbody = document.getElementById('gotvPrecinctBody');
     if (!data.byPrecinct || data.byPrecinct.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="color:#64748b;text-align:center">No precinct data. Assign precincts to voters.</td></tr>';
       return;
     }
     tbody.innerHTML = data.byPrecinct.map(function(p) {
       var pct = p.total > 0 ? Math.round(p.voted / p.total * 100) : 0;
-      return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td>' + p.total + '</td><td style="color:#22c55e">' + p.voted + '</td><td style="color:#f59e0b">' + p.not_voted + '</td><td style="color:#ef4444">' + p.supporters_remaining + '</td><td>' + pct + '%</td><td><div style="background:#334155;border-radius:4px;height:8px;width:100px;display:inline-block;vertical-align:middle"><div style="height:100%;background:#22c55e;border-radius:4px;width:' + pct + '%"></div></div></td></tr>';
+      var area = p.area ? escHtml(p.area) : '<span style="color:#64748b">—</span>';
+      return '<tr><td><strong>' + escHtml(p.precinct) + '</strong></td><td style="color:#a78bfa">' + area + '</td><td>' + p.total + '</td><td style="color:#22c55e">' + p.voted + '</td><td style="color:#f59e0b">' + p.not_voted + '</td><td style="color:#ef4444">' + p.supporters_remaining + '</td><td>' + pct + '%</td><td><div style="background:#334155;border-radius:4px;height:8px;width:100px;display:inline-block;vertical-align:middle"><div style="height:100%;background:#22c55e;border-radius:4px;width:' + pct + '%"></div></div></td></tr>';
     }).join('');
   } catch (e) {}
 }

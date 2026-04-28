@@ -206,11 +206,20 @@ router.get('/gotv/stats', (req, res) => {
     GROUP BY support_level ORDER BY count DESC
   `).all(...raceParams);
 
+  // Per-precinct GOTV chase numbers, with a derived "area" label (most common
+  // city among voters in that precinct).  Cameron County precincts are bare
+  // numbers — the area column gives them a human-readable home.  Area is
+  // intentionally NOT scoped by raceFilter so the label stays stable.
   const byPrecinct = db.prepare(`
     SELECT precinct, COUNT(*) as total,
       SUM(CASE WHEN early_voted = 1 THEN 1 ELSE 0 END) as voted,
       SUM(CASE WHEN early_voted != 1 THEN 1 ELSE 0 END) as not_voted,
-      SUM(CASE WHEN early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter', 'support') THEN 1 ELSE 0 END) as supporters_remaining
+      SUM(CASE WHEN early_voted != 1 AND support_level IN ('strong_support', 'lean_support', 'supporter', 'support') THEN 1 ELSE 0 END) as supporters_remaining,
+      (
+        SELECT v2.city FROM voters v2
+        WHERE v2.precinct = voters.precinct AND COALESCE(v2.city, '') != ''
+        GROUP BY v2.city ORDER BY COUNT(*) DESC LIMIT 1
+      ) as area
     FROM voters WHERE precinct != ''${raceFilter}
     GROUP BY precinct ORDER BY supporters_remaining DESC
   `).all(...raceParams);

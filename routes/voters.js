@@ -1964,9 +1964,20 @@ router.get('/early-voting/stats', (req, res) => {
     FROM voters WHERE early_voted = 1${candFilter}
     GROUP BY early_voted_method ORDER BY count DESC
   `).all(...candParams);
+  // Per-precinct breakdown.  We also pull the dominant city for each precinct
+  // by ranking cities within the precinct (most voters wins) so the UI can
+  // label precinct numbers with a human-readable area — Cameron County
+  // precincts are just numbers, the area has to be derived from the voters
+  // themselves.  Geographic label is intentionally NOT scoped by candFilter
+  // so the area name stays stable across filters.
   const byPrecinct = db.prepare(`
     SELECT precinct, COUNT(*) as total,
-      SUM(CASE WHEN early_voted = 1 THEN 1 ELSE 0 END) as voted
+      SUM(CASE WHEN early_voted = 1 THEN 1 ELSE 0 END) as voted,
+      (
+        SELECT v2.city FROM voters v2
+        WHERE v2.precinct = voters.precinct AND COALESCE(v2.city, '') != ''
+        GROUP BY v2.city ORDER BY COUNT(*) DESC LIMIT 1
+      ) as area
     FROM voters WHERE precinct != ''${candFilter}
     GROUP BY precinct ORDER BY precinct
   `).all(...candParams);
