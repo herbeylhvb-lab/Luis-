@@ -224,9 +224,15 @@ router.get('/gotv/stats', (req, res) => {
 });
 
 // "Confirmed Mine" + "Projected Mine" — count of unique voters who voted
-// and are confirmed yours, plus a projection that includes 50% of the
-// undecided/unknown universe voters who voted (the "split equally"
-// assumption: with no signal, a voter is as likely to be yours as not).
+// and are confirmed yours, plus a projection that adds a fraction of
+// undecided/unknown universe voters who voted.
+//
+// Default split rates:
+//   undecided_split = 0.50 — they were asked and didn't commit; truly 50/50
+//   unknown_split   = 0.20 — never reached / never asked; mostly opposition
+//                            territory but some lean yours
+// Both are query-string overridable (?undecided_split=0.6&unknown_split=0.3)
+// so you can tune per-race without code changes.
 //
 // CONFIRMED set = (universe voters with strong/lean support AND voted)
 //                 ∪ (captain-list voters under candidate AND voted),
@@ -245,6 +251,10 @@ router.get('/gotv/stats', (req, res) => {
 router.get('/gotv/confirmed-mine', (req, res) => {
   const universeId = req.query.universe_id ? parseInt(req.query.universe_id, 10) : null;
   const candidateId = req.query.candidate_id ? parseInt(req.query.candidate_id, 10) : null;
+  // Parse split rates with sensible defaults. Clamp to [0, 1] so a typo
+  // can't produce negative projections or > 100% leans.
+  const undecidedSplit = Math.max(0, Math.min(1, parseFloat(req.query.undecided_split) || 0.5));
+  const unknownSplit = Math.max(0, Math.min(1, parseFloat(req.query.unknown_split) || 0.2));
 
   if (!universeId && !candidateId) {
     return res.json({
@@ -255,6 +265,8 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       universe_undecided_voted: 0,
       universe_unknown_voted: 0,
       projected_mine: 0,
+      undecided_split: undecidedSplit,
+      unknown_split: unknownSplit,
     });
   }
 
@@ -333,8 +345,10 @@ router.get('/gotv/confirmed-mine', (req, res) => {
     const confirmedMine = row.confirmed_mine || 0;
     const undecided = row.universe_undecided_voted || 0;
     const unknown = row.universe_unknown_voted || 0;
-    // 50/50 split assumption — half of undecided + half of unknown lean ours.
-    const projectedExtra = Math.round((undecided + unknown) / 2);
+    // Apply per-category split rates. Defaults: 50% on undecided, 20% on
+    // unknown (unknown voters are mostly opposition territory but some
+    // lean yours — 20% is more realistic than 50/50 for cold contacts).
+    const projectedExtra = Math.round(undecided * undecidedSplit + unknown * unknownSplit);
     const projectedMine = confirmedMine + projectedExtra;
     res.json({
       confirmed_mine: confirmedMine,
@@ -344,6 +358,8 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       universe_undecided_voted: undecided,
       universe_unknown_voted: unknown,
       projected_mine: projectedMine,
+      undecided_split: undecidedSplit,
+      unknown_split: unknownSplit,
     });
   } catch (e) {
     console.error('confirmed-mine error:', e.message);
