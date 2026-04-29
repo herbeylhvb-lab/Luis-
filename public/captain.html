@@ -1255,6 +1255,7 @@ async function selectList(listId, listName) {
   captainState.selectedListId = listId;
   captainState.selectedListName = listName;
   captainState.selectedListType = 'captain'; // captain-owned list
+  _showOnlyDuplicates = false; // dups filter is all-team-only state
   refreshSidebar();
   await loadListVoters();
   refreshSearchResults();
@@ -1263,6 +1264,7 @@ async function selectList(listId, listName) {
 async function selectAssignedList(listId, listName) {
   captainState.selectedListId = listId;
   captainState.selectedListName = listName;
+  _showOnlyDuplicates = false;
   captainState.selectedListType = 'assigned'; // admin-assigned list
   refreshSidebar();
   await loadListVoters();
@@ -1313,6 +1315,7 @@ async function selectSubCaptainList(listId, listName, subCaptainId) {
   captainState.selectedListName = listName;
   captainState.selectedListType = 'subcaptain';
   captainState.selectedSubCaptainId = subCaptainId;
+  _showOnlyDuplicates = false;
   refreshSidebar();
   await loadListVoters();
   refreshSearchResults();
@@ -1382,6 +1385,10 @@ function setRaceTab(r, val) {
 }
 var _listSearchTerm = '';
 var _listSearchRaw = '';
+// Toggle: when true, the All Team Voters view filters to just the voters
+// who appear on 2+ team lists (list_count > 1).  Always reset when the
+// captain leaves the all-team view so it doesn't bleed into other views.
+var _showOnlyDuplicates = false;
 // Whether the "More Filters" section in the list view is expanded.
 // Starts collapsed so the in-list search input is hidden — captains kept
 // typing there to find NEW voters, not realizing that field only filters
@@ -1416,9 +1423,15 @@ function toggleSelectAll() {
 function getFilteredVoters() {
   var voters = _currentListVoters;
   var tab = _currentListTab;
-  if (tab === 'voted') return voters.filter(function(v) { return v.early_voted; });
-  if (tab === 'not_voted') return voters.filter(function(v) { return !v.early_voted; });
-  return voters;
+  var out;
+  if (tab === 'voted') out = voters.filter(function(v) { return v.early_voted; });
+  else if (tab === 'not_voted') out = voters.filter(function(v) { return !v.early_voted; });
+  else out = voters;
+  // All Team Voters: optional "show only duplicates" filter for billing audit
+  if (_showOnlyDuplicates && captainState.selectedListType === 'all-team') {
+    out = out.filter(function(v) { return (v.list_count || 0) > 1; });
+  }
+  return out;
 }
 
 function updateSelectionUI() {
@@ -1985,6 +1998,42 @@ function renderListVoters() {
   });
   el.appendChild(tabBar);
 
+  // ─── Duplicate-list overlap banner (All Team Voters only) ──────────
+  // Only relevant on the all-team aggregate view, where voters from
+  // multiple captains' lists are merged.  Tells the captain how many
+  // voters appear on 2+ lists in the current tab — useful when paying
+  // captains for GOTV: if Maria appears on 3 lists and she voted, three
+  // captains might claim credit.  The "Show only duplicates" toggle
+  // filters the visible voter list to just those rows so the captain
+  // can audit them.
+  if (captainState.selectedListType === 'all-team') {
+    var voterPool = voters;
+    if (tab === 'voted') voterPool = voters.filter(function(v) { return v.early_voted; });
+    else if (tab === 'not_voted') voterPool = voters.filter(function(v) { return !v.early_voted; });
+    var dupes = voterPool.filter(function(v) { return (v.list_count || 0) > 1; });
+    if (dupes.length > 0) {
+      var banner = document.createElement('div');
+      banner.style.cssText = 'padding:10px 14px;background:#1a1410;border-bottom:1px solid #92400e;border-left:4px solid #f59e0b;font-size:13px;color:#fde68a;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+      var pct = Math.round(dupes.length / voterPool.length * 100);
+      var headline = document.createElement('div');
+      headline.style.flex = '1';
+      headline.innerHTML = '<strong>🔁 Overlap warning</strong> — ' +
+        '<strong style="color:#fde047">' + dupes.length + ' of ' + voterPool.length + '</strong>' +
+        ' (' + pct + '%) voters in the <em>' + (tab === 'voted' ? 'Voted' : tab === 'not_voted' ? 'Not Voted' : 'All') + '</em> tab appear on 2+ team lists. ' +
+        '<span style="color:#94a3b8;font-size:11px">If you pay per voter contacted, multiple captains may claim credit for the same person.</span>';
+      banner.appendChild(headline);
+      var toggleBtn = document.createElement('button');
+      toggleBtn.style.cssText = 'background:' + (_showOnlyDuplicates ? '#f59e0b' : '#1e293b') + ';color:' + (_showOnlyDuplicates ? '#000' : '#fde68a') + ';border:1px solid #f59e0b;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap';
+      toggleBtn.textContent = _showOnlyDuplicates ? '✓ Showing duplicates only' : 'Show only duplicates';
+      toggleBtn.addEventListener('click', function() {
+        _showOnlyDuplicates = !_showOnlyDuplicates;
+        renderListVoters();
+      });
+      banner.appendChild(toggleBtn);
+      el.appendChild(banner);
+    }
+  }
+
   // Build the in-list search bar but DON'T append it yet — it goes inside
   // the collapsible "More Filters" section below. Captains were typing in
   // here expecting to find new voters (not realizing it only filters the
@@ -2145,6 +2194,11 @@ function renderListVoters() {
   var filtered = voters;
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
   else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
+  // All Team Voters: optional "show only duplicates" — voters appearing on
+  // 2+ team lists.  Lets the captain audit billing overlap directly.
+  if (_showOnlyDuplicates && captainState.selectedListType === 'all-team') {
+    filtered = filtered.filter(function(v) { return (v.list_count || 0) > 1; });
+  }
   // Apply search filter
   if (_listSearchTerm) {
     var q = _listSearchTerm;
@@ -2353,6 +2407,16 @@ function renderListVoters() {
     idBadge.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
     idBadge.textContent = '#' + (v.registration_number || v.county_file_id || v.vanid || '');
     nameRow.appendChild(idBadge);
+    // Per-row dupe badge — only when on All Team Voters view AND voter
+    // appears on 2+ team lists.  Tooltip shows the actual list names so
+    // the captain can see WHO is double-claiming this voter.
+    if (captainState.selectedListType === 'all-team' && (v.list_count || 0) > 1) {
+      var dupBadge = document.createElement('span');
+      dupBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid #f59e0b;white-space:nowrap';
+      dupBadge.textContent = '× ' + v.list_count + ' lists';
+      dupBadge.title = 'Appears on: ' + (v.list_names || '(unknown)');
+      nameRow.appendChild(dupBadge);
+    }
     // Early voted badge with party color
     var evBadge = document.createElement('span');
     if (v.early_voted) {

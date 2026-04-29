@@ -1812,8 +1812,22 @@ router.get('/captains/:id/team-voters', requireCaptainAuth, (req, res) => {
       allListIds = allListIds.concat(subListIds);
     }
     if (allListIds.length > 0) {
+      // Adds list_count (# of team lists this voter appears on) and
+      // list_names (comma-separated) so the captain can see GOTV billing
+      // overlap.  GROUP_CONCAT(DISTINCT) handles dedup if the same voter
+      // somehow ends up on the same list twice (shouldn't happen given
+      // UNIQUE(list_id, voter_id), but defense-in-depth).
       voters = db.prepare(
-        'SELECT v.*, MAX(clv.added_at) as added_at FROM captain_list_voters clv JOIN voters v ON clv.voter_id = v.id WHERE clv.list_id IN (' + allListIds.map(() => '?').join(',') + ') GROUP BY v.id ORDER BY v.last_name, v.first_name'
+        'SELECT v.*, ' +
+          'MAX(clv.added_at) AS added_at, ' +
+          'COUNT(DISTINCT clv.list_id) AS list_count, ' +
+          'GROUP_CONCAT(DISTINCT cl.name) AS list_names ' +
+        'FROM captain_list_voters clv ' +
+        'JOIN voters v ON clv.voter_id = v.id ' +
+        'JOIN captain_lists cl ON clv.list_id = cl.id ' +
+        'WHERE clv.list_id IN (' + allListIds.map(() => '?').join(',') + ') ' +
+        'GROUP BY v.id ' +
+        'ORDER BY v.last_name, v.first_name'
       ).all(...allListIds);
       attachElectionVotes(voters);
     }
