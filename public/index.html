@@ -1727,6 +1727,8 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-xs" id="btnBulkMarkVoted" style="display:none;background:#2563eb;color:#fff" onclick="showBulkMarkVotedModal()">Mark as Voted (<span class="sel-count">0</span>)</button>
             <button class="btn btn-xs" id="btnBulkUnmarkVoted" style="display:none;background:#92400e;color:#fff" onclick="showBulkUnmarkVotedModal()">Unmark Voted (<span class="sel-count">0</span>)</button>
           </div>
+          <!-- Active filter chips (renderFilterChips() populates this on each search). -->
+          <div id="voterFilterChips" style="display:none"></div>
           <div class="table-wrap"><table style="table-layout:fixed;width:100%"><thead><tr><th style="width:30px"><input type="checkbox" id="voterSelectAllCb" onchange="toggleAllVoters(this.checked)"></th><th style="width:50px">ID</th><th style="width:140px">Name</th><th style="width:220px">Address</th><th style="width:100px">Phone</th><th style="width:70px">Precinct</th><th style="width:55px">Party ID</th><th style="width:80px">Support</th><th style="width:80px">Early Vote</th><th style="width:50px">Score</th><th style="width:50px">Touches</th><th style="width:45px">Actions</th></tr></thead><tbody id="votersBody"></tbody></table></div>
         </div>
       </div>
@@ -3209,6 +3211,102 @@ tr:hover td{background:#1e293b80}
 </div>
 
 <script>
+// ===================== UI HELPERS (Batch 4) =====================
+// Three utilities shared across pages:
+//   * skeletonCards(container, count)    — shimmer-loading placeholder
+//   * emptyState(container, opts)        — illustrated empty-list card
+//   * renderFilterChips(container, items) — removable active-filter chips
+//
+// All three render INTO an existing container (replacing its contents)
+// so call sites don't need to do their own innerHTML wiring.
+
+// Insert N skeleton cards while a request is in flight.  Each card is
+// a shimmer block sized like a typical stat-card / row.  Returns a
+// cancel function the caller can use to clear early if needed.
+window.skeletonCards = function(container, count, opts) {
+  if (!container) return function() {};
+  count = count || 3;
+  opts = opts || {};
+  container.textContent = '';
+  for (var i = 0; i < count; i++) {
+    var card = document.createElement('div');
+    card.className = 'u-skel';
+    card.style.cssText = 'height:' + (opts.height || 56) + 'px;margin-bottom:8px;width:100%';
+    container.appendChild(card);
+  }
+  return function() { container.textContent = ''; };
+};
+
+// Render an empty-state card.
+//   opts.icon        — emoji or short string (default ✨)
+//   opts.title       — main heading
+//   opts.subtitle    — supporting text
+//   opts.actionLabel — text for an optional CTA button
+//   opts.onAction    — click handler for the CTA
+window.emptyState = function(container, opts) {
+  if (!container) return;
+  opts = opts || {};
+  container.textContent = '';
+  var wrap = document.createElement('div');
+  wrap.className = 'u-empty';
+  var icon = document.createElement('div');
+  icon.className = 'u-empty-icon';
+  icon.textContent = opts.icon || '✨';
+  wrap.appendChild(icon);
+  if (opts.title) {
+    var t = document.createElement('div');
+    t.className = 'u-empty-title';
+    t.textContent = opts.title;
+    wrap.appendChild(t);
+  }
+  if (opts.subtitle) {
+    var s = document.createElement('div');
+    s.className = 'u-empty-sub';
+    s.textContent = opts.subtitle;
+    wrap.appendChild(s);
+  }
+  if (opts.actionLabel && typeof opts.onAction === 'function') {
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.textContent = opts.actionLabel;
+    btn.addEventListener('click', opts.onAction);
+    wrap.appendChild(btn);
+  }
+  container.appendChild(wrap);
+};
+
+// Render filter chips into a container.  Each item is { label, onRemove }.
+// Empty array → container is hidden; otherwise visible with chips.
+window.renderFilterChips = function(container, items) {
+  if (!container) return;
+  container.textContent = '';
+  if (!items || items.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center';
+  var lbl = document.createElement('span');
+  lbl.className = 'u-text-xs u-text-faint';
+  lbl.textContent = 'Active filters:';
+  lbl.style.marginRight = '4px';
+  container.appendChild(lbl);
+  items.forEach(function(it) {
+    var chip = document.createElement('button');
+    chip.style.cssText = 'background:rgba(168,85,247,.18);color:#d8b4fe;border:1px solid rgba(168,85,247,.5);border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-weight:600';
+    var txt = document.createElement('span');
+    txt.textContent = it.label;
+    chip.appendChild(txt);
+    var x = document.createElement('span');
+    x.textContent = '×';
+    x.style.cssText = 'font-size:14px;line-height:1;margin-left:2px';
+    chip.appendChild(x);
+    if (typeof it.onRemove === 'function') {
+      chip.addEventListener('click', it.onRemove);
+    }
+    container.appendChild(chip);
+  });
+};
+
 // ===================== TOAST NOTIFICATIONS =====================
 // Color-coded notifications top-right.  Adopted progressively across
 // the app for save/error feedback.  Existing alert() / inline status
@@ -7626,11 +7724,45 @@ async function searchVoters() {
   if (address) url += 'address=' + encodeURIComponent(address) + '&';
   if (election) url += 'election=' + encodeURIComponent(election) + '&';
   if (electionExclude) url += 'election_exclude=' + encodeURIComponent(electionExclude) + '&';
+
+  // Render active-filter chips above the table.  Each chip is removable
+  // (×) and resets that single filter, then re-runs the search.
+  var chips = [];
+  function clearAndSearch(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+    searchVoters();
+  }
+  if (q) chips.push({ label: 'Search: "' + q + '"', onRemove: function() {
+    var el = document.getElementById('voterSearch'); if (el) el.value = ''; searchVoters();
+  }});
+  if (party) chips.push({ label: 'Party: ' + party, onRemove: function() { clearAndSearch('voterPartyFilter'); } });
+  if (support) chips.push({ label: 'Support: ' + support.replace(/_/g, ' '), onRemove: function() { clearAndSearch('voterSupportFilter'); } });
+  if (precinct) chips.push({ label: 'Precinct: ' + precinct, onRemove: function() { clearAndSearch('voterPrecinctFilter'); } });
+  if (earlyVoting) chips.push({ label: 'Early voting: ' + (earlyVoting === 'voted' ? 'Voted' : 'Not yet'), onRemove: function() { clearAndSearch('voterEarlyVotingFilter'); } });
+  if (city) chips.push({ label: 'City: ' + city, onRemove: function() { clearAndSearch('voterCityFilter'); } });
+  if (zip) chips.push({ label: 'ZIP: ' + zip, onRemove: function() { clearAndSearch('voterZipFilter'); } });
+  if (address) chips.push({ label: 'Address: ' + address, onRemove: function() { clearAndSearch('voterAddressFilter'); } });
+  if (election) chips.push({ label: 'Voted in: ' + election, onRemove: function() { clearAndSearch('voterElectionFilter'); } });
+  if (electionExclude) chips.push({ label: 'Did NOT vote in: ' + electionExclude, onRemove: function() { clearAndSearch('voterElectionExcludeFilter'); } });
+  if (typeof renderFilterChips === 'function') {
+    renderFilterChips(document.getElementById('voterFilterChips'), chips);
+  }
+
   const data = await api(url);
   const voters = data.voters || [];
   document.getElementById('voterCount').textContent = voters.length;
   const tbody = document.getElementById('votersBody');
-  if (voters.length === 0) { tbody.innerHTML = '<tr><td colspan="13" style="color:#64748b;text-align:center">No voters found.</td></tr>'; return; }
+  if (voters.length === 0) {
+    // Friendlier empty state — explains what to do, suggests removing
+    // filters if the user has any active.  Used both for "no voters
+    // in DB yet" and "no matches for current filters".
+    var hint = chips.length > 0
+      ? 'Try removing some filters above.'
+      : 'Try a broader search, or import voters from a county file.';
+    tbody.innerHTML = '<tr><td colspan="13"><div class="u-empty"><div class="u-empty-icon">🔍</div><div class="u-empty-title">No voters match</div><div class="u-empty-sub">' + hint + '</div></div></td></tr>';
+    return;
+  }
   tbody.innerHTML = voters.map(v => {
     var evBadge = '--';
     if (v.early_voted) {
