@@ -1922,26 +1922,6 @@ async function loadListVoters() {
     csvBtn.textContent = '\uD83D\uDCC4 Upload CSV';
     csvBtn.addEventListener('click', function() { openCsvImportModal(); });
     btnGroup.appendChild(csvBtn);
-
-    // Merge into another captain list (captain must own both ends).
-    var mergeBtn = document.createElement('button');
-    mergeBtn.id = 'btnMergeList';
-    mergeBtn.className = 'btn btn-xs btn-captain';
-    mergeBtn.style.background = '#0891b2';
-    mergeBtn.style.borderColor = '#0e7490';
-    mergeBtn.textContent = '🔀 Merge Into…';
-    mergeBtn.addEventListener('click', function() { openCaptainMergeModal(); });
-    btnGroup.appendChild(mergeBtn);
-
-    // Remove early voters in-place — useful late in early-voting season.
-    var rvBtn = document.createElement('button');
-    rvBtn.id = 'btnRemoveVoted';
-    rvBtn.className = 'btn btn-xs btn-captain';
-    rvBtn.style.background = '#dc2626';
-    rvBtn.style.borderColor = '#b91c1c';
-    rvBtn.textContent = '🗳️ Remove Voted';
-    rvBtn.addEventListener('click', function() { removeVotedFromCaptainList(); });
-    btnGroup.appendChild(rvBtn);
   }
   headerRow.appendChild(btnGroup);
 
@@ -2542,72 +2522,6 @@ function renderListVoters() {
 }
 
 // Download current filtered list as CSV with clear hierarchy
-// ─── Merge / Remove Voted helpers ─────────────────────────────────────
-// Both endpoints live under /api/captains/:capId/lists/:listId/... and
-// require the captain to own both source and target.  Sub-captains using
-// requireCaptainAuth pass the auth check at the route level, but the SQL
-// ownership filter still requires captain_id match.
-function _capId() { return captainState.captain && captainState.captain.id; }
-
-async function openCaptainMergeModal() {
-  var sourceId = captainState.selectedListId;
-  if (!sourceId) { alert('Open a list first.'); return; }
-
-  // Build a quick prompt — captain UI doesn't have a heavy modal stack, so
-  // a guided window.prompt + window.confirm flow is the lightest path.
-  var lists = (captainState.captain && captainState.captain.lists) || [];
-  var others = lists.filter(function(l) { return l.id !== sourceId; });
-  if (others.length === 0) { alert('You have no other lists to merge into. Create another list first.'); return; }
-
-  var menu = others.map(function(l, i) { return (i + 1) + '. ' + l.name + ' (' + (l.voter_count || 0) + ')'; }).join('\n');
-  var pick = prompt('Merge "' + (captainState.selectedListName || '') + '" INTO which list?\n\n' + menu + '\n\nEnter the number:');
-  if (!pick) return;
-  var idx = parseInt(pick, 10) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= others.length) { alert('Invalid choice.'); return; }
-  var target = others[idx];
-
-  var deleteSource = confirm('Merge into "' + target.name + '".\n\nDelete the source list "' + (captainState.selectedListName || '') + '" after merging?\n\nOK = delete source\nCancel = keep both');
-
-  try {
-    var r = await apiPost('/api/captains/' + _capId() + '/lists/' + sourceId + '/merge-into', {
-      target_list_id: target.id,
-      delete_source: deleteSource
-    });
-    var msg = '✓ Added ' + r.added + ' new voter(s) to "' + r.targetListName + '".';
-    if (r.overlap > 0) msg += '\n(' + r.overlap + ' already in target — skipped)';
-    if (r.sourceDeleted) msg += '\n\nSource list deleted.';
-    alert(msg);
-    // Refresh captain lists + open the target so the merged result is visible
-    if (typeof refreshSidebar === 'function') await refreshSidebar();
-    if (typeof selectList === 'function') selectList(target.id, target.name);
-  } catch (e) {
-    alert('Merge failed: ' + (e.message || 'unknown'));
-  }
-}
-window.openCaptainMergeModal = openCaptainMergeModal;
-
-async function removeVotedFromCaptainList() {
-  var listId = captainState.selectedListId;
-  if (!listId) return;
-  try {
-    var pre = await api('/api/captains/' + _capId() + '/lists/' + listId + '/voted-count');
-    if (pre.voted === 0) { alert('No early voters in this list. Nothing to remove.'); return; }
-    var msg = 'Remove ' + pre.voted + ' early voter(s) from "' + (captainState.selectedListName || '') + '"?\n\n'
-      + 'Before: ' + pre.total + '\nAfter:  ' + (pre.total - pre.voted) + '\n\n'
-      + 'This is permanent (the voters stay in the database — only their place on this list is removed).';
-    if (!confirm(msg)) return;
-    var r = await apiPost('/api/captains/' + _capId() + '/lists/' + listId + '/remove-voted', {});
-    alert('✓ Removed ' + r.removed + ' early voter(s). List now has ' + r.after + '.');
-    if (typeof refreshSidebar === 'function') await refreshSidebar();
-    // Re-open the list so the voter table re-renders without the removed rows
-    if (typeof loadListVoters === 'function') await loadListVoters();
-    else if (typeof selectList === 'function') selectList(listId, captainState.selectedListName);
-  } catch (e) {
-    alert('Failed: ' + (e.message || 'unknown'));
-  }
-}
-window.removeVotedFromCaptainList = removeVotedFromCaptainList;
-
 function downloadListCsv() {
   var voters = _currentListVoters;
   var tab = _currentListTab;
