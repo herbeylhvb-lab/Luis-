@@ -743,6 +743,32 @@ router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, r
   res.json({ list, voters });
 });
 
+// Update support level on a voter (global — not list-scoped).  Lets
+// candidates tag voters as Strong Support / Lean / Undecided / Unknown /
+// Lean Oppose / Strong Oppose / Refused as they research them.  The
+// support_level value lives on `voters` so all views (admin, captain,
+// candidate, GOTV bucketing, etc.) see the update.
+const VALID_SUPPORT_LEVELS = new Set([
+  'strong_support', 'lean_support', 'undecided', 'unknown',
+  'lean_oppose', 'strong_oppose', 'refused'
+]);
+router.put('/candidates/:id/voters/:voterId/support', requireCandidateAuth, (req, res) => {
+  const support_level = (req.body && req.body.support_level) || '';
+  if (!VALID_SUPPORT_LEVELS.has(support_level)) {
+    return res.status(400).json({
+      error: 'Invalid support_level. Allowed: ' + [...VALID_SUPPORT_LEVELS].join(', ')
+    });
+  }
+  const voterId = parseInt(req.params.voterId, 10);
+  if (!Number.isFinite(voterId) || voterId <= 0) return res.status(400).json({ error: 'Invalid voter id.' });
+  const r = db.prepare('UPDATE voters SET support_level = ? WHERE id = ?').run(support_level, voterId);
+  if (r.changes === 0) return res.status(404).json({ error: 'Voter not found.' });
+  db.prepare('INSERT INTO activity_log (message) VALUES (?)').run(
+    'Candidate ' + req.params.id + ' set support_level=' + support_level + ' on voter ' + voterId
+  );
+  res.json({ success: true, support_level });
+});
+
 // Update per-list note for a voter.  Mirrors the captain-side
 // /captains/:id/lists/:listId/voters/:voterId/notes endpoint exactly so
 // the candidate portal can adopt the same UX with no surprises.

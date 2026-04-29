@@ -2489,6 +2489,14 @@ function renderListVoterRows(voters, content, listId) {
     }
     var rb = createRaceBadge(v);
     if (rb) nameRow2.appendChild(rb);
+
+    // Inline support-level badge (clickable to change).  Color-coded so
+    // strong/lean support voters jump out at a glance.  Click opens an
+    // overlay with the 7 valid levels — saves to PUT
+    // /candidates/:id/voters/:voterId/support and updates the badge in
+    // place.
+    nameRow2.appendChild(buildCandidateSupportBadge(v));
+
     infoDiv.appendChild(nameRow2);
 
     // Address
@@ -2565,6 +2573,98 @@ function renderListVoterRows(voters, content, listId) {
     content.appendChild(makeVoterRow(v, true));
   });
 }
+
+// ─── Support level — inline editable badge ─────────────────────────
+// Color-coded chip showing the voter's current support_level.  Click
+// the chip to open an overlay with the 7 valid levels; pick one and
+// it saves via PUT /candidates/:id/voters/:voterId/support, then
+// updates the voter object in memory + re-renders the badge.
+const SUPPORT_LEVEL_OPTIONS = [
+  { val: 'strong_support', label: 'Strong Support', color: '#22c55e', bg: 'rgba(34,197,94,0.18)', border: '#16a34a' },
+  { val: 'lean_support',   label: 'Lean Support',   color: '#86efac', bg: 'rgba(134,239,172,0.18)', border: '#22c55e' },
+  { val: 'undecided',      label: 'Undecided',      color: '#fbbf24', bg: 'rgba(251,191,36,0.18)', border: '#f59e0b' },
+  { val: 'unknown',        label: 'Unknown',        color: '#94a3b8', bg: 'rgba(148,163,184,0.18)', border: '#475569' },
+  { val: 'lean_oppose',    label: 'Lean Oppose',    color: '#fca5a5', bg: 'rgba(252,165,165,0.18)', border: '#ef4444' },
+  { val: 'strong_oppose',  label: 'Strong Oppose',  color: '#ef4444', bg: 'rgba(239,68,68,0.18)', border: '#dc2626' },
+  { val: 'refused',        label: 'Refused',        color: '#7f1d1d', bg: 'rgba(127,29,29,0.18)', border: '#991b1b' }
+];
+function _supportOpt(val) {
+  return SUPPORT_LEVEL_OPTIONS.find(function(o) { return o.val === val; })
+    || SUPPORT_LEVEL_OPTIONS.find(function(o) { return o.val === 'unknown'; });
+}
+function buildCandidateSupportBadge(voter) {
+  var opt = _supportOpt(voter.support_level || 'unknown');
+  var badge = document.createElement('button');
+  badge.style.cssText = 'font-size:10px;padding:2px 8px;border-radius:4px;font-weight:700;cursor:pointer;background:' +
+    opt.bg + ';color:' + opt.color + ';border:1px solid ' + opt.border + ';white-space:nowrap';
+  badge.textContent = opt.label;
+  badge.title = 'Click to change support level';
+  badge.onclick = function(e) {
+    e.stopPropagation();
+    openCandidateSupportPicker(voter, badge);
+  };
+  return badge;
+}
+function openCandidateSupportPicker(voter, badgeEl) {
+  var existing = document.getElementById('candSupportOverlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'candSupportOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:18px;max-width:380px;width:100%';
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 4px;color:#e2e8f0;font-size:15px';
+  title.textContent = 'Support Level — ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
+  box.appendChild(title);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'color:#64748b;font-size:11px;margin-bottom:12px';
+  sub.textContent = 'Saved globally — visible to all admins and captains.';
+  box.appendChild(sub);
+
+  SUPPORT_LEVEL_OPTIONS.forEach(function(opt) {
+    var btn = document.createElement('button');
+    var current = (voter.support_level || 'unknown') === opt.val;
+    btn.style.cssText = 'display:block;width:100%;text-align:left;font-size:13px;padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:6px;background:' +
+      opt.bg + ';color:' + opt.color + ';border:1px solid ' + opt.border + ';font-weight:600' +
+      (current ? ';outline:2px solid #fbbf24;outline-offset:1px' : '');
+    btn.textContent = (current ? '✓ ' : '   ') + opt.label;
+    btn.onclick = async function() {
+      btn.disabled = true;
+      try {
+        await apiPut('/api/candidates/' + candidateId + '/voters/' + voter.id + '/support',
+          { support_level: opt.val });
+        voter.support_level = opt.val;
+        if (Array.isArray(currentRightPanelVoters)) {
+          var match = currentRightPanelVoters.find(function(x) { return x.id === voter.id; });
+          if (match) match.support_level = opt.val;
+        }
+        // Replace the old badge with a fresh one in place — no full re-render.
+        if (badgeEl && badgeEl.parentNode) {
+          var newBadge = buildCandidateSupportBadge(voter);
+          badgeEl.parentNode.replaceChild(newBadge, badgeEl);
+        }
+        overlay.remove();
+      } catch (e) {
+        btn.disabled = false;
+        alert('Save failed: ' + (e.message || 'unknown'));
+      }
+    };
+    box.appendChild(btn);
+  });
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn-icon';
+  cancelBtn.style.cssText = 'margin-top:6px;width:100%';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = function() { overlay.remove(); };
+  box.appendChild(cancelBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+window.openCandidateSupportPicker = openCandidateSupportPicker;
 
 // Modal editor for the per-list voter notes.  Lightweight overlay with
 // a textarea and Save/Cancel — saves to
