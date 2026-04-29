@@ -349,8 +349,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
-    <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users</span></div>
-    <div class="nav-item" data-page="manage-volunteers" style="padding-left:32px;font-size:13px"><span class="icon">&#9997;</span><span>Volunteers</span></div>
+    <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users &amp; Volunteers</span></div>
   </div>
   <div id="userBar" style="padding:10px 16px;border-top:1px solid #334155;font-size:12px;display:none">
     <div style="color:#94a3b8;margin-bottom:4px" id="userDisplayName"></div>
@@ -696,28 +695,11 @@ tr:hover td{background:#1e293b80}
     </div>
 
     <!-- ==================== MANAGE VOLUNTEERS ==================== -->
-    <div class="page" id="page-manage-volunteers">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h3 style="margin:0">Volunteers</h3>
-          <button class="btn btn-sm btn-primary" onclick="showAddUnifiedVolForm()">+ Add Volunteer</button>
-        </div>
-        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">One code per volunteer — works for both P2P texting and block walking. Choose their access below.</p>
-        <div id="addUnifiedVolForm" style="display:none;margin-bottom:16px;padding:14px;background:#0f172a;border:1px solid #334155;border-radius:8px">
-          <div class="form-row" style="margin-bottom:8px">
-            <div class="form-group"><label>Name</label><input type="text" id="uVolName" placeholder="Volunteer name"></div>
-            <div class="form-group"><label>Phone</label><input type="text" id="uVolPhone" placeholder="956-xxx-xxxx"></div>
-          </div>
-          <div style="display:flex;gap:16px;margin-bottom:12px">
-            <label style="font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="uVolCanText" checked style="width:18px;height:18px;accent-color:#818cf8"> P2P Texting</label>
-            <label style="font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="uVolCanWalk" checked style="width:18px;height:18px;accent-color:#f59e0b"> Block Walking</label>
-          </div>
-          <button class="btn btn-sm btn-success" onclick="createUnifiedVol()">Create</button>
-          <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="document.getElementById('addUnifiedVolForm').style.display='none'">Cancel</button>
-        </div>
-        <div id="unifiedVolList"></div>
-      </div>
-    </div>
+    <!-- page-manage-volunteers stub — content was merged into the
+         page-users page (Volunteers sub-tab).  Any code that still
+         calls showPage('manage-volunteers') redirects to users below
+         and the volunteers sub-tab is auto-activated. -->
+    <div class="page" id="page-manage-volunteers" style="display:none"></div>
 
     <!-- ==================== AUTO-REPLY ==================== -->
     <div class="page" id="page-autoreply">
@@ -3177,8 +3159,16 @@ tr:hover td{background:#1e293b80}
       </div>
     </div>
 
-    <!-- ==================== USERS MANAGEMENT ==================== -->
+    <!-- ==================== USERS & VOLUNTEERS ==================== -->
+    <!-- Merged: Admin user accounts + volunteer codes are both "people in
+         the system" — used to be separate sidebar entries.  Now one
+         sub-tabbed page. -->
     <div class="page" id="page-users">
+      <div class="sub-tabs" id="peopleSubTabs">
+        <div class="sub-tab active" data-subtab="users-tab">Admin Users</div>
+        <div class="sub-tab" data-subtab="volunteers-tab">Volunteers</div>
+      </div>
+      <div class="sub-page active" id="users-tab">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
           <h3 style="margin-bottom:0">User Management</h3>
@@ -3226,6 +3216,33 @@ tr:hover td{background:#1e293b80}
           </tbody>
         </table>
       </div>
+      </div><!-- end users-tab sub-page -->
+
+      <!-- Volunteers sub-tab — moved here from the standalone
+           page-manage-volunteers page when we consolidated to one
+           "Users & Volunteers" tab. -->
+      <div class="sub-page" id="volunteers-tab">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin:0">Volunteers</h3>
+          <button class="btn btn-sm btn-primary" onclick="showAddUnifiedVolForm()">+ Add Volunteer</button>
+        </div>
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">One code per volunteer — works for both P2P texting and block walking. Choose their access below.</p>
+        <div id="addUnifiedVolForm" style="display:none;margin-bottom:16px;padding:14px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+          <div class="form-row" style="margin-bottom:8px">
+            <div class="form-group"><label>Name</label><input type="text" id="uVolName" placeholder="Volunteer name"></div>
+            <div class="form-group"><label>Phone</label><input type="text" id="uVolPhone" placeholder="956-xxx-xxxx"></div>
+          </div>
+          <div style="display:flex;gap:16px;margin-bottom:12px">
+            <label style="font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="uVolCanText" checked style="width:18px;height:18px;accent-color:#818cf8"> P2P Texting</label>
+            <label style="font-size:14px;color:#e2e8f0;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="uVolCanWalk" checked style="width:18px;height:18px;accent-color:#f59e0b"> Block Walking</label>
+          </div>
+          <button class="btn btn-sm btn-success" onclick="createUnifiedVol()">Create</button>
+          <button class="btn btn-sm btn-secondary" style="margin-left:8px" onclick="document.getElementById('addUnifiedVolForm').style.display='none'">Cancel</button>
+        </div>
+        <div id="unifiedVolList"></div>
+      </div>
+      </div><!-- end volunteers-tab sub-page -->
     </div>
 
     <!-- Block Walkers removed — walkers are managed under Candidates -->
@@ -3748,7 +3765,30 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); populateMmsDropdown('p2pMmsProjectSelect'); }
-    if (page === 'manage-volunteers') { loadUnifiedVols(); }
+    // Legacy redirect: page-manage-volunteers was merged into page-users
+    // as a sub-tab.  Any code (or stale browser-history) that navigates
+    // here gets bounced to the new home with the Volunteers sub-tab
+    // auto-activated.
+    if (page === 'manage-volunteers') {
+      var usersNav = document.querySelector('.nav-item[data-page="users"]');
+      if (usersNav) usersNav.click();
+      setTimeout(function() {
+        var tab = document.querySelector('#peopleSubTabs .sub-tab[data-subtab="volunteers-tab"]');
+        if (tab) tab.click();
+      }, 50);
+      return;
+    }
+    // When entering Users & Volunteers, default to Admin Users sub-tab
+    // unless one is already active (so deep-links from the volunteers
+    // redirect above don't get clobbered).
+    if (page === 'users') {
+      var activeUsersSub = document.querySelector('#peopleSubTabs .sub-tab.active');
+      var subPage = activeUsersSub ? activeUsersSub.dataset.subtab : 'users-tab';
+      document.querySelectorAll('#page-users .sub-page').forEach(function(p) { p.classList.remove('active'); });
+      var targetSub = document.getElementById(subPage);
+      if (targetSub) targetSub.classList.add('active');
+      if (subPage === 'volunteers-tab') loadUnifiedVols();
+    }
     if (page === 'candidates') { loadCandidates(); }
     if (page === 'surveys') { showSurveyList(); loadSurveys(); }
     if (page === 'users') loadUsers();
@@ -3842,6 +3882,8 @@ document.querySelectorAll('.sub-tabs').forEach(tabBar => {
       if (subtab === 'voters-tab') { showVoterList(); searchVoters(); }
       if (subtab === 'events-tab') { showEventList(); loadEvents(); }
       if (subtab === 'voting-reminders-tab') loadSavedQRCodes();
+      if (subtab === 'volunteers-tab') loadUnifiedVols();
+      if (subtab === 'users-tab') loadUsers();
     });
   });
 });
