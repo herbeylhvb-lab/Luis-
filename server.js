@@ -1036,6 +1036,11 @@ app.get('/api/messages/pending', (req, res) => {
   // If the user replied (outbound with higher id), the latest message becomes that outbound
   // and this inbound drops off automatically. Simpler than NOT EXISTS and more robust
   // to phone format drift — we just check "is the most recent message an inbound?"
+  // Pending = the LATEST message for this phone (any direction) is an inbound.
+  // No LIMIT here on purpose — this query is naturally bounded by the count
+  // of *unique phones* currently needing a response, which maxes out in the
+  // low thousands even for big campaigns.  The previous LIMIT 100 was
+  // silently hiding hundreds of unreplied conversations during peak periods.
   const pending = db.prepare(`
     SELECT m.*,
       COALESCE(
@@ -1047,7 +1052,7 @@ app.get('/api/messages/pending', (req, res) => {
       AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE ${normM2} = ${normM})
       AND NOT EXISTS (SELECT 1 FROM opt_outs o WHERE ${normOpt} = ${normM})
       ${volPhoneFilter}
-    ORDER BY m.id DESC LIMIT 100
+    ORDER BY m.id DESC
   `).all(...volPhoneParams);
   // Batch-load conversation history for all pending phones in one query
   if (pending.length > 0) {
@@ -1068,6 +1073,15 @@ app.get('/api/messages/pending', (req, res) => {
 });
 
 app.get('/api/messages', (req, res) => {
+  // Inbox "All Messages" tab.  Returns inbound rows newest-first.
+  // The cap is 10000 (raised from the original 200 that was missing
+  // most replies on real-campaign data).  10K covers any realistic
+  // campaign inbox at current scale while preventing a worst-case
+  // browser DOM hang — the UI doesn't virtualize rows.  We also
+  // return total_count + truncated so the UI can show transparency
+  // ("Showing 10,000 of 12,547") if the cap is ever hit.
+  const MESSAGES_CAP = 10000;
+  const totalCount = (db.prepare(`SELECT COUNT(*) as c FROM messages WHERE direction = 'inbound'`).get() || { c: 0 }).c;
   const messages = db.prepare(`
     SELECT m.*,
       COALESCE(
@@ -1076,10 +1090,16 @@ app.get('/api/messages', (req, res) => {
       ) as contact_name
     FROM messages m
     WHERE m.direction = 'inbound'
-    ORDER BY m.id DESC LIMIT 200
-  `).all();
+    ORDER BY m.id DESC LIMIT ?
+  `).all(MESSAGES_CAP);
   const optedOut = db.prepare('SELECT phone FROM opt_outs').all().map(r => r.phone);
-  res.json({ messages, optedOut });
+  res.json({
+    messages,
+    optedOut,
+    total_count: totalCount,
+    truncated: totalCount > messages.length,
+    cap: MESSAGES_CAP
+  });
 });
 
 // --- Reply (SMS or WhatsApp) ---

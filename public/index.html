@@ -4221,12 +4221,23 @@ function renderInboxMessages(messages) {
   var neu = messages.filter(function(m) { return m.sentiment === 'neutral' || !m.sentiment; }).length;
   var summary = document.getElementById('inboxSentimentSummary');
   summary.textContent = '';
-  [['#22c55e', '\u25B2 ' + pos + ' Positive'], ['#ef4444', '\u25BC ' + neg + ' Negative'], ['#64748b', '\u2500 ' + neu + ' Neutral'], ['#94a3b8', '\u2022 ' + messages.length + ' Total']].forEach(function(pair) {
+  [['#22c55e', '\u25B2 ' + pos + ' Positive'], ['#ef4444', '\u25BC ' + neg + ' Negative'], ['#64748b', '\u2500 ' + neu + ' Neutral'], ['#94a3b8', _inboxTotalLabel(messages.length)]].forEach(function(pair) {
     var s = document.createElement('span');
     s.style.color = pair[0];
     s.textContent = pair[1];
     summary.appendChild(s);
   });
+}
+
+// "\u2022 Showing N of M Total" if the server truncated, "\u2022 N Total" otherwise.
+// Reads metadata stashed on inboxData by loadInbox().
+function _inboxTotalLabel(shownCount) {
+  var serverTotal = (inboxData && inboxData.__serverTotal) || 0;
+  var serverTruncated = inboxData && inboxData.__serverTruncated;
+  if (serverTruncated && serverTotal > shownCount) {
+    return '\u2022 Showing ' + shownCount.toLocaleString() + ' of ' + serverTotal.toLocaleString() + ' Total';
+  }
+  return '\u2022 ' + shownCount.toLocaleString() + ' Total';
 }
 
 function filterInbox(sentiment) {
@@ -4565,6 +4576,11 @@ async function loadInbox() {
   try {
     var data = await api('/api/messages');
     inboxData = data.messages || [];
+    // Stash the server-reported totals so the renderer can show
+    // "Showing N of M" if the cap was hit.
+    inboxData.__serverTotal = data.total_count;
+    inboxData.__serverTruncated = data.truncated;
+    inboxData.__serverCap = data.cap;
     renderInboxMessages(inboxData);
   } catch (err) { console.error('Inbox load failed:', err); }
 }
