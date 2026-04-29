@@ -743,6 +743,123 @@ router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, r
   res.json({ list, voters });
 });
 
+// ─── CSV contact import + match (candidate-side) ─────────────────────
+// Mirrors the captain-side import-csv + confirm-matches flow but for
+// admin_list_voters / admin_lists owned by the candidate.  3-tier
+// matching: (1) phone, (2) registration_number, (3) name+address fuzzy.
+//   - 1 match  → auto-add to list
+//   - >1 match → return as needs_review for the candidate to disambiguate
+//   - 0 match  → return as no_match (no action)
+router.post('/candidates/:id/lists/:listId/import-csv', requireCandidateAuth, (req, res) => {
+  const { rows } = req.body || {};
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'No rows provided.' });
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  const findByPhone = db.prepare(
+    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE phone = ? LIMIT 3"
+  );
+  const findByReg = db.prepare(
+    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE registration_number = ? LIMIT 1"
+  );
+  const findByNameAddr = db.prepare(
+    "SELECT id, first_name, last_name, phone, address, city, zip, party FROM voters WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?) AND address != '' AND LOWER(address) LIKE ? LIMIT 3"
+  );
+  const checkExisting = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?');
+  const insertToList = db.prepare('INSERT INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
+
+  // phoneDigits is defined in voters.js but isn't exported as a util — inline
+  // a minimal version here to keep this endpoint self-contained.
+  function digitsOnly(s) { return String(s || '').replace(/\D/g, ''); }
+
+  const results = { auto_added: 0, already_on_list: 0, needs_review: [], no_match: [] };
+  const importTx = db.transaction((rowList) => {
+    for (const row of rowList) {
+      let candidates = [];
+      let matchMethod = '';
+      const digits = digitsOnly(row.phone);
+      if (digits.length >= 7) {
+        candidates = findByPhone.all(digits);
+        if (candidates.length > 0) matchMethod = 'phone';
+      }
+      if (candidates.length === 0 && row.registration_number && String(row.registration_number).trim()) {
+        const found = findByReg.get(String(row.registration_number).trim());
+        if (found) { candidates = [found]; matchMethod = 'registration'; }
+      }
+      if (candidates.length === 0 && row.first_name && row.last_name && row.address) {
+        const addrWords = String(row.address).trim().toLowerCase().split(/\s+/).slice(0, 3).join(' ');
+        if (addrWords) {
+          candidates = findByNameAddr.all(row.first_name, row.last_name, addrWords + '%');
+          matchMethod = 'name_address';
+        }
+      }
+      if (candidates.length === 1) {
+        const voter = candidates[0];
+        if (checkExisting.get(req.params.listId, voter.id)) {
+          results.already_on_list++;
+        } else {
+          insertToList.run(req.params.listId, voter.id);
+          results.auto_added++;
+        }
+      } else if (candidates.length > 1) {
+        results.needs_review.push({
+          csv_row: {
+            first_name: row.first_name || '', last_name: row.last_name || '',
+            phone: row.phone || '', address: row.address || '',
+            city: row.city || '', zip: row.zip || ''
+          },
+          candidates: candidates.map(c => ({
+            id: c.id, first_name: c.first_name, last_name: c.last_name,
+            phone: c.phone, address: c.address, city: c.city,
+            zip: c.zip, party: c.party, match_method: matchMethod
+          }))
+        });
+      } else {
+        results.no_match.push({
+          first_name: row.first_name || '', last_name: row.last_name || '',
+          phone: row.phone || '', address: row.address || ''
+        });
+      }
+    }
+  });
+  try {
+    importTx(rows);
+  } catch (err) {
+    console.error('Candidate CSV import error:', err);
+    return res.status(500).json({ error: 'Import failed. Please check your data and try again.' });
+  }
+  res.json({ success: true, ...results });
+});
+
+// Confirm manually-disambiguated matches (the needs_review array from
+// import-csv).  Body: { matches: [{ voter_id }] }.
+router.post('/candidates/:id/lists/:listId/confirm-matches', requireCandidateAuth, (req, res) => {
+  const { matches } = req.body || {};
+  if (!Array.isArray(matches) || matches.length === 0) return res.status(400).json({ error: 'No matches provided.' });
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const checkExisting = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?');
+  const checkVoter = db.prepare('SELECT id FROM voters WHERE id = ?');
+  const insertToList = db.prepare('INSERT INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)');
+  const confirmTx = db.transaction((matchList) => {
+    let added = 0, already = 0;
+    for (const m of matchList) {
+      const voterIdInt = parseInt(m.voter_id, 10);
+      if (!(voterIdInt > 0)) continue;
+      if (!checkVoter.get(voterIdInt)) continue;
+      if (checkExisting.get(req.params.listId, voterIdInt)) {
+        already++;
+      } else {
+        insertToList.run(req.params.listId, voterIdInt);
+        added++;
+      }
+    }
+    return { added, already };
+  });
+  const result = confirmTx(matches);
+  res.json({ success: true, ...result });
+});
+
 // ─── Phone editing for candidates ─────────────────────────────────────
 // Mirrors the captain-side update/erase/add-phone endpoints but skips
 // the captain's password-unlock gate (candidates already authenticated

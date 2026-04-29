@@ -2307,6 +2307,18 @@ async function loadListVoters(listId) {
     })(listId);
     controls.appendChild(uploadBtn);
 
+    // Import a contacts CSV (name + phone + maybe address) and try to
+    // match each row to a real voter via phone / reg# / name+address.
+    // Auto-adds confident matches, surfaces ambiguous ones for the
+    // candidate to disambiguate.
+    var importBtn = document.createElement('button');
+    importBtn.className = 'btn-icon';
+    importBtn.innerHTML = '📇 Import Contacts';
+    (function(lid) {
+      importBtn.onclick = function() { openCandidateContactImport(lid); };
+    })(listId);
+    controls.appendChild(importBtn);
+
     function getFilteredListVoters() {
       var f = filterVotersByStatus(allVoters, _votedStatus);
       return filterByRace(f, _raceFilter);
@@ -2588,6 +2600,204 @@ function renderListVoterRows(voters, content, listId) {
     content.appendChild(makeVoterRow(v, true));
   });
 }
+
+// ─── Contact CSV import + match ──────────────────────────────────
+// Two-stage flow:
+//   1. Upload CSV → POST /import-csv → server attempts 3-tier match
+//      (phone / reg# / name+address).  Returns { auto_added,
+//      already_on_list, needs_review[], no_match[] }.
+//   2. For needs_review rows the candidate picks the right match per
+//      row (or skips), then we POST /confirm-matches to add them.
+function openCandidateContactImport(listId) {
+  var existing = document.getElementById('candImportOverlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'candImportOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:18px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 4px;color:#e2e8f0;font-size:16px';
+  title.textContent = '📇 Import Contacts';
+  box.appendChild(title);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'color:#64748b;font-size:12px;margin-bottom:12px';
+  sub.textContent = 'CSV with columns: first_name, last_name, phone, address, city, zip (or registration_number). Phone or full name + address required to match.';
+  box.appendChild(sub);
+
+  var fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.csv,.txt';
+  fileInput.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;width:100%;box-sizing:border-box;margin-bottom:12px';
+  box.appendChild(fileInput);
+
+  var status = document.createElement('div');
+  status.style.cssText = 'font-size:12px;min-height:18px;margin-bottom:8px';
+  box.appendChild(status);
+
+  var resultArea = document.createElement('div');
+  box.appendChild(resultArea);
+
+  // Naive CSV parse — splits on \n then on commas.  Handles quoted
+  // fields and "last,first" name reversals because phone exports
+  // (Apple Contacts, Google) commonly produce both shapes.  For
+  // anything more elaborate the user should sanitize upstream.
+  function parseCsv(text) {
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length === 0) return [];
+    var headers = lines[0].split(',').map(function(h) {
+      return h.trim().toLowerCase().replace(/"/g, '').replace(/\s+/g, '_');
+    });
+    var out = [];
+    for (var i = 1; i < lines.length; i++) {
+      var cols = []; var cur = ''; var inQuote = false;
+      for (var j = 0; j < lines[i].length; j++) {
+        var ch = lines[i][j];
+        if (ch === '"') inQuote = !inQuote;
+        else if (ch === ',' && !inQuote) { cols.push(cur); cur = ''; }
+        else cur += ch;
+      }
+      cols.push(cur);
+      var row = {};
+      for (var k = 0; k < headers.length; k++) {
+        row[headers[k]] = (cols[k] || '').trim();
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  fileInput.onchange = function() {
+    var f = fileInput.files[0];
+    if (!f) return;
+    status.style.color = '#94a3b8';
+    status.textContent = 'Parsing & matching…';
+    var reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        var rows = parseCsv(reader.result);
+        if (rows.length === 0) { status.textContent = 'No rows found in CSV.'; status.style.color = '#ef4444'; return; }
+        var data = await apiPost('/api/candidates/' + candidateId + '/lists/' + listId + '/import-csv',
+          { rows: rows });
+        renderResults(data, rows.length);
+      } catch (e) {
+        status.style.color = '#ef4444';
+        status.textContent = 'Failed: ' + (e.message || 'unknown');
+      }
+    };
+    reader.readAsText(f);
+  };
+
+  function renderResults(data, totalRows) {
+    resultArea.textContent = '';
+    status.style.color = '#22c55e';
+    status.textContent = '✓ Processed ' + totalRows + ' row' + (totalRows === 1 ? '' : 's');
+    var summary = document.createElement('div');
+    summary.style.cssText = 'background:#1e293b;border-radius:6px;padding:10px;margin-bottom:10px;font-size:13px;line-height:1.6';
+    summary.textContent = '';
+    function line(label, n, color) {
+      var el = document.createElement('div');
+      el.innerHTML = '';
+      var lbl = document.createElement('span');
+      lbl.textContent = label + ': ';
+      lbl.style.color = '#94a3b8';
+      el.appendChild(lbl);
+      var val = document.createElement('strong');
+      val.textContent = n.toLocaleString();
+      val.style.color = color;
+      el.appendChild(val);
+      return el;
+    }
+    summary.appendChild(line('Auto-added (confident match)', data.auto_added, '#22c55e'));
+    summary.appendChild(line('Already on this list', data.already_on_list, '#94a3b8'));
+    summary.appendChild(line('Needs your review (multiple matches)', (data.needs_review || []).length, '#fbbf24'));
+    summary.appendChild(line('No match (not in voter file)', (data.no_match || []).length, '#ef4444'));
+    resultArea.appendChild(summary);
+
+    var reviews = data.needs_review || [];
+    if (reviews.length === 0) return;
+
+    var rh = document.createElement('h4');
+    rh.style.cssText = 'margin:12px 0 6px;color:#fbbf24;font-size:14px';
+    rh.textContent = 'Disambiguate ' + reviews.length + ' contact' + (reviews.length === 1 ? '' : 's');
+    resultArea.appendChild(rh);
+
+    var picks = {};   // index → voter_id chosen
+    reviews.forEach(function(r, idx) {
+      var card = document.createElement('div');
+      card.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px;margin-bottom:8px';
+      var csvLabel = document.createElement('div');
+      csvLabel.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:6px';
+      csvLabel.textContent = 'CSV row: ' + (r.csv_row.first_name || '') + ' ' + (r.csv_row.last_name || '') +
+        (r.csv_row.phone ? ' · ' + r.csv_row.phone : '') +
+        (r.csv_row.address ? ' · ' + r.csv_row.address : '');
+      card.appendChild(csvLabel);
+
+      var noneBtn = document.createElement('button');
+      noneBtn.className = 'btn-icon';
+      noneBtn.style.cssText = 'font-size:11px;margin-right:4px;margin-bottom:4px';
+      noneBtn.textContent = 'Skip';
+      noneBtn.onclick = function() {
+        delete picks[idx];
+        card.querySelectorAll('button').forEach(function(b) {
+          b.style.outline = (b === noneBtn ? '2px solid #fbbf24' : '');
+        });
+      };
+      card.appendChild(noneBtn);
+
+      r.candidates.forEach(function(c) {
+        var btn = document.createElement('button');
+        btn.className = 'btn-icon';
+        btn.style.cssText = 'font-size:11px;margin-right:4px;margin-bottom:4px;text-align:left';
+        btn.textContent = c.first_name + ' ' + c.last_name + ' · ' + (c.address || '?') + ' · ' + (c.phone || 'no phone');
+        btn.onclick = function() {
+          picks[idx] = c.id;
+          card.querySelectorAll('button').forEach(function(b) {
+            b.style.outline = (b === btn ? '2px solid #22c55e' : '');
+          });
+        };
+        card.appendChild(btn);
+      });
+      resultArea.appendChild(card);
+    });
+
+    var addAllBtn = document.createElement('button');
+    addAllBtn.className = 'btn-icon';
+    addAllBtn.style.cssText = 'background:#22c55e;color:#000;font-weight:600;width:100%;margin-top:6px';
+    addAllBtn.textContent = '✓ Add Selected Matches';
+    addAllBtn.onclick = async function() {
+      var matches = Object.values(picks).map(function(vid) { return { voter_id: vid }; });
+      if (matches.length === 0) { alert('No matches selected.'); return; }
+      addAllBtn.disabled = true;
+      try {
+        var resp = await apiPost('/api/candidates/' + candidateId + '/lists/' + listId + '/confirm-matches',
+          { matches: matches });
+        alert('Added ' + (resp.added || 0) + ' voter(s) to the list. (' + (resp.already || 0) + ' already there.)');
+        overlay.remove();
+        loadListVoters(listId);
+      } catch (e) {
+        addAllBtn.disabled = false;
+        alert('Confirm failed: ' + (e.message || 'unknown'));
+      }
+    };
+    resultArea.appendChild(addAllBtn);
+  }
+
+  var closeRow = document.createElement('div');
+  closeRow.style.cssText = 'display:flex;justify-content:flex-end;margin-top:10px';
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn-icon';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { overlay.remove(); };
+  closeRow.appendChild(closeBtn);
+  box.appendChild(closeRow);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+window.openCandidateContactImport = openCandidateContactImport;
 
 // ─── Phone editor overlay — manages all 3 phone slots ─────────────
 // Shows the current phone in each slot (primary/secondary/tertiary) with
