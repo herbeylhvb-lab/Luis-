@@ -12063,9 +12063,13 @@ async function loadCandidates() {
 
       var tdCode = document.createElement('td');
       var codeEl = document.createElement('code');
-      codeEl.style.cssText = 'background:#1e293b;padding:2px 6px;border-radius:4px;font-size:12px;cursor:pointer';
+      codeEl.style.cssText = 'background:#1e293b;padding:2px 6px;border-radius:4px;font-size:12px;cursor:pointer;transition:background 0.2s, color 0.2s';
       codeEl.textContent = c.code + ' \u{1F4CB}';
-      codeEl.onclick = function(e) { e.stopPropagation(); copyToClip(c.code); };
+      codeEl.title = 'Click to copy';
+      codeEl.onclick = (function(candidate, el) { return function(e) {
+        e.stopPropagation();
+        copyToClip(candidate.code, el);
+      }; })(c, codeEl);
       tdCode.appendChild(codeEl);
       tr.appendChild(tdCode);
 
@@ -12462,10 +12466,13 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
       }
 
       var codeEl = document.createElement('code');
-      codeEl.style.cssText = 'background:#451a03;color:#f59e0b;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;letter-spacing:1px';
+      codeEl.style.cssText = 'background:#451a03;color:#f59e0b;padding:2px 6px;border-radius:4px;font-size:11px;cursor:pointer;letter-spacing:1px;transition:background 0.2s, color 0.2s;min-width:60px;display:inline-block;text-align:center';
       codeEl.textContent = c.code;
       codeEl.title = 'Click to copy';
-      codeEl.onclick = function(e) { e.stopPropagation(); copyToClip(c.code); };
+      codeEl.onclick = (function(captain, el) { return function(e) {
+        e.stopPropagation();
+        copyToClip(captain.code, el);
+      }; })(c, codeEl);
       left.appendChild(codeEl);
       var shareCodeBtn = document.createElement('button');
       shareCodeBtn.style.cssText = 'background:none;border:none;font-size:14px;cursor:pointer;padding:2px 4px;line-height:1;vertical-align:middle';
@@ -13956,11 +13963,61 @@ async function addListToCandidate() {
   } catch (e) { alert('Error: ' + (e.message || e)); }
 }
 
-function copyToClip(text) {
-  navigator.clipboard.writeText(text).then(function() {}).catch(function() {
-    var ta = document.createElement('textarea'); ta.value = text;
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-  });
+// Copy text to clipboard with visible feedback.
+//   text       — what to put on the clipboard
+//   feedbackEl — (optional) element to flash "Copied!" / "Failed" on
+//
+// Why this is more involved than navigator.clipboard.writeText():
+//   1. iOS Safari + Capacitor WebView occasionally fail silently — the
+//      promise resolves but nothing actually lands on the clipboard.
+//   2. On non-HTTPS contexts the navigator.clipboard API doesn't exist.
+//   3. Without visible feedback the user can't tell whether it worked,
+//      so they click again, get confused, file a bug.
+//
+// Strategy: try the modern API; if it errors OR isn't there, fall back
+// to the textarea+execCommand trick.  Either way, flash the element so
+// the user sees a clear "Copied!" / "Failed".
+function copyToClip(text, feedbackEl) {
+  function flash(msg, ok) {
+    if (!feedbackEl) {
+      // No element to flash — show a top-of-screen toast as a fallback.
+      try { showToast ? showToast(msg, ok ? 'success' : 'error') : null; } catch(e) {}
+      return;
+    }
+    var orig = feedbackEl.textContent;
+    var origColor = feedbackEl.style.color;
+    var origBg = feedbackEl.style.background;
+    feedbackEl.textContent = msg;
+    feedbackEl.style.color = ok ? '#000' : '#fff';
+    feedbackEl.style.background = ok ? '#22c55e' : '#ef4444';
+    setTimeout(function() {
+      feedbackEl.textContent = orig;
+      feedbackEl.style.color = origColor;
+      feedbackEl.style.background = origBg;
+    }, 1100);
+  }
+  function fallback() {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      flash(ok ? '✓ Copied!' : 'Copy failed', ok);
+    } catch (e) {
+      flash('Copy failed', false);
+    }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      function() { flash('✓ Copied!', true); },
+      function() { fallback(); }
+    );
+  } else {
+    fallback();
+  }
 }
 
 function downloadVotersCsv(voters, filename) {
