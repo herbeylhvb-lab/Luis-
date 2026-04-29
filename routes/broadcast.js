@@ -254,6 +254,61 @@ router.get('/gotv/confirmed-mine', (req, res) => {
     });
   }
 
+  // ─── Resolve the race we're scoped to ────────────────────────────
+  // Used to (a) restrict the captain bucket to voters who actually live
+  // in the race they're being credited for, and (b) compute the
+  // "total votes cast" denominator race-wide instead of universe-only.
+  //
+  // Resolution priority:
+  //   1. candidate.race_type + race_value (most explicit)
+  //   2. admin_lists.race_column + race_value (saved on first universe view)
+  //   3. inference: 95%+ of universe voters share a single value in a
+  //      race column → that's the universe's race
+  //
+  // If no race can be resolved, the captain bucket falls back to
+  // unscoped (current behavior) and total_voted falls back to
+  // universe-scoped — strictly worse than race-scoped but better than 0.
+  const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district','constable','school_board','city_council','water_district','drainage_district','municipal_utility','court_of_appeals'];
+  let raceCol = null, raceVal = null, raceSource = 'none';
+  if (candidateId) {
+    const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidateId);
+    if (cand && cand.race_type && cand.race_value && validCols.includes(cand.race_type)) {
+      raceCol = cand.race_type;
+      raceVal = cand.race_value;
+      raceSource = 'candidate';
+    }
+  }
+  if (!raceCol && universeId) {
+    const list = db.prepare('SELECT race_column, race_value FROM admin_lists WHERE id = ?').get(universeId);
+    if (list && list.race_column && list.race_value && validCols.includes(list.race_column)) {
+      raceCol = list.race_column;
+      raceVal = list.race_value;
+      raceSource = 'universe-saved';
+    }
+  }
+  if (!raceCol && universeId) {
+    // Inference (matches admin-lists.js pattern: 95%+ share = the race).
+    const totalU = (db.prepare('SELECT COUNT(*) AS c FROM admin_list_voters WHERE list_id = ?').get(universeId) || { c: 0 }).c;
+    if (totalU > 0) {
+      for (const col of validCols) {
+        try {
+          const row = db.prepare(`
+            SELECT v.${col} AS val, COUNT(*) AS n
+            FROM admin_list_voters alv JOIN voters v ON alv.voter_id = v.id
+            WHERE alv.list_id = ? AND v.${col} IS NOT NULL AND v.${col} != ''
+            GROUP BY v.${col} ORDER BY n DESC LIMIT 1
+          `).get(universeId);
+          if (row && row.n >= totalU * 0.95 && row.val) {
+            raceCol = col;
+            raceVal = row.val;
+            raceSource = 'universe-inferred';
+            break;
+          }
+        } catch (e) { /* column doesn't exist on this DB — skip */ }
+      }
+    }
+  }
+
   // Build the two SQL fragments conditionally so missing params just produce
   // an empty CTE, not a broken query. SQLite handles "SELECT WHERE 1=0" as
   // an empty result without erroring.
@@ -265,12 +320,19 @@ router.get('/gotv/confirmed-mine', (req, res) => {
           AND v.support_level IN ('strong_support', 'lean_support', 'supporter', 'support')`
     : `SELECT NULL AS id WHERE 1=0`;
 
+  // Captain bucket — race-scoped when we have a race.  Without this, a
+  // captain with a voter living in a different district was getting
+  // credited for a vote that voter cast in their OWN race, not yours.
+  // Race filter is added inline (raceCol is validated against validCols
+  // so it's safe to interpolate; raceVal goes through a placeholder).
+  const captainRaceFilter = raceCol && raceVal ? ` AND v.${raceCol} = ?` : '';
   const captainCte = candidateId
     ? `SELECT DISTINCT v.id FROM voters v
         JOIN captain_list_voters clv ON v.id = clv.voter_id
         JOIN captain_lists cl ON clv.list_id = cl.id
         JOIN captains c ON cl.captain_id = c.id
         WHERE v.early_voted = 1
+          ${captainRaceFilter}
           AND (
             c.candidate_id = ?
             OR c.id IN (SELECT captain_id FROM captain_candidates WHERE candidate_id = ?)
@@ -299,9 +361,14 @@ router.get('/gotv/confirmed-mine', (req, res) => {
   // Holistic verdict wins when present — it considers the whole conversation
   // and catches "neutral + negative" mixed phones the per-message filter
   // would miss.  Opt-outs are always excluded as TCPA defense-in-depth.
+  // Responders bucket — same race-scoping principle as captain bucket.
+  // A positive texter who voted in a totally different race shouldn't
+  // count toward "votes for THIS race" — they voted for someone else.
+  const respondersRaceFilter = raceCol && raceVal ? ` AND v.${raceCol} = ?` : '';
   const respondersCte = `
     SELECT DISTINCT v.id FROM voters v
     WHERE v.early_voted = 1
+      ${respondersRaceFilter}
       AND v.phone IS NOT NULL AND v.phone != ''
       -- Has at least one inbound message
       AND ${NORM('v.phone')} IN (
@@ -338,9 +405,17 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       )
   `;
 
+  // Param order MUST match CTE placeholder order: universe → captain →
+  // responders.  In each CTE, the race filter (if active) appears BEFORE
+  // the bucket-specific placeholders, so push raceVal first within each
+  // bucket's section.
   const params = [];
-  if (universeId) params.push(universeId);
-  if (candidateId) params.push(candidateId, candidateId);
+  if (universeId) params.push(universeId);                 // universe CTE: list_id
+  if (candidateId) {
+    if (captainRaceFilter) params.push(raceVal);            // captain CTE: race filter (if any)
+    params.push(candidateId, candidateId);                  // captain CTE: candidate filter (2 uses)
+  }
+  if (respondersRaceFilter) params.push(raceVal);           // responders CTE: race filter (if any)
 
   // Single query with three SELECTs that share the CTEs — minimizes round-trips.
   const sql = `
@@ -365,30 +440,26 @@ router.get('/gotv/confirmed-mine', (req, res) => {
 
     // ─── Total votes cast (denominator for "% of total vote") ──────────
     //
-    // Goal: a comparable "you have X% of the total vote" number.
+    // Always race-wide when a race can be resolved — counts EVERY voter
+    // with early_voted=1 in the race, not just universe members.  A voter
+    // who lives in the race but isn't on your universe still voted in
+    // your race, and counts toward "what slice of the total vote do I
+    // have."  The race comes from candidate.race_type, or from
+    // admin_lists.race_column on the universe (saved or inferred).
     //
-    // Scope rules (mirroring how /gotv/stats resolves race):
-    //   1. If a candidate is selected, resolve its race_type + race_value
-    //      and count ALL voters with early_voted=1 in that race column.
-    //      That's the truest denominator — race-wide turnout so far.
-    //   2. If no candidate but a universe is selected, fall back to the
-    //      count of early-voted voters within that universe.  Less ideal
-    //      (universe is a subset of the race) but gives a usable number
-    //      when no candidate is set.
-    //   3. If neither, total_voted = 0.  Card is hidden anyway in this case.
-    const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
+    // Only falls back to universe-scoped counting when no race can be
+    // resolved at all (rare — typically means a brand-new universe with
+    // no recognizable race column among its voters).
     let totalVoted = 0;
     let totalScope = 'none';
-    if (candidateId) {
-      const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidateId);
-      if (cand && cand.race_type && cand.race_value && validCols.includes(cand.race_type)) {
-        totalVoted = (db.prepare(
-          `SELECT COUNT(*) AS c FROM voters WHERE early_voted = 1 AND ${cand.race_type} = ?`
-        ).get(cand.race_value) || { c: 0 }).c;
-        totalScope = 'race';
-      }
-    }
-    if (totalVoted === 0 && universeId) {
+    if (raceCol && raceVal) {
+      totalVoted = (db.prepare(
+        `SELECT COUNT(*) AS c FROM voters WHERE early_voted = 1 AND ${raceCol} = ?`
+      ).get(raceVal) || { c: 0 }).c;
+      totalScope = 'race';
+    } else if (universeId) {
+      // Last resort — race couldn't be resolved.  Universe-only count is
+      // strictly worse than race-wide, but better than 0.
       totalVoted = (db.prepare(`
         SELECT COUNT(*) AS c
         FROM admin_list_voters alv
@@ -412,7 +483,12 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       // NEW — denominator + computed share for the "% of total vote" label
       total_voted: totalVoted,
       total_voted_scope: totalScope,        // 'race' | 'universe' | 'none'
-      share_pct: Math.round(sharePct * 10) / 10  // one decimal: 12.4
+      share_pct: Math.round(sharePct * 10) / 10,  // one decimal: 12.4
+      // Race info — useful for debugging and for the UI to label the
+      // denominator scope honestly ("in this race" vs "in this universe")
+      race_col: raceCol,
+      race_val: raceVal,
+      race_source: raceSource    // 'candidate' | 'universe-saved' | 'universe-inferred' | 'none'
     });
   } catch (e) {
     console.error('confirmed-mine error:', e.message);
