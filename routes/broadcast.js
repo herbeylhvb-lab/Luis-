@@ -362,8 +362,46 @@ router.get('/gotv/confirmed-mine', (req, res) => {
 
   try {
     const row = db.prepare(sql).get(...params) || {};
+
+    // ─── Total votes cast (denominator for "% of total vote") ──────────
+    //
+    // Goal: a comparable "you have X% of the total vote" number.
+    //
+    // Scope rules (mirroring how /gotv/stats resolves race):
+    //   1. If a candidate is selected, resolve its race_type + race_value
+    //      and count ALL voters with early_voted=1 in that race column.
+    //      That's the truest denominator — race-wide turnout so far.
+    //   2. If no candidate but a universe is selected, fall back to the
+    //      count of early-voted voters within that universe.  Less ideal
+    //      (universe is a subset of the race) but gives a usable number
+    //      when no candidate is set.
+    //   3. If neither, total_voted = 0.  Card is hidden anyway in this case.
+    const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
+    let totalVoted = 0;
+    let totalScope = 'none';
+    if (candidateId) {
+      const cand = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(candidateId);
+      if (cand && cand.race_type && cand.race_value && validCols.includes(cand.race_type)) {
+        totalVoted = (db.prepare(
+          `SELECT COUNT(*) AS c FROM voters WHERE early_voted = 1 AND ${cand.race_type} = ?`
+        ).get(cand.race_value) || { c: 0 }).c;
+        totalScope = 'race';
+      }
+    }
+    if (totalVoted === 0 && universeId) {
+      totalVoted = (db.prepare(`
+        SELECT COUNT(*) AS c
+        FROM admin_list_voters alv
+        JOIN voters v ON alv.voter_id = v.id
+        WHERE alv.list_id = ? AND v.early_voted = 1
+      `).get(universeId) || { c: 0 }).c;
+      totalScope = 'universe';
+    }
+    const confirmedMine = row.confirmed_mine || 0;
+    const sharePct = totalVoted > 0 ? (confirmedMine / totalVoted) * 100 : 0;
+
     res.json({
-      confirmed_mine: row.confirmed_mine || 0,
+      confirmed_mine: confirmedMine,
       universe_supporters_voted: row.universe_supporters_voted || 0,
       captain_list_voted: row.captain_list_voted || 0,
       responders_voted: row.responders_voted || 0,
@@ -371,6 +409,10 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       // (transient state during deploy) get the new value silently.
       positive_texters_voted: row.responders_voted || 0,
       overlap: row.overlap || 0,
+      // NEW — denominator + computed share for the "% of total vote" label
+      total_voted: totalVoted,
+      total_voted_scope: totalScope,        // 'race' | 'universe' | 'none'
+      share_pct: Math.round(sharePct * 10) / 10  // one decimal: 12.4
     });
   } catch (e) {
     console.error('confirmed-mine error:', e.message);

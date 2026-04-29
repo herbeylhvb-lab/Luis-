@@ -17138,6 +17138,25 @@ async function loadGotvConfirmedMine() {
     if (universeId && candidateId) {
       breakdown += '<div>🔗 In both (counted once): <strong style="color:#fbbf24">' + (data.overlap || 0).toLocaleString() + '</strong></div>';
     }
+    // Total votes cast in scope + share of vote percentage.  The denominator
+    // is race-scoped when a candidate is selected (truest baseline) and
+    // universe-scoped otherwise (less ideal, but useful when no candidate
+    // is set).  total_voted_scope tells us which one was used so we can
+    // label it correctly — important so the user doesn't misread a
+    // universe-scoped percentage as a race-wide claim.
+    if (data.total_voted && data.total_voted > 0) {
+      var scopeLabel = data.total_voted_scope === 'race'
+        ? 'in this race'
+        : 'in this universe';
+      breakdown += '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #334155">' +
+        '🗳️ Total votes cast <span style="color:#64748b;font-size:11px">(' + scopeLabel + ')</span>: ' +
+        '<strong style="color:#e2e8f0">' + data.total_voted.toLocaleString() + '</strong>' +
+        '</div>';
+      breakdown += '<div style="margin-top:4px">' +
+        '📊 My share of the vote: <strong style="color:#22c55e;font-size:18px">' +
+        (data.share_pct != null ? data.share_pct.toFixed(1) : '0.0') + '%</strong>' +
+        '</div>';
+    }
     document.getElementById('gotvConfirmedMineBreakdown').innerHTML = breakdown;
   } catch (e) {
     document.getElementById('gotvConfirmedMineValue').textContent = '—';
