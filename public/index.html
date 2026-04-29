@@ -3211,6 +3211,171 @@ tr:hover td{background:#1e293b80}
 </div>
 
 <script>
+// ===================== KEYBOARD SHORTCUTS (Batch 5) =====================
+// Global shortcuts that speed up power-user navigation.  All shortcuts
+// gracefully no-op when the user is typing in an input/textarea (so
+// they don't intercept regular keystrokes).
+//
+//   /          focus the most prominent search input on the current page
+//   Esc        close any open modal-overlay
+//   Cmd/Ctrl+K open the page-jump command palette
+//
+// The command palette is a fuzzy-search list of all sidebar pages —
+// type the first few letters of any page name and hit Enter to jump.
+// 50 lines of vanilla JS, no dependencies.
+
+(function setupKeyboardShortcuts() {
+  function isTypingTarget(el) {
+    if (!el) return false;
+    var tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+      || el.isContentEditable;
+  }
+
+  function focusFirstSearch() {
+    // Try in order: any visible voterSearch / global search box / first
+    // input[type=search] / first input[placeholder*=search].
+    var ids = ['voterSearch', 'searchInput', 'inboxSearch', 'gotvSearch'];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el && el.offsetParent !== null) { el.focus(); el.select && el.select(); return true; }
+    }
+    var fallback = document.querySelector('input[type=search]:not([disabled]), input[placeholder*="earch" i]:not([disabled])');
+    if (fallback && fallback.offsetParent !== null) { fallback.focus(); return true; }
+    return false;
+  }
+
+  function closeTopModal() {
+    // Walk through any rendered overlay elements; close the topmost.
+    var overlays = document.querySelectorAll('.modal-overlay, [id$="Overlay"], [id$="Modal"]');
+    for (var i = overlays.length - 1; i >= 0; i--) {
+      var o = overlays[i];
+      if (o.style.display !== 'none' && o.offsetParent !== null) {
+        // Prefer existing close paths — call closeModal if available, else just hide/remove.
+        if (o.id && typeof closeModal === 'function') {
+          try { closeModal(o.id); return true; } catch (e) {}
+        }
+        if (o.parentNode) {
+          if (o.id === 'toastStack') continue; // never auto-close the toast stack
+          o.style.display = 'none';
+          if (o.id === 'candNotesOverlay' || o.id === 'candPhoneOverlay'
+              || o.id === 'candSupportOverlay' || o.id === 'candImportOverlay') {
+            o.remove();
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function openPagePalette() {
+    var existing = document.getElementById('pagePaletteOverlay');
+    if (existing) { existing.remove(); return; }
+    var pages = Array.from(document.querySelectorAll('.nav-item[data-page]')).map(function(n) {
+      return {
+        page: n.getAttribute('data-page'),
+        label: (n.querySelector('span:not(.icon)') || {}).textContent || n.textContent,
+        icon: (n.querySelector('.icon') || {}).textContent || ''
+      };
+    });
+
+    var overlay = document.createElement('div');
+    overlay.id = 'pagePaletteOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:8px;width:480px;max-width:92%;max-height:60vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,0.5)';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Jump to page…';
+    input.style.cssText = 'width:100%;background:transparent;border:none;outline:none;color:#e2e8f0;font-size:16px;padding:10px 12px;border-bottom:1px solid #334155;box-sizing:border-box;font-weight:500';
+    box.appendChild(input);
+
+    var list = document.createElement('div');
+    list.style.cssText = 'padding:6px 0';
+    box.appendChild(list);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    input.focus();
+
+    var selectedIdx = 0;
+    function render(filter) {
+      list.textContent = '';
+      var q = (filter || '').toLowerCase().trim();
+      var matches = pages.filter(function(p) {
+        return !q || p.label.toLowerCase().indexOf(q) >= 0;
+      });
+      if (matches.length === 0) {
+        var no = document.createElement('div');
+        no.style.cssText = 'padding:12px;color:#64748b;font-size:13px;text-align:center';
+        no.textContent = 'No pages match.';
+        list.appendChild(no);
+        return;
+      }
+      if (selectedIdx >= matches.length) selectedIdx = 0;
+      matches.forEach(function(p, i) {
+        var item = document.createElement('div');
+        item.style.cssText = 'padding:10px 12px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:14px;color:#e2e8f0;' +
+          (i === selectedIdx ? 'background:#1e293b' : '');
+        var ic = document.createElement('span');
+        ic.style.cssText = 'font-size:16px';
+        ic.textContent = p.icon;
+        item.appendChild(ic);
+        var lbl = document.createElement('span');
+        lbl.textContent = p.label;
+        item.appendChild(lbl);
+        item.addEventListener('mouseenter', function() { selectedIdx = i; render(input.value); });
+        item.addEventListener('click', function() {
+          var nav = document.querySelector('.nav-item[data-page="' + p.page + '"]');
+          if (nav) nav.click();
+          overlay.remove();
+        });
+        list.appendChild(item);
+      });
+    }
+    render('');
+    input.addEventListener('input', function() { selectedIdx = 0; render(input.value); });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { overlay.remove(); return; }
+      var matches = pages.filter(function(p) {
+        var q = input.value.toLowerCase().trim();
+        return !q || p.label.toLowerCase().indexOf(q) >= 0;
+      });
+      if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, matches.length - 1); render(input.value); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0); render(input.value); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (matches[selectedIdx]) {
+          var nav = document.querySelector('.nav-item[data-page="' + matches[selectedIdx].page + '"]');
+          if (nav) nav.click();
+          overlay.remove();
+        }
+      }
+    });
+  }
+
+  document.addEventListener('keydown', function(e) {
+    // Cmd/Ctrl+K — page palette (works even while typing)
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      openPagePalette();
+      return;
+    }
+    if (isTypingTarget(e.target)) {
+      // While typing, only Esc is honored (to dismiss modals).
+      if (e.key === 'Escape') closeTopModal();
+      return;
+    }
+    if (e.key === '/') {
+      if (focusFirstSearch()) e.preventDefault();
+    } else if (e.key === 'Escape') {
+      closeTopModal();
+    }
+  });
+})();
+
 // ===================== UI HELPERS (Batch 4) =====================
 // Three utilities shared across pages:
 //   * skeletonCards(container, count)    — shimmer-loading placeholder
