@@ -887,8 +887,17 @@ async function refreshSidebar() {
   }
   myLists.forEach(function(l) { myEl.appendChild(makeListItem(l)); });
 
-  // Auto-select the captain's first list if none is selected yet
-  if (!captainState.selectedListId && myLists.length > 0) {
+  // Auto-select the captain's first list if none is selected yet — but
+  // ONLY when selectedListType is 'captain' (the default).  Without this
+  // guard, clicking "All Team Voters" (which sets selectedListId=null +
+  // selectedListType='all-team' and then calls refreshSidebar()) would
+  // bounce right back to the first captain list, because the auto-select
+  // fired on every sidebar refresh whenever selectedListId was null.
+  // Now it only fires on first paint or after a list is deleted while
+  // already in captain-list mode.
+  if (!captainState.selectedListId
+      && captainState.selectedListType === 'captain'
+      && myLists.length > 0) {
     selectList(myLists[0].id, myLists[0].name);
   }
 
