@@ -175,10 +175,91 @@ tr:hover td{background:#1e293b80}
 @keyframes flagPulse{0%,100%{box-shadow:0 0 4px rgba(239,68,68,.4)}50%{box-shadow:0 0 12px rgba(239,68,68,.9)}}
 .walker-label{font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8);white-space:nowrap}
 .addr-dot{width:8px;height:8px;border-radius:50%;border:1px solid rgba(255,255,255,.3)}
+
+/* ─── Admin UI overhaul (Batch 1: foundation) ─────────────────────────
+   Toast notifications: top-right stack, auto-dismiss, color-coded.
+   Used app-wide via window.showToast(msg, type) where type is one of
+   'success' (green), 'error' (red), 'info' (blue), 'warn' (amber). */
+#toastStack{position:fixed;top:16px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:8px;pointer-events:none;max-width:380px}
+.toast{padding:12px 16px;border-radius:8px;font-size:14px;font-weight:500;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:auto;transform:translateX(420px);transition:transform .25s ease-out, opacity .25s;animation:toast-in .25s ease-out forwards;display:flex;align-items:flex-start;gap:10px;min-width:240px;line-height:1.4}
+@keyframes toast-in{from{transform:translateX(420px);opacity:0}to{transform:translateX(0);opacity:1}}
+.toast.toast-fade{transform:translateX(420px);opacity:0}
+.toast--success{background:#16a34a;border-left:4px solid #22c55e}
+.toast--error{background:#b91c1c;border-left:4px solid #ef4444}
+.toast--info{background:#1e40af;border-left:4px solid #3b82f6}
+.toast--warn{background:#b45309;border-left:4px solid #f59e0b}
+.toast .toast-icon{font-size:16px;flex-shrink:0;line-height:1.4}
+.toast .toast-msg{flex:1;word-break:break-word}
+.toast .toast-close{background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;font-size:18px;line-height:1;padding:0;margin-left:4px}
+.toast .toast-close:hover{color:#fff}
+
+/* ─── Utility classes (replace common inline styles over time) ────────
+   Pattern: small, composable, non-overlapping.  Existing inline styles
+   continue to work unchanged; new code adopts these for consistency. */
+.u-row{display:flex;align-items:center}
+.u-row-top{display:flex;align-items:flex-start}
+.u-col{display:flex;flex-direction:column}
+.u-gap-4{gap:4px}
+.u-gap-6{gap:6px}
+.u-gap-8{gap:8px}
+.u-gap-12{gap:12px}
+.u-flex-1{flex:1;min-width:0}
+.u-flex-wrap{flex-wrap:wrap}
+.u-text-xs{font-size:11px}
+.u-text-sm{font-size:12px}
+.u-text-base{font-size:13px}
+.u-text-lg{font-size:14px}
+.u-text-xl{font-size:16px}
+.u-text-mute{color:#94a3b8}
+.u-text-faint{color:#64748b}
+.u-text-bright{color:#e2e8f0}
+.u-text-success{color:#22c55e}
+.u-text-warn{color:#f59e0b}
+.u-text-danger{color:#ef4444}
+.u-bold{font-weight:700}
+.u-mt-4{margin-top:4px}
+.u-mt-8{margin-top:8px}
+.u-mt-16{margin-top:16px}
+.u-mt-24{margin-top:24px}
+.u-mb-4{margin-bottom:4px}
+.u-mb-8{margin-bottom:8px}
+.u-mb-16{margin-bottom:16px}
+.u-truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.u-pad-8{padding:8px}
+.u-pad-12{padding:12px}
+.u-rounded-6{border-radius:6px}
+.u-rounded-8{border-radius:8px}
+
+/* Standardized badges — replace ad-hoc badge styling app-wide.
+   Using .u-badge gives consistent 11px / 4px-padding / 6px-radius
+   across the app, with color modifiers attached separately. */
+.u-badge{display:inline-flex;align-items:center;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:.3px;white-space:nowrap;border:1px solid transparent;line-height:1.4}
+.u-badge--green{background:rgba(34,197,94,.18);color:#86efac;border-color:rgba(34,197,94,.5)}
+.u-badge--red{background:rgba(239,68,68,.18);color:#fca5a5;border-color:rgba(239,68,68,.5)}
+.u-badge--amber{background:rgba(245,158,11,.18);color:#fbbf24;border-color:rgba(245,158,11,.5)}
+.u-badge--blue{background:rgba(59,130,246,.18);color:#93c5fd;border-color:rgba(59,130,246,.5)}
+.u-badge--gray{background:rgba(100,116,139,.18);color:#94a3b8;border-color:rgba(100,116,139,.5)}
+.u-badge--purple{background:rgba(168,85,247,.18);color:#d8b4fe;border-color:rgba(168,85,247,.5)}
+
+/* Loading-skeleton shimmer.  Use as a placeholder for stat cards / rows
+   while data loads — visually stable and gives better perceived perf
+   than a "Loading..." text label.  Apply .u-skel to any block element. */
+@keyframes skel-shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+.u-skel{background:linear-gradient(90deg,#1e293b 0%,#334155 50%,#1e293b 100%);background-size:800px 100%;animation:skel-shimmer 1.4s infinite linear;border-radius:6px;color:transparent;border:none}
+
+/* Generic empty-state container.  Stack on icon+message+CTA so empty
+   pages look intentional rather than broken. */
+.u-empty{text-align:center;padding:40px 20px;color:#64748b}
+.u-empty-icon{font-size:48px;margin-bottom:12px;opacity:.5}
+.u-empty-title{font-size:15px;color:#94a3b8;margin-bottom:6px;font-weight:600}
+.u-empty-sub{font-size:13px;color:#64748b;margin-bottom:16px;max-width:340px;margin-left:auto;margin-right:auto}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 <body>
+
+<!-- Toast notification stack — populated by window.showToast() at runtime. -->
+<div id="toastStack" aria-live="polite" aria-atomic="true"></div>
 
 <div class="sidebar">
   <div class="sidebar-logo">Campaign<span>Text</span> HQ</div>
@@ -3087,6 +3168,60 @@ tr:hover td{background:#1e293b80}
 </div>
 
 <script>
+// ===================== TOAST NOTIFICATIONS =====================
+// Color-coded notifications top-right.  Adopted progressively across
+// the app for save/error feedback.  Existing alert() / inline status
+// strings still work — call sites migrate to showToast() as they're
+// touched.  No external dependency; ~50 lines of vanilla JS.
+//
+// Usage:
+//   showToast('Saved!', 'success')           — green, 3s auto-dismiss
+//   showToast('Failed: ...', 'error')        — red, 5s auto-dismiss
+//   showToast('Importing...', 'info')        — blue, 3s
+//   showToast('Watch out', 'warn')           — amber, 4s
+//
+// All toasts are dismissable manually via × button.  Stack of up to
+// 4; older ones fade out when a 5th arrives.
+window.showToast = function(message, type, opts) {
+  type = type || 'info';
+  opts = opts || {};
+  var stack = document.getElementById('toastStack');
+  if (!stack) return;
+  // Cap at 4 visible — drop oldest.
+  while (stack.children.length >= 4) stack.removeChild(stack.firstChild);
+
+  var t = document.createElement('div');
+  t.className = 'toast toast--' + type;
+  var icons = { success: '✓', error: '✗', info: 'ℹ', warn: '⚠' };
+  var icon = document.createElement('span');
+  icon.className = 'toast-icon';
+  icon.textContent = icons[type] || 'ℹ';
+  t.appendChild(icon);
+  var msg = document.createElement('span');
+  msg.className = 'toast-msg';
+  msg.textContent = message;
+  t.appendChild(msg);
+  var close = document.createElement('button');
+  close.className = 'toast-close';
+  close.textContent = '×';
+  close.setAttribute('aria-label', 'Dismiss');
+  t.appendChild(close);
+
+  function dismiss() {
+    t.classList.add('toast-fade');
+    setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 250);
+  }
+  close.addEventListener('click', dismiss);
+  stack.appendChild(t);
+
+  // Auto-dismiss timeout — errors get 5s, others get 3s.  Persistent
+  // toasts (opts.persistent = true) skip the timer.
+  var defaultMs = type === 'error' ? 5000 : 3000;
+  if (!opts.persistent) {
+    setTimeout(dismiss, opts.duration || defaultMs);
+  }
+};
+
 // ===================== STATE =====================
 let state = {
   credentials: {},
