@@ -1812,19 +1812,27 @@ router.get('/captains/:id/team-voters', requireCaptainAuth, (req, res) => {
       allListIds = allListIds.concat(subListIds);
     }
     if (allListIds.length > 0) {
-      // Adds list_count (# of team lists this voter appears on) and
-      // list_names (comma-separated) so the captain can see GOTV billing
-      // overlap.  GROUP_CONCAT(DISTINCT) handles dedup if the same voter
-      // somehow ends up on the same list twice (shouldn't happen given
-      // UNIQUE(list_id, voter_id), but defense-in-depth).
+      // Returns:
+      //   list_count     — # of distinct lists this voter appears on
+      //   list_names     — comma-separated list names
+      //   captain_count  — # of distinct CAPTAINS who have this voter
+      //   captain_names  — comma-separated captain names (the WHO)
+      //
+      // captain_count is what really matters for GOTV billing audit:
+      // one captain with the same voter on 3 of their own lists isn't a
+      // billing dupe (only that captain can claim them).  A voter is
+      // truly "duplicated" only when 2+ DIFFERENT captains claim them.
       voters = db.prepare(
         'SELECT v.*, ' +
           'MAX(clv.added_at) AS added_at, ' +
           'COUNT(DISTINCT clv.list_id) AS list_count, ' +
-          'GROUP_CONCAT(DISTINCT cl.name) AS list_names ' +
+          'GROUP_CONCAT(DISTINCT cl.name) AS list_names, ' +
+          'COUNT(DISTINCT cl.captain_id) AS captain_count, ' +
+          'GROUP_CONCAT(DISTINCT cap.name) AS captain_names ' +
         'FROM captain_list_voters clv ' +
         'JOIN voters v ON clv.voter_id = v.id ' +
         'JOIN captain_lists cl ON clv.list_id = cl.id ' +
+        'JOIN captains cap ON cl.captain_id = cap.id ' +
         'WHERE clv.list_id IN (' + allListIds.map(() => '?').join(',') + ') ' +
         'GROUP BY v.id ' +
         'ORDER BY v.last_name, v.first_name'

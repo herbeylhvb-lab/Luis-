@@ -1429,7 +1429,7 @@ function getFilteredVoters() {
   else out = voters;
   // All Team Voters: optional "show only duplicates" filter for billing audit
   if (_showOnlyDuplicates && captainState.selectedListType === 'all-team') {
-    out = out.filter(function(v) { return (v.list_count || 0) > 1; });
+    out = out.filter(function(v) { return (v.captain_count || 0) > 1; });
   }
   return out;
 }
@@ -2010,7 +2010,10 @@ function renderListVoters() {
     var voterPool = voters;
     if (tab === 'voted') voterPool = voters.filter(function(v) { return v.early_voted; });
     else if (tab === 'not_voted') voterPool = voters.filter(function(v) { return !v.early_voted; });
-    var dupes = voterPool.filter(function(v) { return (v.list_count || 0) > 1; });
+    // A voter is "duplicated" only when 2+ different CAPTAINS claim them
+    // (not 2+ lists from the same captain — same captain with multiple
+    // lists isn't a billing-overlap risk).
+    var dupes = voterPool.filter(function(v) { return (v.captain_count || 0) > 1; });
     if (dupes.length > 0) {
       // Slim banner per Luis: count + toggle, no explanation prose.
       var banner = document.createElement('div');
@@ -2192,10 +2195,11 @@ function renderListVoters() {
   var filtered = voters;
   if (tab === 'voted') filtered = voters.filter(function(v) { return v.early_voted; });
   else if (tab === 'not_voted') filtered = voters.filter(function(v) { return !v.early_voted; });
-  // All Team Voters: optional "show only duplicates" — voters appearing on
-  // 2+ team lists.  Lets the captain audit billing overlap directly.
+  // All Team Voters: optional "show only duplicates" — voters claimed by
+  // 2+ different CAPTAINS.  Same captain with multiple lists doesn't
+  // count (only that captain can bill the voter).
   if (_showOnlyDuplicates && captainState.selectedListType === 'all-team') {
-    filtered = filtered.filter(function(v) { return (v.list_count || 0) > 1; });
+    filtered = filtered.filter(function(v) { return (v.captain_count || 0) > 1; });
   }
   // Apply search filter
   if (_listSearchTerm) {
@@ -2405,14 +2409,15 @@ function renderListVoters() {
     idBadge.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
     idBadge.textContent = '#' + (v.registration_number || v.county_file_id || v.vanid || '');
     nameRow.appendChild(idBadge);
-    // Per-row dupe badge — only when on All Team Voters view AND voter
-    // appears on 2+ team lists.  Tooltip shows the actual list names so
-    // the captain can see WHO is double-claiming this voter.
-    if (captainState.selectedListType === 'all-team' && (v.list_count || 0) > 1) {
+    // Per-row dupe badge — appears whenever 2+ different CAPTAINS claim
+    // this voter (the GOTV billing-relevant signal).  Badge text shows
+    // captain count; tooltip shows the captain names directly so a
+    // hover answers "who claims this voter?" without a click.
+    if (captainState.selectedListType === 'all-team' && (v.captain_count || 0) > 1) {
       var dupBadge = document.createElement('span');
       dupBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid #f59e0b;white-space:nowrap';
-      dupBadge.textContent = '× ' + v.list_count + ' lists';
-      dupBadge.title = 'Appears on: ' + (v.list_names || '(unknown)');
+      dupBadge.textContent = '× ' + v.captain_count + ' captains';
+      dupBadge.title = 'Claimed by: ' + (v.captain_names || '(unknown)');
       nameRow.appendChild(dupBadge);
     }
     // Early voted badge with party color
@@ -2456,19 +2461,25 @@ function renderListVoters() {
     info.appendChild(a);
 
     // When the "Show only duplicates" filter is active, expand the
-    // hover-tooltip list-names into a visible inline row.  Helpful when
-    // the captain is auditing GOTV billing — they can scan the list and
-    // see at a glance which other captains claim each voter, without
-    // having to hover every badge.  Only renders for actual dupes
-    // (list_count > 1) on the all-team view in dupes-only mode.
+    // hover-tooltip into a visible inline row showing WHO has this
+    // voter on their list (captain names) and WHICH lists.  Lets the
+    // captain audit billing overlap by scanning the rendered list
+    // instead of having to hover every badge.
     if (captainState.selectedListType === 'all-team'
         && _showOnlyDuplicates
-        && (v.list_count || 0) > 1
-        && v.list_names) {
-      var listsLine = document.createElement('div');
-      listsLine.style.cssText = 'font-size:11px;color:#fbbf24;margin-top:2px;font-style:italic';
-      listsLine.textContent = '⤴ On lists: ' + v.list_names;
-      info.appendChild(listsLine);
+        && (v.captain_count || 0) > 1) {
+      if (v.captain_names) {
+        var capsLine = document.createElement('div');
+        capsLine.style.cssText = 'font-size:11px;color:#fbbf24;margin-top:2px;font-weight:600';
+        capsLine.textContent = '⤴ Claimed by: ' + v.captain_names;
+        info.appendChild(capsLine);
+      }
+      if (v.list_names) {
+        var listsLine = document.createElement('div');
+        listsLine.style.cssText = 'font-size:11px;color:#94a3b8;margin-top:1px;font-style:italic';
+        listsLine.textContent = '   on lists: ' + v.list_names;
+        info.appendChild(listsLine);
+      }
     }
 
     if (v.phone || v.email) {
