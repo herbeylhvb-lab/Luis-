@@ -165,6 +165,220 @@ router.get('/admin-lists/:id/voted-count', (req, res) => {
   res.json({ total, voted });
 });
 
+// ─── TOP N MAILER (recency-weighted Local May voter scoring) ───────────
+//
+// Goal: take an admin list (e.g. an 8K-household universe) and extract the
+// top N households most likely to vote in a May municipal election, so the
+// campaign can mail to fewer households without sacrificing the highest-
+// probability voters.
+//
+// Scoring (per voter):  sum of recency weights for past Local May elections
+//   they voted in:      May 2025=5, 2024=4, 2023=3, 2022=2, ≤2021=1
+//
+// Aggregation:  household score = MAX(voter_score) at the address.
+//   "best voter at this address wins" — sums would unfairly favor large
+//   households over a strong single voter.
+//
+// Tie-break:  MAX(may_frequency) > has_phone > voter_count.
+//
+// Exclusions (gated by request flags, both default ON in the UI):
+//   exclude_vbm     — voters who ever voted by mail (history) OR mailed in
+//                     this current cycle (early_voted_method in the mail set)
+//   exclude_voted   — voters with early_voted=1 (already voted this cycle)
+//
+// Two endpoints share the same query body via _topNMailerSql():
+//   POST /admin-lists/:id/top-n-mailer/preview  → counts + score range
+//   POST /admin-lists/:id/top-n-mailer/save     → persists a child list
+//
+// IMPORTANT: source list is read-only — neither endpoint modifies it.
+const VBM_METHOD_VALUES = "('mail','absentee','vbm','mail-in','mail_ballot','mailed')";
+
+function _topNMailerCTE(opts) {
+  // opts: { excludeVbm: bool, excludeVoted: bool }
+  // Returns the SQL fragment that produces a `households` CTE — used by both
+  // preview (SELECT against it) and save (joining back to voter rows).
+  const votedClause = opts.excludeVoted ? 'AND COALESCE(v.early_voted, 0) = 0' : '';
+  const vbmCurrentClause = opts.excludeVbm
+    ? `AND LOWER(TRIM(COALESCE(v.early_voted_method,''))) NOT IN ${VBM_METHOD_VALUES}`
+    : '';
+  const vbmHistoryClause = opts.excludeVbm ? `
+    AND NOT EXISTS (
+      SELECT 1 FROM election_votes ev2
+      WHERE ev2.voter_id = v.id
+        AND LOWER(TRIM(COALESCE(ev2.vote_method,''))) IN ${VBM_METHOD_VALUES}
+    )` : '';
+  // Recency-weighted score: substr the last 4 chars of "Local May YYYY" as the year
+  return `
+    WITH eligible AS (
+      SELECT v.id, v.address, v.city, v.zip, v.phone, COALESCE(v.may_frequency, 0) AS freq,
+        LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,''))) AS hh_key
+      FROM admin_list_voters alv
+      JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ?
+        ${votedClause}
+        ${vbmCurrentClause}
+        ${vbmHistoryClause}
+    ),
+    voter_scores AS (
+      SELECT e.id AS voter_id, e.hh_key, e.freq, e.phone,
+        COALESCE((
+          SELECT SUM(CASE
+            WHEN CAST(SUBSTR(ev.election_name, -4) AS INTEGER) >= 2025 THEN 5
+            WHEN CAST(SUBSTR(ev.election_name, -4) AS INTEGER) = 2024 THEN 4
+            WHEN CAST(SUBSTR(ev.election_name, -4) AS INTEGER) = 2023 THEN 3
+            WHEN CAST(SUBSTR(ev.election_name, -4) AS INTEGER) = 2022 THEN 2
+            WHEN CAST(SUBSTR(ev.election_name, -4) AS INTEGER) <= 2021
+              AND CAST(SUBSTR(ev.election_name, -4) AS INTEGER) >= 2000 THEN 1
+            ELSE 0
+          END)
+          FROM election_votes ev
+          WHERE ev.voter_id = e.id
+            AND LOWER(ev.election_name) LIKE 'local may %'
+        ), 0) AS score
+      FROM eligible e
+    ),
+    households AS (
+      SELECT hh_key,
+        MAX(score) AS hh_score,
+        MAX(freq) AS hh_freq,
+        MAX(CASE WHEN phone IS NOT NULL AND phone != '' THEN 1 ELSE 0 END) AS has_phone,
+        COUNT(*) AS voter_count
+      FROM voter_scores
+      GROUP BY hh_key
+    )
+  `;
+}
+
+router.post('/admin-lists/:id/top-n-mailer/preview', (req, res) => {
+  const listId = parseInt(req.params.id, 10);
+  const n = Math.max(1, parseInt(req.body.n, 10) || 0);
+  const excludeVbm = req.body.exclude_vbm !== false;     // default ON
+  const excludeVoted = req.body.exclude_voted !== false; // default ON
+  if (!Number.isFinite(listId) || listId <= 0) return res.status(400).json({ error: 'Invalid list id.' });
+  const list = db.prepare('SELECT id, name FROM admin_lists WHERE id = ?').get(listId);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+
+  // Count source size for context
+  const sourceTotal = db.prepare(`
+    SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) AS c
+    FROM admin_list_voters alv JOIN voters v ON alv.voter_id = v.id WHERE alv.list_id = ?
+  `).get(listId).c;
+
+  // Excluded voter counts (so the user understands what was filtered)
+  let excludedVbm = 0, excludedVoted = 0;
+  if (excludeVbm) {
+    excludedVbm = db.prepare(`
+      SELECT COUNT(*) AS c
+      FROM admin_list_voters alv JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ?
+        AND (
+          LOWER(TRIM(COALESCE(v.early_voted_method,''))) IN ${VBM_METHOD_VALUES}
+          OR EXISTS (
+            SELECT 1 FROM election_votes ev2
+            WHERE ev2.voter_id = v.id
+              AND LOWER(TRIM(COALESCE(ev2.vote_method,''))) IN ${VBM_METHOD_VALUES}
+          )
+        )
+    `).get(listId).c;
+  }
+  if (excludeVoted) {
+    excludedVoted = db.prepare(`
+      SELECT COUNT(*) AS c
+      FROM admin_list_voters alv JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ? AND COALESCE(v.early_voted, 0) = 1
+    `).get(listId).c;
+  }
+
+  // Run the household ranking CTE and pull the top N
+  const cte = _topNMailerCTE({ excludeVbm, excludeVoted });
+  const eligibleHouseholds = db.prepare(cte + ' SELECT COUNT(*) AS c FROM households').get(listId).c;
+  const topRows = db.prepare(cte + `
+    SELECT hh_score, hh_freq, voter_count
+    FROM households
+    ORDER BY hh_score DESC, hh_freq DESC, has_phone DESC, voter_count DESC
+    LIMIT ?
+  `).all(listId, n);
+
+  const selected = topRows.length;
+  const topScore = selected > 0 ? topRows[0].hh_score : 0;
+  const bottomScoreInCut = selected > 0 ? topRows[selected - 1].hh_score : 0;
+  const selectedVoters = topRows.reduce((s, r) => s + r.voter_count, 0);
+
+  res.json({
+    source_list_name: list.name,
+    source_total_households: sourceTotal,
+    eligible_households: eligibleHouseholds,
+    requested: n,
+    selected_households: selected,
+    selected_voters: selectedVoters,
+    top_score: topScore,
+    bottom_score_in_cut: bottomScoreInCut,
+    excluded_vbm: excludedVbm,
+    excluded_already_voted: excludedVoted
+  });
+});
+
+router.post('/admin-lists/:id/top-n-mailer/save', (req, res) => {
+  const listId = parseInt(req.params.id, 10);
+  const n = Math.max(1, parseInt(req.body.n, 10) || 0);
+  const excludeVbm = req.body.exclude_vbm !== false;
+  const excludeVoted = req.body.exclude_voted !== false;
+  const requestedName = (req.body.name && String(req.body.name).trim()) || '';
+  if (!Number.isFinite(listId) || listId <= 0) return res.status(400).json({ error: 'Invalid list id.' });
+  const sourceList = db.prepare('SELECT id, name FROM admin_lists WHERE id = ?').get(listId);
+  if (!sourceList) return res.status(404).json({ error: 'List not found.' });
+
+  const newName = requestedName || `${sourceList.name} — Top ${n} Mailer`;
+  const cte = _topNMailerCTE({ excludeVbm, excludeVoted });
+
+  // Build the chain: pick top N household keys → grab voter ids at those
+  // households (still respecting exclusions) → insert into a fresh admin list.
+  const tx = db.transaction(() => {
+    const r = db.prepare(`
+      INSERT INTO admin_lists (name, description, list_type)
+      VALUES (?, ?, ?)
+    `).run(
+      newName,
+      `Top ${n} households extracted from "${sourceList.name}" (recency-weighted May voter score)`,
+      'mail'
+    );
+    const newListId = r.lastInsertRowid;
+
+    // Insert eligible voters belonging to the top-N households.  We re-run
+    // the ranking inline so the household → voter join is consistent.
+    const insertResult = db.prepare(cte + `,
+      top_households AS (
+        SELECT hh_key
+        FROM households
+        ORDER BY hh_score DESC, hh_freq DESC, has_phone DESC, voter_count DESC
+        LIMIT ?
+      )
+      INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id)
+      SELECT ?, e.id
+      FROM eligible e
+      WHERE e.hh_key IN (SELECT hh_key FROM top_households)
+    `).run(listId, n, newListId);
+
+    // Count households actually represented in the new list
+    const houseCount = (db.prepare(`
+      SELECT COUNT(DISTINCT LOWER(TRIM(COALESCE(v.address,'')) || '|' || TRIM(COALESCE(v.city,'')) || '|' || TRIM(COALESCE(v.zip,'')))) AS c
+      FROM admin_list_voters alv JOIN voters v ON alv.voter_id = v.id
+      WHERE alv.list_id = ?
+    `).get(newListId) || { c: 0 }).c;
+
+    return { newListId, voters: insertResult.changes, households: houseCount };
+  });
+
+  const result = tx();
+  res.json({
+    success: true,
+    list_id: result.newListId,
+    list_name: newName,
+    households: result.households,
+    voters: result.voters
+  });
+});
+
 // Add voters to list
 router.post('/admin-lists/:id/voters', (req, res) => {
   const { voterIds } = req.body;

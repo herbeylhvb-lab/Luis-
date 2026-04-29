@@ -1705,6 +1705,7 @@ tr:hover td{background:#1e293b80}
           <h4 style="margin:0">Voters in List <span class="badge badge-green" id="adminListVoterCount">0</span></h4>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn btn-sm" style="background:#7c3aed;border-color:#6d28d9" onclick="exportMailerCSV()">📬 Export for Mailer</button>
+            <button class="btn btn-sm" style="background:#a855f7;border-color:#9333ea" onclick="openTopNMailerModal(state.currentAdminListId, document.getElementById('adminListTitle').textContent)">🎯 Top N Mailer</button>
             <button class="btn btn-sm" style="background:#059669;border-color:#047857" onclick="logMailerSent()">📬 Log Mailer Sent</button>
             <button class="btn btn-sm" style="background:#2563eb;border-color:#1d4ed8" onclick="exportSimpleTextCSV()">📱 Phone List</button>
             <button class="btn btn-sm" style="background:#1877f2;border-color:#1564bf" onclick="exportFacebookCSV()">📘 Facebook Audience</button>
@@ -1720,6 +1721,45 @@ tr:hover td{background:#1e293b80}
         </div>
         <div id="householdViewContainer" style="display:none;margin-bottom:16px"></div>
         <div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Address</th><th>City</th><th>Party</th><th>Actions</th></tr></thead><tbody id="adminListVotersBody"></tbody></table></div>
+      </div>
+
+      <!-- ─── Top N Mailer modal ────────────────────────────────────── -->
+      <!-- Picks the N households most likely to vote in May based on a
+           recency-weighted score over Local May elections.  See the
+           docs/plans/2026-04-28-top-n-mailer-design.md for scoring rules. -->
+      <div id="topNMailerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+        <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;max-width:560px;width:92%;max-height:90vh;overflow-y:auto">
+          <h3 style="margin-top:0;color:#a855f7">🎯 Top N Mailer</h3>
+          <p style="color:#94a3b8;font-size:13px;margin-bottom:12px">
+            Pick the <strong style="color:#e2e8f0">N households most likely to vote</strong> from
+            <strong id="topNSourceName" style="color:#e2e8f0"></strong>.
+            Score = recency-weighted Local May elections each voter cast
+            (May 2025=5, 2024=4, 2023=3, 2022=2, ≤2021=1). Best voter at each
+            address wins for the household.
+          </p>
+          <div class="form-group" style="margin-bottom:8px">
+            <label style="font-size:12px;color:#94a3b8">How many households?</label>
+            <input type="number" id="topNCount" value="3500" min="1" style="width:100%;padding:10px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:8px;font-size:15px">
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#cbd5e1;margin-top:8px;cursor:pointer">
+            <input type="checkbox" id="topNExcludeVbm" checked style="accent-color:#a855f7;width:16px;height:16px">
+            Exclude vote-by-mail voters (history + already-mailed-in this cycle)
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#cbd5e1;margin-top:6px;cursor:pointer">
+            <input type="checkbox" id="topNExcludeVoted" checked style="accent-color:#a855f7;width:16px;height:16px">
+            Exclude voters who already voted this cycle
+          </label>
+          <div class="form-group" style="margin-top:14px">
+            <label style="font-size:12px;color:#94a3b8">Name for the new list (optional)</label>
+            <input type="text" id="topNNewName" placeholder="(auto: source name + Top N Mailer)" style="width:100%;padding:10px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:8px">
+          </div>
+          <div id="topNMailerStatus" style="margin-top:14px;font-size:13px;min-height:20px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('topNMailerModal').style.display='none'">Close</button>
+            <button class="btn btn-sm" style="background:#475569;border-color:#334155" onclick="topNMailerPreview()">👁 Preview</button>
+            <button class="btn btn-sm" style="background:#a855f7;border-color:#9333ea" onclick="topNMailerSave()">💾 Save as New List</button>
+          </div>
+        </div>
       </div>
 
       <!-- ─── Merge List modal ──────────────────────────────────────── -->
@@ -14848,6 +14888,77 @@ async function openAdminList(listId, name) {
     triggerListSearchDebounced();
   };
 }
+
+// ─── Top N Mailer (recency-weighted Local May voter scoring) ─────────
+// Shows the modal pre-filled with N=3500 + both exclusion checkboxes ON.
+// Preview and Save share the same payload — only the endpoint differs.
+function openTopNMailerModal(sourceListId, sourceName) {
+  if (!sourceListId) { alert('Open a list first.'); return; }
+  document.getElementById('topNSourceName').textContent = sourceName || ('List #' + sourceListId);
+  document.getElementById('topNCount').value = 3500;
+  document.getElementById('topNExcludeVbm').checked = true;
+  document.getElementById('topNExcludeVoted').checked = true;
+  document.getElementById('topNNewName').value = '';
+  document.getElementById('topNMailerStatus').textContent = '';
+  document.getElementById('topNMailerModal').style.display = 'flex';
+}
+window.openTopNMailerModal = openTopNMailerModal;
+
+function _topNMailerPayload() {
+  return {
+    n: parseInt(document.getElementById('topNCount').value, 10) || 0,
+    exclude_vbm: document.getElementById('topNExcludeVbm').checked,
+    exclude_voted: document.getElementById('topNExcludeVoted').checked
+  };
+}
+
+async function topNMailerPreview() {
+  var statusEl = document.getElementById('topNMailerStatus');
+  var payload = _topNMailerPayload();
+  if (payload.n <= 0) { statusEl.innerHTML = '<span style="color:#ef4444">Enter a positive N.</span>'; return; }
+  statusEl.innerHTML = '<span style="color:#94a3b8">Computing… (this scans all past Mays for every voter — give it a few seconds on big lists)</span>';
+  try {
+    var r = await apiPost('/api/admin-lists/' + state.currentAdminListId + '/top-n-mailer/preview', payload);
+    var lines = [];
+    lines.push('<div style="color:#22c55e;font-weight:600;margin-bottom:6px">✓ Preview ready</div>');
+    lines.push('<div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:12px">');
+    lines.push('<span style="color:#94a3b8">Source households</span><span style="color:#e2e8f0;text-align:right">' + r.source_total_households.toLocaleString() + '</span>');
+    if (r.excluded_vbm) lines.push('<span style="color:#94a3b8">Excluded — VBM</span><span style="color:#fbbf24;text-align:right">−' + r.excluded_vbm.toLocaleString() + ' voters</span>');
+    if (r.excluded_already_voted) lines.push('<span style="color:#94a3b8">Excluded — already voted</span><span style="color:#fbbf24;text-align:right">−' + r.excluded_already_voted.toLocaleString() + ' voters</span>');
+    lines.push('<span style="color:#94a3b8">Eligible households</span><span style="color:#e2e8f0;text-align:right">' + r.eligible_households.toLocaleString() + '</span>');
+    lines.push('<span style="color:#a855f7;font-weight:600">Selected for mailer</span><span style="color:#a855f7;font-weight:600;text-align:right">' + r.selected_households.toLocaleString() + ' households</span>');
+    lines.push('<span style="color:#94a3b8">Voters in selected households</span><span style="color:#e2e8f0;text-align:right">' + r.selected_voters.toLocaleString() + '</span>');
+    if (r.selected_households > 0) {
+      lines.push('<span style="color:#94a3b8">Top score in cut</span><span style="color:#22c55e;text-align:right">' + r.top_score + '</span>');
+      lines.push('<span style="color:#94a3b8">Lowest score in cut</span><span style="color:#86efac;text-align:right">' + r.bottom_score_in_cut + '</span>');
+    }
+    lines.push('</div>');
+    if (r.eligible_households < r.requested) {
+      lines.push('<div style="color:#fbbf24;margin-top:8px;font-size:12px">⚠ Only ' + r.eligible_households + ' households eligible — that\'s less than the ' + r.requested + ' requested. Saving will include all of them.</div>');
+    }
+    statusEl.innerHTML = lines.join('');
+  } catch (e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Preview failed: ' + escHtml(e.message || 'unknown') + '</span>';
+  }
+}
+window.topNMailerPreview = topNMailerPreview;
+
+async function topNMailerSave() {
+  var statusEl = document.getElementById('topNMailerStatus');
+  var payload = _topNMailerPayload();
+  if (payload.n <= 0) { statusEl.innerHTML = '<span style="color:#ef4444">Enter a positive N.</span>'; return; }
+  payload.name = document.getElementById('topNNewName').value.trim();
+  if (!confirm('Create a new list with the top ' + payload.n + ' households? This does not modify the source list.')) return;
+  statusEl.innerHTML = '<span style="color:#94a3b8">Saving…</span>';
+  try {
+    var r = await apiPost('/api/admin-lists/' + state.currentAdminListId + '/top-n-mailer/save', payload);
+    statusEl.innerHTML = '<span style="color:#22c55e">✓ Created "' + escHtml(r.list_name) + '" — ' + r.households.toLocaleString() + ' households / ' + r.voters.toLocaleString() + ' voters. Refresh the lists pane to see it.</span>';
+    if (typeof loadAdminLists === 'function') loadAdminLists();
+  } catch (e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Save failed: ' + escHtml(e.message || 'unknown') + '</span>';
+  }
+}
+window.topNMailerSave = topNMailerSave;
 
 // ─── Merge Lists ────────────────────────────────────────────────────
 // Opens the modal, populates the target dropdown with every OTHER admin
