@@ -2508,8 +2508,39 @@ function renderListVoterRows(voters, content, listId) {
       infoDiv.appendChild(contactEl2);
     }
 
+    // List-scoped notes \u2014 surfaced inline if present so the candidate
+    // can scan a list and see "ah, I called this person yesterday" at a
+    // glance.  Click the \uD83D\uDCDD button to edit (opens small modal).
+    if (v.list_notes && v.list_notes.trim()) {
+      var noteSnip = document.createElement('div');
+      noteSnip.style.cssText = 'font-size:11px;color:#fbbf24;margin-top:2px;display:flex;gap:4px;align-items:flex-start';
+      var noteIcon = document.createElement('span');
+      noteIcon.textContent = '\uD83D\uDCDD';
+      noteSnip.appendChild(noteIcon);
+      var noteText = document.createElement('span');
+      noteText.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      noteText.textContent = v.list_notes;
+      noteSnip.appendChild(noteText);
+      infoDiv.appendChild(noteSnip);
+    }
+
     row.appendChild(infoDiv);
     if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
+
+    // Notes editor button \u2014 amber when notes exist, grey when empty.
+    var noteBtn = document.createElement('button');
+    var hasNotes = !!(v.list_notes && v.list_notes.trim());
+    noteBtn.style.cssText = 'background:none;border:none;cursor:pointer;padding:4px 6px;font-size:14px;line-height:1;color:' +
+      (hasNotes ? '#fbbf24' : '#475569') + ';margin-right:2px';
+    noteBtn.textContent = '\uD83D\uDCDD';
+    noteBtn.title = hasNotes ? 'Edit notes' : 'Add notes';
+    (function(voter, lid) {
+      noteBtn.onclick = function(e) {
+        e.stopPropagation();
+        openCandidateNotesEditor(voter, lid);
+      };
+    })(v, listId);
+    row.appendChild(noteBtn);
 
     var removeBtn = document.createElement('button');
     removeBtn.className = 'remove-btn';
@@ -2534,6 +2565,88 @@ function renderListVoterRows(voters, content, listId) {
     content.appendChild(makeVoterRow(v, true));
   });
 }
+
+// Modal editor for the per-list voter notes.  Lightweight overlay with
+// a textarea and Save/Cancel — saves to
+// PUT /api/candidates/:id/lists/:listId/voters/:voterId/notes
+// then optimistically updates the in-memory voter row + re-renders so
+// the snippet under the address refreshes without a full reload.
+function openCandidateNotesEditor(voter, listId) {
+  var existing = document.getElementById('candNotesOverlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'candNotesOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:20px;max-width:480px;width:100%';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 4px;color:#e2e8f0;font-size:16px';
+  title.textContent = 'Notes — ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
+  box.appendChild(title);
+
+  var sub = document.createElement('div');
+  sub.style.cssText = 'color:#64748b;font-size:12px;margin-bottom:12px';
+  sub.textContent = 'These notes are scoped to this list only.';
+  box.appendChild(sub);
+
+  var ta = document.createElement('textarea');
+  ta.style.cssText = 'width:100%;min-height:120px;padding:10px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;box-sizing:border-box';
+  ta.placeholder = 'e.g. "Met at coffee shop 4/22 — supportive, will bring family. Follow up about yard sign."';
+  ta.value = voter.list_notes || '';
+  box.appendChild(ta);
+
+  var status = document.createElement('div');
+  status.style.cssText = 'margin-top:6px;font-size:12px;min-height:18px';
+  box.appendChild(status);
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:8px';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn-icon';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = function() { overlay.remove(); };
+  btnRow.appendChild(cancelBtn);
+  var saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-icon';
+  saveBtn.style.cssText = 'background:#22c55e;color:#000;font-weight:600';
+  saveBtn.textContent = 'Save';
+  saveBtn.onclick = async function() {
+    saveBtn.disabled = true;
+    status.style.color = '#94a3b8';
+    status.textContent = 'Saving…';
+    try {
+      await apiPut('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + voter.id + '/notes',
+        { notes: ta.value });
+      // Update in-memory voter so the row re-renders with the new snippet.
+      voter.list_notes = ta.value;
+      // Find the voter object in currentRightPanelVoters too.
+      if (Array.isArray(currentRightPanelVoters)) {
+        var match = currentRightPanelVoters.find(function(x) { return x.id === voter.id; });
+        if (match) match.list_notes = ta.value;
+      }
+      overlay.remove();
+      // Re-render to show the updated note snippet + button color.
+      var content = document.getElementById('rightListContent');
+      if (content && currentRightPanelVoters) {
+        renderListVoterRows(currentRightPanelVoters, content, listId);
+      }
+    } catch (e) {
+      status.style.color = '#ef4444';
+      status.textContent = 'Save failed: ' + (e.message || 'unknown');
+      saveBtn.disabled = false;
+    }
+  };
+  btnRow.appendChild(saveBtn);
+  box.appendChild(btnRow);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  ta.focus();
+}
+window.openCandidateNotesEditor = openCandidateNotesEditor;
 
 async function removeVoterFromList(listId, voterId) {
   try {

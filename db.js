@@ -1140,6 +1140,11 @@ addColumn("ALTER TABLE captain_list_voters ADD COLUMN parent_voter_id INTEGER DE
 
 // Captain notes per voter (how they know them, personal reminders)
 addColumn("ALTER TABLE captain_list_voters ADD COLUMN notes TEXT DEFAULT ''");
+// Per-voter notes on admin/candidate lists.  Mirrors captain_list_voters.notes
+// so candidates and admins can attach research / call-history notes to a
+// voter scoped to a specific list.  Used by the candidate portal voter
+// detail textarea (and surfaced as a 📝 badge with snippet on each row).
+addColumn("ALTER TABLE admin_list_voters ADD COLUMN notes TEXT DEFAULT ''");
 
 // Rename existing "My Voters" lists to the captain's actual name
 try {

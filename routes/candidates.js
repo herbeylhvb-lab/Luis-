@@ -727,8 +727,12 @@ router.post('/candidates/:id/lists', requireCandidateAuth, (req, res) => {
 router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, res) => {
   const list = db.prepare('SELECT * FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
+  // alv.notes is the per-list note attached to this voter for this list.
+  // Aliased as `list_notes` so it doesn't collide with voters.notes (the
+  // global voter-level note column) — UIs can show both side by side.
   const voters = db.prepare(`
     SELECT v.*, alv.added_at, alv.parent_voter_id,
+      alv.notes AS list_notes,
       (SELECT ev.party_voted FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_party,
       (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method
     FROM admin_list_voters alv
@@ -737,6 +741,20 @@ router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, r
   `).all(req.params.listId);
   attachElectionVotes(voters);
   res.json({ list, voters });
+});
+
+// Update per-list note for a voter.  Mirrors the captain-side
+// /captains/:id/lists/:listId/voters/:voterId/notes endpoint exactly so
+// the candidate portal can adopt the same UX with no surprises.
+router.put('/candidates/:id/lists/:listId/voters/:voterId/notes', requireCandidateAuth, (req, res) => {
+  const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const notes = (req.body && typeof req.body.notes === 'string') ? req.body.notes.slice(0, 4000) : '';
+  const r = db.prepare(
+    'UPDATE admin_list_voters SET notes = ? WHERE list_id = ? AND voter_id = ?'
+  ).run(notes, req.params.listId, req.params.voterId);
+  if (r.changes === 0) return res.status(404).json({ error: 'Voter not on this list.' });
+  res.json({ success: true });
 });
 
 // Add voters to a candidate's list
