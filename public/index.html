@@ -16964,6 +16964,9 @@ async function loadGotvConfirmedMine() {
     if (candidateId) {
       breakdown += '<div>👥 From captain lists: <strong style="color:#86efac">' + (data.captain_list_voted || 0).toLocaleString() + '</strong></div>';
     }
+    // Positive-text responders who voted — global signal, always shown
+    // when the card is visible.  Matches the format of the two lines above.
+    breakdown += '<div>📱 From positive texters: <strong style="color:#86efac">' + (data.positive_texters_voted || 0).toLocaleString() + '</strong></div>';
     if (universeId && candidateId) {
       breakdown += '<div>🔗 In both (counted once): <strong style="color:#fbbf24">' + (data.overlap || 0).toLocaleString() + '</strong></div>';
     }

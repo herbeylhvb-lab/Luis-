@@ -249,6 +249,7 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       confirmed_mine: 0,
       universe_supporters_voted: 0,
       captain_list_voted: 0,
+      positive_texters_voted: 0,
       overlap: 0,
     });
   }
@@ -276,6 +277,27 @@ router.get('/gotv/confirmed-mine', (req, res) => {
           )`
     : `SELECT NULL AS id WHERE 1=0`;
 
+  // Phone normalization: last 10 digits, non-digits stripped.  Same shape
+  // as /api/messages/pending uses so we tolerate '+19565551234',
+  // '9565551234', '(956) 555-1234' etc. without false negatives.
+  const NORM = (col) => `SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${col}, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10)`;
+
+  // Voters whose phone sent a positive inbound text AND who voted.
+  // Unconditional on universe/candidate filters — positive sentiment is a
+  // global GOTV signal; we don't have a candidate→outbound→inbound chain
+  // modeled today, so we treat any inbound positive as in-scope.
+  const positiveCte = `
+    SELECT DISTINCT v.id FROM voters v
+    WHERE v.early_voted = 1
+      AND v.phone IS NOT NULL AND v.phone != ''
+      AND ${NORM('v.phone')} IN (
+        SELECT DISTINCT ${NORM('m.phone')}
+        FROM messages m
+        WHERE m.direction = 'inbound' AND m.sentiment = 'positive'
+          AND m.phone IS NOT NULL AND m.phone != ''
+      )
+  `;
+
   const params = [];
   if (universeId) params.push(universeId);
   if (candidateId) params.push(candidateId, candidateId);
@@ -283,12 +305,16 @@ router.get('/gotv/confirmed-mine', (req, res) => {
   // Single query with three SELECTs that share the CTEs — minimizes round-trips.
   const sql = `
     WITH universe_supporters AS (${universeCte}),
-         captain_voters AS (${captainCte})
+         captain_voters AS (${captainCte}),
+         positive_texters AS (${positiveCte})
     SELECT
       (SELECT COUNT(*) FROM universe_supporters) AS universe_supporters_voted,
       (SELECT COUNT(*) FROM captain_voters)      AS captain_list_voted,
+      (SELECT COUNT(*) FROM positive_texters)    AS positive_texters_voted,
       (SELECT COUNT(*) FROM (
-         SELECT id FROM universe_supporters UNION SELECT id FROM captain_voters
+         SELECT id FROM universe_supporters
+         UNION SELECT id FROM captain_voters
+         UNION SELECT id FROM positive_texters
        ))                                         AS confirmed_mine,
       (SELECT COUNT(*) FROM universe_supporters
          WHERE id IN (SELECT id FROM captain_voters)) AS overlap
@@ -300,6 +326,7 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       confirmed_mine: row.confirmed_mine || 0,
       universe_supporters_voted: row.universe_supporters_voted || 0,
       captain_list_voted: row.captain_list_voted || 0,
+      positive_texters_voted: row.positive_texters_voted || 0,
       overlap: row.overlap || 0,
     });
   } catch (e) {
