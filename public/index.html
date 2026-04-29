@@ -116,9 +116,45 @@ tr:hover td{background:#1e293b80}
 .sub-page.active{display:block}
 .page.active{display:block}
 /* Responsive */
+/* ─── iPad-friendly responsive layer (Batch 2) ───────────────────────
+   Old code only had a 768px breakpoint (phones).  iPad portrait is
+   744-1024px wide and was getting the desktop layout, just squished.
+   This block makes the layout actually fit and stay usable on iPad. */
 @media(max-width:1024px){
   .form-row,.form-row-3{grid-template-columns:1fr}
+  /* Sidebar collapses to icon-only at iPad portrait. */
+  .sidebar{width:64px}
+  .sidebar-logo,.sidebar-section,.nav-item span:not(.icon){display:none}
+  .nav-item{justify-content:center;padding:14px 0}
+  .nav-item .icon{font-size:20px}
+  .main{margin-left:64px}
+  /* Stat cards 2-up on iPad portrait — 5-up was unreadable. */
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:12px}
+  .stat-card{padding:14px 16px}
+  /* Voter table: horizontal-scroll with momentum on touch. */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+  /* Modal-box: more breathing room from edges, scrollable body. */
+  .modal-box{max-width:560px;max-height:88vh;overflow-y:auto;padding:24px}
 }
+
+/* Touch-device polish — applies to iPad and phone but not desktop with
+   a mouse.  Bumps tap targets to 44px (Apple HIG min) and removes
+   hover-only effects that don't trigger on touch. */
+@media(hover:none){
+  button,.btn,.btn-sm,.btn-xs,.nav-item,.sub-tab{min-height:44px}
+  /* xs buttons (chips, list-actions) keep their compact size — they
+     usually have plenty of horizontal space and 44px would look weird. */
+  .btn-xs{min-height:32px}
+  .table-wrap td,.table-wrap th{padding:12px 10px}
+  /* iOS Safari double-tap-to-zoom prevention on buttons. */
+  button,.btn{touch-action:manipulation}
+}
+
+/* Modal action bar — sticky at the bottom of any modal so Save/Cancel
+   stay visible while the user scrolls through long forms.  Apply
+   class="modal-actions" to the bottom button row of any modal. */
+.modal-actions{position:sticky;bottom:-24px;margin:16px -24px -24px;padding:12px 24px;background:#1e293b;border-top:1px solid #334155;border-radius:0 0 12px 12px;display:flex;justify-content:flex-end;gap:8px;z-index:1}
+
 @media(max-width:768px){
   .sidebar{width:60px}
   .sidebar-logo,.sidebar-section,.nav-item span:not(.icon){display:none}
