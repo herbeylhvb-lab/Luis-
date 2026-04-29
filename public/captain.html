@@ -2012,15 +2012,13 @@ function renderListVoters() {
     else if (tab === 'not_voted') voterPool = voters.filter(function(v) { return !v.early_voted; });
     var dupes = voterPool.filter(function(v) { return (v.list_count || 0) > 1; });
     if (dupes.length > 0) {
+      // Slim banner per Luis: count + toggle, no explanation prose.
       var banner = document.createElement('div');
       banner.style.cssText = 'padding:10px 14px;background:#1a1410;border-bottom:1px solid #92400e;border-left:4px solid #f59e0b;font-size:13px;color:#fde68a;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
-      var pct = Math.round(dupes.length / voterPool.length * 100);
       var headline = document.createElement('div');
       headline.style.flex = '1';
-      headline.innerHTML = '<strong>🔁 Overlap warning</strong> — ' +
-        '<strong style="color:#fde047">' + dupes.length + ' of ' + voterPool.length + '</strong>' +
-        ' (' + pct + '%) voters in the <em>' + (tab === 'voted' ? 'Voted' : tab === 'not_voted' ? 'Not Voted' : 'All') + '</em> tab appear on 2+ team lists. ' +
-        '<span style="color:#94a3b8;font-size:11px">If you pay per voter contacted, multiple captains may claim credit for the same person.</span>';
+      headline.innerHTML = '🔁 <strong>' + dupes.length + '</strong> voter' +
+        (dupes.length === 1 ? '' : 's') + ' duplicated';
       banner.appendChild(headline);
       var toggleBtn = document.createElement('button');
       toggleBtn.style.cssText = 'background:' + (_showOnlyDuplicates ? '#f59e0b' : '#1e293b') + ';color:' + (_showOnlyDuplicates ? '#000' : '#fde68a') + ';border:1px solid #f59e0b;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap';
