@@ -10,7 +10,7 @@
 <style>
 .precinct-label{background:rgba(0,0,0,0.6)!important;border:none!important;color:#f59e0b!important;font-size:11px!important;font-weight:700!important;padding:1px 4px!important;border-radius:3px!important;box-shadow:none!important}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;overflow-x:hidden}
 a{color:#818cf8;text-decoration:none}
 /* Sidebar */
 .sidebar{width:220px;background:#1e293b;border-right:1px solid #334155;display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:10}
@@ -32,7 +32,7 @@ a{color:#818cf8;text-decoration:none}
 .conn-dot.off{background:#ef4444}
 .conn-dot.on{background:#22c55e}
 /* Main */
-.main{margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.main{margin-left:220px;flex:1;min-width:0;display:flex;flex-direction:column;min-height:100vh}
 .topbar{background:#1e293b;border-bottom:1px solid #334155;padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
 .topbar h2{font-size:18px;font-weight:600}
 .content{flex:1;padding:24px;overflow-y:auto}
@@ -136,8 +136,12 @@ tr:hover td{background:#1e293b80}
   /* Stat cards 2-up on iPad portrait — 5-up was unreadable. */
   .stats-grid{grid-template-columns:repeat(2,1fr);gap:12px}
   .stat-card{padding:14px 16px}
-  /* Voter table: horizontal-scroll with momentum on touch. */
-  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+  /* Voter table: horizontal-scroll with momentum on touch.  scroll-snap
+     was removed because iOS Safari was occasionally bubbling the snap
+     behavior up to the body, causing page-level horizontal panning that
+     made the whole admin area "slide left/right" when tapping the
+     sidebar. */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   /* Modal-box: more breathing room from edges, scrollable body. */
   .modal-box{max-width:560px;max-height:88vh;overflow-y:auto;padding:24px}
 }
