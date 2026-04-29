@@ -178,11 +178,6 @@ tr:hover td{background:#1e293b80}
   #candidateDetailCard .cand-detail-header{flex-direction:column!important;align-items:stretch!important;gap:10px!important}
   #candidateDetailCard .cand-detail-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:6px!important}
 
-  /* Bare data-tables (no .table-wrap parent) — make them scroll inside
-     a synthetic horizontal-scroll wrapper using `display:block` on
-     the table, which detaches table layout from intrinsic-width
-     calculation.  Keeps the table inside the card. */
-  .card .data-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
 }
 
 /* Touch-device polish — applies to iPad and phone but not desktop with
@@ -3107,7 +3102,11 @@ tr:hover td{background:#1e293b80}
           </div>
         </div>
 
-        <div id="candidatesTableWrap">
+        <!-- table-wrap class adds overflow-x:auto so the 10-column
+             candidates table scrolls horizontally inside the card on
+             iPad/narrow viewports instead of pushing the card past
+             the viewport edge. -->
+        <div id="candidatesTableWrap" class="table-wrap">
           <table class="data-table" id="candidatesTable">
             <thead><tr><th>Name</th><th>Office</th><th>Race</th><th>Code</th><th>Captains</th><th>Lists</th><th>Voters</th><th>Portal Link</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody></tbody>
@@ -3171,10 +3170,14 @@ tr:hover td{background:#1e293b80}
             <option value="all">All Sources</option>
           </select>
         </div>
-        <table class="data-table" id="candidateListsTable">
-          <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
+        <!-- Wrap the All Lists table for horizontal scroll inside the
+             candidate detail card on narrow viewports. -->
+        <div class="table-wrap">
+          <table class="data-table" id="candidateListsTable">
+            <thead><tr><th>Name</th><th>Source</th><th>Voters</th><th>Created</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
         <div id="candidateListsMobile" class="mobile-lists-container" style="display:none"></div>
       </div>
     </div>
