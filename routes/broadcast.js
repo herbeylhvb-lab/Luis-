@@ -282,19 +282,59 @@ router.get('/gotv/confirmed-mine', (req, res) => {
   // '9565551234', '(956) 555-1234' etc. without false negatives.
   const NORM = (col) => `SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${col}, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10)`;
 
-  // Voters whose phone sent a positive inbound text AND who voted.
-  // Unconditional on universe/candidate filters — positive sentiment is a
-  // global GOTV signal; we don't have a candidate→outbound→inbound chain
-  // modeled today, so we treat any inbound positive as in-scope.
-  const positiveCte = `
+  // Voters who VOTED and TEXTED BACK (positive OR neutral, but not negative).
+  //
+  // Design rationale (per Luis): a non-negative reply is a meaningful signal
+  // — voters who don't support don't bother replying.  Including neutrals
+  // (questions like "where do I vote", "thanks", "ok") matches empirical
+  // GOTV research: non-negative responders break for the contacting
+  // candidate at ~60-70%+ rates.
+  //
+  // 3-layer safety filter:
+  //   1. Voted + has at least one inbound message + not on opt-outs
+  //   2. AI holistic sentiment (phone_holistic_sentiment) NOT 'negative'
+  //      if a verdict has been computed
+  //   3. If no AI verdict: at least one non-negative per-message tag
+  //
+  // Holistic verdict wins when present — it considers the whole conversation
+  // and catches "neutral + negative" mixed phones the per-message filter
+  // would miss.  Opt-outs are always excluded as TCPA defense-in-depth.
+  const respondersCte = `
     SELECT DISTINCT v.id FROM voters v
     WHERE v.early_voted = 1
       AND v.phone IS NOT NULL AND v.phone != ''
+      -- Has at least one inbound message
       AND ${NORM('v.phone')} IN (
         SELECT DISTINCT ${NORM('m.phone')}
         FROM messages m
-        WHERE m.direction = 'inbound' AND m.sentiment = 'positive'
+        WHERE m.direction = 'inbound'
           AND m.phone IS NOT NULL AND m.phone != ''
+      )
+      -- AI holistic verdict, if present, must NOT be 'negative'
+      AND NOT EXISTS (
+        SELECT 1 FROM phone_holistic_sentiment phs
+        WHERE phs.phone_norm = ${NORM('v.phone')}
+          AND phs.sentiment = 'negative'
+      )
+      -- If no AI verdict yet, fall back to at least one non-negative
+      -- per-message tag.  If a verdict exists we already passed the
+      -- holistic check above, so accept the row.
+      AND (
+        EXISTS (
+          SELECT 1 FROM phone_holistic_sentiment phs
+          WHERE phs.phone_norm = ${NORM('v.phone')}
+        )
+        OR EXISTS (
+          SELECT 1 FROM messages m
+          WHERE ${NORM('m.phone')} = ${NORM('v.phone')}
+            AND m.direction = 'inbound'
+            AND COALESCE(m.sentiment, 'neutral') != 'negative'
+        )
+      )
+      -- Always exclude opt-outs (TCPA belt-and-suspenders)
+      AND NOT EXISTS (
+        SELECT 1 FROM opt_outs o
+        WHERE ${NORM('o.phone')} = ${NORM('v.phone')}
       )
   `;
 
@@ -306,15 +346,15 @@ router.get('/gotv/confirmed-mine', (req, res) => {
   const sql = `
     WITH universe_supporters AS (${universeCte}),
          captain_voters AS (${captainCte}),
-         positive_texters AS (${positiveCte})
+         responders AS (${respondersCte})
     SELECT
       (SELECT COUNT(*) FROM universe_supporters) AS universe_supporters_voted,
       (SELECT COUNT(*) FROM captain_voters)      AS captain_list_voted,
-      (SELECT COUNT(*) FROM positive_texters)    AS positive_texters_voted,
+      (SELECT COUNT(*) FROM responders)          AS responders_voted,
       (SELECT COUNT(*) FROM (
          SELECT id FROM universe_supporters
          UNION SELECT id FROM captain_voters
-         UNION SELECT id FROM positive_texters
+         UNION SELECT id FROM responders
        ))                                         AS confirmed_mine,
       (SELECT COUNT(*) FROM universe_supporters
          WHERE id IN (SELECT id FROM captain_voters)) AS overlap
@@ -326,7 +366,10 @@ router.get('/gotv/confirmed-mine', (req, res) => {
       confirmed_mine: row.confirmed_mine || 0,
       universe_supporters_voted: row.universe_supporters_voted || 0,
       captain_list_voted: row.captain_list_voted || 0,
-      positive_texters_voted: row.positive_texters_voted || 0,
+      responders_voted: row.responders_voted || 0,
+      // Backward-compat: clients that still read positive_texters_voted
+      // (transient state during deploy) get the new value silently.
+      positive_texters_voted: row.responders_voted || 0,
       overlap: row.overlap || 0,
     });
   } catch (e) {
