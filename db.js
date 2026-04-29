@@ -2043,6 +2043,36 @@ function computeVoteFrequency() {
   console.log('[vote-freq] Computed frequency scores for ' + voterStats.length + ' voters');
 }
 
+// ─── Phone normalization columns + indexes ─────────────────────────────
+// Performance fix: queries that match across tables on phone numbers used
+// to wrap both sides in a 5-nested-REPLACE function call to handle format
+// drift ('+19565551234' vs '9565551234' vs '(956) 555-1234'), which
+// completely defeats every index on the underlying phone columns.  Result:
+// every cross-table phone match was a full scan x full scan.
+//
+// Fix: add a VIRTUAL generated column `phone_norm` to every phone-bearing
+// table that pre-computes the last 10 digits.  VIRTUAL means it costs
+// nothing on writes (no extra row data; computed on read).  We then index
+// the column — SQLite stores the computed values inside the index — so
+// `WHERE phone_norm = ?` lookups become O(log N).
+//
+// Migration is idempotent.
+const PHONE_NORM_EXPR = "SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10)";
+const runDDL = (sql) => { try { db.prepare(sql).run(); } catch (e) {
+  if (!e.message.includes('duplicate column name')
+      && !e.message.includes('already exists')) {
+    console.error('[phone-norm DDL] ' + sql.slice(0, 60) + '... → ' + e.message);
+  }
+} };
+addColumn(`ALTER TABLE voters ADD COLUMN phone_norm TEXT GENERATED ALWAYS AS (${PHONE_NORM_EXPR}) VIRTUAL`);
+addColumn(`ALTER TABLE contacts ADD COLUMN phone_norm TEXT GENERATED ALWAYS AS (${PHONE_NORM_EXPR}) VIRTUAL`);
+addColumn(`ALTER TABLE messages ADD COLUMN phone_norm TEXT GENERATED ALWAYS AS (${PHONE_NORM_EXPR}) VIRTUAL`);
+addColumn(`ALTER TABLE opt_outs ADD COLUMN phone_norm TEXT GENERATED ALWAYS AS (${PHONE_NORM_EXPR}) VIRTUAL`);
+runDDL(`CREATE INDEX IF NOT EXISTS idx_voters_phone_norm ON voters(phone_norm) WHERE phone_norm != ''`);
+runDDL(`CREATE INDEX IF NOT EXISTS idx_contacts_phone_norm ON contacts(phone_norm) WHERE phone_norm != ''`);
+runDDL(`CREATE INDEX IF NOT EXISTS idx_messages_phone_norm ON messages(phone_norm) WHERE phone_norm != ''`);
+runDDL(`CREATE INDEX IF NOT EXISTS idx_opt_outs_phone_norm ON opt_outs(phone_norm) WHERE phone_norm != ''`);
+
 // Compute after startup to avoid health check timeout
 setTimeout(() => {
   try { computePartyScores(); } catch (e) { console.error('[party-score] Error:', e.message); }

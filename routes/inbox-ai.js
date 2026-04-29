@@ -38,15 +38,18 @@ function normalizePhone(phone) {
 // a model occasionally rationalizes a "STOP texting me" as polite request.
 const OPT_OUT_PATTERNS = /\b(stop|unsubscribe|quit|cancel|opt[\s-]?out|do not text|leave me alone)\b/i;
 
-// Get all inbound messages for a phone, normalized.  Used by both the
-// /grouped-by-phone endpoint (rendering) and /eval-sentiment (input to AI).
+// Get all inbound messages for a phone.  Uses the indexed phone_norm
+// generated column (idx_messages_phone_norm) — direct equality, no
+// per-row function calls.  The `AND phone_norm != ''` is required for
+// the partial index to be picked up by the optimizer.
 function loadConversation(phoneNorm) {
+  if (!phoneNorm) return [];
   return db.prepare(`
-    SELECT id, body, sentiment, timestamp,
-      SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10) AS phone_norm
+    SELECT id, body, sentiment, timestamp, phone_norm
     FROM messages
     WHERE direction = 'inbound'
-      AND SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10) = ?
+      AND phone_norm = ?
+      AND phone_norm != ''
     ORDER BY id ASC
   `).all(phoneNorm);
 }
@@ -79,26 +82,47 @@ router.get('/inbox/grouped-by-phone', (req, res) => {
     return res.status(400).json({ error: 'Invalid sentiment filter.' });
   }
 
-  // Pull the full inbound message list, grouped client-side here for the
-  // contact_name resolution.  At ~10K inbound messages this is still cheap
-  // (single indexed scan); scale revisit at 100K+.
+  // Pull the full inbound message list using the phone_norm generated
+  // column on messages (indexed via idx_messages_phone_norm).  We resolve
+  // contact_name via a JS-side hash map built from a single voters scan
+  // and a single contacts scan — instead of correlated subqueries that
+  // ran NORM(v.phone) for every voter row × every inbound message row.
+  // Old shape: O(messages × voters) ≈ 200M ops at campaign scale.
+  // New shape: O(messages) + O(voters) + O(contacts) ≈ 250K ops.
   const rows = db.prepare(`
-    SELECT m.id, m.phone, m.body, m.sentiment, m.timestamp,
-      SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(m.phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10) AS phone_norm,
-      COALESCE(
-        (SELECT v.first_name || ' ' || v.last_name FROM voters v
-          WHERE SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(v.phone,'+',''),'-',''),' ',''),'(',''),')',''),-10) =
-                SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(m.phone,'+',''),'-',''),' ',''),'(',''),')',''),-10)
-            AND v.phone != '' LIMIT 1),
-        (SELECT c.first_name || ' ' || c.last_name FROM contacts c
-          WHERE SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone,'+',''),'-',''),' ',''),'(',''),')',''),-10) =
-                SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(m.phone,'+',''),'-',''),' ',''),'(',''),')',''),-10)
-            AND c.phone != '' LIMIT 1)
-      ) AS contact_name
+    SELECT m.id, m.phone, m.body, m.sentiment, m.timestamp, m.phone_norm
     FROM messages m
     WHERE m.direction = 'inbound'
     ORDER BY m.id DESC
   `).all();
+
+  // Build phone_norm → name lookup once per request.  Voters table is the
+  // big one (~210K) but pulling a 50K-name map is ~2-3MB and ~150ms worst
+  // case — vastly cheaper than the per-message correlated subqueries.
+  const nameMap = new Map();
+  const voterNames = db.prepare(
+    `SELECT phone_norm, first_name, last_name FROM voters
+       WHERE phone_norm != '' AND phone_norm IS NOT NULL`
+  ).all();
+  for (const v of voterNames) {
+    if (!nameMap.has(v.phone_norm)) {
+      nameMap.set(v.phone_norm, ((v.first_name || '') + ' ' + (v.last_name || '')).trim());
+    }
+  }
+  const contactNames = db.prepare(
+    `SELECT phone_norm, first_name, last_name FROM contacts
+       WHERE phone_norm != '' AND phone_norm IS NOT NULL`
+  ).all();
+  for (const c of contactNames) {
+    if (!nameMap.has(c.phone_norm)) {
+      // Voters take precedence — only fill in from contacts if no voter match.
+      nameMap.set(c.phone_norm, ((c.first_name || '') + ' ' + (c.last_name || '')).trim());
+    }
+  }
+  // Join into the messages array.
+  for (const r of rows) {
+    r.contact_name = nameMap.get(r.phone_norm) || '';
+  }
 
   // Group by phone_norm.  Display phone is the most-recently-stored format.
   const groupMap = new Map();

@@ -1025,33 +1025,36 @@ app.get('/api/messages/pending', (req, res) => {
     volPhoneParams = phonesArr;
   }
 
-  // Phone normalization helper for SQL — strips non-digits and leading "1" so
-  // "+19565551234", "9565551234", "(956) 555-1234" all compare as "9565551234"
-  const NORM = "SUBSTR(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE($p, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), -10)";
-  const normM = NORM.replace(/\$p/g, 'm.phone');
-  const normM2 = NORM.replace(/\$p/g, 'm2.phone');
-  const normOut = NORM.replace(/\$p/g, 'out_msg.phone');
-  const normOpt = NORM.replace(/\$p/g, 'o.phone');
-
   // Pending = the LATEST message for this phone (any direction) is an inbound.
-  // If the user replied (outbound with higher id), the latest message becomes that outbound
-  // and this inbound drops off automatically. Simpler than NOT EXISTS and more robust
-  // to phone format drift — we just check "is the most recent message an inbound?"
-  // Pending = the LATEST message for this phone (any direction) is an inbound.
-  // No LIMIT here on purpose — this query is naturally bounded by the count
-  // of *unique phones* currently needing a response, which maxes out in the
-  // low thousands even for big campaigns.  The previous LIMIT 100 was
-  // silently hiding hundreds of unreplied conversations during peak periods.
+  // If the user replied (outbound with higher id), the latest message becomes
+  // that outbound and this inbound drops off automatically.  Simpler than
+  // NOT EXISTS, robust to phone format drift via the indexed `phone_norm`
+  // generated column.
+  //
+  // Performance: previously this query wrapped both sides of every JOIN /
+  // subquery comparison in a 5-nested-REPLACE function, which defeated
+  // every index.  Now every comparison is `phone_norm = ?` (or column-
+  // to-column on the same indexed column), all served by partial indexes:
+  //   idx_messages_phone_norm, idx_voters_phone_norm,
+  //   idx_contacts_phone_norm, idx_opt_outs_phone_norm
+  //
+  // The `AND phone_norm != ''` predicates are needed for the optimizer to
+  // pick up the partial index — without them SQLite plans a full SCAN.
   const pending = db.prepare(`
     SELECT m.*,
       COALESCE(
-        (SELECT v.first_name || ' ' || v.last_name FROM voters v WHERE ${NORM.replace(/\$p/g, 'v.phone')} = ${normM} AND v.phone != '' LIMIT 1),
-        (SELECT c.first_name || ' ' || c.last_name FROM contacts c WHERE ${NORM.replace(/\$p/g, 'c.phone')} = ${normM} AND c.phone != '' LIMIT 1)
-      ) as contact_name
+        (SELECT v.first_name || ' ' || v.last_name FROM voters v
+           WHERE v.phone_norm = m.phone_norm AND v.phone_norm != '' LIMIT 1),
+        (SELECT c.first_name || ' ' || c.last_name FROM contacts c
+           WHERE c.phone_norm = m.phone_norm AND c.phone_norm != '' LIMIT 1)
+      ) AS contact_name
     FROM messages m
     WHERE m.direction = 'inbound'
-      AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE ${normM2} = ${normM})
-      AND NOT EXISTS (SELECT 1 FROM opt_outs o WHERE ${normOpt} = ${normM})
+      AND m.phone_norm != ''
+      AND m.id = (SELECT MAX(m2.id) FROM messages m2
+                    WHERE m2.phone_norm = m.phone_norm AND m2.phone_norm != '')
+      AND NOT EXISTS (SELECT 1 FROM opt_outs o
+                        WHERE o.phone_norm = m.phone_norm AND o.phone_norm != '')
       ${volPhoneFilter}
     ORDER BY m.id DESC
   `).all(...volPhoneParams);
