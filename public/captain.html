@@ -2455,6 +2455,22 @@ function renderListVoters() {
     a.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
     info.appendChild(a);
 
+    // When the "Show only duplicates" filter is active, expand the
+    // hover-tooltip list-names into a visible inline row.  Helpful when
+    // the captain is auditing GOTV billing — they can scan the list and
+    // see at a glance which other captains claim each voter, without
+    // having to hover every badge.  Only renders for actual dupes
+    // (list_count > 1) on the all-team view in dupes-only mode.
+    if (captainState.selectedListType === 'all-team'
+        && _showOnlyDuplicates
+        && (v.list_count || 0) > 1
+        && v.list_names) {
+      var listsLine = document.createElement('div');
+      listsLine.style.cssText = 'font-size:11px;color:#fbbf24;margin-top:2px;font-style:italic';
+      listsLine.textContent = '⤴ On lists: ' + v.list_names;
+      info.appendChild(listsLine);
+    }
+
     if (v.phone || v.email) {
       var contact = document.createElement('div');
       contact.style.cssText = 'font-size:11px;color:#818cf8;margin-top:2px';
