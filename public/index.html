@@ -144,6 +144,25 @@ tr:hover td{background:#1e293b80}
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   /* Modal-box: more breathing room from edges, scrollable body. */
   .modal-box{max-width:560px;max-height:88vh;overflow-y:auto;padding:24px}
+
+  /* Candidate-detail captain cards stack on iPad too — the .captain-
+     card-mobile rules below (defined at 768px) need to apply here too
+     because iPad portrait sits at 768-834px wide.  Without these the
+     captain card's right-side action buttons + left-side name+code
+     overflow the card on iPad.  Cards now stack vertically: left
+     info on top, action buttons in a 3-column grid below. */
+  .captain-card-mobile .captain-header-row{flex-direction:column!important;align-items:stretch!important;gap:8px!important}
+  .captain-card-mobile .captain-left-info{flex-wrap:wrap!important;gap:6px!important}
+  .captain-card-mobile .captain-left-info span{font-size:11px!important}
+  .captain-card-mobile .captain-btns{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:4px!important;width:100%!important}
+  .captain-card-mobile .captain-btns .btn{font-size:11px!important;padding:6px 4px!important;text-align:center!important;white-space:nowrap}
+  /* Same for candidate-detail header — buttons stack on a 2-col grid. */
+  #candidateDetailCard .cand-detail-header{flex-direction:column!important;align-items:stretch!important;gap:10px!important}
+  #candidateDetailCard .cand-detail-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:6px!important}
+  /* Long captain names and codes should ellipsis-truncate inside their
+     containers rather than overflow the card on narrow viewports. */
+  .captain-card-mobile .captain-left-info .name,
+  .captain-card-mobile .captain-left-info span:first-child{overflow:hidden;text-overflow:ellipsis}
 }
 
 /* Touch-device polish — applies to iPad and phone but not desktop with
