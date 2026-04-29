@@ -4254,7 +4254,170 @@ function filterInbox(sentiment) {
     else if (sentiment === 'neutral') active.style.background = 'rgba(100,116,139,0.2)';
     else active.style.background = '';
   }
-  renderInboxMessages(inboxData);
+  // Positive / Negative use the AI-grouped-by-phone view (one row per phone
+  // with holistic sentiment).  All / Neutral keep the original message-by-
+  // message view since holistic only meaningfully changes things for the
+  // pos/neg cases (those are what overlap on a single phone).
+  if (sentiment === 'positive' || sentiment === 'negative') {
+    loadInboxGrouped(sentiment);
+  } else {
+    renderInboxMessages(inboxData);
+  }
+}
+
+// ─── Grouped-by-phone inbox view (AI holistic sentiment) ──────────────
+// Used for Positive/Negative filters.  Hits /api/inbox/grouped-by-phone,
+// renders one row per phone with the holistic AI sentiment as the headline
+// badge and the full message stack underneath.  Phones lacking a current
+// AI cache are surfaced in `pending_eval` — kicked off in the background
+// via /api/inbox/eval-sentiment in batches of 10.
+async function loadInboxGrouped(sentiment) {
+  var el = document.getElementById('inboxMessages');
+  el.textContent = '';
+  var loading = document.createElement('div');
+  loading.style.cssText = 'color:#94a3b8;font-size:14px;padding:12px';
+  loading.textContent = 'Loading conversations…';
+  el.appendChild(loading);
+  try {
+    var data = await api('/api/inbox/grouped-by-phone?sentiment=' + encodeURIComponent(sentiment));
+    renderGroupedConversations(data, sentiment);
+    // Fire AI eval for any phones lacking a current cache, in the background.
+    if (Array.isArray(data.pending_eval) && data.pending_eval.length > 0) {
+      kickoffPendingEval(data.pending_eval, sentiment);
+    }
+  } catch (e) {
+    el.textContent = '';
+    var errEl = document.createElement('div');
+    errEl.style.cssText = 'color:#ef4444;font-size:14px;padding:12px';
+    errEl.textContent = 'Failed to load conversations: ' + (e.message || 'unknown');
+    el.appendChild(errEl);
+  }
+}
+
+function renderGroupedConversations(data, sentiment) {
+  var el = document.getElementById('inboxMessages');
+  el.textContent = '';
+  var groups = (data && data.groups) || [];
+  var summary = document.getElementById('inboxSentimentSummary');
+  summary.textContent = '';
+  // Replace the per-message sentiment summary with a phone-level one.
+  var totalLabel = '• ' + groups.length.toLocaleString() + ' ' +
+    sentiment.charAt(0).toUpperCase() + sentiment.slice(1) + ' phone(s)';
+  if (data.pending_eval && data.pending_eval.length > 0) {
+    totalLabel += '  • ⚙ Evaluating ' + data.pending_eval.length + ' new conversation(s)';
+  }
+  var span = document.createElement('span');
+  span.style.color = '#94a3b8';
+  span.textContent = totalLabel;
+  summary.appendChild(span);
+
+  if (groups.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'color:#64748b;font-size:14px;padding:12px';
+    empty.textContent = 'No phones classified as ' + sentiment + ' yet.';
+    el.appendChild(empty);
+    return;
+  }
+  groups.forEach(function(g) { el.appendChild(buildPhoneGroupItem(g)); });
+}
+
+// Build one phone-grouped row with AI badge + stacked messages.
+// Designed to mirror the visual feel of buildMsgItem so the inbox
+// doesn't feel jarringly different when switching filters.
+function buildPhoneGroupItem(g) {
+  var item = document.createElement('div');
+  item.className = 'msg-item';
+  item.dataset.phone = g.phone;
+
+  // Phone / name row
+  var header = document.createElement('div');
+  header.className = 'phone';
+  if (g.contact_name && g.contact_name.trim()) {
+    var nameEl = document.createElement('strong');
+    nameEl.style.color = '#e2e8f0';
+    nameEl.textContent = g.contact_name.trim();
+    header.appendChild(nameEl);
+    var phoneSpan = document.createElement('span');
+    phoneSpan.style.cssText = 'color:#64748b;font-size:12px;margin-left:4px';
+    phoneSpan.textContent = '(' + (g.phone_display || g.phone) + ')';
+    header.appendChild(phoneSpan);
+  } else {
+    header.textContent = g.phone_display || g.phone;
+  }
+  // AI holistic badge + count pill + stale indicator
+  var badge = document.createElement('span');
+  badge.style.marginLeft = '8px';
+  if (g.holistic_sentiment === 'positive') { badge.className = 'badge badge-green'; badge.textContent = '✨ AI: Positive'; }
+  else if (g.holistic_sentiment === 'negative') { badge.className = 'badge badge-red'; badge.textContent = '✨ AI: Negative'; }
+  else { badge.className = 'badge badge-gray'; badge.textContent = '✨ AI: Neutral'; }
+  if (g.holistic_reason) badge.title = g.holistic_reason;
+  header.appendChild(badge);
+  var countPill = document.createElement('span');
+  countPill.style.cssText = 'margin-left:6px;background:#1e293b;color:#94a3b8;font-size:11px;padding:2px 6px;border-radius:10px';
+  countPill.textContent = '× ' + (g.message_count || g.messages.length) + ' message(s)';
+  header.appendChild(countPill);
+  if (g.is_stale) {
+    var staleSpan = document.createElement('span');
+    staleSpan.style.cssText = 'margin-left:6px;color:#fbbf24;font-size:11px';
+    staleSpan.textContent = '⚙ evaluating…';
+    staleSpan.dataset.staleMarker = '1';
+    header.appendChild(staleSpan);
+  }
+  item.appendChild(header);
+
+  // Reason line (if present) — small, subtle
+  if (g.holistic_reason) {
+    var reasonEl = document.createElement('div');
+    reasonEl.style.cssText = 'font-size:12px;color:#94a3b8;font-style:italic;margin:2px 0 6px';
+    reasonEl.textContent = '— ' + g.holistic_reason;
+    item.appendChild(reasonEl);
+  }
+
+  // Message stack — all inbound messages from this phone with their
+  // per-message tags so the user can see WHY the AI landed where it did.
+  var stack = document.createElement('div');
+  stack.style.cssText = 'border-left:2px solid #334155;padding-left:10px;margin-top:6px';
+  (g.messages || []).forEach(function(m) {
+    var line = document.createElement('div');
+    line.style.cssText = 'margin-bottom:6px;font-size:13px;color:#cbd5e1';
+    var tag = document.createElement('span');
+    tag.style.cssText = 'font-size:10px;padding:1px 5px;border-radius:6px;margin-right:6px;text-transform:uppercase;letter-spacing:0.5px';
+    if (m.sentiment === 'positive') { tag.style.cssText += 'background:rgba(34,197,94,0.2);color:#86efac'; tag.textContent = '▲ pos'; }
+    else if (m.sentiment === 'negative') { tag.style.cssText += 'background:rgba(239,68,68,0.2);color:#fca5a5'; tag.textContent = '▼ neg'; }
+    else { tag.style.cssText += 'background:rgba(100,116,139,0.2);color:#94a3b8'; tag.textContent = '─ neu'; }
+    line.appendChild(tag);
+    var bodyEl = document.createElement('span');
+    bodyEl.textContent = m.body || '';
+    line.appendChild(bodyEl);
+    if (m.timestamp) {
+      var t = document.createElement('div');
+      t.style.cssText = 'font-size:11px;color:#64748b;margin-top:1px;margin-left:32px';
+      t.textContent = utcToLocal(m.timestamp).toLocaleString();
+      line.appendChild(t);
+    }
+    stack.appendChild(line);
+  });
+  item.appendChild(stack);
+  return item;
+}
+
+// Background AI eval driver — POSTs phones in batches of 10 to
+// /api/inbox/eval-sentiment, then refreshes the grouped view once all
+// batches complete so freshly-evaluated phones move into their proper
+// sentiment bucket.  Concurrency is server-capped at 5 per request.
+async function kickoffPendingEval(phones, sentimentFilter) {
+  var BATCH = 10;
+  var promises = [];
+  for (var i = 0; i < phones.length; i += BATCH) {
+    var batch = phones.slice(i, i + BATCH);
+    promises.push(apiPost('/api/inbox/eval-sentiment', { phones: batch }).catch(function(e) {
+      console.warn('[inbox-ai] eval batch failed:', e.message || e);
+      return null;
+    }));
+  }
+  await Promise.all(promises);
+  // Re-fetch the grouped view; phones may now move between buckets.
+  if (inboxFilter === sentimentFilter) loadInboxGrouped(sentimentFilter);
 }
 
 async function buildListFromInbox() {

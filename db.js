@@ -73,6 +73,21 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
+  -- Cache of AI-derived holistic sentiment per phone (one row per unique
+  -- phone, keyed by last-10-digits normalization).  Populated on demand by
+  -- /api/inbox/eval-sentiment which feeds the entire conversation to Claude
+  -- and stores back the classification.  Stale when new inbound messages
+  -- have arrived since last_message_id — clients trigger re-evaluation.
+  CREATE TABLE IF NOT EXISTS phone_holistic_sentiment (
+    phone_norm TEXT PRIMARY KEY,
+    sentiment TEXT NOT NULL,
+    reason TEXT,
+    evaluated_at TEXT DEFAULT (datetime('now')),
+    last_message_id INTEGER,
+    message_count INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_phs_sentiment ON phone_holistic_sentiment(sentiment);
+
 `);
 
 // --- Block Walk tables ---

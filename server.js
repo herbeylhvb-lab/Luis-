@@ -350,6 +350,7 @@ app.use('/api', require('./routes/surveys'));
 app.use('/api', require('./routes/broadcast'));
 app.use('/api', require('./routes/rumbleup'));
 app.use('/api', require('./routes/trends'));
+app.use('/api', require('./routes/inbox-ai'));
 
 // --- Core endpoints ---
 
