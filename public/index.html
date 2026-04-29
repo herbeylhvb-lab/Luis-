@@ -1714,10 +1714,33 @@ tr:hover td{background:#1e293b80}
             <button class="btn btn-sm" style="background:#3b82f6;border-color:#2563eb" onclick="emailThisList()">📧 Email This List</button>
             <button class="btn btn-sm" style="background:#0284c7;border-color:#0369a1" onclick="toggleHouseholdView()">🏠 Household View</button>
             <button class="btn btn-sm" style="background:#d97706;border-color:#b45309" onclick="showUploadModal(state.currentAdminListId, '/api/admin-lists/' + state.currentAdminListId + '/bulk-upload', function(){ loadAdminListVoters(state.currentAdminListId); })">📤 Upload CSV</button>
+            <button class="btn btn-sm" style="background:#0891b2;border-color:#0e7490" onclick="openMergeListModal(state.currentAdminListId, document.getElementById('adminListTitle').textContent)">🔀 Merge Into…</button>
+            <button class="btn btn-sm" style="background:#dc2626;border-color:#b91c1c" onclick="removeEarlyVotersFromList(state.currentAdminListId, document.getElementById('adminListTitle').textContent)">🗳️ Remove Early Voters</button>
           </div>
         </div>
         <div id="householdViewContainer" style="display:none;margin-bottom:16px"></div>
         <div class="table-wrap"><table><thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Address</th><th>City</th><th>Party</th><th>Actions</th></tr></thead><tbody id="adminListVotersBody"></tbody></table></div>
+      </div>
+
+      <!-- ─── Merge List modal ──────────────────────────────────────── -->
+      <div id="mergeListModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+        <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;max-width:520px;width:92%;max-height:90vh;overflow-y:auto">
+          <h3 style="margin-top:0;color:#0891b2">🔀 Merge List</h3>
+          <p style="color:#94a3b8;font-size:13px">Pick a target list. Every voter from <strong id="mergeSourceName" style="color:#e2e8f0"></strong> will be added to the target. Voters already in both lists are de-duplicated automatically — no doubles get inserted.</p>
+          <div class="form-group" style="margin-top:12px">
+            <label style="font-size:12px;color:#94a3b8">Target list (where everything ends up)</label>
+            <select id="mergeTargetSelect" style="width:100%;padding:10px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:8px"><option value="">Loading lists…</option></select>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#fbbf24;margin-top:8px;cursor:pointer">
+            <input type="checkbox" id="mergeDeleteSource" style="accent-color:#dc2626;width:16px;height:16px">
+            Delete the source list after merging
+          </label>
+          <div id="mergeListStatus" style="margin-top:12px;font-size:13px;min-height:18px"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('mergeListModal').style.display='none'">Cancel</button>
+            <button class="btn btn-sm" style="background:#0891b2;border-color:#0e7490" onclick="confirmMergeList()">Merge</button>
+          </div>
+        </div>
       </div>
       </div><!-- end lists-tab sub-page -->
 
@@ -14825,6 +14848,88 @@ async function openAdminList(listId, name) {
     triggerListSearchDebounced();
   };
 }
+
+// ─── Merge Lists ────────────────────────────────────────────────────
+// Opens the modal, populates the target dropdown with every OTHER admin
+// list, then waits for the user to pick + confirm.
+async function openMergeListModal(sourceListId, sourceName) {
+  if (!sourceListId) { alert('Open a list first.'); return; }
+  document.getElementById('mergeSourceName').textContent = sourceName || ('List #' + sourceListId);
+  document.getElementById('mergeListStatus').textContent = '';
+  document.getElementById('mergeDeleteSource').checked = false;
+  var sel = document.getElementById('mergeTargetSelect');
+  sel.innerHTML = '<option value="">Loading lists…</option>';
+  document.getElementById('mergeListModal').style.display = 'flex';
+  try {
+    var data = await api('/api/admin-lists');
+    // API returns { lists: [...] } with voterCount (camelCase) per list.
+    var lists = (data.lists || []).filter(function(l) { return l.id !== sourceListId; });
+    if (lists.length === 0) {
+      sel.innerHTML = '<option value="">No other lists available</option>';
+    } else {
+      sel.innerHTML = '<option value="">— Pick a target list —</option>' + lists.map(function(l) {
+        var count = (l.voterCount != null) ? ' (' + l.voterCount + ')' : '';
+        return '<option value="' + l.id + '">' + escHtml(l.name) + count + '</option>';
+      }).join('');
+    }
+  } catch (e) {
+    sel.innerHTML = '<option value="">Failed to load lists</option>';
+  }
+}
+window.openMergeListModal = openMergeListModal;
+
+async function confirmMergeList() {
+  var sourceId = state.currentAdminListId;
+  var targetId = parseInt(document.getElementById('mergeTargetSelect').value, 10);
+  var deleteSource = document.getElementById('mergeDeleteSource').checked;
+  var statusEl = document.getElementById('mergeListStatus');
+  if (!targetId) { statusEl.innerHTML = '<span style="color:#ef4444">Pick a target list first.</span>'; return; }
+  statusEl.innerHTML = '<span style="color:#94a3b8">Merging…</span>';
+  try {
+    var r = await apiPost('/api/admin-lists/' + sourceId + '/merge-into', {
+      target_list_id: targetId,
+      delete_source: deleteSource
+    });
+    var msg = '<span style="color:#22c55e">✓ Merged ' + r.added + ' new voters into <strong>' + escHtml(r.targetListName) + '</strong>';
+    if (r.overlap > 0) msg += ' <span style="color:#94a3b8">(' + r.overlap + ' already in target — skipped)</span>';
+    if (r.sourceDeleted) msg += '<br><span style="color:#fbbf24">Source list deleted.</span>';
+    msg += '</span>';
+    statusEl.innerHTML = msg;
+    // Refresh the lists pane behind the modal so the user sees the new state
+    if (typeof loadAdminLists === 'function') loadAdminLists();
+    // If the source list was deleted, close the detail card
+    if (r.sourceDeleted) {
+      document.getElementById('adminListDetailCard').style.display = 'none';
+      setTimeout(function() { document.getElementById('mergeListModal').style.display = 'none'; }, 1500);
+    }
+  } catch (e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">Merge failed: ' + escHtml(e.message || 'unknown') + '</span>';
+  }
+}
+window.confirmMergeList = confirmMergeList;
+
+// ─── Remove Early Voters from a list ────────────────────────────────
+// Two-step: GET voted-count for a clear confirm dialog, then POST the
+// destructive remove-voted call.
+async function removeEarlyVotersFromList(listId, listName) {
+  if (!listId) return;
+  try {
+    var pre = await api('/api/admin-lists/' + listId + '/voted-count');
+    if (pre.voted === 0) { alert('No early voters in this list. Nothing to remove.'); return; }
+    var msg = 'Remove ' + pre.voted.toLocaleString() + ' early voter(s) from "' + (listName || ('list #' + listId)) + '"?\n\n'
+      + 'List size before: ' + pre.total.toLocaleString() + '\n'
+      + 'List size after:  ' + (pre.total - pre.voted).toLocaleString() + '\n\n'
+      + 'This is permanent. The voter records themselves stay in the database — only their membership in this list is removed.';
+    if (!confirm(msg)) return;
+    var r = await apiPost('/api/admin-lists/' + listId + '/remove-voted', {});
+    alert('✓ Removed ' + r.removed.toLocaleString() + ' early voter(s).\nList now has ' + r.after.toLocaleString() + ' voter(s).');
+    if (typeof loadAdminListVoters === 'function') loadAdminListVoters(listId);
+    if (typeof loadAdminLists === 'function') loadAdminLists();
+  } catch (e) {
+    alert('Failed: ' + (e.message || 'unknown error'));
+  }
+}
+window.removeEarlyVotersFromList = removeEarlyVotersFromList;
 function triggerListSearchDebounced() {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(function() { triggerListSearch(); }, 300);

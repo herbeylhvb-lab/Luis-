@@ -77,6 +77,94 @@ router.delete('/admin-lists/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ─── MERGE: copy all voters from a source list INTO a target list ───
+// Body: { target_list_id, delete_source }
+// Dedup is free thanks to UNIQUE(list_id, voter_id) on admin_list_voters,
+// so INSERT OR IGNORE quietly skips any voter that's already on the target.
+// Optional `delete_source` removes the source list after the union; default is
+// to keep both so the merge is non-destructive.
+router.post('/admin-lists/:id/merge-into', (req, res) => {
+  const sourceId = parseInt(req.params.id, 10);
+  const targetId = parseInt(req.body.target_list_id, 10);
+  const deleteSource = req.body.delete_source === true || req.body.delete_source === 1;
+  if (!Number.isFinite(sourceId) || sourceId <= 0) return res.status(400).json({ error: 'Invalid source list id.' });
+  if (!Number.isFinite(targetId) || targetId <= 0) return res.status(400).json({ error: 'target_list_id required.' });
+  if (sourceId === targetId) return res.status(400).json({ error: 'Cannot merge a list into itself.' });
+  const source = db.prepare('SELECT id, name FROM admin_lists WHERE id = ?').get(sourceId);
+  const target = db.prepare('SELECT id, name FROM admin_lists WHERE id = ?').get(targetId);
+  if (!source) return res.status(404).json({ error: 'Source list not found.' });
+  if (!target) return res.status(404).json({ error: 'Target list not found.' });
+
+  // Count source size and pre-existing overlap so we can report a useful summary
+  const sourceCount = db.prepare('SELECT COUNT(*) as c FROM admin_list_voters WHERE list_id = ?').get(sourceId).c;
+  const overlap = db.prepare(`
+    SELECT COUNT(*) as c
+    FROM admin_list_voters a
+    WHERE a.list_id = ? AND a.voter_id IN (SELECT voter_id FROM admin_list_voters WHERE list_id = ?)
+  `).get(sourceId, targetId).c;
+
+  const tx = db.transaction(() => {
+    const r = db.prepare(`
+      INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id)
+      SELECT ?, voter_id FROM admin_list_voters WHERE list_id = ?
+    `).run(targetId, sourceId);
+    let removedSource = 0;
+    if (deleteSource) {
+      db.prepare('DELETE FROM admin_list_voters WHERE list_id = ?').run(sourceId);
+      const dr = db.prepare('DELETE FROM admin_lists WHERE id = ?').run(sourceId);
+      removedSource = dr.changes;
+    }
+    return { added: r.changes, removedSource };
+  });
+  const { added, removedSource } = tx();
+  res.json({
+    success: true,
+    sourceListId: sourceId,
+    sourceListName: source.name,
+    targetListId: targetId,
+    targetListName: target.name,
+    sourceCount,
+    overlap,
+    added,
+    sourceDeleted: removedSource > 0
+  });
+});
+
+// ─── REMOVE EARLY VOTERS from a list (in-place) ───
+// Deletes admin_list_voters rows where the underlying voter has early_voted=1.
+// Use this once early voting is over for a slice of voters and you want to
+// keep the list lean for chase texting / walking.  This is *destructive* —
+// for non-destructive filtering, exporters already accept ?exclude_voted=1.
+router.post('/admin-lists/:id/remove-voted', (req, res) => {
+  const listId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(listId) || listId <= 0) return res.status(400).json({ error: 'Invalid list id.' });
+  const list = db.prepare('SELECT id, name FROM admin_lists WHERE id = ?').get(listId);
+  if (!list) return res.status(404).json({ error: 'List not found.' });
+  const before = db.prepare('SELECT COUNT(*) as c FROM admin_list_voters WHERE list_id = ?').get(listId).c;
+  const r = db.prepare(`
+    DELETE FROM admin_list_voters
+    WHERE list_id = ?
+      AND voter_id IN (SELECT id FROM voters WHERE early_voted = 1)
+  `).run(listId);
+  const after = db.prepare('SELECT COUNT(*) as c FROM admin_list_voters WHERE list_id = ?').get(listId).c;
+  res.json({ success: true, removed: r.changes, before, after, listName: list.name });
+});
+
+// Count how many voters in a list have already early-voted (preview before
+// calling /remove-voted so the UI can show a confirm dialog).
+router.get('/admin-lists/:id/voted-count', (req, res) => {
+  const listId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(listId) || listId <= 0) return res.status(400).json({ error: 'Invalid list id.' });
+  const total = db.prepare('SELECT COUNT(*) as c FROM admin_list_voters WHERE list_id = ?').get(listId).c;
+  const voted = db.prepare(`
+    SELECT COUNT(*) as c
+    FROM admin_list_voters alv
+    JOIN voters v ON alv.voter_id = v.id
+    WHERE alv.list_id = ? AND v.early_voted = 1
+  `).get(listId).c;
+  res.json({ total, voted });
+});
+
 // Add voters to list
 router.post('/admin-lists/:id/voters', (req, res) => {
   const { voterIds } = req.body;
