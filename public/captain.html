@@ -2409,11 +2409,13 @@ function renderListVoters() {
     idBadge.style.cssText = 'font-size:10px;color:#64748b;font-weight:400';
     idBadge.textContent = '#' + (v.registration_number || v.county_file_id || v.vanid || '');
     nameRow.appendChild(idBadge);
-    // Per-row dupe badge — appears whenever 2+ different CAPTAINS claim
-    // this voter (the GOTV billing-relevant signal).  Badge text shows
-    // captain count; tooltip shows the captain names directly so a
-    // hover answers "who claims this voter?" without a click.
-    if (captainState.selectedListType === 'all-team' && (v.captain_count || 0) > 1) {
+    // Per-row dupe badge — only when Luis explicitly clicks "Show only
+    // duplicates" AND the voter is genuinely shared (2+ captains).
+    // Outside that flow, captain attribution adds noise on the row, so
+    // we keep it hidden until the captain is auditing billing overlap.
+    if (captainState.selectedListType === 'all-team'
+        && _showOnlyDuplicates
+        && (v.captain_count || 0) > 1) {
       var dupBadge = document.createElement('span');
       dupBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid #f59e0b;white-space:nowrap';
       dupBadge.textContent = '× ' + v.captain_count + ' captains';
