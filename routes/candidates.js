@@ -743,6 +743,109 @@ router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, r
   res.json({ list, voters });
 });
 
+// ─── Phone editing for candidates ─────────────────────────────────────
+// Mirrors the captain-side update/erase/add-phone endpoints but skips
+// the captain's password-unlock gate (candidates already authenticated
+// via their candidate code, and they own the campaign — they don't need
+// the extra friction the captain gate exists to add).
+//
+// All three endpoints write a voter_contacts row tagged 'PhoneUpdate'
+// for full audit trail.  erase-phone auto-promotes downstream slots
+// (secondary→primary, tertiary→secondary) when the primary is cleared,
+// so the voter never ends up with phones-in-tertiary-but-empty-primary.
+const CAND_PHONE_SLOTS = { primary: 'phone', secondary: 'secondary_phone', tertiary: 'tertiary_phone' };
+
+router.post('/candidates/:id/update-phone', requireCandidateAuth, (req, res) => {
+  const { voter_id, slot, new_phone } = req.body || {};
+  if (!voter_id || !slot || !new_phone) return res.status(400).json({ error: 'voter_id, slot, and new_phone required.' });
+  if (!CAND_PHONE_SLOTS[slot]) return res.status(400).json({ error: 'Invalid slot.' });
+  const digits = String(new_phone).replace(/\D/g, '');
+  if (digits.length < 10) return res.status(400).json({ error: 'Phone must be at least 10 digits.' });
+  const col = CAND_PHONE_SLOTS[slot];
+  const voter = db.prepare(`SELECT ${col} AS old_value FROM voters WHERE id = ?`).get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  const byLabel = 'Candidate #' + req.params.id;
+  const txn = db.transaction(() => {
+    db.prepare(`UPDATE voters SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`).run(digits, voter_id);
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'replaced', ?, ?, datetime('now'))"
+    ).run(voter_id, 'Slot: ' + slot + ' · Old: ' + (voter.old_value || '(empty)') + ' → New: ' + digits, byLabel);
+  });
+  txn();
+  res.json({ success: true });
+});
+
+router.post('/candidates/:id/erase-phone', requireCandidateAuth, (req, res) => {
+  const { voter_id, slot } = req.body || {};
+  if (!voter_id || !slot) return res.status(400).json({ error: 'voter_id and slot required.' });
+  if (!CAND_PHONE_SLOTS[slot]) return res.status(400).json({ error: 'Invalid slot.' });
+  const voter = db.prepare('SELECT phone, secondary_phone, tertiary_phone FROM voters WHERE id = ?').get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  const byLabel = 'Candidate #' + req.params.id;
+  const txn = db.transaction(() => {
+    const oldValue = voter[CAND_PHONE_SLOTS[slot]] || '';
+    const hasDownstream = !!(voter.secondary_phone || voter.tertiary_phone);
+    if (slot === 'primary' && hasDownstream) {
+      // Auto-promote: keep primary populated by pulling from
+      // secondary or tertiary.  Without this, erasing primary would
+      // leave the voter callable only via tertiary, which most code
+      // paths don't read first.
+      let newPrimary, newSecondary, promoteNote;
+      if (voter.secondary_phone) {
+        newPrimary = voter.secondary_phone;
+        newSecondary = voter.tertiary_phone || '';
+        promoteNote = 'Promoted secondary → primary: ' + newPrimary +
+          (voter.tertiary_phone ? ' · tertiary → secondary: ' + voter.tertiary_phone : '');
+      } else {
+        newPrimary = voter.tertiary_phone;
+        newSecondary = '';
+        promoteNote = 'Promoted tertiary → primary: ' + newPrimary;
+      }
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', updated_at = datetime('now') WHERE id = ?")
+        .run(newPrimary, newSecondary, voter_id);
+      db.prepare(
+        "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
+      ).run(voter_id, 'Slot: primary · Old: ' + oldValue, byLabel);
+      db.prepare(
+        "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'promoted', ?, ?, datetime('now'))"
+      ).run(voter_id, promoteNote, byLabel);
+    } else {
+      const col = CAND_PHONE_SLOTS[slot];
+      db.prepare(`UPDATE voters SET ${col} = '', updated_at = datetime('now') WHERE id = ?`).run(voter_id);
+      db.prepare(
+        "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
+      ).run(voter_id, 'Slot: ' + slot + ' · Old: ' + oldValue, byLabel);
+    }
+  });
+  txn();
+  res.json({ success: true });
+});
+
+router.post('/candidates/:id/add-phone', requireCandidateAuth, (req, res) => {
+  const { voter_id, new_phone } = req.body || {};
+  if (!voter_id || !new_phone) return res.status(400).json({ error: 'voter_id and new_phone required.' });
+  const digits = String(new_phone).replace(/\D/g, '');
+  if (digits.length < 10) return res.status(400).json({ error: 'Phone must be at least 10 digits.' });
+  const voter = db.prepare('SELECT phone, secondary_phone, tertiary_phone FROM voters WHERE id = ?').get(voter_id);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  // Pick the first empty slot — primary first, then secondary, then tertiary.
+  let targetSlot = null;
+  if (!(voter.phone && voter.phone.trim())) targetSlot = 'primary';
+  else if (!(voter.secondary_phone && voter.secondary_phone.trim())) targetSlot = 'secondary';
+  else if (!(voter.tertiary_phone && voter.tertiary_phone.trim())) targetSlot = 'tertiary';
+  if (!targetSlot) return res.status(409).json({ error: 'All 3 phone slots are full — use Update or Erase.' });
+  const col = CAND_PHONE_SLOTS[targetSlot];
+  const byLabel = 'Candidate #' + req.params.id;
+  const txn = db.transaction(() => {
+    db.prepare(`UPDATE voters SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`).run(digits, voter_id);
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'added', ?, ?, datetime('now'))"
+    ).run(voter_id, 'Slot: ' + targetSlot + ' · Added: ' + digits, byLabel);
+  });
+  txn();
+  res.json({ success: true, slot: targetSlot });
+});
+
 // Update support level on a voter (global — not list-scoped).  Lets
 // candidates tag voters as Strong Support / Lean / Undecided / Unknown /
 // Lean Oppose / Strong Oppose / Refused as they research them.  The

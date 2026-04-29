@@ -2535,6 +2535,21 @@ function renderListVoterRows(voters, content, listId) {
     row.appendChild(infoDiv);
     if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
+    // Phone editor button \u2014 opens overlay with 3-slot phone management.
+    var phoneBtn = document.createElement('button');
+    var hasAnyPhone = !!(v.phone || v.secondary_phone || v.tertiary_phone);
+    phoneBtn.style.cssText = 'background:none;border:none;cursor:pointer;padding:4px 6px;font-size:14px;line-height:1;color:' +
+      (hasAnyPhone ? '#22c55e' : '#475569') + ';margin-right:2px';
+    phoneBtn.textContent = '\ud83d\udcde';
+    phoneBtn.title = hasAnyPhone ? 'Edit phones' : 'Add phone';
+    (function(voter, lid) {
+      phoneBtn.onclick = function(e) {
+        e.stopPropagation();
+        openCandidatePhoneEditor(voter, lid);
+      };
+    })(v, listId);
+    row.appendChild(phoneBtn);
+
     // Notes editor button \u2014 amber when notes exist, grey when empty.
     var noteBtn = document.createElement('button');
     var hasNotes = !!(v.list_notes && v.list_notes.trim());
@@ -2573,6 +2588,163 @@ function renderListVoterRows(voters, content, listId) {
     content.appendChild(makeVoterRow(v, true));
   });
 }
+
+// ─── Phone editor overlay — manages all 3 phone slots ─────────────
+// Shows the current phone in each slot (primary/secondary/tertiary) with
+// Edit / Erase buttons.  An "Add" button appears for the first empty
+// slot (we add into the first empty slot rather than letting the user
+// pick — keeps the data clean and avoids tertiary-without-primary
+// arrangements that confuse downstream queries).
+//
+// On Save, refreshes the row's phone display + button color via a
+// targeted in-memory update + re-render of the current voter list.
+function openCandidatePhoneEditor(voter, listId) {
+  var existing = document.getElementById('candPhoneOverlay');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'candPhoneOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:12px;padding:18px;max-width:420px;width:100%';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 4px;color:#e2e8f0;font-size:15px';
+  title.textContent = 'Phone Numbers — ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
+  box.appendChild(title);
+
+  var sub = document.createElement('div');
+  sub.style.cssText = 'color:#64748b;font-size:11px;margin-bottom:12px';
+  sub.textContent = 'Erasing primary auto-promotes secondary or tertiary so the voter stays callable.';
+  box.appendChild(sub);
+
+  var status = document.createElement('div');
+  status.style.cssText = 'font-size:12px;min-height:18px;margin-bottom:8px';
+  box.appendChild(status);
+
+  function commit(action, body) {
+    status.style.color = '#94a3b8';
+    status.textContent = 'Saving…';
+    return apiPost('/api/candidates/' + candidateId + '/' + action, body)
+      .then(function() {
+        status.style.color = '#22c55e';
+        status.textContent = '✓ Saved';
+        // Re-fetch the current voter to pick up the auto-promote shuffle
+        // (erase-primary moves secondary into primary, etc.).  Cheaper
+        // than refetching the whole list.
+        return api('/api/candidates/' + candidateId + '/lists/' + listId + '/voters').then(function(data) {
+          if (data && Array.isArray(data.voters)) {
+            currentRightPanelVoters = data.voters;
+            var content = document.getElementById('rightListContent');
+            if (content) renderListVoterRows(currentRightPanelVoters, content, listId);
+            var fresh = data.voters.find(function(x) { return x.id === voter.id; });
+            if (fresh) {
+              voter.phone = fresh.phone;
+              voter.secondary_phone = fresh.secondary_phone;
+              voter.tertiary_phone = fresh.tertiary_phone;
+              renderSlots();
+            }
+          }
+        });
+      }, function(err) {
+        status.style.color = '#ef4444';
+        status.textContent = 'Failed: ' + (err.message || 'unknown');
+      });
+  }
+
+  function renderSlots() {
+    // Wipe old slot rows so we can re-render after a save.
+    var oldSlots = box.querySelectorAll('[data-phone-slot]');
+    oldSlots.forEach(function(el) { el.remove(); });
+
+    var slots = [
+      { key: 'primary',   col: 'phone',           label: 'Primary' },
+      { key: 'secondary', col: 'secondary_phone', label: 'Secondary' },
+      { key: 'tertiary',  col: 'tertiary_phone',  label: 'Tertiary' }
+    ];
+    var hasAnyPhone = !!(voter.phone || voter.secondary_phone || voter.tertiary_phone);
+
+    slots.forEach(function(s) {
+      var current = (voter[s.col] || '').toString().trim();
+      var slotRow = document.createElement('div');
+      slotRow.setAttribute('data-phone-slot', s.key);
+      slotRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px;margin-bottom:6px;background:#1e293b;border:1px solid #334155;border-radius:6px';
+      var lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:11px;color:#64748b;text-transform:uppercase;min-width:70px';
+      lbl.textContent = s.label;
+      slotRow.appendChild(lbl);
+      var val = document.createElement('span');
+      val.style.cssText = 'flex:1;font-family:monospace;color:' + (current ? '#e2e8f0' : '#475569');
+      val.textContent = current || '(empty)';
+      slotRow.appendChild(val);
+      if (current) {
+        var editBtn = document.createElement('button');
+        editBtn.className = 'btn-icon';
+        editBtn.style.fontSize = '11px';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = function() {
+          var next = prompt('New ' + s.label.toLowerCase() + ' phone:', current);
+          if (!next) return;
+          var d = String(next).replace(/\D/g, '');
+          if (d.length < 10) { alert('Need at least 10 digits.'); return; }
+          commit('update-phone', { voter_id: voter.id, slot: s.key, new_phone: d });
+        };
+        slotRow.appendChild(editBtn);
+        var eraseBtn = document.createElement('button');
+        eraseBtn.className = 'btn-icon';
+        eraseBtn.style.fontSize = '11px';
+        eraseBtn.style.background = '#dc2626';
+        eraseBtn.style.color = '#fff';
+        eraseBtn.textContent = 'Erase';
+        eraseBtn.onclick = function() {
+          if (!confirm('Erase ' + s.label.toLowerCase() + ' phone?')) return;
+          commit('erase-phone', { voter_id: voter.id, slot: s.key });
+        };
+        slotRow.appendChild(eraseBtn);
+      }
+      box.insertBefore(slotRow, status);
+    });
+
+    // "Add" button if any slot is empty
+    var firstEmpty = slots.find(function(s) {
+      var current = (voter[s.col] || '').toString().trim();
+      return !current;
+    });
+    if (firstEmpty) {
+      var addRow = document.createElement('div');
+      addRow.setAttribute('data-phone-slot', 'add');
+      addRow.style.cssText = 'margin-top:4px;margin-bottom:6px';
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn-icon';
+      addBtn.style.cssText = 'background:#22c55e;color:#000;font-weight:600';
+      addBtn.textContent = '➕ Add ' + (hasAnyPhone ? 'another phone' : 'a phone');
+      addBtn.onclick = function() {
+        var next = prompt('Phone number:');
+        if (!next) return;
+        var d = String(next).replace(/\D/g, '');
+        if (d.length < 10) { alert('Need at least 10 digits.'); return; }
+        commit('add-phone', { voter_id: voter.id, new_phone: d });
+      };
+      addRow.appendChild(addBtn);
+      box.insertBefore(addRow, status);
+    }
+  }
+  renderSlots();
+
+  var closeRow = document.createElement('div');
+  closeRow.style.cssText = 'display:flex;justify-content:flex-end;margin-top:8px';
+  var closeBtn = document.createElement('button');
+  closeBtn.className = 'btn-icon';
+  closeBtn.textContent = 'Close';
+  closeBtn.onclick = function() { overlay.remove(); };
+  closeRow.appendChild(closeBtn);
+  box.appendChild(closeRow);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+window.openCandidatePhoneEditor = openCandidatePhoneEditor;
 
 // ─── Support level — inline editable badge ─────────────────────────
 // Color-coded chip showing the voter's current support_level.  Click
