@@ -145,24 +145,44 @@ tr:hover td{background:#1e293b80}
   /* Modal-box: more breathing room from edges, scrollable body. */
   .modal-box{max-width:560px;max-height:88vh;overflow-y:auto;padding:24px}
 
-  /* Candidate-detail captain cards stack on iPad too — the .captain-
-     card-mobile rules below (defined at 768px) need to apply here too
-     because iPad portrait sits at 768-834px wide.  Without these the
-     captain card's right-side action buttons + left-side name+code
-     overflow the card on iPad.  Cards now stack vertically: left
-     info on top, action buttons in a 3-column grid below. */
+}
+
+/* ─── Touch-device specific overflow defense (iPad portrait + landscape) ─
+   iPad Pro 12.9" landscape is 1366px wide — above the 1024px desktop
+   breakpoint above.  This block targets any TOUCH device (iPads of any
+   size/orientation, phones) up to 1366px wide so iPad landscape also
+   gets the stacked/clipped layout instead of the desktop layout
+   overflowing the cards. */
+@media(pointer:coarse) and (max-width:1366px){
+  /* Cards clip overflowing content rather than letting it bleed past
+     their edges.  Any wide content (long names, tables, button rows)
+     either wraps, scrolls inside its own .table-wrap, or gets clipped. */
+  .card{overflow-x:hidden}
+  .captain-card-mobile{overflow:hidden;max-width:100%;box-sizing:border-box}
+
+  /* Captain cards stack: left info on top (wrapping), action buttons
+     in a 3-col grid below filling the card width. */
   .captain-card-mobile .captain-header-row{flex-direction:column!important;align-items:stretch!important;gap:8px!important}
-  .captain-card-mobile .captain-left-info{flex-wrap:wrap!important;gap:6px!important}
+  .captain-card-mobile .captain-left-info{flex-wrap:wrap!important;gap:6px!important;min-width:0}
   .captain-card-mobile .captain-left-info span{font-size:11px!important}
   .captain-card-mobile .captain-btns{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:4px!important;width:100%!important}
   .captain-card-mobile .captain-btns .btn{font-size:11px!important;padding:6px 4px!important;text-align:center!important;white-space:nowrap}
-  /* Same for candidate-detail header — buttons stack on a 2-col grid. */
+
+  /* Long captain names ellipsis-truncate — but allow wrap fallback so
+     the row still has the rest of the items visible after the name. */
+  .captain-card-mobile .captain-left-info .name,
+  .captain-card-mobile .captain-left-info span:first-child{overflow:hidden;text-overflow:ellipsis;max-width:100%}
+
+  /* Candidate-detail header: buttons in 2-col grid, h3 + actions
+     stack vertically. */
   #candidateDetailCard .cand-detail-header{flex-direction:column!important;align-items:stretch!important;gap:10px!important}
   #candidateDetailCard .cand-detail-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:6px!important}
-  /* Long captain names and codes should ellipsis-truncate inside their
-     containers rather than overflow the card on narrow viewports. */
-  .captain-card-mobile .captain-left-info .name,
-  .captain-card-mobile .captain-left-info span:first-child{overflow:hidden;text-overflow:ellipsis}
+
+  /* Bare data-tables (no .table-wrap parent) — make them scroll inside
+     a synthetic horizontal-scroll wrapper using `display:block` on
+     the table, which detaches table layout from intrinsic-width
+     calculation.  Keeps the table inside the card. */
+  .card .data-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
 }
 
 /* Touch-device polish — applies to iPad and phone but not desktop with
