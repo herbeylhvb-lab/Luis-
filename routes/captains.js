@@ -882,8 +882,20 @@ router.get('/captains/:id/search', requireCaptainAuth, (req, res) => {
 
   // Dedicated filters
   if (phone) {
-    const phoneEsc = phone.replace(/[\\%_]/g, '\\$&');
-    conditions.push("phone LIKE ? ESCAPE '\\'"); params.push('%' + phoneEsc + '%');
+    // Normalize the input to digits and match against phone_norm (a
+    // generated column with the last-10 digits, formatting stripped). This
+    // makes "+1 (956) 555-1234", "956-555-1234", "9565551234" all match
+    // the same voter regardless of how the voter file stores the number.
+    const phoneInputDigits = String(phone).replace(/\D/g, '').slice(-10);
+    if (phoneInputDigits.length === 10) {
+      conditions.push("phone_norm = ?"); params.push(phoneInputDigits);
+    } else if (phoneInputDigits.length > 0) {
+      conditions.push("phone_norm LIKE ?"); params.push('%' + phoneInputDigits + '%');
+    } else {
+      // No digits in input — fall back to literal substring on raw phone.
+      const phoneEsc = phone.replace(/[\\%_]/g, '\\$&');
+      conditions.push("phone LIKE ? ESCAPE '\\'"); params.push('%' + phoneEsc + '%');
+    }
   }
   if (vanid) {
     const vanidEsc = vanid.replace(/[\\%_]/g, '\\$&');
@@ -1805,9 +1817,15 @@ router.post('/captains/:id/lists/:listId/import-csv', requireCaptainAuth, (req, 
   const list = db.prepare('SELECT id FROM captain_lists WHERE id = ? AND captain_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
 
-  // Per-row indexed lookups (no bulk load into memory)
+  // Per-row indexed lookups (no bulk load into memory).
+  // BUG FIX: was "WHERE phone = ?" — exact match against the raw phone
+  // column. If the voter file stores phones in any format other than
+  // 10-digit-only (e.g. "+19565551234", "(956) 555-1234", "956-555-1234"),
+  // the lookup missed even when the digits were the same. Now uses
+  // phone_norm (a generated column that strips formatting and keeps the
+  // last 10 digits) so any of those formats matches the same 10-digit input.
   const findByPhone = db.prepare(
-    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE phone = ? LIMIT 3"
+    "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE phone_norm = ? LIMIT 3"
   );
   const findByReg = db.prepare(
     "SELECT id, phone, first_name, last_name, address, city, zip, party, support_level, registration_number FROM voters WHERE registration_number = ? LIMIT 1"

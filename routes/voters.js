@@ -73,8 +73,19 @@ router.get('/voters', (req, res) => {
       const term = '%' + escaped + '%';
       // Added voters.middle_name so full-name queries like
       // "John Michael Smith" match all three parts.
-      sql += " AND (voters.first_name LIKE ? ESCAPE '\\' OR voters.middle_name LIKE ? ESCAPE '\\' OR voters.last_name LIKE ? ESCAPE '\\' OR voters.address LIKE ? ESCAPE '\\' OR voters.city LIKE ? ESCAPE '\\' OR voters.phone LIKE ? ESCAPE '\\' OR voters.precinct LIKE ? ESCAPE '\\' OR voters.registration_number LIKE ? ESCAPE '\\' OR voters.vanid LIKE ? ESCAPE '\\' OR voters.county_file_id LIKE ? ESCAPE '\\' OR voters.state_file_id LIKE ? ESCAPE '\\')";
-      params.push(term, term, term, term, term, term, term, term, term, term, term);
+      // Added voters.phone_norm so digit-only phone searches match
+      // regardless of voter-file phone formatting (raw phone LIKE only
+      // hits when the input substring appears literally — fails for
+      // "(956)" formatting when user types "9565551234"). phone_norm is
+      // the generated last-10-digits column so the same input matches
+      // any storage format the voter file happens to use.
+      sql += " AND (voters.first_name LIKE ? ESCAPE '\\' OR voters.middle_name LIKE ? ESCAPE '\\' OR voters.last_name LIKE ? ESCAPE '\\' OR voters.address LIKE ? ESCAPE '\\' OR voters.city LIKE ? ESCAPE '\\' OR voters.phone LIKE ? ESCAPE '\\' OR voters.phone_norm LIKE ? ESCAPE '\\' OR voters.precinct LIKE ? ESCAPE '\\' OR voters.registration_number LIKE ? ESCAPE '\\' OR voters.vanid LIKE ? ESCAPE '\\' OR voters.county_file_id LIKE ? ESCAPE '\\' OR voters.state_file_id LIKE ? ESCAPE '\\')";
+      // phone_norm version uses the digits-only form of the term so
+      // "956-555-1234" input still matches voters whose phone_norm is
+      // "9565551234".
+      const digitsOnly = w.replace(/\D/g, '');
+      const phoneNormTerm = digitsOnly.length > 0 ? '%' + digitsOnly + '%' : term;
+      params.push(term, term, term, term, term, term, phoneNormTerm, term, term, term, term, term);
     }
   }
   if (party) { sql += ' AND voters.party = ?'; params.push(party); }

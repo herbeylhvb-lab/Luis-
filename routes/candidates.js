@@ -618,8 +618,19 @@ router.get('/candidates/:id/search', requireCandidateAuth, (req, res) => {
 
   // Dedicated filters
   if (phone) {
-    const phoneEsc = phone.replace(/[\\%_]/g, '\\$&');
-    conditions.push("phone LIKE ? ESCAPE '\\'"); params.push('%' + phoneEsc + '%');
+    // Normalize input to digits and match against phone_norm so "+1 …",
+    // "(956) 555-…", "956-555-…", "9565551234" all match the same voter
+    // regardless of how the file stores the number. See routes/captains.js
+    // search for the parallel fix on the captain side.
+    const phoneInputDigits = String(phone).replace(/\D/g, '').slice(-10);
+    if (phoneInputDigits.length === 10) {
+      conditions.push("phone_norm = ?"); params.push(phoneInputDigits);
+    } else if (phoneInputDigits.length > 0) {
+      conditions.push("phone_norm LIKE ?"); params.push('%' + phoneInputDigits + '%');
+    } else {
+      const phoneEsc = phone.replace(/[\\%_]/g, '\\$&');
+      conditions.push("phone LIKE ? ESCAPE '\\'"); params.push('%' + phoneEsc + '%');
+    }
   }
   if (vanid) {
     const vanidEsc = vanid.replace(/[\\%_]/g, '\\$&');
