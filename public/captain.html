@@ -6849,7 +6849,7 @@ function showPreviewMenu(voterId, phone, data, opts) {
   // OTHER voters at this address+unit to redirect to.
   if (household.length > 0) {
     var redirectBtn = makeEl('button', {
-      text: '↪ Wrong person? Phone belongs to someone else in the household',
+      text: '↪ Belongs to someone else',
       style: actionBtnBase + ';background:transparent;border:1px solid #f59e0b;color:#fbbf24;text-align:center',
     });
     redirectBtn.addEventListener('click', function () {
@@ -6871,7 +6871,7 @@ function showPreviewMenu(voterId, phone, data, opts) {
   // skips the contact. Only shown when the voter actually has a phone.
   if (v.currentPhone && (v.currentPhone || '').trim()) {
     var wrongBtn = makeEl('button', {
-      text: '✗ Voter’s number is wrong',
+      text: '✗ Wrong number',
       style: actionBtnBase + ';background:transparent;border:1px solid #7f1d1d;color:#fca5a5;text-align:center',
     });
     wrongBtn.addEventListener('click', function () {
@@ -6974,13 +6974,13 @@ function showWizardHouseholdPicker(household, phone, originalVoterId, originalVo
   });
   var dupCount = candidates.filter(function (c) { return c.hasDupePhone; }).length;
 
-  var title = makeEl('h3', { text: 'Who really owns this number?', style: 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px' });
+  var title = makeEl('h3', { text: 'Whose number is this?', style: 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px' });
   box.appendChild(title);
   var subText = phone
-    ? phone + ' will be saved to whoever you pick.'
-    : 'Pick the voter to associate with this contact.';
+    ? phone + ' will go to whoever you pick.'
+    : 'Pick the right voter.';
   if (dupCount > 1) {
-    subText += ' ⚠ ' + dupCount + ' people in this household currently have this number — picking will clear it from the others.';
+    subText += ' ⚠ ' + dupCount + ' others have it — they’ll be cleared.';
   }
   var sub = makeEl('p', {
     text: subText,
