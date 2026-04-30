@@ -1794,7 +1794,10 @@ function openDoor(idx) {
     var vid = doorState.allMembers[pm].voter_id;
     if (vid) memberVoterIds.push(vid);
   }
-  if (memberVoterIds.length > 0) prefetchElections(memberVoterIds);
+  // Defensive: any error in lazy-elections must NEVER block the door from opening
+  if (memberVoterIds.length > 0) {
+    try { prefetchElections(memberVoterIds).catch(function(){}); } catch (e) {}
+  }
 
   // If no members (no voter data), skip household step — go straight to disposition
   if (doorState.allMembers.length === 0) {
