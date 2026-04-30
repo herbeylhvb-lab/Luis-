@@ -1523,7 +1523,15 @@ router.post('/captains/:id/add-phone', requireCaptainAuth, requirePhoneEditSelf,
 //  - target.phone_validated_at is stamped so the "✓ Verified" badge shows
 //    for the new owner.
 //  - voter_contacts rows on BOTH voters provide an audit trail.
-router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, requirePhoneEditSelf, requirePhoneEditUnlocked, (req, res) => {
+// No requirePhoneEditUnlocked here — the password gate is now purely a
+// client-side UX prompt that fires from the captain list / detail-card
+// flows (showPhoneActionMenu). The contact-import wizard skips the prompt
+// because the captain is already mid-edit and re-prompting interrupts the
+// flow. Server still enforces requireCaptainAuth (must be a real captain
+// session) + requirePhoneEditSelf (can't act on another captain's behalf)
+// + canCaptainSeeVoter ownership check inside the handler. Same protection
+// model as add-phone, which has been password-less since launch.
+router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
   const { target_voter_id } = req.body;
   const sourceId = parseInt(req.params.voterId, 10);
   const targetId = parseInt(target_voter_id, 10);
@@ -1603,7 +1611,8 @@ router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, 
 // to anyone in this household. Erases the phone, sets phone_type='invalid'
 // so future imports of the voter file won't silently bring it back, and
 // auto-promotes a downstream slot if one exists.
-router.post('/captains/:id/voters/:voterId/phone-mark-wrong', requireCaptainAuth, requirePhoneEditSelf, requirePhoneEditUnlocked, (req, res) => {
+// Password gate is client-side only (see phone-reassign comment above).
+router.post('/captains/:id/voters/:voterId/phone-mark-wrong', requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
   const voterId = parseInt(req.params.voterId, 10);
   if (!voterId) return res.status(400).json({ error: 'voter_id required.' });
   const captainId = req.session.captainId;

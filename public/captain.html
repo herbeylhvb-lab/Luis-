@@ -562,7 +562,7 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
              the iOS toolbar shows/hides. -->
         <div id="mcCandidateList" style="margin-top:12px;max-height:50dvh;max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-right:4px"></div>
         <div id="mcActionMenu" style="display:none;margin-top:12px"></div>
-        <button id="mcSkipBtn" style="margin-top:8px;width:100%;padding:12px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">Skip</button>
+        <button id="mcSkipBtn" style="margin-top:8px;width:100%;padding:10px;background:transparent;border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;cursor:pointer;font-weight:600;font-size:14px">Skip</button>
         <!-- Pause button — saves the current session to localStorage so
              the captain can come back later and continue from where they
              left off. Persistent per-captain (other captains on the same
@@ -6876,23 +6876,19 @@ function showPreviewMenu(voterId, phone, data, opts) {
     });
     wrongBtn.addEventListener('click', function () {
       if (!confirm('Mark ' + v.currentPhone + ' as wrong (not anyone in this household) and skip this contact?')) return;
-      requirePhoneEditUnlocked(function () {
-        apiPost('/api/captains/' + captainState.captain.id + '/voters/' + voterId + '/phone-mark-wrong', {})
-          .then(function () {
-            showToast('Voter phone marked wrong. Skipping contact.', 'success');
-            window._mcResults.skipped++;
-            recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
-            advance();
-          })
-          .catch(function (e) {
-            if (e && e.code === 'PASSWORD_CHANGED') {
-              _phoneEditUnlocked = false;
-              alert('Phone edit unlock expired — please try again.');
-              return;
-            }
-            alert('Could not mark wrong: ' + ((e && e.error) || 'unknown error'));
-          });
-      });
+      // No phone-edit-unlock prompt during the import wizard — captain
+      // is mid-flow and the password gate is reserved for casual list
+      // browsing where an accidental tap could be destructive.
+      apiPost('/api/captains/' + captainState.captain.id + '/voters/' + voterId + '/phone-mark-wrong', {})
+        .then(function () {
+          showToast('Voter phone marked wrong. Skipping contact.', 'success');
+          window._mcResults.skipped++;
+          recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
+          advance();
+        })
+        .catch(function (e) {
+          alert('Could not mark wrong: ' + ((e && e.error) || 'unknown error'));
+        });
     });
     btnRow.appendChild(wrongBtn);
   }
@@ -7058,23 +7054,22 @@ function handleWizardPickerSelection(picked, allCandidates, phone, originalVoter
   var confirmMsg = 'Set ' + (phone || 'this number') + ' as ' + pickedName + '’s phone, and remove it from ' + dupNames + '?';
   if (!confirm(confirmMsg)) return;
 
-  requirePhoneEditUnlocked(function () {
-    // Mark wrong on each duplicate in parallel — phone-mark-wrong sets
-    // phone_type='invalid' so a future voter-file re-import doesn't put
-    // the number back on the wrong person.
-    var captainId = captainState.captain.id;
-    var promises = duplicates.map(function (d) {
-      return apiPost('/api/captains/' + captainId + '/voters/' + d.voterId + '/phone-mark-wrong', {})
-        .catch(function (e) {
-          // Don't abort the whole batch on a single failure — log and continue.
-          console.warn('mark-wrong failed for voter', d.voterId, e);
-          return null;
-        });
-    });
-    Promise.all(promises).then(function () {
-      showToast('Removed number from ' + duplicates.length + ' duplicate' + (duplicates.length === 1 ? '' : 's') + '.', 'success');
-      proceed();
-    });
+  // Mark wrong on each duplicate in parallel — phone-mark-wrong sets
+  // phone_type='invalid' so a future voter-file re-import doesn't put
+  // the number back on the wrong person. No unlock prompt during the
+  // import wizard; the captain is mid-flow and explicitly chose this.
+  var captainId = captainState.captain.id;
+  var promises = duplicates.map(function (d) {
+    return apiPost('/api/captains/' + captainId + '/voters/' + d.voterId + '/phone-mark-wrong', {})
+      .catch(function (e) {
+        // Don't abort the whole batch on a single failure — log and continue.
+        console.warn('mark-wrong failed for voter', d.voterId, e);
+        return null;
+      });
+  });
+  Promise.all(promises).then(function () {
+    showToast('Removed number from ' + duplicates.length + ' duplicate' + (duplicates.length === 1 ? '' : 's') + '.', 'success');
+    proceed();
   });
 }
 
@@ -7148,20 +7143,19 @@ async function finalizeAdd(voterId, phone, previewData, btn) {
       advance();
       return;
     }
-    requirePhoneEditUnlocked(function () {
-      var captainId = captainState.captain.id;
-      var promises = duplicates.map(function (d) {
-        return apiPost('/api/captains/' + captainId + '/voters/' + d.voterId + '/phone-mark-wrong', {})
-          .catch(function (e) { console.warn('mark-wrong failed for', d.voterId, e); return null; });
-      });
-      Promise.all(promises).then(function () {
-        showToast('Removed number from ' + duplicates.length + ' duplicate' + (duplicates.length === 1 ? '' : 's') + '.', 'success');
-        // Reload the captain list so the cleared phones disappear from view.
-        if (typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
-          try { loadListVoters(); } catch (e) {}
-        }
-        advance();
-      });
+    // No unlock prompt — wizard flow, captain is intentionally cleaning up.
+    var captainId = captainState.captain.id;
+    var promises = duplicates.map(function (d) {
+      return apiPost('/api/captains/' + captainId + '/voters/' + d.voterId + '/phone-mark-wrong', {})
+        .catch(function (e) { console.warn('mark-wrong failed for', d.voterId, e); return null; });
+    });
+    Promise.all(promises).then(function () {
+      showToast('Removed number from ' + duplicates.length + ' duplicate' + (duplicates.length === 1 ? '' : 's') + '.', 'success');
+      // Reload the captain list so the cleared phones disappear from view.
+      if (typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
+        try { loadListVoters(); } catch (e) {}
+      }
+      advance();
     });
   } catch (err) {
     btn.disabled = false; btn.textContent = 'Add to list';
