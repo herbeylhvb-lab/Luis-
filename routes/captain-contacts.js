@@ -258,11 +258,24 @@ router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (re
     // If the phone already matches the contact, leave the voter row alone.
     // Adding the voter to the captain's list still happens regardless.
     if (!phoneAlreadyMatches) {
+      // Stamp BOTH validation fields:
+      //  - phone_validated_at: legacy field (admin carrier validation also uses it)
+      //  - phone_validated_by_captain_at: captain-specific. The captain UI badge
+      //    keys off this so it only appears for human-confirmed numbers, not
+      //    for carrier-checked-but-never-confirmed-by-captain numbers.
       db.prepare(`
         UPDATE voters
-        SET phone = ?, phone_validated_at = datetime('now'), phone_type = 'mobile'
+        SET phone = ?, phone_validated_at = datetime('now'),
+            phone_validated_by_captain_at = datetime('now'),
+            phone_type = 'mobile'
         WHERE id = ?
       `).run(normalized, voterId);
+    } else {
+      // Phone already matched — captain explicitly confirmed it's correct
+      // (they tapped this candidate). Bump the captain-verified timestamp so
+      // the badge reflects today's confirmation, not whatever stale date the
+      // last validation set.
+      db.prepare("UPDATE voters SET phone_validated_by_captain_at = datetime('now') WHERE id = ?").run(voterId);
     }
 
     // 2) Add to captain's list if listId provided. Idempotent — captain

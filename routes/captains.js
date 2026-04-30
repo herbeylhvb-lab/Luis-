@@ -1386,7 +1386,14 @@ router.post('/captains/:id/update-phone', requireCaptainAuth, requirePhoneEditSe
 
   const byLabel = 'Captain #' + req.params.id;
   const txn = db.transaction(() => {
-    db.prepare(`UPDATE voters SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`).run(digits, voter_id);
+    // Replace the slot's phone. If primary, also clear validation timestamps \u2014
+    // the captain entered a new number that hasn't been verified yet. They
+    // can re-confirm via Match-from-Contacts to re-stamp the captain field.
+    if (slot === 'primary') {
+      db.prepare(`UPDATE voters SET phone = ?, phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?`).run(digits, voter_id);
+    } else {
+      db.prepare(`UPDATE voters SET ${col} = ?, updated_at = datetime('now') WHERE id = ?`).run(digits, voter_id);
+    }
     db.prepare(
       "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'replaced', ?, ?, datetime('now'))"
     ).run(
@@ -1441,7 +1448,10 @@ router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditSel
         newSecondary = '';
         promoteNote = 'Promoted tertiary \u2192 primary: ' + newPrimary;
       }
-      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', updated_at = datetime('now') WHERE id = ?")
+      // Clear BOTH validation timestamps when the primary slot changes \u2014
+      // the previously-validated number is now in a different slot or gone,
+      // so any stale "\u2713 Verified" badge would lie about the new primary.
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?")
         .run(newPrimary, newSecondary, voter_id);
       db.prepare(
         "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
@@ -1452,8 +1462,15 @@ router.post('/captains/:id/erase-phone', requireCaptainAuth, requirePhoneEditSel
     } else {
       // Simple clear — no promotion (erasing a non-primary slot, OR erasing
       // primary on a voter with no downstream phones at all)
+      // If we're clearing the PRIMARY slot, also clear validation timestamps
+      // so a stale "Verified" badge doesn't survive. For secondary/tertiary,
+      // primary's timestamps still describe the unchanged primary phone.
       const col = PHONE_SLOTS[slot];
-      db.prepare(`UPDATE voters SET ${col} = '', updated_at = datetime('now') WHERE id = ?`).run(voter_id);
+      if (slot === 'primary') {
+        db.prepare("UPDATE voters SET phone = '', phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?").run(voter_id);
+      } else {
+        db.prepare(`UPDATE voters SET ${col} = '', updated_at = datetime('now') WHERE id = ?`).run(voter_id);
+      }
       db.prepare(
         "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'erased', ?, ?, datetime('now'))"
       ).run(voter_id, 'Slot: ' + slot + ' \u00B7 Old: ' + oldValue, byLabel);
@@ -1568,11 +1585,14 @@ router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, 
   const byLabel = 'Captain #' + req.params.id;
   const txn = db.transaction(() => {
     // 1) Apply to target. Existing primary (if any) gets bumped to secondary.
+    //    Stamp BOTH validation fields (legacy phone_validated_at + the
+    //    captain-specific phone_validated_by_captain_at) so the captain UI
+    //    badge reflects this confirmation.
     if (targetPrimary) {
-      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, phone_validated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, phone_validated_at = datetime('now'), phone_validated_by_captain_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
         .run(movedPhone, targetPrimary, targetId);
     } else {
-      db.prepare("UPDATE voters SET phone = ?, phone_validated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+      db.prepare("UPDATE voters SET phone = ?, phone_validated_at = datetime('now'), phone_validated_by_captain_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
         .run(movedPhone, targetId);
     }
     db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reassigned-in', ?, ?, datetime('now'))")
@@ -1592,14 +1612,18 @@ router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, 
         newSecondary = '';
         promoteNote = 'Promoted tertiary → primary: ' + newPrimary;
       }
-      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', updated_at = datetime('now') WHERE id = ?")
+      // Source's primary changed (secondary or tertiary promoted up). Clear
+      // both validation timestamps because they describe the OLD primary
+      // that's now gone.
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?")
         .run(newPrimary, newSecondary, sourceId);
       db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reassigned-out', ?, ?, datetime('now'))")
         .run(sourceId, 'Phone moved to voter #' + targetId + ': ' + movedPhone, byLabel);
       db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'promoted', ?, ?, datetime('now'))")
         .run(sourceId, promoteNote, byLabel);
     } else {
-      db.prepare("UPDATE voters SET phone = '', updated_at = datetime('now') WHERE id = ?").run(sourceId);
+      // Source primary cleared, no downstream — clear validation timestamps too.
+      db.prepare("UPDATE voters SET phone = '', phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?").run(sourceId);
       db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reassigned-out', ?, ?, datetime('now'))")
         .run(sourceId, 'Phone moved to voter #' + targetId + ': ' + movedPhone, byLabel);
     }
@@ -1647,7 +1671,7 @@ router.post('/captains/:id/voters/:voterId/phone-mark-wrong', requireCaptainAuth
       // on the promoted slot. The wrong number itself is recorded in the
       // audit log so future imports can't silently restore it (a separate
       // scheduled cleanup query keys off the audit log + phone_type).
-      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', phone_type = '', phone_validated_at = '', updated_at = datetime('now') WHERE id = ?")
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', phone_type = '', phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?")
         .run(newPrimary, newSecondary, voterId);
       db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'marked-wrong', ?, ?, datetime('now'))")
         .run(voterId, 'Marked wrong: ' + oldPhone + ' (does not belong to this household)', byLabel);
@@ -1656,7 +1680,7 @@ router.post('/captains/:id/voters/:voterId/phone-mark-wrong', requireCaptainAuth
     } else {
       // No downstream phones — just clear and flag the voter as having a
       // known-bad primary so re-import + the cleanup query both behave.
-      db.prepare("UPDATE voters SET phone = '', phone_type = 'invalid', phone_validated_at = '', updated_at = datetime('now') WHERE id = ?")
+      db.prepare("UPDATE voters SET phone = '', phone_type = 'invalid', phone_validated_at = '', phone_validated_by_captain_at = '', updated_at = datetime('now') WHERE id = ?")
         .run(voterId);
       db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'marked-wrong', ?, ?, datetime('now'))")
         .run(voterId, 'Marked wrong: ' + oldPhone + ' (does not belong to this household)', byLabel);

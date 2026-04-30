@@ -455,6 +455,13 @@ addColumn("ALTER TABLE voters ADD COLUMN secondary_phone TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN phone_type TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN phone_carrier TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN phone_validated_at TEXT DEFAULT ''");
+// Captain-specific verification timestamp. phone_validated_at is also stamped
+// by the admin's bulk carrier-validation pass (routes/voters.js validate-phones)
+// — that means "carrier recognizes this number" not "a captain confirmed this is
+// the right person." The captain UI's "✓ Verified" badge should only fire when
+// a real human captain confirmed the number through Match-from-Contacts or the
+// phone-reassign flow. Separate column so the two semantics never collide.
+addColumn("ALTER TABLE voters ADD COLUMN phone_validated_by_captain_at TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_type TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_carrier TEXT DEFAULT ''");
 addColumn("ALTER TABLE voters ADD COLUMN secondary_phone_validated_at TEXT DEFAULT ''");

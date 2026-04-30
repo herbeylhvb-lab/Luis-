@@ -2627,19 +2627,22 @@ function renderListVoters() {
         var phoneSpan = document.createElement('span');
         phoneSpan.textContent = v.phone;
         contact.appendChild(phoneSpan);
-        // "Confirmed" badge: phone_validated_at is set whenever a captain
-        // confirms a phone match through the import wizard. Shows so the next
-        // captain looking at this voter knows the number is verified, not just
-        // imported from the voter file.
-        if (v.phone_validated_at) {
+        // "Verified" badge: ONLY shows when a captain explicitly confirmed
+        // this number \u2014 never on numbers that were just carrier-checked by
+        // the admin's bulk validation pass. Two columns track the difference:
+        //   phone_validated_at \u2014 also stamped by admin validate-phones flow
+        //                        (carrier recognizes number, \u2260 verified person)
+        //   phone_validated_by_captain_at \u2014 set ONLY by captain Match-from-
+        //                        Contacts confirm and phone-reassign target,
+        //                        meaning a real human said "this is the
+        //                        right person's number".
+        if (v.phone_validated_by_captain_at) {
           var verifiedBadge = document.createElement('span');
           verifiedBadge.style.cssText = 'font-size:10px;font-weight:700;color:#86efac;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);border-radius:10px;padding:1px 7px;letter-spacing:0.02em';
           verifiedBadge.textContent = '\u2713 Verified';
-          // Tooltip: human-readable confirmation date so captains can tell
-          // the difference between a recent confirmation and a stale one.
-          var d = new Date(v.phone_validated_at);
-          var dateStr = isNaN(d.getTime()) ? v.phone_validated_at : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          verifiedBadge.title = 'Phone number confirmed by a captain on ' + dateStr;
+          var d = new Date(v.phone_validated_by_captain_at);
+          var dateStr = isNaN(d.getTime()) ? v.phone_validated_by_captain_at : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          verifiedBadge.title = 'Phone confirmed by a captain on ' + dateStr;
           contact.appendChild(verifiedBadge);
         }
         // Phone actions menu \u2014 small \u22ef button. Opens the unified
@@ -3138,13 +3141,14 @@ async function searchVoters() {
       meta.appendChild(phoneBadge);
       // Mirror the "Verified" badge from the main list — captain knows the
       // number was confirmed by a real person, not just bulk-imported.
-      if (v.phone_validated_at) {
+      // Same captain-only verification rule as the list view — see comment above.
+      if (v.phone_validated_by_captain_at) {
         var vBadge = document.createElement('span');
         vBadge.style.cssText = 'font-size:10px;font-weight:700;color:#86efac;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);border-radius:10px;padding:1px 7px;margin-left:4px;letter-spacing:0.02em';
         vBadge.textContent = '✓ Verified';
-        var vd = new Date(v.phone_validated_at);
-        var vDateStr = isNaN(vd.getTime()) ? v.phone_validated_at : vd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        vBadge.title = 'Phone number confirmed by a captain on ' + vDateStr;
+        var vd = new Date(v.phone_validated_by_captain_at);
+        var vDateStr = isNaN(vd.getTime()) ? v.phone_validated_by_captain_at : vd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        vBadge.title = 'Phone confirmed by a captain on ' + vDateStr;
         meta.appendChild(vBadge);
       }
     }
