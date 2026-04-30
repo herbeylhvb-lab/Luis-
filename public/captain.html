@@ -576,7 +576,10 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
         <button id="mcStartOverBtn" style="margin-top:8px">Match more contacts</button>
       </section>
 
-      <button id="mcCloseBtn" style="float:right;margin-top:12px">Close</button>
+      <!-- No Close button on purpose: during an active import, the only way
+           out is the "⏸ Pause — resume later" button (which saves session
+           state to localStorage so the captain doesn't lose progress).
+           Tap-outside still dismisses the modal as an emergency exit. -->
     </div>
   </div>
 </div>
@@ -6537,6 +6540,50 @@ function renderCandidates(candidates, scope) {
   });
   list.appendChild(candWindow);
 
+  // "Wrong number — none of these" — when 2+ candidates show up because
+  // they all share the contact phone in the voter file (common with
+  // recycled numbers, family-shared landlines, or stale data), the captain
+  // may know NONE of them actually own the phone. Tapping clears the phone
+  // from every phone-match candidate at once and skips the contact.
+  // Only shown when there's something to clear from (>=2 phone matches).
+  if (phoneMatches.length >= 1) {
+    var wrongAllBtn = makeEl('button', {
+      style: 'margin-top:10px;padding:10px;width:100%;background:transparent;border:1px solid #7f1d1d;color:#fca5a5;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px',
+    });
+    var btnLabel = phoneMatches.length >= 2
+      ? '✗ Wrong number — clear from all ' + phoneMatches.length
+      : '✗ Wrong number — clear and search for owner';
+    wrongAllBtn.textContent = btnLabel;
+    wrongAllBtn.addEventListener('click', function() {
+      var contact = window._mcContacts[window._mcIndex] || {};
+      var contactPhone = contact.phone || '';
+      var names = phoneMatches.map(function(v) {
+        return ((v.firstName || '') + ' ' + (v.lastName || '')).trim();
+      }).join(' and ');
+      var prompt = phoneMatches.length >= 2
+        ? 'Mark ' + contactPhone + ' as wrong on ' + names + ', then search for the real owner?'
+        : 'Mark ' + contactPhone + ' as wrong on ' + names + ', then search for the real owner?';
+      if (!confirm(prompt)) return;
+      wrongAllBtn.disabled = true;
+      wrongAllBtn.textContent = 'Clearing…';
+      var captainId = captainState.captain.id;
+      var promises = phoneMatches.map(function(v) {
+        return apiPost('/api/captains/' + captainId + '/voters/' + v.voterId + '/phone-mark-wrong', {})
+          .catch(function(e) { console.warn('mark-wrong failed for', v.voterId, e); return null; });
+      });
+      Promise.all(promises).then(function() {
+        showToast('Cleared from ' + phoneMatches.length + ' voter(s). Search for the right owner below.', 'success');
+        // Open the existing search-database flow so the captain can find
+        // the actual owner of the contact phone. Their contact phone is
+        // still in window._mcContacts[index], so confirmMatch on a search
+        // result will save the phone to whoever they pick. If they can't
+        // find anyone, the standalone Skip button at the bottom remains.
+        openSearchDbStep();
+      });
+    });
+    list.appendChild(wrongAllBtn);
+  }
+
   // Search-DB button OUTSIDE the candidate scroll window. Always visible
   // below the list — captain doesn't have to scroll candidates to reach
   // it. Shown when the top match isn't a perfect score (most common case).
@@ -6563,6 +6610,12 @@ function appendSearchDbButton(list) {
 async function openSearchDbStep() {
   var list = document.getElementById('mcCandidateList');
   clearChildren(list);
+  // Hide the preview action menu if it's open — the captain may have
+  // gotten here from the preview's "Wrong number" button after marking
+  // an auto-matched voter as wrong, and we want them focused on the
+  // search input instead of seeing the now-stale action stack.
+  var actionMenu = document.getElementById('mcActionMenu');
+  if (actionMenu) { actionMenu.style.display = 'none'; clearChildren(actionMenu); }
   // Read the city the captain selected on the matching screen — if any,
   // the universe search is locked to that city so we don't drown them in
   // results from across the county.
@@ -6875,16 +6928,15 @@ function showPreviewMenu(voterId, phone, data, opts) {
       style: actionBtnBase + ';background:transparent;border:1px solid #7f1d1d;color:#fca5a5;text-align:center',
     });
     wrongBtn.addEventListener('click', function () {
-      if (!confirm('Mark ' + v.currentPhone + ' as wrong (not anyone in this household) and skip this contact?')) return;
-      // No phone-edit-unlock prompt during the import wizard — captain
-      // is mid-flow and the password gate is reserved for casual list
-      // browsing where an accidental tap could be destructive.
+      if (!confirm('Mark ' + v.currentPhone + ' as wrong (not this voter), then search for the real owner of ' + (phone || 'this number') + '?')) return;
+      // No phone-edit-unlock prompt during the import wizard.
       apiPost('/api/captains/' + captainState.captain.id + '/voters/' + voterId + '/phone-mark-wrong', {})
         .then(function () {
-          showToast('Voter phone marked wrong. Skipping contact.', 'success');
-          window._mcResults.skipped++;
-          recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
-          advance();
+          showToast('Cleared. Search for the right owner below.', 'success');
+          // Open the search-database step so the captain can find the
+          // actual owner. Contact phone stays in window._mcContacts so
+          // confirmMatch on a search result will save it to that voter.
+          openSearchDbStep();
         })
         .catch(function (e) {
           alert('Could not mark wrong: ' + ((e && e.error) || 'unknown error'));
@@ -7376,9 +7428,9 @@ document.getElementById('mcPauseBtn').addEventListener('click', function () {
   showToast('Paused. Tap "Match Contacts" again to resume.');
 });
 
-document.getElementById('mcCloseBtn').addEventListener('click', function() {
-  document.getElementById('matchContactsModal').style.display = 'none';
-});
+// (No mcCloseBtn handler — the button was removed; tap-outside still
+//  dismisses the modal as an emergency exit, but Pause is the intended
+//  way out during an active import.)
 
 document.getElementById('matchContactsModal').addEventListener('click', function (e) {
   if (e.target === this) {
