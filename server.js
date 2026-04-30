@@ -89,9 +89,10 @@ app.use('/api/auth/setup', authLimiter);
 app.use('/api', require('./routes/auth'));
 app.use('/api', require('./routes/google'));
 
-// Login page (public)
+// Login page (public). sendHtmlPage is hoisted (function declaration) so
+// referencing it before the lexical definition is fine.
 app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  sendHtmlPage(res, path.join(__dirname, 'public', 'login.html'));
 });
 
 // Auth middleware — protect admin routes, always require login
@@ -123,14 +124,38 @@ app.get('/', (req, res) => {
 });
 // Serve static files ONLY for public assets (CSS, JS, images) — cache 7 days
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), { maxAge: '7d' }));
+
+// Helper: send an HTML page with strict no-store headers so iOS WKWebView
+// (and browsers) never cache the shell. The static-middleware setHeaders
+// override at line ~322 sets no-cache for *.html files served as statics,
+// but explicit routes like /captain use res.sendFile() which Express
+// defaults to "Cache-Control: public, max-age=0". WKWebView treats that
+// more leniently than no-cache and was holding stale HTML across deploys.
+// no-store is the strongest header — every page load re-fetches.
+function sendHtmlPage(res, filePath) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.sendFile(filePath);
+}
+
 // Public pages that don't need auth
-app.get('/volunteer', (req, res) => res.sendFile(path.join(__dirname, 'public', 'volunteer.html')));
-app.get('/privacy', (req, res) => res.send(compliancePage('privacy')));
-app.get('/terms', (req, res) => res.send(compliancePage('terms')));
-app.get('/sms-signup', (req, res) => res.send(compliancePage('signup')));
-app.get('/walk', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walk.html')));
-app.get('/scanner', (req, res) => res.sendFile(path.join(__dirname, 'public', 'scanner.html')));
-app.get('/checkin/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'checkin.html')));
+app.get('/volunteer', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'volunteer.html')));
+app.get('/privacy', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(compliancePage('privacy'));
+});
+app.get('/terms', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(compliancePage('terms'));
+});
+app.get('/sms-signup', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(compliancePage('signup'));
+});
+app.get('/walk', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'walk.html')));
+app.get('/scanner', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'scanner.html')));
+app.get('/checkin/:id', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'checkin.html')));
 // Short link redirects (for compact QR codes)
 app.get('/r/:code', (req, res) => {
   const link = db.prepare('SELECT target_url FROM short_links WHERE code = ?').get(req.params.code);
@@ -174,13 +199,13 @@ app.get('/v/:token', (req, res) => {
 
   return res.redirect('https://villarrealjr.com');
 });
-app.get('/captain', (req, res) => res.sendFile(path.join(__dirname, 'public', 'captain.html')));
-app.get('/candidate', (req, res) => res.sendFile(path.join(__dirname, 'public', 'candidate.html')));
-app.get('/group', (req, res) => res.sendFile(path.join(__dirname, 'public', 'group.html')));
-app.get('/walker', (req, res) => res.sendFile(path.join(__dirname, 'public', 'walker.html')));
-app.get('/texter', (req, res) => res.sendFile(path.join(__dirname, 'public', 'texter.html')));
-app.get('/pushcard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pushcard.html')));
-app.get('/voting-pushcard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'voting-pushcard.html')));
+app.get('/captain', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'captain.html')));
+app.get('/candidate', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'candidate.html')));
+app.get('/group', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'group.html')));
+app.get('/walker', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'walker.html')));
+app.get('/texter', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'texter.html')));
+app.get('/pushcard', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'pushcard.html')));
+app.get('/voting-pushcard', (req, res) => sendHtmlPage(res, path.join(__dirname, 'public', 'voting-pushcard.html')));
 
 // Public API routes (volunteer/walker endpoints that don't need admin auth)
 const publicApiPaths = [
@@ -371,7 +396,7 @@ app.get('/health', (req, res) => {
 // Campaign HQ dashboard — accessible at /app (requires login)
 app.get('/app', (req, res) => {
   if (req.session && req.session.userId) {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    sendHtmlPage(res, path.join(__dirname, 'public', 'index.html'));
   } else {
     res.redirect('/login');
   }
