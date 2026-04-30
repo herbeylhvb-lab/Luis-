@@ -126,7 +126,8 @@ function buildHouseholdFromWalkAddresses(addresses) {
       const parts = (a.voter_name || '').trim().split(' ');
       const firstName = parts[0] || '';
       const lastName = parts.slice(1).join(' ') || '';
-      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '', party_score: a.voter_party_score || '', election_votes: a.election_votes || [] };
+      // election_votes intentionally empty here — lazy-loaded by walk.html on door open
+      return { voter_id: a.voter_id || null, first_name: firstName, last_name: lastName, age: a.voter_age || null, unit: a.unit || '', party_score: a.voter_party_score || '', election_votes: [] };
     });
   }
 }
@@ -206,21 +207,10 @@ function enrichHouseholdFromVoterFile(addresses) {
     }
   }
 
-  // Batch fetch election votes for ALL enriched voters at once (one query instead of N)
-  const evByVoter = {};
-  if (enrichedVoterIds.length > 0) {
-    // Process in chunks of 500 to avoid SQLite variable limit
-    for (let i = 0; i < enrichedVoterIds.length; i += 500) {
-      const chunk = enrichedVoterIds.slice(i, i + 500);
-      const evRows = db.prepare(
-        'SELECT voter_id, election_name as name, election_type as type, party_voted as party, vote_method as method FROM election_votes WHERE voter_id IN (' + chunk.map(() => '?').join(',') + ') ORDER BY election_date DESC'
-      ).all(...chunk);
-      for (const r of evRows) {
-        if (!evByVoter[r.voter_id]) evByVoter[r.voter_id] = [];
-        evByVoter[r.voter_id].push({ name: r.name, type: r.type, party: r.party || '', method: r.method || '' });
-      }
-    }
-  }
+  // PERF: election_votes are no longer fetched here — they're lazy-loaded
+  // by walk.html when a door opens (via GET /walks/voter-elections).
+  // Empty array kept on each enriched member so client code reading
+  // m.election_votes doesn't NPE before the lazy fetch resolves.
 
   // Attach enriched members to walk addresses
   for (const entry of uniqueKeys) {
@@ -236,7 +226,7 @@ function enrichHouseholdFromVoterFile(addresses) {
       unit: v.unit || '',
       party_score: v.party_score || '',
       not_on_list: true,
-      election_votes: evByVoter[v.id] || []
+      election_votes: []
     }));
 
     for (const addr of entry.walkAddrs) {
@@ -1221,6 +1211,23 @@ router.post('/walks', (req, res) => {
   res.json({ success: true, id: walkId, autoAssigned: activeWalkers.length });
 });
 
+// Lazy-load endpoint: fetch election history for a small set of voters
+// Used by walk.html when a walker opens a door, to populate the election
+// dot-grid only for the 1-5 people at that door (instead of eagerly shipping
+// election history for all 5000+ voters in the walk).
+//   GET /walks/voter-elections?ids=1,2,3
+// MUST be registered before /walks/:id to avoid 'voter-elections' matching :id.
+router.get('/walks/voter-elections', (req, res) => {
+  const raw = String(req.query.ids || '').trim();
+  if (!raw) return res.json({});
+  const ids = raw.split(',').map(s => parseInt(s, 10)).filter(n => Number.isInteger(n) && n > 0);
+  if (ids.length === 0) return res.json({});
+  // Cap at 100 voter IDs per request — typical door has 1-5, anything larger is misuse.
+  const capped = ids.slice(0, 100);
+  const evMap = fetchElectionVotes(capped);
+  res.json(evMap);
+});
+
 // Get walk detail with addresses
 router.get('/walks/:id', (req, res) => {
   const walk = db.prepare('SELECT * FROM block_walks WHERE id = ?').get(req.params.id);
@@ -1532,16 +1539,13 @@ router.get('/walks/:id/volunteer', (req, res) => {
      WHERE wa.walk_id = ? ORDER BY wa.sort_order, wa.id`
   ).all(req.params.id);
 
-  // Attach election votes FIRST so household members get the data (chunked to avoid >999 variable limit)
-  const voterIds = walk.addresses.map(a => a.voter_id).filter(Boolean);
-  if (voterIds.length > 0) {
-    const evMap = fetchElectionVotes(voterIds);
-    for (const a of walk.addresses) {
-      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
-    }
+  // PERF: lazy-load election history (see /walks/:id/walker/:name comment).
+  // Client fetches /walks/voter-elections on door open for the few people there.
+  for (const a of walk.addresses) {
+    if (a.voter_id) a.election_votes = [];
   }
 
-  // NOW build households — election_votes are attached so household members get them
+  // Build households — without elections (lazy-loaded by client on door open)
   buildHouseholdFromWalkAddresses(walk.addresses);
   // Add other registered voters at the same address from the full voter file
   enrichHouseholdFromVoterFile(walk.addresses);
@@ -1957,16 +1961,17 @@ router.get('/walks/:id/walker/:name', (req, res) => {
     addr.assigned_to_me = addr.assigned_walker === walkerName;
   }
 
-  // Attach election votes FIRST so household members get the data
-  const voterIds = allAddresses.map(a => a.voter_id).filter(Boolean);
-  if (voterIds.length > 0) {
-    const evMap = fetchElectionVotes(voterIds);
-    for (const a of allAddresses) {
-      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
-    }
+  // PERF: election_votes used to be loaded eagerly here (one chunked IN query
+  // for every walk voter). On a 5000-voter walk that meant ~75K election rows
+  // and ~5MB of JSON in the response — only used when a walker actually opens
+  // a door and taps a person. Now lazy-loaded via /walks/voter-elections when
+  // openDoor() runs in walk.html. Empty arrays kept on each address so client
+  // code reading a.election_votes doesn't NPE before the lazy fetch resolves.
+  for (const a of allAddresses) {
+    if (a.voter_id) a.election_votes = [];
   }
 
-  // NOW build households — election_votes are attached so household members get them
+  // Build households — without elections (lazy-loaded by client on door open)
   buildHouseholdFromWalkAddresses(allAddresses);
   // Add other registered voters at the same address from the full voter file
   enrichHouseholdFromVoterFile(allAddresses);
@@ -3192,16 +3197,14 @@ router.get('/walks/:id/walker-by-id/:walkerId', (req, res) => {
     addr.knocked_by_me = myKnocks.has(addr.id);
   }
 
-  // Attach election votes FIRST so household members get the data (chunked to avoid >999 variable limit)
-  const voterIds = addresses.map(a => a.voter_id).filter(Boolean);
-  if (voterIds.length > 0) {
-    const evMap = fetchElectionVotes(voterIds);
-    for (const a of addresses) {
-      if (a.voter_id) a.election_votes = evMap[a.voter_id] || [];
-    }
+  // PERF: lazy-load election history (see /walks/:id/walker/:name comment).
+  // The client fetches /walks/voter-elections on door open for the small
+  // set of voters at that specific door.
+  for (const a of addresses) {
+    if (a.voter_id) a.election_votes = [];
   }
 
-  // NOW build households — election_votes are attached so household members get them
+  // Build households — without elections (lazy-loaded by client on door open)
   buildHouseholdFromWalkAddresses(addresses);
   // Add other registered voters at the same address from the full voter file
   enrichHouseholdFromVoterFile(addresses);

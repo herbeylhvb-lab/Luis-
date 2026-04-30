@@ -1587,6 +1587,54 @@ var doorState = {
   openAddrId: null     // address ID of the currently open door (stable across refreshes)
 };
 
+// PERF: election history (the "dot grid" shown when tapping a person at a
+// door) used to be loaded eagerly with the full walk — adding 5MB+ to the
+// initial response on a 5000-voter walk. Now we lazy-fetch it per door,
+// for just the 1-5 people present, and cache by voter_id.
+var electionsCache = {};       // voter_id -> [{name, type, party, method}]
+var electionsInflight = {};    // voter_id -> Promise (dedupe in-flight requests)
+
+// Fetch election history for a list of voter_ids and populate electionsCache.
+// Idempotent and dedupes — safe to call repeatedly. Returns when all are loaded.
+async function prefetchElections(voterIds) {
+  if (!voterIds || !voterIds.length) return;
+  // Skip ones already cached or in-flight
+  var need = [];
+  var awaitable = [];
+  for (var i = 0; i < voterIds.length; i++) {
+    var vid = voterIds[i];
+    if (!vid) continue;
+    if (electionsCache[vid] !== undefined) continue;
+    if (electionsInflight[vid]) { awaitable.push(electionsInflight[vid]); continue; }
+    need.push(vid);
+  }
+  if (need.length === 0) {
+    if (awaitable.length) await Promise.all(awaitable);
+    return;
+  }
+  // Single request for the new IDs; mark each as in-flight so concurrent calls dedupe
+  var p = (async function() {
+    try {
+      var res = await fetch('/api/walks/voter-elections?ids=' + need.join(','));
+      if (!res.ok) {
+        for (var k = 0; k < need.length; k++) electionsCache[need[k]] = []; // negative cache
+        return;
+      }
+      var data = await res.json();
+      for (var k = 0; k < need.length; k++) {
+        electionsCache[need[k]] = data[need[k]] || [];
+      }
+    } catch (e) {
+      for (var k = 0; k < need.length; k++) electionsCache[need[k]] = [];
+    } finally {
+      for (var k = 0; k < need.length; k++) delete electionsInflight[need[k]];
+    }
+  })();
+  for (var k = 0; k < need.length; k++) electionsInflight[need[k]] = p;
+  awaitable.push(p);
+  await Promise.all(awaitable);
+}
+
 function openDoor(idx) {
   if (!walkState.walk || !walkState.walk.addresses || idx < 0 || idx >= walkState.walk.addresses.length) return;
   var a = walkState.walk.addresses[idx];
@@ -1738,6 +1786,16 @@ function openDoor(idx) {
     }
   }
 
+  // PERF: kick off election-history prefetch for this door's members. Fire and
+  // forget — the door opens instantly; selectMember() awaits the in-flight
+  // promise if the walker taps before the fetch resolves.
+  var memberVoterIds = [];
+  for (var pm = 0; pm < doorState.allMembers.length; pm++) {
+    var vid = doorState.allMembers[pm].voter_id;
+    if (vid) memberVoterIds.push(vid);
+  }
+  if (memberVoterIds.length > 0) prefetchElections(memberVoterIds);
+
   // If no members (no voter data), skip household step — go straight to disposition
   if (doorState.allMembers.length === 0) {
     showDoorStep(2);
@@ -1875,14 +1933,30 @@ function selectMember(idx) {
   doorState.activeMemberIdx = idx;
   document.getElementById('step2Title').textContent = 'How does ' + m.name + ' feel?';
 
-  // Show election history dot grid for this voter
+  // Show election history dot grid for this voter — prefer the lazy-loaded
+  // cache (populated by openDoor's prefetchElections) over m.election_votes
+  // (which is now empty in the eager response).
   var histEl = document.getElementById('step2VoterHistory');
-  if (m.election_votes && m.election_votes.length > 0) {
+  var votes = (m.voter_id && electionsCache[m.voter_id]) || m.election_votes || [];
+  if (votes.length > 0) {
     histEl.style.display = '';
-    histEl.innerHTML = buildElectionDotGrid(m.election_votes, 'name', 'party', 'method');
+    histEl.innerHTML = buildElectionDotGrid(votes, 'name', 'party', 'method');
   } else {
     histEl.style.display = 'none';
     histEl.innerHTML = '';
+    // Cache miss + still in-flight: when the prefetch resolves and the user is
+    // still on this same member, repaint the grid with the loaded data.
+    if (m.voter_id && electionsCache[m.voter_id] === undefined) {
+      var pendingIdx = idx;
+      prefetchElections([m.voter_id]).then(function() {
+        if (doorState.activeMemberIdx !== pendingIdx) return; // walker moved on
+        var late = electionsCache[m.voter_id];
+        if (late && late.length > 0) {
+          histEl.style.display = '';
+          histEl.innerHTML = buildElectionDotGrid(late, 'name', 'party', 'method');
+        }
+      });
+    }
   }
 
   // Clear previous selection
