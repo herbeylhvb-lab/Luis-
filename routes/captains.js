@@ -1948,21 +1948,44 @@ router.post('/captains/:id/transfer-voters', requireCaptainAuth, (req, res) => {
     return res.status(404).json({ error: 'Target list not found or not accessible.' });
   }
 
-  const doTransfer = db.transaction(() => {
-    const insert = db.prepare('INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)');
-    let transferred = 0;
-    for (const voterId of voterIds) {
-      const r = insert.run(targetListId, voterId);
-      transferred += r.changes;
-    }
+  // Set-based transfer — replaces the per-voter loop (1 INSERT + 1
+  // DELETE per voter = 2N round trips) with chunked multi-row
+  // statements (1 INSERT + 1 DELETE per chunk).  At 500 voters per
+  // chunk that's typically 2 round trips for a normal transfer
+  // instead of 1000.
+  //
+  // SQLite's default SQLITE_LIMIT_VARIABLE_NUMBER is 999 (varies by
+  // build); chunk size of 400 leaves headroom for 2 placeholders per
+  // row + the source list_id parameter.
+  const CHUNK = 400;
+  const sanitizedIds = voterIds
+    .map(v => parseInt(v, 10))
+    .filter(v => Number.isInteger(v) && v > 0);
 
-    if (removeFromSource) {
-      const del = db.prepare('DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?');
-      for (const voterId of voterIds) {
-        del.run(sourceListId, voterId);
+  const doTransfer = db.transaction(() => {
+    let transferred = 0;
+    for (let i = 0; i < sanitizedIds.length; i += CHUNK) {
+      const chunk = sanitizedIds.slice(i, i + CHUNK);
+      // INSERT OR IGNORE — duplicates (voter already in target) are
+      // silently skipped via the unique index on (list_id, voter_id).
+      const insertPlaceholders = chunk.map(() => '(?, ?)').join(',');
+      const insertParams = [];
+      for (const vid of chunk) {
+        insertParams.push(targetListId, vid);
+      }
+      const insertResult = db.prepare(
+        'INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES ' + insertPlaceholders
+      ).run(...insertParams);
+      transferred += insertResult.changes;
+
+      if (removeFromSource) {
+        // Set-based DELETE with IN clause — one statement per chunk.
+        const delPlaceholders = chunk.map(() => '?').join(',');
+        db.prepare(
+          'DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id IN (' + delPlaceholders + ')'
+        ).run(sourceListId, ...chunk);
       }
     }
-
     return transferred;
   });
 

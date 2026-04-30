@@ -1556,31 +1556,35 @@ router.post('/candidates/:id/transfer-voters', requireCandidateAuth, (req, res) 
   const targetOk = (tgtType === 'admin') ? ownsAdminList(targetListId) : ownsCaptainList(targetListId);
   if (!targetOk) return res.status(404).json({ error: 'Target list not found or not under this candidate.' });
 
-  // Pick the right INSERT and DELETE per type.
-  const insertSql = (tgtType === 'admin')
-    ? 'INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id) VALUES (?, ?)'
-    : 'INSERT OR IGNORE INTO captain_list_voters (list_id, voter_id) VALUES (?, ?)';
-  const deleteSql = (srcType === 'admin')
-    ? 'DELETE FROM admin_list_voters WHERE list_id = ? AND voter_id = ?'
-    : 'DELETE FROM captain_list_voters WHERE list_id = ? AND voter_id = ?';
+  // Set-based transfer (chunked at 400 rows to stay under SQLite's
+  // default 999-parameter limit).  One INSERT per chunk + one DELETE
+  // per chunk instead of one statement per voter — N=500 voters
+  // drops from 1000 statements to 4.
+  const insertTable = (tgtType === 'admin') ? 'admin_list_voters' : 'captain_list_voters';
+  const deleteTable = (srcType === 'admin') ? 'admin_list_voters' : 'captain_list_voters';
+  const CHUNK = 400;
 
   const doTransfer = db.transaction(() => {
-    const insert = db.prepare(insertSql);
     let transferred = 0;
-    for (const voterId of validIds) {
-      const r = insert.run(targetListId, voterId);
-      transferred += r.changes;
-    }
-
     let removed = 0;
-    if (removeFromSource) {
-      const del = db.prepare(deleteSql);
-      for (const voterId of validIds) {
-        const r = del.run(sourceListId, voterId);
-        removed += r.changes;
+    for (let i = 0; i < validIds.length; i += CHUNK) {
+      const chunk = validIds.slice(i, i + CHUNK);
+      const insertPlaceholders = chunk.map(() => '(?, ?)').join(',');
+      const insertParams = [];
+      for (const vid of chunk) insertParams.push(targetListId, vid);
+      const insertResult = db.prepare(
+        'INSERT OR IGNORE INTO ' + insertTable + ' (list_id, voter_id) VALUES ' + insertPlaceholders
+      ).run(...insertParams);
+      transferred += insertResult.changes;
+
+      if (removeFromSource) {
+        const delPlaceholders = chunk.map(() => '?').join(',');
+        const delResult = db.prepare(
+          'DELETE FROM ' + deleteTable + ' WHERE list_id = ? AND voter_id IN (' + delPlaceholders + ')'
+        ).run(sourceListId, ...chunk);
+        removed += delResult.changes;
       }
     }
-
     return { transferred, removed };
   });
 

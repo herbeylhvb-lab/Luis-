@@ -1554,6 +1554,18 @@ async function transferVoters(removeFromSource) {
 
   var voterIds = Array.from(_selectedVoterIds);
   var action = removeFromSource ? 'Move' : 'Copy';
+  var count = voterIds.length;
+
+  // Disable the transfer buttons + show immediate "in progress" toast.
+  // Without this, big transfers (200+ voters) feel broken — Luis was
+  // reporting "I think it's not working" because the button click
+  // → multi-second silence → nothing-changed-visually.  Now the
+  // user sees feedback the instant they click.
+  var moveBtn = document.querySelector('button[onclick="transferVoters(true)"]');
+  var copyBtn = document.querySelector('button[onclick="transferVoters(false)"]');
+  if (moveBtn) moveBtn.disabled = true;
+  if (copyBtn) copyBtn.disabled = true;
+  showToast(action + 'ing ' + count + ' voter' + (count !== 1 ? 's' : '') + '…', 'info');
 
   try {
     await api('/api/captains/' + captainState.captain.id + '/transfer-voters', {
@@ -1566,13 +1578,19 @@ async function transferVoters(removeFromSource) {
         removeFromSource: removeFromSource
       })
     });
-    var count = voterIds.length;
-    showToast(action + 'd ' + count + ' voter' + (count !== 1 ? 's' : '') + ' to ' + targetName, 'success');
+    showToast('✓ ' + action + 'd ' + count + ' voter' + (count !== 1 ? 's' : '') + ' to ' + targetName, 'success');
     clearVoterSelection();
-    await loadListVoters();
-    refreshSidebar();
+    // Refresh the source list view + sidebar IN PARALLEL — no need
+    // to wait for one before starting the other.
+    await Promise.all([
+      loadListVoters(),
+      Promise.resolve(refreshSidebar())
+    ]);
   } catch(e) {
-    alert(action + ' failed: ' + (e.message || 'Unknown error'));
+    showToast(action + ' failed: ' + (e.message || 'Unknown error'), 'error');
+  } finally {
+    if (moveBtn) moveBtn.disabled = false;
+    if (copyBtn) copyBtn.disabled = false;
   }
 }
 
@@ -1871,6 +1889,11 @@ async function executeDropTransfer(voterIds, targetListId, removeFromSource) {
     alert('Source and target are the same list.');
     return;
   }
+  // Immediate feedback — drag-and-drop transfers also need to feel
+  // responsive on big batches.
+  var action = removeFromSource ? 'Mov' : 'Copy';
+  var count = voterIds.length;
+  showToast(action + 'ing ' + count + ' voter' + (count !== 1 ? 's' : '') + '…', 'info');
   try {
     var resp = await fetch('/api/captains/' + captainState.captain.id + '/transfer-voters', {
       method: 'POST',
@@ -1884,16 +1907,20 @@ async function executeDropTransfer(voterIds, targetListId, removeFromSource) {
     });
     var data = await resp.json();
     if (!resp.ok) {
-      alert('Transfer failed: ' + (data.error || 'Server error ' + resp.status));
+      showToast('Transfer failed: ' + (data.error || 'Server error ' + resp.status), 'error');
       return;
     }
-    var action = removeFromSource ? 'Moved' : 'Copied';
-    showToast(action + ' ' + voterIds.length + ' voter' + (voterIds.length !== 1 ? 's' : ''), 'success');
+    var pastTense = removeFromSource ? 'Moved' : 'Copied';
+    showToast('✓ ' + pastTense + ' ' + count + ' voter' + (count !== 1 ? 's' : ''), 'success');
     clearVoterSelection();
-    await loadListVoters();
-    refreshSidebar();
+    // Source list refresh + sidebar refresh in parallel — they don't
+    // depend on each other so no point awaiting sequentially.
+    await Promise.all([
+      loadListVoters(),
+      Promise.resolve(refreshSidebar())
+    ]);
   } catch(e) {
-    alert('Transfer failed: ' + (e.message || 'Network error'));
+    showToast('Transfer failed: ' + (e.message || 'Network error'), 'error');
   }
 }
 
