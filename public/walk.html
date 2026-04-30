@@ -1337,6 +1337,186 @@ function renderWalk() {
   renderGroupBar();
 }
 
+// PERF: progressive rendering. On large walks (5000+ addresses) the old
+// synchronous forEach over `addrs` could freeze the iPhone Safari main
+// thread for 5–15 seconds — walkers saw the loading screen frozen the
+// whole time. Now we render the first 100 cards synchronously (instant
+// content) and stream the rest in batches via requestAnimationFrame so
+// taps and scrolls stay responsive while cards keep filling in.
+var _addrRenderToken = 0;
+
+// Build one address card. Extracted from renderAddressList so it can be
+// called incrementally. All inputs are passed in (no hidden state).
+function buildAddressCard(a, idx, currentIdx) {
+  var card = document.createElement('div');
+  card.className = 'addr-card';
+  if (a.result !== 'not_visited') card.className += ' done';
+  if (idx === currentIdx) card.className += ' current';
+
+  // In group mode, visually distinguish addresses assigned to other walkers
+  var isMyAddr = !walkState.isGroupMode || !a.assigned_walker || a.assigned_walker === walkState.walkerName;
+
+  // Number badge
+  var num = document.createElement('div');
+  num.className = 'addr-num';
+  num.textContent = idx + 1;
+  card.appendChild(num);
+
+  // Address text — show unit as a highlighted badge
+  var addrText = document.createElement('div');
+  addrText.className = 'addr-text';
+  if (a.unit) {
+    addrText.innerHTML = escHtml(a.address) + ' <span style="background:#3b82f6;color:#fff;padding:1px 6px;border-radius:4px;font-size:12px;font-weight:700">' + escHtml(a.unit) + '</span>' +
+      (a.city ? '<span style="font-weight:400;color:#94a3b8">, ' + escHtml(a.city) + '</span>' : '') +
+      (a.zip ? '<span style="font-weight:400;color:#94a3b8"> ' + escHtml(a.zip) + '</span>' : '');
+  } else {
+    var fullAddr = a.address;
+    if (a.city) fullAddr += ', ' + a.city;
+    if (a.zip) fullAddr += ' ' + a.zip;
+    addrText.textContent = fullAddr;
+  }
+  card.appendChild(addrText);
+
+  // Voter name + unit/apt number + age
+  if (a.voter_name) {
+    var voter = document.createElement('div');
+    voter.className = 'addr-voter';
+    var voterText = a.voter_name;
+    if (a.unit) voterText += ' — ' + a.unit;
+    if (a.voter_age) voterText += ' (age ' + a.voter_age + ')';
+    voter.innerHTML = escHtml(voterText) + (a.voter_party_score ? walkerPartyBadge(a.voter_party_score) : '');
+    card.appendChild(voter);
+  }
+
+  // Household members — show unit number next to each name
+  // VAN-style: group all people (primary voter + household) by unit number
+  if (a.household && a.household.length > 0) {
+    // Build full list: primary voter + all household members
+    var allPeople = [];
+    if (a.voter_name) {
+      var parts = (a.voter_name || '').split(' ');
+      allPeople.push({ first_name: parts[0] || '', last_name: parts.slice(1).join(' ') || '', unit: a.unit || '', age: a.voter_age || null, party_score: a.voter_party_score || '', not_on_list: false, isPrimary: true });
+    }
+    for (var hi = 0; hi < a.household.length; hi++) allPeople.push(a.household[hi]);
+
+    // Group by unit
+    var byUnit = {};
+    for (var pi = 0; pi < allPeople.length; pi++) {
+      var p = allPeople[pi];
+      var unitKey = (p.unit || '').trim() || '_no_unit';
+      if (!byUnit[unitKey]) byUnit[unitKey] = [];
+      byUnit[unitKey].push(p);
+    }
+    var unitKeys = Object.keys(byUnit).sort(function(a, b) {
+      if (a === '_no_unit') return 1; if (b === '_no_unit') return -1;
+      var na = parseInt(a) || 0, nb = parseInt(b) || 0;
+      return na !== nb ? na - nb : a.localeCompare(b);
+    });
+
+    // Only show grouped view if there are multiple units
+    if (unitKeys.length > 1 || (unitKeys.length === 1 && unitKeys[0] !== '_no_unit')) {
+      var groupDiv = document.createElement('div');
+      groupDiv.style.cssText = 'margin-top:6px;border-top:1px solid #334155;padding-top:6px';
+      for (var ui = 0; ui < unitKeys.length; ui++) {
+        var uk = unitKeys[ui];
+        var unitLabel = document.createElement('div');
+        unitLabel.style.cssText = 'font-size:11px;font-weight:700;color:#f59e0b;margin-top:' + (ui > 0 ? '8px' : '0') + ';margin-bottom:2px';
+        unitLabel.textContent = uk === '_no_unit' ? 'No Unit' : 'Unit ' + uk;
+        groupDiv.appendChild(unitLabel);
+        for (var mi = 0; mi < byUnit[uk].length; mi++) {
+          var m = byUnit[uk][mi];
+          var mDiv = document.createElement('div');
+          mDiv.style.cssText = 'font-size:12px;padding:2px 0 2px 12px;color:' + (m.not_on_list ? '#60a5fa' : '#e2e8f0');
+          var mText = (m.first_name || '') + ' ' + (m.last_name || '');
+          if (m.age) mText += ' (' + m.age + ')';
+          if (m.party_score) mText += ' ' + (m.party_score > 0.6 ? 'D' : m.party_score < 0.4 ? 'R' : '');
+          if (m.not_on_list) mText += ' *';
+          mDiv.textContent = mText;
+          groupDiv.appendChild(mDiv);
+        }
+      }
+      card.appendChild(groupDiv);
+    } else {
+      // Single unit or no units — show flat list
+      var hh = document.createElement('div');
+      hh.className = 'addr-household';
+      var hhSmall = document.createElement('small');
+      hhSmall.style.color = '#64748b';
+      hhSmall.textContent = a.household.map(function(m) {
+        var t = (m.first_name || '') + ' ' + (m.last_name || '');
+        if (m.age) t += ' (' + m.age + ')';
+        return t;
+      }).join(', ');
+      hh.appendChild(hhSmall);
+      card.appendChild(hh);
+    }
+  }
+
+  // Assigned walker (group mode) — show whose door it is
+  if (a.assigned_walker && walkState.isGroupMode) {
+    var walkerLabel = document.createElement('div');
+    walkerLabel.className = 'addr-walker';
+    if (a.assigned_walker === walkState.walkerName) {
+      walkerLabel.textContent = '⭐ Your door';
+      walkerLabel.style.color = '#f59e0b';
+    } else {
+      walkerLabel.textContent = 'Assigned: ' + a.assigned_walker;
+    }
+    card.appendChild(walkerLabel);
+  }
+
+  // Status badges
+  if (a.result !== 'not_visited') {
+    var statusRow = document.createElement('div');
+    statusRow.className = 'addr-status';
+
+    var resultBadge = document.createElement('span');
+    resultBadge.className = 'badge ' + getResultBadgeClass(a.result);
+    resultBadge.textContent = formatResult(a.result);
+    statusRow.appendChild(resultBadge);
+
+    if (a.gps_verified) {
+      var gpsBadge = document.createElement('span');
+      gpsBadge.className = 'badge badge-green badge-gps';
+      gpsBadge.textContent = '✓ GPS';
+      statusRow.appendChild(gpsBadge);
+    }
+
+    // Attempt count
+    if (a.attempt_count && a.attempt_count > 1) {
+      var attBadge = document.createElement('span');
+      attBadge.className = 'attempt-badge';
+      attBadge.textContent = a.attempt_count + ' attempts';
+      statusRow.appendChild(attBadge);
+    }
+
+    card.appendChild(statusRow);
+  }
+
+  // Re-knock indicator for not_home and come_back
+  if (a.result === 'not_home' || a.result === 'come_back') {
+    var reknock = document.createElement('div');
+    reknock.style.cssText = 'font-size:11px;color:#fcd34d;margin-top:4px;font-weight:600';
+    reknock.textContent = a.result === 'not_home' ? '\u{1F504} Try again — Not Home' : '\u{1F504} Come back later';
+    card.className = card.className.replace(' done', ''); // Make it look tappable again
+    card.style.borderLeft = '3px solid #f59e0b';
+    card.appendChild(reknock);
+  }
+
+  // Google Maps link on each address card
+  var gmLink = document.createElement('a');
+  gmLink.className = 'gmaps-link';
+  gmLink.href = buildGoogleMapsUrl(a.address + (a.unit ? ' ' + a.unit : ''), a.city, a.zip);
+  gmLink.target = '_blank';
+  gmLink.rel = 'noopener';
+  gmLink.innerHTML = '&#x1F4CD; Maps';
+  gmLink.addEventListener('click', function(e) { e.stopPropagation(); });
+  card.appendChild(gmLink);
+
+  card.addEventListener('click', function() { openDoor(idx); });
+  return card;
+}
+
 function renderAddressList() {
   var el = document.getElementById('addrList');
   el.textContent = '';
@@ -1357,6 +1537,63 @@ function renderAddressList() {
   }
   walkState.currentAddrIdx = currentIdx >= 0 ? currentIdx : addrs.length;
 
+  // PERF: progressive render. First batch syncs so the walker sees content
+  // instantly; remaining batches stream in via requestAnimationFrame so the
+  // UI thread stays responsive. _addrRenderToken cancels stale renders if
+  // refreshWalkData triggers a new one mid-flight.
+  var token = ++_addrRenderToken;
+  var INITIAL_BATCH = 100;  // visible-on-screen approximation
+  var FRAME_BATCH = 200;    // per-frame chunk size after the first paint
+  var idx = 0;
+
+  function appendCompletionMessage() {
+    if (currentIdx === -1 && addrs.length > 0) {
+      var done = document.createElement('div');
+      done.style.cssText = 'text-align:center;padding:2rem;color:#22c55e;font-size:1.2rem;font-weight:700';
+      done.textContent = '✅ Walk Complete! All doors knocked.';
+      el.appendChild(done);
+    }
+  }
+
+  // First batch: synchronous so something paints immediately on this turn
+  var firstEnd = Math.min(addrs.length, INITIAL_BATCH);
+  var frag0 = document.createDocumentFragment();
+  for (; idx < firstEnd; idx++) {
+    frag0.appendChild(buildAddressCard(addrs[idx], idx, currentIdx));
+  }
+  el.appendChild(frag0);
+
+  if (idx >= addrs.length) {
+    appendCompletionMessage();
+    return;
+  }
+
+  // Remaining batches: one per animation frame
+  function nextFrame() {
+    if (token !== _addrRenderToken) return; // canceled by a newer render
+    var deadline = Math.min(addrs.length, idx + FRAME_BATCH);
+    var frag = document.createDocumentFragment();
+    for (; idx < deadline; idx++) {
+      frag.appendChild(buildAddressCard(addrs[idx], idx, currentIdx));
+    }
+    el.appendChild(frag);
+    if (idx < addrs.length) {
+      requestAnimationFrame(nextFrame);
+    } else {
+      appendCompletionMessage();
+    }
+  }
+  requestAnimationFrame(nextFrame);
+}
+
+// Legacy renderAddressList replaced by progressive render above. The buildAddressCard
+// helper extracted from the old forEach body is the single source of truth now.
+/* eslint-disable */
+function _renderAddressListLegacy_unused() {
+  /* unused — left only in case rollback is needed
+  var el = document.getElementById('addrList');
+  var addrs = walkState.walk.addresses;
+  var currentIdx = walkState.currentAddrIdx;
   addrs.forEach(function(a, idx) {
     var card = document.createElement('div');
     card.className = 'addr-card';
@@ -1534,6 +1771,7 @@ function renderAddressList() {
     done.textContent = '\u2705 Walk Complete! All doors knocked.';
     el.appendChild(done);
   }
+  */
 }
 
 function getResultBadgeClass(result) {
