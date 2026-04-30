@@ -2639,19 +2639,21 @@ function renderListVoters() {
           verifiedBadge.title = 'Phone number confirmed by a captain on ' + dateStr;
           contact.appendChild(verifiedBadge);
         }
-        // Phone actions menu \u2014 small \u22ef button. Opens reassign-or-mark-wrong
-        // sheet. Stops click propagation so the row's main tap (open detail)
-        // doesn't fire.
+        // Phone actions menu \u2014 small \u22ef button. Opens the unified
+        // showPhoneActionMenu (Call / Move to Household / Update / Mark Wrong).
+        // Stops click propagation so the row's main tap (open voter detail)
+        // doesn't also fire underneath. Made larger so it's actually
+        // tappable on iPhone (44\u00d744 minimum is Apple's HIG).
         var phoneActionBtn = document.createElement('button');
         phoneActionBtn.type = 'button';
-        phoneActionBtn.title = 'Phone options (move, mark wrong)';
+        phoneActionBtn.title = 'Phone options';
         phoneActionBtn.setAttribute('aria-label', 'Phone options');
         phoneActionBtn.textContent = '\u22ef';
-        phoneActionBtn.style.cssText = 'background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:6px;padding:0 8px;font-size:14px;line-height:18px;height:20px;cursor:pointer';
+        phoneActionBtn.style.cssText = 'background:#1e293b;border:1px solid #475569;color:#cbd5e1;border-radius:8px;padding:4px 12px;font-size:18px;font-weight:700;line-height:1;min-height:28px;cursor:pointer;flex-shrink:0';
         (function(voter) {
           phoneActionBtn.addEventListener('click', function(ev) {
             ev.stopPropagation();
-            openPhoneActionMenu(voter);
+            showPhoneActionMenu(voter, 'primary', voter.phone);
           });
         })(v);
         contact.appendChild(phoneActionBtn);
@@ -7456,12 +7458,32 @@ function showPhoneActionMenu(voter, slot, phoneValue) {
     var full = (digits.length === 10) ? '+1' + digits : '+' + digits;
     window.location.href = 'tel:' + full;
   });
+  // Reassign to a household member (primary-slot only \u2014 that's the case
+  // captains actually run into when matching contacts: imported number for
+  // person A is really person B at the same address+unit). Server-side
+  // already enforces the same-household guard, so a tampered request can't
+  // push the phone elsewhere.
+  if (slot === 'primary') {
+    mkBtn('\u21AA  Move to Household Member', '#f59e0b', function() {
+      openReassignModal(voter);
+    });
+  }
   mkBtn('\u270F\uFE0F Update to a New Number', '#3b82f6', function() {
     requirePhoneEditUnlocked(function() { showUpdatePhoneModal(voter, slot, phoneValue); });
   });
-  mkBtn('\u274C Mark as No Longer Valid', '#ef4444', function() {
-    requirePhoneEditUnlocked(function() { confirmErasePhone(voter, slot, phoneValue); });
-  });
+  // For the primary slot: use the new "mark wrong" flow which sets
+  // phone_type='invalid' so the bad number can't sneak back on the next
+  // voter-file re-import. For secondary/tertiary: keep the original
+  // "no longer valid" erase since the re-import case doesn't apply there.
+  if (slot === 'primary') {
+    mkBtn('\u274C Mark as wrong (not their number)', '#ef4444', function() {
+      openMarkWrongModal(voter);
+    });
+  } else {
+    mkBtn('\u274C Mark as No Longer Valid', '#ef4444', function() {
+      requirePhoneEditUnlocked(function() { confirmErasePhone(voter, slot, phoneValue); });
+    });
+  }
   var cancel = document.createElement('button');
   cancel.style.cssText = 'display:block;width:100%;padding:10px;margin-top:4px;background:transparent;border:1px solid #334155;border-radius:8px;color:#94a3b8;cursor:pointer';
   cancel.textContent = 'Cancel';
@@ -7732,55 +7754,10 @@ function doErasePhone(voter, slot) {
 //  - completely incorrect, not anyone they know (→ Mark as wrong)
 // Both actions go through the same password-unlock gate as edit/erase.
 
-function openPhoneActionMenu(voter) {
-  var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:600;display:flex;align-items:center;justify-content:center;padding:1rem';
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-  var box = document.createElement('div');
-  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:400px;width:100%;padding:1.25rem';
-
-  var title = document.createElement('h3');
-  title.style.cssText = 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px';
-  title.textContent = 'Phone number actions';
-  box.appendChild(title);
-
-  var subtitle = document.createElement('p');
-  subtitle.style.cssText = 'margin:0 0 1rem;color:#94a3b8;font-size:13px';
-  var nameTxt = ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim() || 'this voter';
-  subtitle.textContent = (voter.phone || '') + ' — listed for ' + nameTxt;
-  box.appendChild(subtitle);
-
-  // Action: Reassign to household member
-  var reassignBtn = document.createElement('button');
-  reassignBtn.style.cssText = 'display:block;width:100%;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:8px;padding:12px;font-size:14px;text-align:left;margin-bottom:8px;cursor:pointer';
-  reassignBtn.innerHTML = '<div style="font-weight:600">↪  Move to household member</div>' +
-    '<div style="font-size:12px;color:#94a3b8;margin-top:2px">Number actually belongs to a roommate / family member at the same address</div>';
-  reassignBtn.addEventListener('click', function() {
-    overlay.remove();
-    openReassignModal(voter);
-  });
-  box.appendChild(reassignBtn);
-
-  // Action: Mark as wrong
-  var wrongBtn = document.createElement('button');
-  wrongBtn.style.cssText = 'display:block;width:100%;background:transparent;color:#fca5a5;border:1px solid #7f1d1d;border-radius:8px;padding:12px;font-size:14px;text-align:left;margin-bottom:8px;cursor:pointer';
-  wrongBtn.innerHTML = '<div style="font-weight:600">✗  Mark this number as wrong</div>' +
-    '<div style="font-size:12px;color:#94a3b8;margin-top:2px">Number is completely incorrect — not anyone in this household</div>';
-  wrongBtn.addEventListener('click', function() {
-    overlay.remove();
-    openMarkWrongModal(voter);
-  });
-  box.appendChild(wrongBtn);
-
-  var cancelBtn = document.createElement('button');
-  cancelBtn.style.cssText = 'display:block;width:100%;background:transparent;color:#64748b;border:none;border-radius:8px;padding:10px;font-size:13px;cursor:pointer';
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.addEventListener('click', function() { overlay.remove(); });
-  box.appendChild(cancelBtn);
-
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-}
+// (Earlier draft of a separate "phone action" menu was removed once the
+// existing showPhoneActionMenu absorbed the new actions — see line ~7424.
+// Both list-view ⋯ button and detail-modal phone-row tap now route through
+// the same menu.)
 
 // "Move to household member..." flow. Loads household via the existing
 // /captains/:id/household endpoint (already filters by address+unit). If
