@@ -6931,13 +6931,18 @@ function showPreviewMenu(voterId, phone, data, opts) {
     }
   }
 
-  // Household checkboxes (pre-checked unless already on list). `household`
-  // is already defined above for the redirect button.
+  // Household checkboxes. NEW members (not on list) are pre-checked — they
+  // get added to the list under the matched voter. ALREADY-ON-LIST members
+  // are unchecked but ENABLED — captain can opt to nest them under the
+  // matched voter so the family tree reflects the household. The same
+  // /captain/add-household endpoint handles both cases (INSERT for new,
+  // UPDATE-set-parent for existing).
   if (household.length > 0) {
     menu.appendChild(makeEl('p', {
       text: 'Other people at this address (' + household.length + '):',
       style: 'color:#94a3b8;margin-top:8px;font-size:14px',
     }));
+    var matchedDisplayName = ((v.firstName || '') + ' ' + (v.lastName || '')).trim() || 'this voter';
     household.forEach(function (h) {
       var label = makeEl('label', {
         style: 'display:flex;align-items:center;gap:8px;padding:6px;border-bottom:1px solid #334155;cursor:pointer',
@@ -6945,16 +6950,27 @@ function showPreviewMenu(voterId, phone, data, opts) {
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.dataset.voterId = String(h.voterId);
-      cb.checked = !h.onList;
-      cb.disabled = !!h.onList;
+      cb.dataset.onList = h.onList ? '1' : '0';
+      cb.checked = !h.onList;  // default: new = check (add), on-list = uncheck (no change)
+      cb.disabled = false;     // always enabled — on-list members can be re-parented
       var info = makeEl('span', {
-        text: (h.firstName || '') + ' ' + (h.lastName || '') +
-              (h.age ? ' · age ' + h.age : '') +
-              (h.onList ? ' (on your list)' : ''),
-        style: h.onList ? 'color:#64748b' : 'color:#e2e8f0',
+        style: h.onList ? 'color:#94a3b8' : 'color:#e2e8f0',
       });
+      var nameTxt = (h.firstName || '') + ' ' + (h.lastName || '') +
+        (h.age ? ' · age ' + h.age : '');
+      info.textContent = nameTxt;
       label.appendChild(cb);
       label.appendChild(info);
+      // For on-list members, append a small hint that checking re-parents
+      // them rather than adding (they're already on the list, can't be
+      // added twice). Tooltip + visible suffix for clarity.
+      if (h.onList) {
+        var hint = makeEl('span', {
+          style: 'font-size:11px;color:#fbbf24;margin-left:4px',
+        });
+        hint.textContent = '(on list — check to nest under ' + matchedDisplayName + ')';
+        label.appendChild(hint);
+      }
       menu.appendChild(label);
     });
   } else {
