@@ -6717,35 +6717,10 @@ function showPreviewMenu(voterId, phone, data, opts) {
   // 555-1234") personally and realizes the imported phone actually belongs
   // to a household member, not the auto-matched voter. Tap → small picker
   // of the same-address+unit household → re-runs preview with that member
-  // as the primary so the import (phone + list-add) lands on them.
-  // Always shown when there ARE household members — handles three cases:
-  //   - contact phone is different from voter's existing phone: redirect
-  //     causes the contact phone to save to the new voter
-  //   - contact phone matches voter's existing phone: redirect still
-  //     useful — captain knows the right *person* differs even though
-  //     phone is identical (auto-match found the wrong owner of the
-  //     correct phone)
-  //   - no contact phone at all: redirect just changes who gets added
-  //     to the list (no phone write happens either way)
+  // The "Wrong person?" redirect lives in the action button row at the
+  // bottom now (next to "Voter's number is wrong") — captains found the
+  // big banner above the household list too prominent.
   var household = data.household || [];
-  if (household.length > 0) {
-    var redirectBtn = makeEl('button', {
-      text: '↪  Wrong person? This phone belongs to someone else in the household',
-      style: 'display:block;width:100%;padding:10px;margin-bottom:8px;background:transparent;border:1px dashed #f59e0b;border-radius:6px;color:#fbbf24;font-size:13px;cursor:pointer;text-align:left;font-weight:600'
-    });
-    redirectBtn.addEventListener('click', function() {
-      // Pass the auto-matched voter so they appear in the picker as a
-      // "keep on this person" option. Lets the captain confirm the match
-      // is correct AND have any duplicate phones cleaned up in one step.
-      showWizardHouseholdPicker(household, phone || '', voterId, {
-        firstName: v.firstName,
-        lastName: v.lastName,
-        age: v.age,
-        currentPhone: v.currentPhone || ''
-      });
-    });
-    menu.appendChild(redirectBtn);
-  }
   if (data.alreadyOnList) {
     var listOk = makeEl('div', {
       style: 'background:#1e1b4b;border:1px solid #6366f1;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;color:#a5b4fc'
@@ -6796,35 +6771,50 @@ function showPreviewMenu(voterId, phone, data, opts) {
   var addLabel = actionWords.length > 0
     ? '✓ ' + actionWords.join(' & ').replace(/^\w/, function(c) { return c.toUpperCase(); })
     : '✓ Confirm';
-  var btnRow = makeEl('div', { style: 'margin-top:12px;display:flex;gap:8px;flex-wrap:wrap' });
+  // All action buttons in the row share the same shape (display:block,
+  // full-width, padding 12px, 14px font, rounded 6px) so they look like
+  // a stack of equal-weight options instead of a chaotic mix of sizes.
+  // The Pause/Resume button at the top of the wizard set the visual style.
+  var btnRow = makeEl('div', { style: 'margin-top:12px;display:flex;flex-direction:column;gap:8px' });
+  var actionBtnBase = 'display:block;width:100%;padding:12px;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer';
   var addBtn = makeEl('button', {
     text: addLabel,
-    style: 'padding:10px 16px;background:#22c55e;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer',
+    style: actionBtnBase + ';background:#22c55e;color:#fff;border:none',
   });
   addBtn.addEventListener('click', function () {
     finalizeAdd(voterId, phone, data, addBtn);
   });
-  var skipBtn = makeEl('button', {
-    text: 'Skip',
-    style: 'padding:10px 16px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;cursor:pointer',
-  });
-  skipBtn.addEventListener('click', function () {
-    window._mcResults.skipped++;
-    // Record skipped from preview-menu so re-imports don't replay this contact.
-    recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
-    advance();
-  });
   btnRow.appendChild(addBtn);
-  btnRow.appendChild(skipBtn);
-  // "Voter's number is wrong" — captain knows the voter's CURRENT phone in
-  // the file is incorrect (doesn't belong to anyone in this household).
-  // Clears it via phone-mark-wrong (sets phone_type='invalid' so re-import
-  // can't bring it back) AND skips the contact. Only meaningful when the
-  // voter actually has a phone in the file to flag.
+
+  // Wrong person? — opens the household picker. Now lives in the action
+  // row instead of the big banner above. Only useful when there are
+  // OTHER voters at this address+unit to redirect to.
+  if (household.length > 0) {
+    var redirectBtn = makeEl('button', {
+      text: '↪ Wrong person? Phone belongs to someone else in the household',
+      style: actionBtnBase + ';background:transparent;border:1px solid #f59e0b;color:#fbbf24;text-align:center',
+    });
+    redirectBtn.addEventListener('click', function () {
+      // Pass the auto-matched voter so they appear in the picker as a
+      // "keep on this person" option (and so duplicate-phone detection
+      // can include them).
+      showWizardHouseholdPicker(household, phone || '', voterId, {
+        firstName: v.firstName,
+        lastName: v.lastName,
+        age: v.age,
+        currentPhone: v.currentPhone || ''
+      });
+    });
+    btnRow.appendChild(redirectBtn);
+  }
+
+  // Voter's existing number is wrong — clears it via phone-mark-wrong
+  // (sets phone_type='invalid' so re-import can't bring it back) AND
+  // skips the contact. Only shown when the voter actually has a phone.
   if (v.currentPhone && (v.currentPhone || '').trim()) {
     var wrongBtn = makeEl('button', {
       text: '✗ Voter’s number is wrong',
-      style: 'padding:10px 16px;background:transparent;border:1px solid #7f1d1d;color:#fca5a5;border-radius:6px;cursor:pointer',
+      style: actionBtnBase + ';background:transparent;border:1px solid #7f1d1d;color:#fca5a5;text-align:center',
     });
     wrongBtn.addEventListener('click', function () {
       if (!confirm('Mark ' + v.currentPhone + ' as wrong (not anyone in this household) and skip this contact?')) return;
@@ -6848,6 +6838,18 @@ function showPreviewMenu(voterId, phone, data, opts) {
     });
     btnRow.appendChild(wrongBtn);
   }
+
+  // Skip is last — least destructive option, captain just moves on.
+  var skipBtn = makeEl('button', {
+    text: 'Skip',
+    style: actionBtnBase + ';background:#334155;color:#e2e8f0;border:none',
+  });
+  skipBtn.addEventListener('click', function () {
+    window._mcResults.skipped++;
+    recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
+    advance();
+  });
+  btnRow.appendChild(skipBtn);
   menu.appendChild(btnRow);
 }
 
@@ -6955,9 +6957,12 @@ function showWizardHouseholdPicker(household, phone, originalVoterId, originalVo
     box.appendChild(btn);
   });
 
+  // Cancel — styled to match the wizard's "⏸ Pause — resume later" button
+  // (full-width, transparent with amber border, font-weight 600) so the
+  // captain isn't confused by inconsistent button sizes between modals.
   var cancel = makeEl('button', {
     text: 'Cancel',
-    style: 'display:block;width:100%;background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:8px;padding:10px;font-size:14px;cursor:pointer',
+    style: 'display:block;width:100%;margin-top:8px;padding:10px;background:transparent;border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;cursor:pointer;font-weight:600;font-size:14px',
   });
   cancel.addEventListener('click', function () { overlay.remove(); });
   box.appendChild(cancel);
@@ -7055,7 +7060,7 @@ async function finalizeAdd(voterId, phone, previewData, btn) {
         });
       } catch (e) { /* non-fatal — primary already added */ }
     }
-    // 3) Tally + refresh + advance to next contact.
+    // 3) Tally + refresh.
     window._mcResults.matched++;
     if (typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
       try { loadListVoters(); } catch (e) {}
@@ -7065,9 +7070,50 @@ async function finalizeAdd(voterId, phone, previewData, btn) {
     }
     var addedTotal = 1 + householdIds.length;
     showToast('Added ' + addedTotal + ' to list', 'success');
-    // Record this contact as processed so future imports skip them.
     recordContactProcessed(window._mcContacts[window._mcIndex], 'matched');
-    advance();
+
+    // 4) Auto-detect duplicate phone numbers in the household. If the
+    //    just-saved phone is ALSO listed for any household member at the
+    //    same address+unit, prompt the captain to clean it up. This catches
+    //    the common case where a contact phone matches the auto-matched
+    //    voter AND a relative — and the captain doesn't have to think to
+    //    open the picker first; the wizard surfaces the choice.
+    var contactDigits = String(phone || '').replace(/\D/g, '').slice(-10);
+    var duplicates = (previewData.household || []).filter(function (h) {
+      var d = String(h.currentPhone || '').replace(/\D/g, '').slice(-10);
+      return contactDigits.length >= 10 && d.length >= 10 && d === contactDigits;
+    });
+    if (duplicates.length === 0) {
+      advance();
+      return;
+    }
+    // Found duplicates — offer cleanup. Captain says yes/no via confirm,
+    // mark-wrong runs in parallel on each duplicate, then advance.
+    var dupNames = duplicates.map(function (d) {
+      return ((d.firstName || '') + ' ' + (d.lastName || '')).trim();
+    }).join(' and ');
+    var msg = phone + ' is also listed for ' + dupNames +
+      '. Remove it from ' + (duplicates.length === 1 ? 'them' : 'all of them') +
+      '? (Recommended — keeps the voter file clean.)';
+    if (!confirm(msg)) {
+      advance();
+      return;
+    }
+    requirePhoneEditUnlocked(function () {
+      var captainId = captainState.captain.id;
+      var promises = duplicates.map(function (d) {
+        return apiPost('/api/captains/' + captainId + '/voters/' + d.voterId + '/phone-mark-wrong', {})
+          .catch(function (e) { console.warn('mark-wrong failed for', d.voterId, e); return null; });
+      });
+      Promise.all(promises).then(function () {
+        showToast('Removed number from ' + duplicates.length + ' duplicate' + (duplicates.length === 1 ? '' : 's') + '.', 'success');
+        // Reload the captain list so the cleared phones disappear from view.
+        if (typeof loadListVoters === 'function' && captainState.selectedListId === listId) {
+          try { loadListVoters(); } catch (e) {}
+        }
+        advance();
+      });
+    });
   } catch (err) {
     btn.disabled = false; btn.textContent = 'Add to list';
     showToast('Add failed: ' + (err && err.message ? err.message : 'network error'));
