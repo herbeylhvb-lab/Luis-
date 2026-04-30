@@ -1502,9 +1502,33 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_wa_time ON walk_attempts(attempted_at);
 `);
 
-// Run recovery on startup (now that walk_attempts table exists)
-// Idempotent and self-healing — restores walk_addresses.result from walk_attempts history
-recoverLostKnocks();
+// Run recovery on startup, but ONLY if it hasn't run in the last 24h.
+// Without this gate, every Railway redeploy was scanning the full
+// walk_addresses⨯walk_attempts join (50K+ rows × 100K+ rows on real
+// campaign data) — adding seconds to deploy time for a check that's
+// almost always a no-op.  Manual button still works for on-demand
+// runs (POST /api/walks/recover-lost-knocks).  Idempotent + self-
+// healing semantics unchanged.
+{
+  let lastRun = 0;
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'last_recover_lost_knocks'").get();
+    lastRun = row && row.value ? parseInt(row.value, 10) : 0;
+  } catch (e) { /* settings table may not exist yet on a brand-new DB; treat as never-ran */ }
+  const now = Date.now();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  if (now - lastRun > oneDayMs) {
+    recoverLostKnocks();
+    try {
+      db.prepare(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('last_recover_lost_knocks', ?)"
+      ).run(String(now));
+    } catch (e) { /* if settings table doesn't exist yet, persistence is best-effort */ }
+  } else {
+    const minsAgo = Math.round((now - lastRun) / 60000);
+    console.log('[recover] Skipped startup scan — last ran ' + minsAgo + ' min ago (gated to once per 24h; manual button still works)');
+  }
+}
 
 // --- Distributed Canvassing Universes ---
 db.exec(`
