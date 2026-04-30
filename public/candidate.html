@@ -1210,15 +1210,33 @@ function showCandidateVoterDetail(voter) {
       hhContainer.textContent = 'No other people found at this address.';
       return;
     }
+    // Tap-to-drill hint so the candidate knows the rows are interactive.
+    var hhHint = document.createElement('div');
+    hhHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
+    hhHint.textContent = 'Tap a name to see their full info →';
+    hhContainer.appendChild(hhHint);
+
     var hhScroll = document.createElement('div');
     hhScroll.style.cssText = 'max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch';
     household.forEach(function(h) {
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
+      // Each row is now a tappable card — opens the same detail modal for
+      // the household member so the candidate can drill from one voter to
+      // another within a household without going back to the list. Hover +
+      // pointer cursor signal interactivity; the modal removes the current
+      // overlay before rendering the new one (showCandidateVoterDetail
+      // handles existing-modal cleanup at the top of the function).
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s';
+      row.addEventListener('mouseenter', function() { row.style.background = '#1e293b'; });
+      row.addEventListener('mouseleave', function() { row.style.background = ''; });
+      row.addEventListener('click', (function(member) {
+        return function() { showCandidateVoterDetail(member); };
+      })(h));
+
       var info = document.createElement('div');
       info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
       var nameSpan = document.createElement('span');
-      nameSpan.style.color = '#e2e8f0';
+      nameSpan.style.cssText = 'color:#e2e8f0;font-weight:600';
       nameSpan.textContent = (h.first_name || '') + ' ' + (h.last_name || '');
       info.appendChild(nameSpan);
       if (h.age) { var ageSpan = document.createElement('span'); ageSpan.style.cssText = 'font-size:11px;color:#a78bfa'; ageSpan.textContent = '(' + h.age + ')'; info.appendChild(ageSpan); }
@@ -1237,6 +1255,13 @@ function showCandidateVoterDetail(voter) {
       }
       info.appendChild(evBadge);
       row.appendChild(info);
+
+      // Right-side chevron — visual cue that this row drills into more info.
+      var chev = document.createElement('span');
+      chev.style.cssText = 'color:#64748b;font-size:14px;flex-shrink:0';
+      chev.textContent = '›';
+      row.appendChild(chev);
+
       hhScroll.appendChild(row);
     });
     hhContainer.appendChild(hhScroll);
