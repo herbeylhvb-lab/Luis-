@@ -68,6 +68,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .progress-fill.green{background:linear-gradient(90deg,#22c55e,#4ade80)}
 .progress-fill.blue{background:linear-gradient(90deg,#3b82f6,#60a5fa)}
 .progress-fill.purple{background:linear-gradient(90deg,#818cf8,#a78bfa)}
+.progress-fill.yellow{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+.progress-fill.red{background:linear-gradient(90deg,#ef4444,#f87171)}
 .captain-portal-link{font-size:12px;color:#64748b;margin-top:8px}
 .captain-portal-link a{color:#818cf8;text-decoration:none}
 .captain-portal-link a:hover{text-decoration:underline}
@@ -285,8 +287,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <div class="stats-grid" id="statsGrid"></div>
 
       <!-- Go to Workspace button -->
-      <div style="text-align:center;margin-bottom:28px">
+      <div style="text-align:center;margin-bottom:16px">
         <button class="btn btn-primary" onclick="switchView('workspace')" style="padding:14px 36px;font-size:16px">Open Workspace &#8594;</button>
+      </div>
+
+      <!-- Quick voter search — same engine as the Workspace search but lives
+           on the dashboard so candidates can look someone up without the
+           extra view switch. Tap a result → voter detail card opens. -->
+      <div style="max-width:600px;margin:0 auto 28px;padding:14px;background:#1e293b;border:1px solid #334155;border-radius:12px">
+        <div style="font-size:13px;color:#94a3b8;margin-bottom:8px;font-weight:600">🔍 Quick voter search</div>
+        <input type="text" id="dashSearchInput"
+               placeholder="Type a name, phone, or address…"
+               style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 14px;color:#e2e8f0;font-size:15px;outline:none;box-sizing:border-box"
+               oninput="dashSearchDebounced()">
+        <div id="dashSearchResults" style="margin-top:10px"></div>
       </div>
 
       <!-- CAPTAINS -->
@@ -1571,13 +1585,21 @@ function renderCaptainCards(captains) {
 
     card.appendChild(statsRow);
 
+    // Progress bar = voted percentage (votedCount / totalVoters), the
+    // metric the candidate actually wants to compare across captains.
+    // Previously it showed totalVoters / maxVoters (relative to the biggest
+    // captain's list) which made "20% voted" look different on every card
+    // depending on list size. Now 20% voted = same width everywhere.
     var pbar = document.createElement('div');
     pbar.className = 'progress-bar';
     var pfill = document.createElement('div');
-    pfill.className = 'progress-fill ' + (indentLevel > 0 ? 'blue' : 'purple');
-    var pct = maxVoters > 0 ? Math.min((totalVoters / maxVoters) * 100, 100) : 0;
-    pfill.style.width = Math.max(pct, 2) + '%';
+    // Color signals performance — same thresholds as the voted-pct number
+    // above so the bar and the number agree visually.
+    var perfClass = capVotedPct >= 60 ? 'green' : capVotedPct >= 30 ? 'yellow' : 'red';
+    pfill.className = 'progress-fill ' + perfClass;
+    pfill.style.width = capVotedPct + '%';
     pbar.appendChild(pfill);
+    pbar.title = capVotedPct + '% of this captain’s voters have voted';
     card.appendChild(pbar);
 
     var portalLink = document.createElement('div');
@@ -1899,6 +1921,93 @@ function onListSelectChange() {
 function debounceSearch() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(searchVoters, 300);
+}
+
+// Dashboard quick search — separate from the workspace search input so
+// candidates can look someone up without switching views. Hits the same
+// /api/candidates/:id/search endpoint as the workspace and renders a
+// tap-to-open list. The voter detail card pops over the dashboard.
+var _dashSearchTimer = null;
+function dashSearchDebounced() {
+  clearTimeout(_dashSearchTimer);
+  _dashSearchTimer = setTimeout(dashSearchVoters, 250);
+}
+
+async function dashSearchVoters() {
+  var inp = document.getElementById('dashSearchInput');
+  var resultsEl = document.getElementById('dashSearchResults');
+  if (!inp || !resultsEl) return;
+  var q = (inp.value || '').trim();
+  if (q.length < 2) { resultsEl.textContent = ''; return; }
+
+  // Fast feedback so captain knows we're working on a slow connection.
+  resultsEl.textContent = '';
+  var loading = document.createElement('div');
+  loading.style.cssText = 'padding:8px;color:#64748b;font-size:13px;text-align:center';
+  loading.textContent = 'Searching…';
+  resultsEl.appendChild(loading);
+
+  try {
+    var data = await api('/api/candidates/' + candidateId + '/search?q=' + encodeURIComponent(q));
+    var voters = (data && data.voters) || [];
+    resultsEl.textContent = '';
+    if (voters.length === 0) {
+      var nores = document.createElement('div');
+      nores.style.cssText = 'padding:12px;color:#64748b;font-size:13px;text-align:center';
+      nores.textContent = 'No voters found.';
+      resultsEl.appendChild(nores);
+      return;
+    }
+    voters.slice(0, 20).forEach(function(v) {
+      var row = document.createElement('div');
+      row.style.cssText = 'padding:10px 12px;background:#0f172a;border:1px solid #334155;border-radius:8px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;transition:background 0.1s';
+      row.addEventListener('mouseenter', function() { row.style.background = '#283447'; });
+      row.addEventListener('mouseleave', function() { row.style.background = '#0f172a'; });
+      row.addEventListener('click', (function(voter) {
+        return function() { showCandidateVoterDetail(voter); };
+      })(v));
+
+      var info = document.createElement('div');
+      info.style.cssText = 'flex:1;min-width:0';
+      var nameDiv = document.createElement('div');
+      nameDiv.style.cssText = 'font-weight:600;color:#e2e8f0;font-size:14px';
+      var nameStr = ((v.first_name || '') + ' ' + (v.last_name || '')).trim() || 'Unnamed';
+      if (v.age) nameStr += ' · age ' + v.age;
+      nameDiv.textContent = nameStr;
+      info.appendChild(nameDiv);
+      var addrDiv = document.createElement('div');
+      addrDiv.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      addrDiv.textContent = (v.address || '') + (v.city ? ', ' + v.city : '');
+      info.appendChild(addrDiv);
+      if (v.phone) {
+        var phDiv = document.createElement('div');
+        phDiv.style.cssText = 'font-size:12px;color:#818cf8;margin-top:1px';
+        phDiv.textContent = v.phone;
+        info.appendChild(phDiv);
+      }
+      row.appendChild(info);
+
+      var chev = document.createElement('span');
+      chev.style.cssText = 'color:#64748b;font-size:16px;flex-shrink:0';
+      chev.textContent = '›';
+      row.appendChild(chev);
+
+      resultsEl.appendChild(row);
+    });
+
+    if (voters.length > 20) {
+      var more = document.createElement('div');
+      more.style.cssText = 'padding:8px;text-align:center;font-size:11px;color:#64748b';
+      more.textContent = 'Showing first 20 of ' + voters.length + ' — open Workspace for the full filter set.';
+      resultsEl.appendChild(more);
+    }
+  } catch (err) {
+    resultsEl.textContent = '';
+    var errDiv = document.createElement('div');
+    errDiv.style.cssText = 'padding:10px;color:#ef4444;font-size:13px';
+    errDiv.textContent = 'Search failed: ' + (err && err.message ? err.message : 'unknown error');
+    resultsEl.appendChild(errDiv);
+  }
 }
 
 // Clear the search input, all filters, and the results panel.
