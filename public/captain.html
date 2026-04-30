@@ -3253,6 +3253,14 @@ async function loadHousehold(voterId, containerEl) {
 // ===================== VOTER DETAIL MODAL =====================
 
 async function showVoterDetail(voter) {
+  // Defensive: remove any existing voterDetailModal before creating a new one.
+  // Captain can drill from one household member to another (each tap calls
+  // showVoterDetail), and a leftover modal would create duplicate IDs in the
+  // DOM. The household click handler also calls closeModal first, but this
+  // guard makes the function safe to call from anywhere.
+  var existing = document.getElementById('voterDetailModal');
+  if (existing) existing.remove();
+
   var overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = 'voterDetailModal';
@@ -3501,15 +3509,39 @@ async function showVoterDetail(voter) {
       hhContainer.textContent = 'No other people found at this address.';
       return;
     }
+    // Tap-to-drill hint so the captain knows the rows are interactive.
+    var hhTapHint = document.createElement('div');
+    hhTapHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
+    hhTapHint.textContent = 'Tap a name to open their card \u2192';
+    hhContainer.appendChild(hhTapHint);
+
     // Scrollable list - max 5 visible rows (~220px) to prevent freezing on mobile
     var hhScroll = document.createElement('div');
     hhScroll.style.cssText = 'max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch';
     household.forEach(function(h) {
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1e293b';
+      // Each row is now a tappable card that opens THAT household member's
+      // detail card. Lets captains hop between family members at the same
+      // address without going back to the list to search. The row's main
+      // click handler opens the detail; the "+ Add" button stops propagation
+      // so tapping it doesn't also fire the row click.
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s;gap:8px';
+      row.addEventListener('mouseenter', function() { row.style.background = '#1e293b'; });
+      row.addEventListener('mouseleave', function() { row.style.background = ''; });
+      row.addEventListener('click', (function(member) {
+        return function() {
+          // Close the current voter detail modal first, then open the new
+          // one for the picked household member. closeModal handles any
+          // stray DOM cleanup.
+          closeModal('voterDetailModal');
+          showVoterDetail(member);
+        };
+      })(h));
+
       var info = document.createElement('div');
-      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1';
       var hhNameSpan = document.createElement('span');
+      hhNameSpan.style.fontWeight = '600';
       var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
       if (h.party_score) nameText += ' \u2022 ' + h.party_score;
       if (h.phone) nameText += ' \u2022 ' + h.phone;
@@ -3526,15 +3558,27 @@ async function showVoterDetail(voter) {
       }
       info.appendChild(hhDetailEvBadge);
       row.appendChild(info);
+
+      var rightCol = document.createElement('div');
+      rightCol.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
       var addBtn = document.createElement('button');
       addBtn.className = 'btn btn-xs btn-captain';
       addBtn.textContent = '+ Add';
-      addBtn.addEventListener('click', (function(hh) { return function() {
+      addBtn.addEventListener('click', (function(hh) { return function(ev) {
+        // stopPropagation so tapping Add doesn't ALSO trigger the row's
+        // open-detail click \u2014 captain wanted to add, not navigate.
+        ev.stopPropagation();
         if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
         closeModal('voterDetailModal');
         showAddVoterModal(hh);
       }; })(h));
-      row.appendChild(addBtn);
+      rightCol.appendChild(addBtn);
+      // Chevron \u2014 visual cue that the row drills into more info.
+      var chev = document.createElement('span');
+      chev.style.cssText = 'color:#64748b;font-size:14px';
+      chev.textContent = '\u203a';
+      rightCol.appendChild(chev);
+      row.appendChild(rightCol);
       hhScroll.appendChild(row);
     });
     hhContainer.appendChild(hhScroll);
