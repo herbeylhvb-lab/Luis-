@@ -1538,11 +1538,12 @@ router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, 
   if (!sourceId || !targetId || sourceId === targetId) {
     return res.status(400).json({ error: 'Source and target voter IDs required and must differ.' });
   }
-  const captainId = req.session.captainId;
-  if (!req.session.userId) {
-    if (!canCaptainSeeVoter(captainId, sourceId)) return res.status(403).json({ error: 'Source voter is not on any of your lists.' });
-    if (!canCaptainSeeVoter(captainId, targetId)) return res.status(403).json({ error: 'Target voter is not on any of your lists.' });
-  }
+  // No "voter must be on your list" gate — during the contact import wizard,
+  // the captain is fixing data BEFORE the voter is added to any list. Same
+  // permissive model as /captain/confirm-match (no ownership check on the
+  // voter side; the captain code is the auth, audit log captures who acted).
+  // The same-household guard below still prevents pushing a phone onto an
+  // unrelated voter at a different address.
   const source = db.prepare('SELECT id, phone, secondary_phone, tertiary_phone, address, unit FROM voters WHERE id = ?').get(sourceId);
   const target = db.prepare('SELECT id, phone, secondary_phone, address, unit FROM voters WHERE id = ?').get(targetId);
   if (!source) return res.status(404).json({ error: 'Source voter not found.' });
@@ -1615,10 +1616,11 @@ router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, 
 router.post('/captains/:id/voters/:voterId/phone-mark-wrong', requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
   const voterId = parseInt(req.params.voterId, 10);
   if (!voterId) return res.status(400).json({ error: 'voter_id required.' });
-  const captainId = req.session.captainId;
-  if (!req.session.userId && !canCaptainSeeVoter(captainId, voterId)) {
-    return res.status(403).json({ error: 'Voter is not on any of your lists.' });
-  }
+  // No "voter must be on your list" gate. During the contact import wizard,
+  // the captain is fixing data BEFORE the voter is added to any list (most
+  // common case: auto-matched on phone, captain immediately recognizes the
+  // wrong owner). Captain auth + audit log are sufficient — same model as
+  // /captain/confirm-match.
   const voter = db.prepare('SELECT phone, secondary_phone, tertiary_phone FROM voters WHERE id = ?').get(voterId);
   if (!voter) return res.status(404).json({ error: 'Voter not found.' });
   if (!voter.phone || !voter.phone.trim()) {
