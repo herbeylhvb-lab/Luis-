@@ -192,7 +192,7 @@ router.post('/captain/preview-confirm', confirmLimiter, requireCaptainOrAdmin, (
   const { voterId, phone, listId } = req.body || {};
   if (!voterId) return res.status(400).json({ error: 'voterId required' });
   try {
-    const voter = db.prepare('SELECT id, first_name, last_name, age, address, city, phone FROM voters WHERE id = ?').get(voterId);
+    const voter = db.prepare('SELECT id, first_name, last_name, age, address, unit, city, phone FROM voters WHERE id = ?').get(voterId);
     if (!voter) return res.status(404).json({ error: 'voter not found' });
     const newDigits = String(phone || '').replace(/\D/g, '').slice(-10);
     const existingDigits = String(voter.phone || '').replace(/\D/g, '').slice(-10);
@@ -204,15 +204,23 @@ router.post('/captain/preview-confirm', confirmLimiter, requireCaptainOrAdmin, (
     }
     let household = [];
     if (voter.address && voter.address.trim()) {
+      // BUG FIX: previously matched on address alone, which returned every
+      // voter in an apartment BUILDING when we only wanted the unit. Now we
+      // also match on unit (case-insensitive, treating NULL/empty as the
+      // same "no unit" group) so a captain confirming a contact in apt 4
+      // doesn't see the residents of apts 1, 2, 3, 5… as "household".
+      const voterUnit = String(voter.unit || '').trim().toLowerCase();
       household = db.prepare(`
         SELECT v.id AS voterId, v.first_name AS firstName, v.last_name AS lastName,
-               v.age, v.address, v.city, v.phone AS currentPhone,
+               v.age, v.address, v.unit, v.city, v.phone AS currentPhone,
                EXISTS(SELECT 1 FROM captain_list_voters WHERE list_id = ? AND voter_id = v.id) AS onList
         FROM voters v
-        WHERE v.address = ? AND v.id != ?
+        WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(?))
+          AND LOWER(TRIM(COALESCE(v.unit, ''))) = ?
+          AND v.id != ?
         ORDER BY v.last_name, v.first_name
         LIMIT 20
-      `).all(listId || 0, voter.address, voterId);
+      `).all(listId || 0, voter.address, voterUnit, voterId);
       household = household.map(h => Object.assign({}, h, { onList: !!h.onList }));
     }
     res.json({
@@ -275,21 +283,26 @@ router.post('/captain/confirm-match', confirmLimiter, requireCaptainOrAdmin, (re
     }
 
     // 3) Look up household members so the captain can choose to add them too.
-    //    Match on exact address string — same approach as
-    //    /api/captains/:id/household (routes/captains.js:925). Filters out
-    //    the primary voter and entries with no address.
-    const primary = db.prepare('SELECT address FROM voters WHERE id = ?').get(voterId);
+    //    BUG FIX: previously matched on address alone, which returned every
+    //    voter in an apartment BUILDING when we only wanted the unit. Now we
+    //    match on address AND unit (case-insensitive, treating NULL/empty as
+    //    the same "no unit") so a captain confirming a contact in apt 4
+    //    doesn't see residents of apts 1, 2, 3, 5… as "household".
+    const primary = db.prepare('SELECT address, unit FROM voters WHERE id = ?').get(voterId);
     let household = [];
     if (primary && primary.address && primary.address.trim()) {
+      const primaryUnit = String(primary.unit || '').trim().toLowerCase();
       household = db.prepare(`
         SELECT v.id AS voterId, v.first_name AS firstName, v.last_name AS lastName,
-               v.age, v.address, v.city, v.phone AS currentPhone,
+               v.age, v.address, v.unit, v.city, v.phone AS currentPhone,
                EXISTS(SELECT 1 FROM captain_list_voters WHERE list_id = ? AND voter_id = v.id) AS onList
         FROM voters v
-        WHERE v.address = ? AND v.id != ?
+        WHERE LOWER(TRIM(v.address)) = LOWER(TRIM(?))
+          AND LOWER(TRIM(COALESCE(v.unit, ''))) = ?
+          AND v.id != ?
         ORDER BY v.last_name, v.first_name
         LIMIT 20
-      `).all(listId || 0, primary.address, voterId);
+      `).all(listId || 0, primary.address, primaryUnit, voterId);
       household = household.map(h => Object.assign({}, h, { onList: !!h.onList }));
     }
 
