@@ -413,7 +413,10 @@ const _statsQueryDefault = db.prepare(`
     (SELECT COUNT(*) FROM messages WHERE direction = 'inbound') as responses,
     (SELECT COUNT(*) FROM opt_outs) as optedOut,
     (SELECT COUNT(*) FROM block_walks) as walks,
-    (SELECT COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, ''))) || '||' || walk_id) FROM walk_addresses WHERE result != 'not_visited') as doorsKnocked,
+    -- doorsKnocked: previously LOWER(TRIM(...)) on every row defeated
+    -- indexes; now uses the generated `addr_norm` column with an index
+    -- on (walk_id, addr_norm).  Composite key catches house+walk combo.
+    (SELECT COUNT(DISTINCT addr_norm || '||' || walk_id) FROM walk_addresses WHERE result != 'not_visited' AND addr_norm != '') as doorsKnocked,
     (SELECT COUNT(*) FROM voters) as voters,
     (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents,
     (SELECT COUNT(*) FROM voters WHERE support_level IN ('strong_support', 'lean_support')) as supporters,

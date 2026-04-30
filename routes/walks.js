@@ -1155,13 +1155,17 @@ router.get('/walks', (req, res) => {
   // walk count.  Typical 5–20x faster at production scale.
   const walks = db.prepare(`
     WITH walk_stats AS (
+      -- Uses the indexed addr_norm generated column instead of the
+      -- inline LOWER(TRIM())||'||'||LOWER(TRIM()) expression.  The
+      -- (walk_id, addr_norm) composite index lets SQLite scan once
+      -- per walk rather than full-table-scanning walk_addresses.
       SELECT walk_id,
-        COUNT(DISTINCT LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, '')))) AS totalAddresses,
+        COUNT(DISTINCT addr_norm) AS totalAddresses,
         COUNT(DISTINCT CASE
-          WHEN result != 'not_visited'
-          THEN LOWER(TRIM(address)) || '||' || LOWER(TRIM(COALESCE(unit, '')))
+          WHEN result != 'not_visited' THEN addr_norm
         END) AS knocked
       FROM walk_addresses
+      WHERE addr_norm != ''
       GROUP BY walk_id
     )
     SELECT b.*, c.name AS candidate_name,

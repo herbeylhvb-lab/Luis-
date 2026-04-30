@@ -2078,6 +2078,23 @@ runDDL(`CREATE INDEX IF NOT EXISTS idx_contacts_phone_norm ON contacts(phone_nor
 runDDL(`CREATE INDEX IF NOT EXISTS idx_messages_phone_norm ON messages(phone_norm) WHERE phone_norm != ''`);
 runDDL(`CREATE INDEX IF NOT EXISTS idx_opt_outs_phone_norm ON opt_outs(phone_norm) WHERE phone_norm != ''`);
 
+// ─── Address normalization on walk_addresses ─────────────────────────
+// Same rationale as phone_norm: the doorsKnocked count and various walk
+// aggregations use LOWER(TRIM(address)) || '||' || LOWER(TRIM(unit)) on
+// every query, which defeats every index on walk_addresses(address) or
+// (unit).  Adding a VIRTUAL generated column with the same expression
+// + a composite index on (walk_id, addr_norm) lets these queries run
+// as indexed lookups instead of full scans.
+//
+// Used by:
+//   • server.js /api/stats — doorsKnocked count
+//   • routes/walks.js /walks list aggregation (already partially fixed)
+//   • routes/walks.js prune-voted endpoint
+//   • routes/walks.js refresh-voters endpoint
+const ADDR_NORM_EXPR = "LOWER(TRIM(COALESCE(address, ''))) || '||' || LOWER(TRIM(COALESCE(unit, '')))";
+addColumn(`ALTER TABLE walk_addresses ADD COLUMN addr_norm TEXT GENERATED ALWAYS AS (${ADDR_NORM_EXPR}) VIRTUAL`);
+runDDL(`CREATE INDEX IF NOT EXISTS idx_walk_addresses_addr_norm ON walk_addresses(walk_id, addr_norm) WHERE addr_norm != ''`);
+
 // Compute after startup to avoid health check timeout
 setTimeout(() => {
   try { computePartyScores(); } catch (e) { console.error('[party-score] Error:', e.message); }
