@@ -1088,6 +1088,13 @@ addColumn("ALTER TABLE p2p_assignments ADD COLUMN wa_status TEXT DEFAULT NULL");
 addColumn("ALTER TABLE captains ADD COLUMN parent_captain_id INTEGER DEFAULT NULL");
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent_captain_id)"); } catch (e) { /* exists */ }
 
+// --- Captain self-deletion timestamp (Apple App Store guideline 5.1.1(v)) ---
+// When a captain triggers "Delete my account" from the app, we soft-delete by
+// setting deleted_at + is_active=0. Admin can still see the row (audit trail),
+// captain can no longer log in, and voter assignment FKs stay intact so
+// historical canvassing data isn't lost.
+addColumn("ALTER TABLE captains ADD COLUMN deleted_at TEXT DEFAULT NULL");
+
 // --- Election definitions (so elections can exist before any voter is marked) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS elections (

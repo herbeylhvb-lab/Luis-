@@ -235,6 +235,7 @@ app.use((req, res, next) => {
   if (req.path.match(/^\/api\/captains\/login/) ||
       req.path.match(/^\/api\/captains\/logout$/) ||
       req.path.match(/^\/api\/captains\/me$/) ||
+      req.path === '/api/captains/me/delete' ||
       req.path.match(/^\/api\/captains\/\d+\/text-log$/) ||
       req.path.match(/^\/api\/captains\/\d+\/phone-log$/) ||
       req.path.match(/^\/api\/captains\/\d+\/voters\/\d+\/call-history$/) ||

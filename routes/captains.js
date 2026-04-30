@@ -588,11 +588,52 @@ router.post('/captains/logout', (req, res) => {
   }
 });
 
+// Account deletion (Apple App Store guideline 5.1.1(v) — required for any app
+// with login). Soft-deletes the captain by setting deleted_at + is_active=0:
+//   - Captain can never log back in (login checks both flags).
+//   - Voter list ownership FKs stay intact so historical canvassing data is
+//     preserved (admin can re-attribute or restore later).
+//   - Admin sees the deletion timestamp in the captain table for audit.
+// Requires the captain to confirm by re-typing their code, so a stolen
+// session can't permanently destroy access.
+router.post('/captains/me/delete', (req, res) => {
+  if (!req.session || !req.session.captainId) {
+    return res.status(401).json({ error: 'Not signed in.' });
+  }
+  const { confirm_code } = req.body || {};
+  if (!confirm_code || typeof confirm_code !== 'string') {
+    return res.status(400).json({ error: 'Please re-enter your captain code to confirm deletion.' });
+  }
+  const captain = db.prepare('SELECT id, code FROM captains WHERE id = ?').get(req.session.captainId);
+  if (!captain) {
+    // Session points to a captain that no longer exists — just log out.
+    req.session.destroy(() => res.clearCookie('connect.sid').json({ success: true, alreadyGone: true }));
+    return;
+  }
+  if (confirm_code.trim().toUpperCase() !== (captain.code || '').toUpperCase()) {
+    return res.status(403).json({ error: 'Captain code did not match. Account not deleted.' });
+  }
+  // Soft-delete the captain (and any sub-captains they own, so the chain doesn't dangle)
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE captains SET is_active = 0, deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL")
+      .run(captain.id);
+    db.prepare("UPDATE captains SET is_active = 0, deleted_at = datetime('now') WHERE parent_captain_id = ? AND deleted_at IS NULL")
+      .run(captain.id);
+  });
+  tx();
+  // Destroy the session — the captain is now logged out and can't return.
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid');
+    res.json({ success: true, message: 'Your captain account has been deleted.' });
+  });
+});
+
 router.post('/captains/login', captainLoginLimiter, (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code is required.' });
   const captain = db.prepare('SELECT * FROM captains WHERE code = ?').get(code.trim().toUpperCase());
   if (!captain) return res.status(404).json({ error: 'Invalid captain code.' });
+  if (captain.deleted_at) return res.status(403).json({ error: 'This captain account has been deleted. Contact the campaign admin if this was a mistake.' });
   if (!captain.is_active) return res.status(403).json({ error: 'Your access has been disabled. Contact the campaign admin.' });
 
   // Regenerate session on login to prevent fixation — a fresh session id

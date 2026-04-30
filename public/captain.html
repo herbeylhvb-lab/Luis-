@@ -391,7 +391,35 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
       <div class="info" id="captainGreeting"></div>
     </div>
     <button id="matchContactsBtn" class="btn-primary" style="padding:6px 14px;border:none;border-radius:6px;font-size:13px;cursor:pointer;margin-right:8px">Match from My Contacts</button>
-    <button class="btn-leave" onclick="logoutCaptain()">Log Out</button>
+    <button class="btn-leave" onclick="openAccountMenu()">Account</button>
+  </div>
+
+  <!-- Account menu modal — Log Out + Delete Account (Apple req).
+       Hidden by default; toggled by the Account button in the header. -->
+  <div id="accountMenuOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)closeAccountMenu()">
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:400px;width:100%;padding:1.25rem">
+      <h3 style="margin:0 0 0.25rem;color:#f59e0b">Account</h3>
+      <p id="accountMenuName" style="margin:0 0 1rem;color:#94a3b8;font-size:13px"></p>
+      <button onclick="closeAccountMenu();logoutCaptain()" style="display:block;width:100%;background:#334155;color:#e2e8f0;border:none;border-radius:8px;padding:12px;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">Log Out</button>
+      <button onclick="showDeleteAccountConfirm()" style="display:block;width:100%;background:transparent;color:#ef4444;border:1px solid #7f1d1d;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">Delete My Account</button>
+      <button onclick="closeAccountMenu()" style="display:block;width:100%;background:transparent;color:#64748b;border:none;border-radius:8px;padding:10px;font-size:13px;margin-top:6px;cursor:pointer">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Delete confirmation modal — requires re-typing the captain code so a
+       stolen session or accidental tap can't permanently destroy access. -->
+  <div id="deleteAccountOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1001;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)closeDeleteAccountConfirm()">
+    <div style="background:#1e293b;border:2px solid #7f1d1d;border-radius:14px;max-width:420px;width:100%;padding:1.5rem">
+      <h3 style="margin:0 0 0.5rem;color:#ef4444">Delete Captain Account?</h3>
+      <p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0 0 1rem">
+        Your captain account will be permanently deactivated and you won't be able to log back in. The voter lists you owned will stay with the campaign so the work isn't lost; the campaign admin can re-assign them.
+      </p>
+      <p style="color:#94a3b8;font-size:13px;margin:0 0 0.5rem">Type your captain code to confirm:</p>
+      <input id="deleteConfirmCode" type="text" autocomplete="off" autocapitalize="characters" placeholder="Your code" style="width:100%;padding:12px;font-size:16px;border:1px solid #475569;border-radius:8px;background:#0f172a;color:#e2e8f0;text-align:center;letter-spacing:0.05em;font-weight:700;text-transform:uppercase;margin-bottom:0.75rem">
+      <div id="deleteConfirmError" style="color:#ef4444;font-size:13px;min-height:18px;margin-bottom:0.5rem"></div>
+      <button id="btnConfirmDelete" onclick="confirmDeleteAccount()" style="display:block;width:100%;background:#7f1d1d;color:#fff;border:none;border-radius:8px;padding:14px;font-size:15px;font-weight:700;margin-bottom:8px;cursor:pointer">Yes, delete my account</button>
+      <button onclick="closeDeleteAccountConfirm()" style="display:block;width:100%;background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:8px;padding:10px;font-size:14px;cursor:pointer">Cancel</button>
+    </div>
   </div>
 
   <!-- Mobile bottom tab bar -->
@@ -856,6 +884,84 @@ function logoutCaptain() {
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('captainCode').value = '';
   document.getElementById('btnLogin').disabled = false;
+}
+
+// ===================== ACCOUNT MENU + DELETE =====================
+// Apple App Store guideline 5.1.1(v) requires any app with login to offer
+// in-app account deletion. We surface this through the Account button in the
+// header — opens a small menu with Log Out + Delete My Account.
+
+function openAccountMenu() {
+  var nameEl = document.getElementById('accountMenuName');
+  if (nameEl && captainState.captain) {
+    nameEl.textContent = 'Signed in as ' + (captainState.captain.name || 'Captain') + ' (code: ' + (captainState.captain.code || '') + ')';
+  }
+  var ov = document.getElementById('accountMenuOverlay');
+  ov.style.display = 'flex';
+}
+
+function closeAccountMenu() {
+  document.getElementById('accountMenuOverlay').style.display = 'none';
+}
+
+function showDeleteAccountConfirm() {
+  closeAccountMenu();
+  document.getElementById('deleteConfirmCode').value = '';
+  document.getElementById('deleteConfirmError').textContent = '';
+  document.getElementById('btnConfirmDelete').disabled = false;
+  document.getElementById('btnConfirmDelete').textContent = 'Yes, delete my account';
+  document.getElementById('deleteAccountOverlay').style.display = 'flex';
+  // Focus the input so the walker can type immediately
+  setTimeout(function() {
+    var inp = document.getElementById('deleteConfirmCode');
+    if (inp) inp.focus();
+  }, 50);
+}
+
+function closeDeleteAccountConfirm() {
+  document.getElementById('deleteAccountOverlay').style.display = 'none';
+}
+
+async function confirmDeleteAccount() {
+  var codeInput = document.getElementById('deleteConfirmCode');
+  var errEl = document.getElementById('deleteConfirmError');
+  var btn = document.getElementById('btnConfirmDelete');
+  var code = (codeInput.value || '').trim();
+  if (!code) { errEl.textContent = 'Please type your captain code to confirm.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  errEl.textContent = '';
+  try {
+    var res = await fetch('/api/captains/me/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ confirm_code: code })
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Could not delete account. Please try again.';
+      btn.disabled = false;
+      btn.textContent = 'Yes, delete my account';
+      return;
+    }
+    // Success — wipe state and bounce to login screen
+    closeDeleteAccountConfirm();
+    captainState.captain = null;
+    captainState.selectedListId = null;
+    captainState.selectedListType = 'captain';
+    document.getElementById('appScreen').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('captainCode').value = '';
+    document.getElementById('btnLogin').disabled = false;
+    // Visible confirmation so the walker knows it worked
+    alert(data.message || 'Your captain account has been deleted.');
+  } catch (e) {
+    errEl.textContent = 'Network error. Please check your connection and try again.';
+    btn.disabled = false;
+    btn.textContent = 'Yes, delete my account';
+  }
 }
 
 // ===================== SIDEBAR =====================
