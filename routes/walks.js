@@ -165,23 +165,37 @@ function enrichHouseholdFromVoterFile(addresses) {
   const uniqueKeys = Object.values(addrMap);
   if (uniqueKeys.length === 0) return;
 
-  // Batch query: one query per unique address (exact match, index-friendly)
-  // Addresses were already standardized by the migration so exact match works
-  // COLLATE NOCASE lets the index on voters(address) be used while still being case-insensitive
-  const findByAddr = db.prepare(`
-    SELECT v.id, v.first_name, v.last_name, v.age, v.unit, v.party_score
-    FROM voters v
-    WHERE v.address COLLATE NOCASE = ? COLLATE NOCASE
-      AND COALESCE(v.unit,'') COLLATE NOCASE = ? COLLATE NOCASE
-      AND (v.voter_status = 'ACTIVE' OR v.voter_status = '' OR v.voter_status IS NULL)
-    ORDER BY v.last_name
-  `);
+  // PERF: Single chunked IN query instead of N per-address queries.
+  // For a large walk (1500 unique addresses) this collapses ~1500 round-trips
+  // to ~3 queries — a >100x reduction in DB calls. The COLLATE NOCASE index
+  // on voters(address) is used by IN lookups the same as `=`. We then bucket
+  // by upper-cased address in JS and filter by unit (cheap; few units per addr).
+  const uniqueAddrs = Array.from(new Set(uniqueKeys.map(k => k.cleanAddr)));
+  const votersByAddr = {}; // UPPER(addr) -> [voter rows]
+  for (let i = 0; i < uniqueAddrs.length; i += 500) {
+    const chunk = uniqueAddrs.slice(i, i + 500);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = db.prepare(
+      'SELECT v.id, v.first_name, v.last_name, v.age, v.unit, v.party_score, v.address ' +
+      'FROM voters v ' +
+      'WHERE v.address COLLATE NOCASE IN (' + placeholders + ') ' +
+      "  AND (v.voter_status = 'ACTIVE' OR v.voter_status = '' OR v.voter_status IS NULL) " +
+      'ORDER BY v.last_name'
+    ).all(...chunk);
+    for (const r of rows) {
+      const k = (r.address || '').trim().toUpperCase();
+      if (!votersByAddr[k]) votersByAddr[k] = [];
+      votersByAddr[k].push(r);
+    }
+  }
 
-  // Find all enriched voters in one pass
+  // Find all enriched voters in one JS pass — filter the per-address bucket by unit
   const enrichedVoterIds = [];
   const enrichByKey = {};
   for (const entry of uniqueKeys) {
-    const others = findByAddr.all(entry.cleanAddr, entry.unit);
+    const bucket = votersByAddr[entry.cleanAddr] || [];
+    const wantedUnit = entry.unit; // already trimmed+uppercased above
+    const others = bucket.filter(v => (v.unit || '').trim().toUpperCase() === wantedUnit);
     const newVoters = others.filter(v => !walkVoterIds.has(v.id));
     if (newVoters.length > 0) {
       enrichByKey[entry.cleanAddr + '\0' + entry.unit] = newVoters;
