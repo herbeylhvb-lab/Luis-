@@ -6821,6 +6821,13 @@ async function confirmMatch(voterId, phone, currentVoterPhone, opts) {
   }
 }
 
+// Wizard family-tree nesting state. Set in showPreviewMenu when a
+// household member is already on the captain's list; read in finalizeAdd
+// to nest the matched voter under that existing tree root via add-household.
+// null = top-level (no nesting). Reset on every preview render.
+var _wizardNestUnderId = null;
+var _wizardNestUnderName = '';
+
 function showPreviewMenu(voterId, phone, data, opts) {
   opts = opts || {};
   // Hide candidate list, swap in the preview/decision menu.
@@ -6882,6 +6889,46 @@ function showPreviewMenu(voterId, phone, data, opts) {
     });
     listOk.textContent = '✓ Already on your list';
     menu.appendChild(listOk);
+  }
+
+  // Family-tree nesting offer. If a household member is ALREADY on the
+  // captain's list AND the matched voter is NOT, surface a checkbox to
+  // nest the new voter under the existing tree root. Captains keep
+  // family groups together (parent → spouse → kids) instead of leaving
+  // new imports as orphan top-level entries.
+  _wizardNestUnderId = null;
+  _wizardNestUnderName = '';
+  if (!data.alreadyOnList) {
+    var onListMembers = household.filter(function (h) { return h.onList; });
+    if (onListMembers.length > 0) {
+      var rootMember = onListMembers[0];
+      var rootName = ((rootMember.firstName || '') + ' ' + (rootMember.lastName || '')).trim() || 'household member';
+      var matchedName = ((v.firstName || '') + ' ' + (v.lastName || '')).trim() || 'this voter';
+      _wizardNestUnderId = rootMember.voterId;
+      _wizardNestUnderName = rootName;
+      var nestBox = makeEl('div', {
+        style: 'background:#0b1628;border:1px solid #1e40af;border-radius:6px;padding:10px;margin-bottom:8px;font-size:13px;color:#93c5fd'
+      });
+      var nestHeader = document.createElement('div');
+      nestHeader.style.cssText = 'margin-bottom:6px';
+      nestHeader.textContent = '📂 ' + rootName + ' is already on your list.';
+      nestBox.appendChild(nestHeader);
+
+      var nestLabel = document.createElement('label');
+      nestLabel.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer';
+      var nestCb = document.createElement('input');
+      nestCb.type = 'checkbox';
+      nestCb.checked = true;
+      nestCb.addEventListener('change', function () {
+        _wizardNestUnderId = nestCb.checked ? rootMember.voterId : null;
+      });
+      nestLabel.appendChild(nestCb);
+      var nestText = document.createElement('span');
+      nestText.textContent = 'Add ' + matchedName + ' under ' + rootName + '’s family tree';
+      nestLabel.appendChild(nestText);
+      nestBox.appendChild(nestLabel);
+      menu.appendChild(nestBox);
+    }
   }
 
   // Household checkboxes (pre-checked unless already on list). `household`
@@ -7192,7 +7239,27 @@ async function finalizeAdd(voterId, phone, previewData, btn) {
       showToast('Add failed: ' + ((primaryRes && primaryRes.error) || 'unknown'));
       return;
     }
+    // 1.5) Family-tree nesting. If the captain ticked "Add under [existing]",
+    //      _wizardNestUnderId holds the existing list member's voterId. Use
+    //      add-household to nest the just-added matched voter under them
+    //      (parentVoterId = existing, voterIds = [matched]). add-household
+    //      handles both INSERT-new-with-parent and UPDATE-existing-set-parent
+    //      so this is safe even though confirm-match already added the row.
+    if (_wizardNestUnderId && _wizardNestUnderId !== voterId) {
+      try {
+        await apiPost('/api/captain/add-household', {
+          listId: listId, parentVoterId: _wizardNestUnderId, voterIds: [voterId],
+        });
+      } catch (e) {
+        // Non-fatal: matched voter is still on the list, just at top level
+        // instead of nested. Captain can re-arrange via the regular UI.
+        console.warn('Family-tree nest failed:', e);
+      }
+    }
     // 2) If captain checked any household members, add them in one bulk call.
+    //    Parent = the matched voter so the local family tree forms below
+    //    them. If we also nested the matched voter under an existing root
+    //    above, the result is: existing → matched → (checked household).
     if (householdIds.length > 0) {
       try {
         await apiPost('/api/captain/add-household', {
