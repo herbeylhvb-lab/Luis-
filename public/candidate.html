@@ -342,6 +342,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
         <div id="sidebarLists" style="max-height:40vh;overflow-y:auto"></div>
 
         <div class="sidebar-section" style="border-top:1px solid #334155;margin-top:4px;padding-top:12px">My Captains</div>
+        <!-- Filter input — narrows the captain list as you type so you
+             don't have to scroll through 20+ captains to find one. -->
+        <div style="padding:0 12px 8px">
+          <input type="text" id="sidebarCaptainsSearch"
+            placeholder="🔍 Filter captains…"
+            oninput="filterSidebarCaptains()"
+            style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:12px;box-sizing:border-box">
+        </div>
         <!-- Independent scroll for Captains too (was already capped). -->
         <div id="sidebarCaptains" style="max-height:40vh;overflow-y:auto"></div>
 
@@ -908,6 +916,27 @@ function logout() {
   switchView('dashboard');
   window.history.replaceState({}, '', '/candidate');
 }
+
+// Filter the My Captains sidebar by name.  Walks every direct child
+// of #sidebarCaptains (each is a wrapper with a captain row + maybe
+// nested sub-captains) and checks whether any descendant text matches
+// the query.  Empty query restores all.  Case-insensitive substring.
+window.filterSidebarCaptains = function() {
+  var input = document.getElementById('sidebarCaptainsSearch');
+  var q = (input && input.value || '').toLowerCase().trim();
+  var container = document.getElementById('sidebarCaptains');
+  if (!container) return;
+  // Each top-level wrapper is a direct child div of #sidebarCaptains.
+  // Walk wrappers and toggle visibility based on full subtree text match
+  // — that way searching for a sub-captain shows the whole branch (so
+  // you can see who their parent captain is in context).
+  var wrappers = container.querySelectorAll(':scope > div');
+  wrappers.forEach(function(w) {
+    if (!q) { w.style.display = ''; return; }
+    var text = (w.textContent || '').toLowerCase();
+    w.style.display = text.indexOf(q) >= 0 ? '' : 'none';
+  });
+};
 
 async function refreshDashboard() {
   try {

@@ -3160,7 +3160,13 @@ tr:hover td{background:#1e293b80}
         </div>
 
         <!-- Captains with expandable lists -->
-        <h4 style="color:#94a3b8;margin-bottom:8px">Captains</h4>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px;flex-wrap:wrap">
+          <h4 style="color:#94a3b8;margin:0">Captains</h4>
+          <input type="text" id="candidateCaptainsSearch"
+            placeholder="🔍 Search captains by name…"
+            oninput="filterCandidateCaptains()"
+            style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 10px;color:#e2e8f0;font-size:13px;flex:1;min-width:180px;max-width:320px">
+        </div>
         <div id="candidateCaptainsContainer"></div>
 
         <!-- All Lists (admin + captain combined) -->
@@ -12806,6 +12812,41 @@ function refreshCandidateDetail() {
   var name = document.getElementById('candidateDetailTitle').textContent.replace(' \u2014 Detail', '');
   showCandidateDetail(_candidateDetailId, name, _candidateDetailCode, _candidateRaceType, _candidateRaceValue);
 }
+
+// Filter the captains list in the candidate detail view by name.
+// Walks each .captain-card-mobile descendant and toggles visibility
+// based on whether the captain's name (.member-name span) contains
+// the query.  Empty query = show all.  Case-insensitive substring
+// match.
+window.filterCandidateCaptains = function() {
+  var input = document.getElementById('candidateCaptainsSearch');
+  var q = (input && input.value || '').toLowerCase().trim();
+  var container = document.getElementById('candidateCaptainsContainer');
+  if (!container) return;
+  var cards = container.querySelectorAll('.captain-card-mobile');
+  var anyVisible = false;
+  cards.forEach(function(card) {
+    if (!q) {
+      card.style.display = '';
+      anyVisible = true;
+      return;
+    }
+    // The captain name lives in the first <span> after the arrow inside
+    // .captain-left-info.  Search the card's whole text content as a
+    // safety net so we still match if the markup ever changes.
+    var text = (card.textContent || '').toLowerCase();
+    var matches = text.indexOf(q) >= 0;
+    card.style.display = matches ? '' : 'none';
+    if (matches) anyVisible = true;
+  });
+  // Hide any indent-wrapper divs that have no visible cards.  Without
+  // this an empty sub-captain wrapper still renders its left-border
+  // line, which looks like a stray bug.
+  container.querySelectorAll(':scope > div').forEach(function(wrapper) {
+    var visibleCards = wrapper.querySelectorAll('.captain-card-mobile:not([style*="display: none"])');
+    wrapper.style.display = (q && visibleCards.length === 0) ? 'none' : '';
+  });
+};
 async function saveCandidateRace() {
   var rt = document.getElementById('candRaceType').value;
   var rv = document.getElementById('candRaceValue').value;
