@@ -6712,6 +6712,24 @@ function showPreviewMenu(voterId, phone, data, opts) {
     phoneOk.textContent = '✅ Phone already on file matches';
     menu.appendChild(phoneOk);
   }
+
+  // Wrong-person redirect — captain knows the contact (e.g. "John Smith
+  // 555-1234") personally and realizes the imported phone actually belongs
+  // to a household member, not the auto-matched voter. Tap → small picker
+  // of the same-address+unit household → re-runs preview with that member
+  // as the primary so the phone gets saved to them. Only shown when the
+  // captain is actually about to write a phone (otherwise nothing changes).
+  var household = data.household || [];
+  if (household.length > 0 && phone && !data.phoneAlreadyMatches) {
+    var redirectBtn = makeEl('button', {
+      text: '↪  Phone actually belongs to a household member?',
+      style: 'display:block;width:100%;padding:8px 10px;margin-bottom:8px;background:transparent;border:1px dashed #475569;border-radius:6px;color:#cbd5e1;font-size:12px;cursor:pointer;text-align:left'
+    });
+    redirectBtn.addEventListener('click', function() {
+      showWizardHouseholdPicker(household, phone, voterId);
+    });
+    menu.appendChild(redirectBtn);
+  }
   if (data.alreadyOnList) {
     var listOk = makeEl('div', {
       style: 'background:#1e1b4b;border:1px solid #6366f1;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px;color:#a5b4fc'
@@ -6720,8 +6738,8 @@ function showPreviewMenu(voterId, phone, data, opts) {
     menu.appendChild(listOk);
   }
 
-  // Household checkboxes (pre-checked unless already on list).
-  var household = data.household || [];
+  // Household checkboxes (pre-checked unless already on list). `household`
+  // is already defined above for the redirect button.
   if (household.length > 0) {
     menu.appendChild(makeEl('p', {
       text: 'Other people at this address (' + household.length + '):',
@@ -6782,7 +6800,90 @@ function showPreviewMenu(voterId, phone, data, opts) {
   });
   btnRow.appendChild(addBtn);
   btnRow.appendChild(skipBtn);
+  // "Voter's number is wrong" — captain knows the voter's CURRENT phone in
+  // the file is incorrect (doesn't belong to anyone in this household).
+  // Clears it via phone-mark-wrong (sets phone_type='invalid' so re-import
+  // can't bring it back) AND skips the contact. Only meaningful when the
+  // voter actually has a phone in the file to flag.
+  if (v.currentPhone && (v.currentPhone || '').trim()) {
+    var wrongBtn = makeEl('button', {
+      text: '✗ Voter’s number is wrong',
+      style: 'padding:10px 16px;background:transparent;border:1px solid #7f1d1d;color:#fca5a5;border-radius:6px;cursor:pointer',
+    });
+    wrongBtn.addEventListener('click', function () {
+      if (!confirm('Mark ' + v.currentPhone + ' as wrong (not anyone in this household) and skip this contact?')) return;
+      requirePhoneEditUnlocked(function () {
+        apiPost('/api/captains/' + captainState.captain.id + '/voters/' + voterId + '/phone-mark-wrong', {})
+          .then(function () {
+            showToast('Voter phone marked wrong. Skipping contact.', 'success');
+            window._mcResults.skipped++;
+            recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
+            advance();
+          })
+          .catch(function (e) {
+            if (e && e.code === 'PASSWORD_CHANGED') {
+              _phoneEditUnlocked = false;
+              alert('Phone edit unlock expired — please try again.');
+              return;
+            }
+            alert('Could not mark wrong: ' + ((e && e.error) || 'unknown error'));
+          });
+      });
+    });
+    btnRow.appendChild(wrongBtn);
+  }
   menu.appendChild(btnRow);
+}
+
+// Wizard household picker — small overlay listing same-address+unit
+// household members (data already comes from preview-confirm). When the
+// captain picks one, we re-run confirmMatch with that voter as the new
+// primary, so the import phone gets saved to them instead of the
+// originally-matched voter.
+function showWizardHouseholdPicker(household, phone, originalVoterId) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:610;display:flex;align-items:center;justify-content:center;padding:1rem';
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:440px;width:100%;padding:1.25rem;max-height:80vh;overflow:auto';
+
+  var title = makeEl('h3', { text: 'Phone is for…', style: 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px' });
+  box.appendChild(title);
+  var sub = makeEl('p', {
+    text: phone + ' will be saved to whoever you pick. The originally matched voter will then show up under "Other people at this address".',
+    style: 'margin:0 0 1rem;color:#94a3b8;font-size:13px;line-height:1.4',
+  });
+  box.appendChild(sub);
+
+  household.forEach(function (h) {
+    var btn = document.createElement('button');
+    btn.style.cssText = 'display:block;width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 12px;font-size:14px;text-align:left;margin-bottom:6px;cursor:pointer';
+    var name = ((h.firstName || '') + ' ' + (h.lastName || '')).trim() || 'Unnamed voter';
+    var subtxt = '';
+    if (h.age) subtxt += 'age ' + h.age;
+    if (h.currentPhone && (h.currentPhone || '').trim()) subtxt += (subtxt ? ' · ' : '') + 'has phone: ' + h.currentPhone;
+    btn.innerHTML = '<div style="font-weight:600">' + escHtmlSafe(name) + '</div>' +
+      (subtxt ? '<div style="font-size:12px;color:#94a3b8;margin-top:2px">' + escHtmlSafe(subtxt) + '</div>' : '');
+    btn.addEventListener('click', function () {
+      overlay.remove();
+      // Re-run preview with the new voter as the primary. The wizard's
+      // existing flow handles re-render; original voter naturally moves
+      // into the "household" list of the new preview because they share
+      // the same address+unit.
+      confirmMatch(h.voterId, phone, h.currentPhone || '');
+    });
+    box.appendChild(btn);
+  });
+
+  var cancel = makeEl('button', {
+    text: 'Cancel',
+    style: 'display:block;width:100%;background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:8px;padding:10px;font-size:14px;cursor:pointer',
+  });
+  cancel.addEventListener('click', function () { overlay.remove(); });
+  box.appendChild(cancel);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
 }
 
 async function finalizeAdd(voterId, phone, previewData, btn) {
