@@ -1073,7 +1073,11 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
     FROM captain_list_voters clv
     JOIN voters v ON clv.voter_id = v.id
     WHERE clv.list_id = ?
-    ORDER BY clv.parent_voter_id NULLS FIRST, v.last_name, v.first_name
+    -- Pure alphabetic order by last name then first name.  The
+    -- frontend handles parent-child grouping via a separate
+    -- parent_voter_id map (it doesn't rely on the result row order),
+    -- so we don't need a parent_voter_id sort here.
+    ORDER BY LOWER(v.last_name), LOWER(v.first_name)
   `).all(req.params.listId);
   // Attach election vote data (turnout tags)
   attachElectionVotes(voters);
@@ -1718,7 +1722,8 @@ router.get('/captains/:id/assigned-lists/:listId/voters', requireCaptainAuth, (r
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
     WHERE alv.list_id = ?
-    ORDER BY alv.parent_voter_id NULLS FIRST, v.last_name, v.first_name
+    -- Alphabetic order; frontend builds its own parent-child grouping.
+    ORDER BY LOWER(v.last_name), LOWER(v.first_name)
   `).all(req.params.listId);
   attachElectionVotes(voters);
   res.json({ voters });

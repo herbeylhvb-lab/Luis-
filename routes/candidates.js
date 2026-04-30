@@ -737,7 +737,9 @@ router.get('/candidates/:id/lists/:listId/voters', requireCandidateAuth, (req, r
       (SELECT ev.vote_method FROM election_votes ev WHERE ev.voter_id = v.id AND ev.election_name = 'Primary 2026' LIMIT 1) as p26_method
     FROM admin_list_voters alv
     JOIN voters v ON alv.voter_id = v.id
-    WHERE alv.list_id = ? ORDER BY alv.parent_voter_id NULLS FIRST, v.last_name, v.first_name
+    WHERE alv.list_id = ?
+    -- Alphabetic order — frontend handles parent-child grouping in JS.
+    ORDER BY LOWER(v.last_name), LOWER(v.first_name)
   `).all(req.params.listId);
   attachElectionVotes(voters);
   res.json({ list, voters });
@@ -1165,7 +1167,9 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
     voters = db.prepare(`
       SELECT v.*, clv.added_at, clv.parent_voter_id FROM captain_list_voters clv
       JOIN voters v ON clv.voter_id = v.id
-      WHERE clv.list_id = ? ORDER BY clv.parent_voter_id NULLS FIRST, clv.added_at DESC
+      WHERE clv.list_id = ?
+      -- Alphabetic order; frontend handles parent-child grouping in JS.
+      ORDER BY LOWER(v.last_name), LOWER(v.first_name)
     `).all(listId);
   } else {
     // Try admin_lists (assigned to a captain under this candidate)
@@ -1178,7 +1182,9 @@ router.get('/candidates/:id/captain-lists/:listId/voters', requireCandidateAuth,
     voters = db.prepare(`
       SELECT v.*, alv.added_at, alv.parent_voter_id FROM admin_list_voters alv
       JOIN voters v ON alv.voter_id = v.id
-      WHERE alv.list_id = ? ORDER BY alv.parent_voter_id NULLS FIRST, alv.added_at DESC
+      WHERE alv.list_id = ?
+      -- Alphabetic order; frontend handles parent-child grouping in JS.
+      ORDER BY LOWER(v.last_name), LOWER(v.first_name)
     `).all(listId);
   }
   attachElectionVotes(voters);
