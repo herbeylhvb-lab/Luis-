@@ -6717,16 +6717,24 @@ function showPreviewMenu(voterId, phone, data, opts) {
   // 555-1234") personally and realizes the imported phone actually belongs
   // to a household member, not the auto-matched voter. Tap → small picker
   // of the same-address+unit household → re-runs preview with that member
-  // as the primary so the phone gets saved to them. Only shown when the
-  // captain is actually about to write a phone (otherwise nothing changes).
+  // as the primary so the import (phone + list-add) lands on them.
+  // Always shown when there ARE household members — handles three cases:
+  //   - contact phone is different from voter's existing phone: redirect
+  //     causes the contact phone to save to the new voter
+  //   - contact phone matches voter's existing phone: redirect still
+  //     useful — captain knows the right *person* differs even though
+  //     phone is identical (auto-match found the wrong owner of the
+  //     correct phone)
+  //   - no contact phone at all: redirect just changes who gets added
+  //     to the list (no phone write happens either way)
   var household = data.household || [];
-  if (household.length > 0 && phone && !data.phoneAlreadyMatches) {
+  if (household.length > 0) {
     var redirectBtn = makeEl('button', {
-      text: '↪  Phone actually belongs to a household member?',
-      style: 'display:block;width:100%;padding:8px 10px;margin-bottom:8px;background:transparent;border:1px dashed #475569;border-radius:6px;color:#cbd5e1;font-size:12px;cursor:pointer;text-align:left'
+      text: '↪  Wrong person? This phone belongs to someone else in the household',
+      style: 'display:block;width:100%;padding:10px;margin-bottom:8px;background:transparent;border:1px dashed #f59e0b;border-radius:6px;color:#fbbf24;font-size:13px;cursor:pointer;text-align:left;font-weight:600'
     });
     redirectBtn.addEventListener('click', function() {
-      showWizardHouseholdPicker(household, phone, voterId);
+      showWizardHouseholdPicker(household, phone || '', voterId);
     });
     menu.appendChild(redirectBtn);
   }
