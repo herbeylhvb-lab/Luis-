@@ -372,6 +372,39 @@ app.get('/app', (req, res) => {
   }
 });
 
+// ===================== TINY IN-MEMORY TTL CACHE =====================
+// Used to wrap idempotent, expensive endpoints (dashboard stats, etc.)
+// so the first user pays the DB cost and subsequent users in the TTL
+// window get instant responses.  Single-process, no eviction beyond
+// TTL — fine for our scale (few thousand entries max).
+//
+// Usage:  cached('key', 30000, () => expensiveQuery())
+// Invalidate: cacheBust('key') or cacheBustPrefix('key-prefix:')
+const _ttlCache = new Map();
+function cached(key, ttlMs, fn) {
+  const now = Date.now();
+  const hit = _ttlCache.get(key);
+  if (hit && hit.expires > now) return hit.value;
+  const value = fn();
+  _ttlCache.set(key, { value, expires: now + ttlMs });
+  // Opportunistic GC: every ~100 inserts, walk and drop expired keys
+  // so the map doesn't grow unbounded across long uptime.
+  if (_ttlCache.size > 100 && Math.random() < 0.02) {
+    for (const [k, v] of _ttlCache) if (v.expires <= now) _ttlCache.delete(k);
+  }
+  return value;
+}
+function cacheBust(key) { _ttlCache.delete(key); }
+function cacheBustPrefix(prefix) {
+  for (const k of _ttlCache.keys()) if (k.startsWith(prefix)) _ttlCache.delete(k);
+}
+// Expose to other modules (used by routes that mutate state and need
+// to invalidate cached aggregates — e.g., adding a voter busts
+// 'stats:default').
+module.exports.cached = cached;
+module.exports.cacheBust = cacheBust;
+module.exports.cacheBustPrefix = cacheBustPrefix;
+
 // --- Stats ---
 const _statsQueryDefault = db.prepare(`
   SELECT
@@ -391,8 +424,14 @@ app.get('/api/stats', (req, res) => {
   const candidate_id = req.query.candidate_id ? parseInt(req.query.candidate_id) : null;
   const validCols = ['navigation_port','navigation_district','port_authority','city_district','school_district','college_district','state_rep','state_senate','us_congress','county_commissioner','justice_of_peace','state_board_ed','hospital_district'];
 
-  // If no filters at all, use fast prepared statement
-  if (!race_col && !list_id && !candidate_id) return res.json(_statsQueryDefault.get());
+  // If no filters at all, use fast prepared statement + cached for 30s.
+  // The 10 COUNT(*) queries inside _statsQueryDefault are idempotent —
+  // the result barely changes second-to-second, so caching for half a
+  // minute is invisible to users but eliminates ~99% of dashboard DB
+  // load when many tabs/users hit /api/stats simultaneously.
+  if (!race_col && !list_id && !candidate_id) {
+    return res.json(cached('stats:default', 30000, () => _statsQueryDefault.get()));
+  }
 
   // Resolve race from candidate if frontend didn't send it
   let effectiveRaceCol = race_col;
@@ -497,7 +536,10 @@ app.get('/api/stats/sentiment', (req, res) => {
     `).get(candidate_id, candidate_id);
     return res.json({ positive: stats?.positive || 0, negative: stats?.negative || 0, neutral: stats?.neutral || 0 });
   }
-  const stats = _sentimentQuery.get();
+  // Default (no candidate filter) — cache for 30s.  The full-message-
+  // table aggregation is cheap but called repeatedly by dashboard
+  // widgets, so caching squeezes out the last bit of waste.
+  const stats = cached('stats:sentiment:default', 30000, () => _sentimentQuery.get());
   res.json({ positive: stats.positive || 0, negative: stats.negative || 0, neutral: stats.neutral || 0 });
 });
 
