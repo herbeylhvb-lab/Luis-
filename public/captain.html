@@ -562,7 +562,7 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
              the iOS toolbar shows/hides. -->
         <div id="mcCandidateList" style="margin-top:12px;max-height:50dvh;max-height:50vh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-right:4px"></div>
         <div id="mcActionMenu" style="display:none;margin-top:12px"></div>
-        <button id="mcSkipBtn" style="margin-top:8px">Skip &mdash; not in voter file</button>
+        <button id="mcSkipBtn" style="margin-top:8px;width:100%;padding:12px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;font-weight:600;font-size:14px;cursor:pointer">Skip</button>
         <!-- Pause button — saves the current session to localStorage so
              the captain can come back later and continue from where they
              left off. Persistent per-captain (other captains on the same
@@ -6896,18 +6896,9 @@ function showPreviewMenu(voterId, phone, data, opts) {
     });
     btnRow.appendChild(wrongBtn);
   }
-
-  // Skip is last — least destructive option, captain just moves on.
-  var skipBtn = makeEl('button', {
-    text: 'Skip',
-    style: actionBtnBase + ';background:#334155;color:#e2e8f0;border:none',
-  });
-  skipBtn.addEventListener('click', function () {
-    window._mcResults.skipped++;
-    recordContactProcessed(window._mcContacts[window._mcIndex], 'skipped');
-    advance();
-  });
-  btnRow.appendChild(skipBtn);
+  // (No "Skip" here — the standalone mcSkipBtn at the bottom of the
+  // wizard step serves both the candidate-list and preview states.
+  // Two skips would be confusing; one consistent skip button wins.)
   menu.appendChild(btnRow);
 }
 
