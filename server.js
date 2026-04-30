@@ -227,6 +227,7 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/texting-volunteers\/\d+\/dashboard/) ||
       req.path === '/api/volunteers/login' ||
       req.path === '/api/volunteers/register' ||
+      req.path === '/api/volunteers/me/delete' ||
       req.path.match(/^\/api\/volunteers\/\d+\/dashboard/) ||
       req.path === '/reply') {
     return next();

@@ -247,7 +247,34 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <h2 style="font-size:18px;color:#f59e0b;margin:0" id="walkerGreeting">My Walks</h2>
       <div style="font-size:12px;color:#94a3b8;margin-top:2px">Tap a walk to start knocking doors</div>
     </div>
-    <button style="background:none;border:1px solid #475569;color:#94a3b8;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px" onclick="walkerLogout()">Log Out</button>
+    <button style="background:none;border:1px solid #475569;color:#94a3b8;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px" onclick="openWalkerAccountMenu()">Account</button>
+  </div>
+
+  <!-- Account menu (BlockWalker / walker view) — Log Out + Delete Account.
+       Apple App Store guideline 5.1.1(v) requires in-app deletion. -->
+  <div id="walkerAccountOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)closeWalkerAccountMenu()">
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:400px;width:100%;padding:1.25rem">
+      <h3 style="margin:0 0 0.25rem;color:#f59e0b">Account</h3>
+      <p id="walkerAccountName" style="margin:0 0 1rem;color:#94a3b8;font-size:13px"></p>
+      <button onclick="closeWalkerAccountMenu();walkerLogout()" style="display:block;width:100%;background:#334155;color:#e2e8f0;border:none;border-radius:8px;padding:12px;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">Log Out</button>
+      <button onclick="showWalkerDeleteConfirm()" style="display:block;width:100%;background:transparent;color:#ef4444;border:1px solid #7f1d1d;border-radius:8px;padding:12px;font-size:14px;cursor:pointer">Delete My Walker Account</button>
+      <button onclick="closeWalkerAccountMenu()" style="display:block;width:100%;background:transparent;color:#64748b;border:none;border-radius:8px;padding:10px;font-size:13px;margin-top:6px;cursor:pointer">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Walker delete confirmation — re-type code to confirm. -->
+  <div id="walkerDeleteOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1001;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)closeWalkerDeleteConfirm()">
+    <div style="background:#1e293b;border:2px solid #7f1d1d;border-radius:14px;max-width:420px;width:100%;padding:1.5rem">
+      <h3 style="margin:0 0 0.5rem;color:#ef4444">Delete Walker Account?</h3>
+      <p style="color:#cbd5e1;font-size:14px;line-height:1.5;margin:0 0 1rem">
+        Your walker account will be permanently deactivated and you won't be able to log back in with this code. The doors you've already knocked stay logged with the campaign so the work isn't lost.
+      </p>
+      <p style="color:#94a3b8;font-size:13px;margin:0 0 0.5rem">Type your walker code to confirm:</p>
+      <input id="walkerDeleteCode" type="text" autocomplete="off" autocapitalize="characters" placeholder="Your code" style="width:100%;padding:12px;font-size:16px;border:1px solid #475569;border-radius:8px;background:#0f172a;color:#e2e8f0;text-align:center;letter-spacing:0.05em;font-weight:700;text-transform:uppercase;margin-bottom:0.75rem">
+      <div id="walkerDeleteError" style="color:#ef4444;font-size:13px;min-height:18px;margin-bottom:0.5rem"></div>
+      <button id="btnWalkerConfirmDelete" onclick="confirmWalkerDelete()" style="display:block;width:100%;background:#7f1d1d;color:#fff;border:none;border-radius:8px;padding:14px;font-size:15px;font-weight:700;margin-bottom:8px;cursor:pointer">Yes, delete my account</button>
+      <button onclick="closeWalkerDeleteConfirm()" style="display:block;width:100%;background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:8px;padding:10px;font-size:14px;cursor:pointer">Cancel</button>
+    </div>
   </div>
   <div style="max-width:500px;margin:0 auto;padding:16px">
     <div id="walkSelectList"></div>
@@ -641,6 +668,7 @@ async function walkerLogin() {
     }
 
     walkState.walkerId = data.volunteer.walkerId || data.volunteer.id;
+    walkState.volunteerId = data.volunteer.id; // needed by Account → Delete flow
     walkState.walkerName = data.volunteer.name;
     walkState.isGroupMode = true;
 
@@ -725,6 +753,79 @@ function walkerLogout() {
   document.getElementById('loadScreen').style.display = 'flex';
   document.getElementById('walkerCodeInput').value = '';
   document.getElementById('btnWalkerLogin').disabled = false;
+}
+
+// ===================== ACCOUNT MENU + DELETE (BlockWalker / walker) =====================
+// Apple App Store guideline 5.1.1(v) requires any login-bearing app to offer
+// in-app account deletion. Walker codes are issued by the campaign captain,
+// but Apple still requires the user-facing flow.
+
+function openWalkerAccountMenu() {
+  var nameEl = document.getElementById('walkerAccountName');
+  if (nameEl) {
+    var name = walkState.walkerName || 'Walker';
+    var codeText = '';
+    try {
+      var saved = localStorage.getItem('walkerCode');
+      if (saved) codeText = ' (code: ' + saved + ')';
+    } catch (e) { /* localStorage may be blocked */ }
+    nameEl.textContent = 'Signed in as ' + name + codeText;
+  }
+  document.getElementById('walkerAccountOverlay').style.display = 'flex';
+}
+
+function closeWalkerAccountMenu() {
+  document.getElementById('walkerAccountOverlay').style.display = 'none';
+}
+
+function showWalkerDeleteConfirm() {
+  closeWalkerAccountMenu();
+  var inp = document.getElementById('walkerDeleteCode');
+  inp.value = '';
+  document.getElementById('walkerDeleteError').textContent = '';
+  var btn = document.getElementById('btnWalkerConfirmDelete');
+  btn.disabled = false;
+  btn.textContent = 'Yes, delete my account';
+  document.getElementById('walkerDeleteOverlay').style.display = 'flex';
+  setTimeout(function() { inp.focus(); }, 50);
+}
+
+function closeWalkerDeleteConfirm() {
+  document.getElementById('walkerDeleteOverlay').style.display = 'none';
+}
+
+async function confirmWalkerDelete() {
+  var codeInput = document.getElementById('walkerDeleteCode');
+  var errEl = document.getElementById('walkerDeleteError');
+  var btn = document.getElementById('btnWalkerConfirmDelete');
+  var code = (codeInput.value || '').trim();
+  if (!code) { errEl.textContent = 'Please type your walker code to confirm.'; return; }
+  if (!walkState.volunteerId) { errEl.textContent = 'Could not identify your account. Please log out and log back in, then try again.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  errEl.textContent = '';
+  try {
+    var res = await fetch('/api/volunteers/me/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ volunteer_id: walkState.volunteerId, confirm_code: code })
+    });
+    var data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Could not delete account. Please try again.';
+      btn.disabled = false;
+      btn.textContent = 'Yes, delete my account';
+      return;
+    }
+    closeWalkerDeleteConfirm();
+    alert(data.message || 'Your walker account has been deleted.');
+    walkerLogout();
+  } catch (e) {
+    errEl.textContent = 'Network error. Please check your connection and try again.';
+    btn.disabled = false;
+    btn.textContent = 'Yes, delete my account';
+  }
 }
 
 // ===================== JOIN GROUP WALK =====================

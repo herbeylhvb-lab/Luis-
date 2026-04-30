@@ -143,6 +143,7 @@ router.post('/volunteers/login', (req, res) => {
   if (!code) return res.status(400).json({ error: 'Code is required.' });
   const vol = db.prepare('SELECT * FROM volunteers WHERE code = ?').get(code.trim().toUpperCase());
   if (!vol) return res.status(404).json({ error: 'Invalid volunteer code.' });
+  if (vol.deleted_at) return res.status(403).json({ error: 'This account has been deleted. Contact the campaign admin if this was a mistake.' });
   if (!vol.is_active) return res.status(403).json({ error: 'This volunteer has been deactivated.' });
 
   // Get active P2P sessions (if can_text)
@@ -204,6 +205,31 @@ router.post('/volunteers/login', (req, res) => {
     sessions,
     walks
   });
+});
+
+// Account deletion (Apple App Store guideline 5.1.1(v) — required for any
+// app with login). Stateless because the volunteer login flow doesn't use
+// server-side sessions; the volunteer authenticates by re-typing their code.
+// Soft-deletes the volunteer + the matching walker row by code so neither
+// table can be used to log back in. Walk attempt FKs stay intact so the
+// campaign's historical canvassing data is preserved.
+router.post('/volunteers/me/delete', (req, res) => {
+  const { volunteer_id, confirm_code } = req.body || {};
+  if (!volunteer_id || !confirm_code) {
+    return res.status(400).json({ error: 'Volunteer id and confirmation code are required.' });
+  }
+  const vol = db.prepare('SELECT id, code FROM volunteers WHERE id = ?').get(volunteer_id);
+  if (!vol) return res.status(404).json({ error: 'Volunteer not found.' });
+  if (String(confirm_code).trim().toUpperCase() !== (vol.code || '').toUpperCase()) {
+    return res.status(403).json({ error: 'Code did not match. Account not deleted.' });
+  }
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE volunteers SET is_active = 0, deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL").run(vol.id);
+    // Cascade to the walkers table by matching code (older mirror of the same person)
+    db.prepare("UPDATE walkers SET is_active = 0, deleted_at = datetime('now') WHERE code = ? AND deleted_at IS NULL").run(vol.code);
+  });
+  tx();
+  res.json({ success: true, message: 'Your walker account has been deleted.' });
 });
 
 // Volunteer dashboard (public)

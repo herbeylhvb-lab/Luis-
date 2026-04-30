@@ -1095,6 +1095,13 @@ try { db.exec("CREATE INDEX IF NOT EXISTS idx_captains_parent ON captains(parent
 // historical canvassing data isn't lost.
 addColumn("ALTER TABLE captains ADD COLUMN deleted_at TEXT DEFAULT NULL");
 
+// Same flag for the walker/volunteer login path (BlockWalker iOS app needs
+// in-app account deletion to satisfy guideline 5.1.1(v) just like the captain
+// app). Soft-delete keeps walk_attempts / walk_addresses FKs intact for the
+// campaign's historical record.
+addColumn("ALTER TABLE volunteers ADD COLUMN deleted_at TEXT DEFAULT NULL");
+addColumn("ALTER TABLE walkers ADD COLUMN deleted_at TEXT DEFAULT NULL");
+
 // --- Election definitions (so elections can exist before any voter is marked) ---
 db.exec(`
   CREATE TABLE IF NOT EXISTS elections (
