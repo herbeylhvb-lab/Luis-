@@ -6734,7 +6734,15 @@ function showPreviewMenu(voterId, phone, data, opts) {
       style: 'display:block;width:100%;padding:10px;margin-bottom:8px;background:transparent;border:1px dashed #f59e0b;border-radius:6px;color:#fbbf24;font-size:13px;cursor:pointer;text-align:left;font-weight:600'
     });
     redirectBtn.addEventListener('click', function() {
-      showWizardHouseholdPicker(household, phone || '', voterId);
+      // Pass the auto-matched voter so they appear in the picker as a
+      // "keep on this person" option. Lets the captain confirm the match
+      // is correct AND have any duplicate phones cleaned up in one step.
+      showWizardHouseholdPicker(household, phone || '', voterId, {
+        firstName: v.firstName,
+        lastName: v.lastName,
+        age: v.age,
+        currentPhone: v.currentPhone || ''
+      });
     });
     menu.appendChild(redirectBtn);
   }
@@ -6848,37 +6856,101 @@ function showPreviewMenu(voterId, phone, data, opts) {
 // captain picks one, we re-run confirmMatch with that voter as the new
 // primary, so the import phone gets saved to them instead of the
 // originally-matched voter.
-function showWizardHouseholdPicker(household, phone, originalVoterId) {
+// Picker: "who in this household actually owns this phone?"
+// Handles two scenarios:
+//   1) Single misassignment — phone is on the auto-matched voter but really
+//      belongs to a household member. Captain picks the right one and the
+//      phone moves there (via re-running confirmMatch with that voter).
+//   2) Duplicate phone records — multiple voters at the same address+unit
+//      share the same phone in the file (common when families share a
+//      landline OR when a voter-file import duplicated a number). Captain
+//      picks the right owner; phone gets cleared from anyone else who
+//      currently has it (via phone-mark-wrong, which sets phone_type=
+//      'invalid' so it can't sneak back on a re-import).
+//
+// Args:
+//   household       — household members from preview-confirm (excludes original)
+//   phone           — contact phone being imported
+//   originalVoterId — id of the auto-matched voter
+//   originalVoter   — { firstName, lastName, age, currentPhone } from data.voter
+function showWizardHouseholdPicker(household, phone, originalVoterId, originalVoter) {
   var overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:610;display:flex;align-items:center;justify-content:center;padding:1rem';
   overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
   var box = document.createElement('div');
   box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:440px;width:100%;padding:1.25rem;max-height:80vh;overflow:auto';
 
-  var title = makeEl('h3', { text: 'Phone is for…', style: 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px' });
+  // Build the full candidate list = matched voter + household members.
+  // Matched voter goes first as a "keep on this person" option.
+  var contactDigits = String(phone || '').replace(/\D/g, '').slice(-10);
+  var candidates = [];
+  if (originalVoter) {
+    candidates.push({
+      voterId: originalVoterId,
+      firstName: originalVoter.firstName || '',
+      lastName: originalVoter.lastName || '',
+      age: originalVoter.age || null,
+      currentPhone: originalVoter.currentPhone || '',
+      isOriginal: true,
+    });
+  }
+  (household || []).forEach(function (h) {
+    candidates.push({
+      voterId: h.voterId,
+      firstName: h.firstName || '',
+      lastName: h.lastName || '',
+      age: h.age || null,
+      currentPhone: h.currentPhone || '',
+      isOriginal: false,
+    });
+  });
+
+  // Mark each candidate that currently has the contact phone as a "duplicate".
+  // After the captain picks the keeper, every OTHER duplicate gets cleared
+  // (mark-wrong) so the voter file doesn't keep multiple owners for one number.
+  candidates.forEach(function (c) {
+    var d = String(c.currentPhone || '').replace(/\D/g, '').slice(-10);
+    c.hasDupePhone = (contactDigits.length >= 10 && d.length >= 10 && d === contactDigits);
+  });
+  var dupCount = candidates.filter(function (c) { return c.hasDupePhone; }).length;
+
+  var title = makeEl('h3', { text: 'Who really owns this number?', style: 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px' });
   box.appendChild(title);
+  var subText = phone
+    ? phone + ' will be saved to whoever you pick.'
+    : 'Pick the voter to associate with this contact.';
+  if (dupCount > 1) {
+    subText += ' ⚠ ' + dupCount + ' people in this household currently have this number — picking will clear it from the others.';
+  }
   var sub = makeEl('p', {
-    text: phone + ' will be saved to whoever you pick. The originally matched voter will then show up under "Other people at this address".',
+    text: subText,
     style: 'margin:0 0 1rem;color:#94a3b8;font-size:13px;line-height:1.4',
   });
   box.appendChild(sub);
 
-  household.forEach(function (h) {
+  if (candidates.length === 0) {
+    box.appendChild(makeEl('p', { text: 'No candidates at this address.', style: 'color:#94a3b8;font-size:13px' }));
+  }
+
+  candidates.forEach(function (c) {
     var btn = document.createElement('button');
-    btn.style.cssText = 'display:block;width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 12px;font-size:14px;text-align:left;margin-bottom:6px;cursor:pointer';
-    var name = ((h.firstName || '') + ' ' + (h.lastName || '')).trim() || 'Unnamed voter';
+    var borderColor = c.hasDupePhone ? '#f59e0b' : '#334155';
+    btn.style.cssText = 'display:block;width:100%;background:#0f172a;color:#e2e8f0;border:1px solid ' + borderColor + ';border-radius:8px;padding:10px 12px;font-size:14px;text-align:left;margin-bottom:6px;cursor:pointer';
+    var name = ((c.firstName || '') + ' ' + (c.lastName || '')).trim() || 'Unnamed voter';
+    if (c.isOriginal) name += ' (auto-matched)';
     var subtxt = '';
-    if (h.age) subtxt += 'age ' + h.age;
-    if (h.currentPhone && (h.currentPhone || '').trim()) subtxt += (subtxt ? ' · ' : '') + 'has phone: ' + h.currentPhone;
+    if (c.age) subtxt += 'age ' + c.age;
+    if (c.currentPhone && (c.currentPhone || '').trim()) {
+      subtxt += (subtxt ? ' · ' : '') + 'phone: ' + c.currentPhone;
+    } else {
+      subtxt += (subtxt ? ' · ' : '') + 'no phone on file';
+    }
+    var dupeBadge = c.hasDupePhone ? ' <span style="color:#fbbf24;font-weight:700">⚠ has this number</span>' : '';
     btn.innerHTML = '<div style="font-weight:600">' + escHtmlSafe(name) + '</div>' +
-      (subtxt ? '<div style="font-size:12px;color:#94a3b8;margin-top:2px">' + escHtmlSafe(subtxt) + '</div>' : '');
+      '<div style="font-size:12px;color:#94a3b8;margin-top:2px">' + escHtmlSafe(subtxt) + dupeBadge + '</div>';
     btn.addEventListener('click', function () {
       overlay.remove();
-      // Re-run preview with the new voter as the primary. The wizard's
-      // existing flow handles re-render; original voter naturally moves
-      // into the "household" list of the new preview because they share
-      // the same address+unit.
-      confirmMatch(h.voterId, phone, h.currentPhone || '');
+      handleWizardPickerSelection(c, candidates, phone, originalVoterId);
     });
     box.appendChild(btn);
   });
@@ -6892,6 +6964,64 @@ function showWizardHouseholdPicker(household, phone, originalVoterId) {
 
   overlay.appendChild(box);
   document.body.appendChild(overlay);
+}
+
+// Apply the picker's choice. If duplicates exist, confirm + clear them
+// from the OTHER voters who currently have the same phone, then proceed
+// with the normal flow. If the captain picked the auto-matched voter and
+// there are no duplicates to clean, this is effectively a no-op (just
+// closes the picker — the existing preview is still on screen).
+function handleWizardPickerSelection(picked, allCandidates, phone, originalVoterId) {
+  // Find OTHER candidates that currently have the same phone — these need cleanup.
+  var duplicates = allCandidates.filter(function (c) {
+    return c.voterId !== picked.voterId && c.hasDupePhone;
+  });
+
+  function proceed() {
+    // After cleanup (if any), if the captain picked someone other than
+    // the original, re-run preview with them as the new primary. If they
+    // picked the original, just refresh the existing preview so the
+    // updated phones show.
+    confirmMatch(picked.voterId, phone || '', picked.currentPhone || '');
+  }
+
+  if (duplicates.length === 0) {
+    // No duplicates — straightforward redirect (or no-op if same voter)
+    if (picked.voterId === originalVoterId) {
+      // Same voter, no duplicates to clean — nothing to do, just close.
+      showToast('Kept on ' + ((picked.firstName || '') + ' ' + (picked.lastName || '')).trim(), 'info');
+      return;
+    }
+    proceed();
+    return;
+  }
+
+  // Duplicates exist — confirm cleanup with captain
+  var pickedName = ((picked.firstName || '') + ' ' + (picked.lastName || '')).trim();
+  var dupNames = duplicates.map(function (d) {
+    return ((d.firstName || '') + ' ' + (d.lastName || '')).trim();
+  }).join(' and ');
+  var confirmMsg = 'Set ' + (phone || 'this number') + ' as ' + pickedName + '’s phone, and remove it from ' + dupNames + '?';
+  if (!confirm(confirmMsg)) return;
+
+  requirePhoneEditUnlocked(function () {
+    // Mark wrong on each duplicate in parallel — phone-mark-wrong sets
+    // phone_type='invalid' so a future voter-file re-import doesn't put
+    // the number back on the wrong person.
+    var captainId = captainState.captain.id;
+    var promises = duplicates.map(function (d) {
+      return apiPost('/api/captains/' + captainId + '/voters/' + d.voterId + '/phone-mark-wrong', {})
+        .catch(function (e) {
+          // Don't abort the whole batch on a single failure — log and continue.
+          console.warn('mark-wrong failed for voter', d.voterId, e);
+          return null;
+        });
+    });
+    Promise.all(promises).then(function () {
+      showToast('Removed number from ' + duplicates.length + ' duplicate' + (duplicates.length === 1 ? '' : 's') + '.', 'success');
+      proceed();
+    });
+  });
 }
 
 async function finalizeAdd(voterId, phone, previewData, btn) {
