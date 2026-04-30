@@ -1,0 +1,35 @@
+PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 Luis Villarreal — Luis for Port of Brownsville Place 4
+All rights reserved.
+
+This source code, including the CampaignText backend (Express/Node.js,
+SQLite schema, web frontend) and the iOS client applications "CampaignText"
+(bundle id com.campaigntext.app) and "BlockWalker" (bundle id
+com.campaigntext.blockwalker), together with all associated assets, is the
+exclusive property of Luis Villarreal and the Luis for Port of Brownsville
+Place 4 campaign committee.
+
+NO LICENSE IS GRANTED. The code is published in this repository solely for
+the convenience of the campaign's authorized contributors and for App Store
+review purposes. No permission is granted to copy, modify, distribute,
+sublicense, or create derivative works from this software except as
+expressly authorized in writing by the copyright holder.
+
+Voter file data accessed by this software is the public record of the State
+of Texas (Texas Election Code §18.001 et seq.) and is used solely for the
+political campaign purposes permitted by §18.066. The voter file shall not
+be redistributed or used for commercial purposes.
+
+THIRD-PARTY DEPENDENCIES
+This software incorporates open-source libraries listed in package.json,
+each governed by its own license (MIT, ISC, or Apache-2.0). Those licenses
+remain in effect for the corresponding components. Run `npm ls` for the
+full list.
+
+NO WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. THE AUTHORS AND COPYRIGHT HOLDERS SHALL NOT BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM USE OF THE SOFTWARE.
+
+Contact: Luis for Port of Brownsville Place 4, Brownsville, TX
