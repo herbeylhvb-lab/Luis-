@@ -6061,9 +6061,6 @@ document.getElementById('mcFileInput').addEventListener('change', async function
         if (typeof showToast === 'function') showToast('Contacts permission denied. Enable it in iOS Settings to use this feature.');
         return;
       }
-      // getContacts returns ALL the user's contacts so we can build a multi-select UI.
-      // pickContact (single) is the iOS picker default and forced captains to walk
-      // through one at a time, which doesn't scale for hundreds of contacts.
       var result = await Contacts.getContacts({
         projection: { name: true, phones: true },
       });
@@ -6072,13 +6069,74 @@ document.getElementById('mcFileInput').addEventListener('change', async function
         if (typeof showToast === 'function') showToast('No contacts found');
         return;
       }
-      showContactSelectStep(allContacts);
+      // Default behavior: skip the multi-select page and jump straight to
+      // phone matching with ALL contacts. Captains found the manual checkbox
+      // step to be friction — they always want to match everything anyway,
+      // and the wizard already sorts phone-matches first so the easy ones
+      // get processed in seconds. The "Select specific contacts" link in
+      // mcStep1 is the escape hatch for anyone who wants to filter manually.
+      startMatchingWithAllContacts(allContacts);
     } catch (err) {
       var msg = (err && err.message) ? err.message : 'unknown error';
       if (typeof showToast === 'function') showToast('Could not load contacts: ' + msg);
     }
   });
 })();
+
+// Skip the multi-select step entirely — turn the captain's full address book
+// into the wizard input in one shot. Used by the "Pick from iPhone Contacts"
+// fast path. The multi-select UI (showContactSelectStep) is still available
+// from the explicit "Select specific contacts" entry point if a captain
+// wants to filter — but default is fast-path.
+function startMatchingWithAllContacts(allContacts) {
+  // Same filter + sort as showContactSelectStep so behavior matches whichever
+  // path the captain took. Junk entries (no name AND no phone) get dropped.
+  var validContacts = allContacts.filter(function (c) {
+    var hasName = !!((c.name && c.name.given) || (c.name && c.name.family));
+    var hasPhone = !!(c.phones && c.phones[0] && c.phones[0].number);
+    return hasName || hasPhone;
+  });
+  validContacts.sort(function (a, b) {
+    var aLast = ((a.name && a.name.family) || '').toLowerCase();
+    var bLast = ((b.name && b.name.family) || '').toLowerCase();
+    if (aLast !== bLast) return aLast < bLast ? -1 : 1;
+    var aFirst = ((a.name && a.name.given) || '').toLowerCase();
+    var bFirst = ((b.name && b.name.given) || '').toLowerCase();
+    return aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
+  });
+  var selected = validContacts.map(function (c) {
+    return {
+      firstName: (c.name && c.name.given) || '',
+      lastName: (c.name && c.name.family) || '',
+      phone: (c.phones && c.phones[0] && c.phones[0].number) || '',
+    };
+  });
+  if (!selected.length) {
+    if (typeof showToast === 'function') showToast('No usable contacts found');
+    return;
+  }
+  // Filter out previously-processed contacts (same flow as the Continue
+  // button on the multi-select page). Captain can override via the
+  // confirm dialog if they want to retry already-seen contacts.
+  var filtered = filterAlreadyProcessed(selected);
+  var fresh = filtered.fresh;
+  if (filtered.skippedCount > 0) {
+    var keepAll = confirm(filtered.skippedCount + ' of your contacts were already processed in previous sessions and will be skipped (' + fresh.length + ' new to process).\n\nClick Cancel to include them anyway.');
+    if (!keepAll) fresh = selected;
+  }
+  if (!fresh.length) {
+    if (typeof showToast === 'function') showToast('All your contacts were already processed.');
+    return;
+  }
+  window._mcContacts = fresh;
+  window._mcIndex = 0;
+  window._mcResults = { matched: 0, skipped: 0 };
+  window._mcDeferred = [];
+  window._mcPhase2 = false;
+  document.getElementById('mcStep1').style.display = 'none';
+  document.getElementById('mcStepSelect').style.display = 'none';
+  runPreviewAndStartWizard(fresh);
+}
 
 // Show the multi-select list of contacts (native only). Captain checks the
 // boxes for contacts they want to match, then taps Continue. Selected
