@@ -3,22 +3,39 @@ const router = express.Router();
 const db = require('../db');
 
 // List all admin lists with counts and captain assignment info
+// Lazy-import the TTL cache (avoids hard coupling at file-load time).
+let _cacheLib = null;
+function getCache() {
+  if (!_cacheLib) _cacheLib = require('../lib/cache');
+  return _cacheLib;
+}
+
 router.get('/admin-lists', (req, res) => {
-  const lists = db.prepare(`
-    SELECT al.*,
-      COUNT(alv.id) as voterCount,
-      SUM(CASE WHEN v.phone != '' AND v.phone IS NOT NULL THEN 1 ELSE 0 END) as withPhone,
-      c.name as assigned_captain_name
-    FROM admin_lists al
-    LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
-    LEFT JOIN voters v ON alv.voter_id = v.id
-    LEFT JOIN captains c ON al.assigned_captain_id = c.id
-    GROUP BY al.id
-    ORDER BY al.id DESC
-  `).all();
-  for (const l of lists) {
-    l.withoutPhone = l.voterCount - (l.withPhone || 0);
-  }
+  // Cached for 20s — this endpoint LEFT JOINs admin_lists ⨯
+  // admin_list_voters ⨯ voters which scales linearly with universe
+  // size.  At ~20 lists × 8K voters each that's 160K rows joined per
+  // request.  Voter-count freshness within 20s is acceptable for the
+  // sidebar list browser; mutations to admin_list_voters bust the
+  // cache via cacheBustPrefix('admin-lists:') below in the relevant
+  // POST/DELETE handlers (TODO: not yet wired — opt-in as touched).
+  const lists = getCache().cached('admin-lists:list', 20000, () => {
+    const rows = db.prepare(`
+      SELECT al.*,
+        COUNT(alv.id) as voterCount,
+        SUM(CASE WHEN v.phone != '' AND v.phone IS NOT NULL THEN 1 ELSE 0 END) as withPhone,
+        c.name as assigned_captain_name
+      FROM admin_lists al
+      LEFT JOIN admin_list_voters alv ON al.id = alv.list_id
+      LEFT JOIN voters v ON alv.voter_id = v.id
+      LEFT JOIN captains c ON al.assigned_captain_id = c.id
+      GROUP BY al.id
+      ORDER BY al.id DESC
+    `).all();
+    for (const l of rows) {
+      l.withoutPhone = l.voterCount - (l.withPhone || 0);
+    }
+    return rows;
+  });
   res.json({ lists });
 });
 

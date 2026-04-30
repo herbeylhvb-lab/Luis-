@@ -372,38 +372,9 @@ app.get('/app', (req, res) => {
   }
 });
 
-// ===================== TINY IN-MEMORY TTL CACHE =====================
-// Used to wrap idempotent, expensive endpoints (dashboard stats, etc.)
-// so the first user pays the DB cost and subsequent users in the TTL
-// window get instant responses.  Single-process, no eviction beyond
-// TTL — fine for our scale (few thousand entries max).
-//
-// Usage:  cached('key', 30000, () => expensiveQuery())
-// Invalidate: cacheBust('key') or cacheBustPrefix('key-prefix:')
-const _ttlCache = new Map();
-function cached(key, ttlMs, fn) {
-  const now = Date.now();
-  const hit = _ttlCache.get(key);
-  if (hit && hit.expires > now) return hit.value;
-  const value = fn();
-  _ttlCache.set(key, { value, expires: now + ttlMs });
-  // Opportunistic GC: every ~100 inserts, walk and drop expired keys
-  // so the map doesn't grow unbounded across long uptime.
-  if (_ttlCache.size > 100 && Math.random() < 0.02) {
-    for (const [k, v] of _ttlCache) if (v.expires <= now) _ttlCache.delete(k);
-  }
-  return value;
-}
-function cacheBust(key) { _ttlCache.delete(key); }
-function cacheBustPrefix(prefix) {
-  for (const k of _ttlCache.keys()) if (k.startsWith(prefix)) _ttlCache.delete(k);
-}
-// Expose to other modules (used by routes that mutate state and need
-// to invalidate cached aggregates — e.g., adding a voter busts
-// 'stats:default').
-module.exports.cached = cached;
-module.exports.cacheBust = cacheBust;
-module.exports.cacheBustPrefix = cacheBustPrefix;
+// Shared TTL cache lives in lib/cache.js so route modules can
+// import it too (avoids server.js↔routes circular dep).
+const { cached, cacheBust, cacheBustPrefix } = require('./lib/cache');
 
 // --- Stats ---
 const _statsQueryDefault = db.prepare(`
@@ -413,9 +384,9 @@ const _statsQueryDefault = db.prepare(`
     (SELECT COUNT(*) FROM messages WHERE direction = 'inbound') as responses,
     (SELECT COUNT(*) FROM opt_outs) as optedOut,
     (SELECT COUNT(*) FROM block_walks) as walks,
-    -- doorsKnocked: previously LOWER(TRIM(...)) on every row defeated
-    -- indexes; now uses the generated `addr_norm` column with an index
-    -- on (walk_id, addr_norm).  Composite key catches house+walk combo.
+    -- doorsKnocked: uses the indexed addr_norm generated column on
+    -- walk_addresses so this scales as an index lookup, not a full
+    -- scan with per-row LOWER(TRIM) computation.
     (SELECT COUNT(DISTINCT addr_norm || '||' || walk_id) FROM walk_addresses WHERE result != 'not_visited' AND addr_norm != '') as doorsKnocked,
     (SELECT COUNT(*) FROM voters) as voters,
     (SELECT COUNT(*) FROM events WHERE status = 'upcoming') as upcomingEvents,
