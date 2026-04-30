@@ -1507,6 +1507,154 @@ router.post('/captains/:id/add-phone', requireCaptainAuth, requirePhoneEditSelf,
   res.json({ success: true });
 });
 
+// Reassign a voter's primary phone to a household member at the same
+// address+unit. Common case: captain knows the voter personally and
+// realizes the imported number actually belongs to their spouse / parent /
+// roommate listed at the same household. Server enforces same address+unit
+// match so a tampered request can't push a phone onto an unrelated voter.
+//
+// Behavior:
+//  - source.phone is moved to target. If target already has a primary, the
+//    target's existing primary is bumped to secondary (if secondary empty)
+//    so no data is lost. If both target slots are full, the move is
+//    rejected and the captain has to clear a slot first via the standard
+//    edit flow — same conservative posture as add-phone.
+//  - source.phone is cleared with auto-promote (matches erase-phone).
+//  - target.phone_validated_at is stamped so the "✓ Verified" badge shows
+//    for the new owner.
+//  - voter_contacts rows on BOTH voters provide an audit trail.
+router.post('/captains/:id/voters/:voterId/phone-reassign', requireCaptainAuth, requirePhoneEditSelf, requirePhoneEditUnlocked, (req, res) => {
+  const { target_voter_id } = req.body;
+  const sourceId = parseInt(req.params.voterId, 10);
+  const targetId = parseInt(target_voter_id, 10);
+  if (!sourceId || !targetId || sourceId === targetId) {
+    return res.status(400).json({ error: 'Source and target voter IDs required and must differ.' });
+  }
+  const captainId = req.session.captainId;
+  if (!req.session.userId) {
+    if (!canCaptainSeeVoter(captainId, sourceId)) return res.status(403).json({ error: 'Source voter is not on any of your lists.' });
+    if (!canCaptainSeeVoter(captainId, targetId)) return res.status(403).json({ error: 'Target voter is not on any of your lists.' });
+  }
+  const source = db.prepare('SELECT id, phone, secondary_phone, tertiary_phone, address, unit FROM voters WHERE id = ?').get(sourceId);
+  const target = db.prepare('SELECT id, phone, secondary_phone, address, unit FROM voters WHERE id = ?').get(targetId);
+  if (!source) return res.status(404).json({ error: 'Source voter not found.' });
+  if (!target) return res.status(404).json({ error: 'Target voter not found.' });
+  if (!source.phone || !source.phone.trim()) {
+    return res.status(400).json({ error: 'Source voter has no primary phone to move.' });
+  }
+  // Same-household guard (server-side) — defense in depth in case the UI is bypassed
+  const sameAddr = (source.address || '').trim().toLowerCase() === (target.address || '').trim().toLowerCase();
+  const sameUnit = (source.unit || '').trim().toLowerCase() === (target.unit || '').trim().toLowerCase();
+  if (!sameAddr || !sameUnit) {
+    return res.status(400).json({ error: 'Phone can only be reassigned within the same household (matching address and unit).' });
+  }
+  // Reject if target already has both primary AND secondary filled — captain
+  // needs to make room first via the standard edit flow.
+  const targetPrimary = (target.phone || '').trim();
+  const targetSecondary = (target.secondary_phone || '').trim();
+  if (targetPrimary && targetSecondary) {
+    return res.status(409).json({ error: 'Target already has a primary and secondary phone. Clear one first via the edit menu.' });
+  }
+  const movedPhone = source.phone;
+  const byLabel = 'Captain #' + req.params.id;
+  const txn = db.transaction(() => {
+    // 1) Apply to target. Existing primary (if any) gets bumped to secondary.
+    if (targetPrimary) {
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, phone_validated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+        .run(movedPhone, targetPrimary, targetId);
+    } else {
+      db.prepare("UPDATE voters SET phone = ?, phone_validated_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+        .run(movedPhone, targetId);
+    }
+    db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reassigned-in', ?, ?, datetime('now'))")
+      .run(targetId, 'Received reassigned phone from voter #' + sourceId + ': ' + movedPhone, byLabel);
+
+    // 2) Clear from source with auto-promote (mirrors erase-phone primary-slot behavior)
+    const hasDownstream = !!(source.secondary_phone || source.tertiary_phone);
+    if (hasDownstream) {
+      let newPrimary, newSecondary, promoteNote;
+      if (source.secondary_phone) {
+        newPrimary = source.secondary_phone;
+        newSecondary = source.tertiary_phone || '';
+        promoteNote = 'Promoted secondary → primary: ' + newPrimary +
+          (source.tertiary_phone ? ' · tertiary → secondary: ' + source.tertiary_phone : '');
+      } else {
+        newPrimary = source.tertiary_phone;
+        newSecondary = '';
+        promoteNote = 'Promoted tertiary → primary: ' + newPrimary;
+      }
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', updated_at = datetime('now') WHERE id = ?")
+        .run(newPrimary, newSecondary, sourceId);
+      db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reassigned-out', ?, ?, datetime('now'))")
+        .run(sourceId, 'Phone moved to voter #' + targetId + ': ' + movedPhone, byLabel);
+      db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'promoted', ?, ?, datetime('now'))")
+        .run(sourceId, promoteNote, byLabel);
+    } else {
+      db.prepare("UPDATE voters SET phone = '', updated_at = datetime('now') WHERE id = ?").run(sourceId);
+      db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'reassigned-out', ?, ?, datetime('now'))")
+        .run(sourceId, 'Phone moved to voter #' + targetId + ': ' + movedPhone, byLabel);
+    }
+  });
+  txn();
+  res.json({ success: true, source_voter_id: sourceId, target_voter_id: targetId, phone: movedPhone });
+});
+
+// Mark a voter's primary phone as completely wrong — number doesn't belong
+// to anyone in this household. Erases the phone, sets phone_type='invalid'
+// so future imports of the voter file won't silently bring it back, and
+// auto-promotes a downstream slot if one exists.
+router.post('/captains/:id/voters/:voterId/phone-mark-wrong', requireCaptainAuth, requirePhoneEditSelf, requirePhoneEditUnlocked, (req, res) => {
+  const voterId = parseInt(req.params.voterId, 10);
+  if (!voterId) return res.status(400).json({ error: 'voter_id required.' });
+  const captainId = req.session.captainId;
+  if (!req.session.userId && !canCaptainSeeVoter(captainId, voterId)) {
+    return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  }
+  const voter = db.prepare('SELECT phone, secondary_phone, tertiary_phone FROM voters WHERE id = ?').get(voterId);
+  if (!voter) return res.status(404).json({ error: 'Voter not found.' });
+  if (!voter.phone || !voter.phone.trim()) {
+    return res.status(400).json({ error: 'Voter has no primary phone to flag.' });
+  }
+  const oldPhone = voter.phone;
+  const byLabel = 'Captain #' + req.params.id;
+  const txn = db.transaction(() => {
+    const hasDownstream = !!(voter.secondary_phone || voter.tertiary_phone);
+    if (hasDownstream) {
+      let newPrimary, newSecondary, promoteNote;
+      if (voter.secondary_phone) {
+        newPrimary = voter.secondary_phone;
+        newSecondary = voter.tertiary_phone || '';
+        promoteNote = 'Promoted secondary → primary: ' + newPrimary +
+          (voter.tertiary_phone ? ' · tertiary → secondary: ' + voter.tertiary_phone : '');
+      } else {
+        newPrimary = voter.tertiary_phone;
+        newSecondary = '';
+        promoteNote = 'Promoted tertiary → primary: ' + newPrimary;
+      }
+      // Note: phone_type only describes the new primary, not the discarded
+      // wrong number. Setting it to '' here clears any stale 'invalid' flag
+      // on the promoted slot. The wrong number itself is recorded in the
+      // audit log so future imports can't silently restore it (a separate
+      // scheduled cleanup query keys off the audit log + phone_type).
+      db.prepare("UPDATE voters SET phone = ?, secondary_phone = ?, tertiary_phone = '', phone_type = '', phone_validated_at = '', updated_at = datetime('now') WHERE id = ?")
+        .run(newPrimary, newSecondary, voterId);
+      db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'marked-wrong', ?, ?, datetime('now'))")
+        .run(voterId, 'Marked wrong: ' + oldPhone + ' (does not belong to this household)', byLabel);
+      db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'promoted', ?, ?, datetime('now'))")
+        .run(voterId, promoteNote, byLabel);
+    } else {
+      // No downstream phones — just clear and flag the voter as having a
+      // known-bad primary so re-import + the cleanup query both behave.
+      db.prepare("UPDATE voters SET phone = '', phone_type = 'invalid', phone_validated_at = '', updated_at = datetime('now') WHERE id = ?")
+        .run(voterId);
+      db.prepare("INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'PhoneUpdate', 'marked-wrong', ?, ?, datetime('now'))")
+        .run(voterId, 'Marked wrong: ' + oldPhone + ' (does not belong to this household)', byLabel);
+    }
+  });
+  txn();
+  res.json({ success: true });
+});
+
 router.post('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) => {
   const { voter_id, phone, email } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id is required.' });

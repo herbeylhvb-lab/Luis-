@@ -2639,6 +2639,22 @@ function renderListVoters() {
           verifiedBadge.title = 'Phone number confirmed by a captain on ' + dateStr;
           contact.appendChild(verifiedBadge);
         }
+        // Phone actions menu \u2014 small \u22ef button. Opens reassign-or-mark-wrong
+        // sheet. Stops click propagation so the row's main tap (open detail)
+        // doesn't fire.
+        var phoneActionBtn = document.createElement('button');
+        phoneActionBtn.type = 'button';
+        phoneActionBtn.title = 'Phone options (move, mark wrong)';
+        phoneActionBtn.setAttribute('aria-label', 'Phone options');
+        phoneActionBtn.textContent = '\u22ef';
+        phoneActionBtn.style.cssText = 'background:#1e293b;border:1px solid #334155;color:#94a3b8;border-radius:6px;padding:0 8px;font-size:14px;line-height:18px;height:20px;cursor:pointer';
+        (function(voter) {
+          phoneActionBtn.addEventListener('click', function(ev) {
+            ev.stopPropagation();
+            openPhoneActionMenu(voter);
+          });
+        })(v);
+        contact.appendChild(phoneActionBtn);
       }
       if (v.email) {
         var emailSpan = document.createElement('span');
@@ -7707,6 +7723,192 @@ function doErasePhone(voter, slot) {
     alert('Erase failed: ' + ((e && e.error) || 'unknown error'));
   });
 }
+
+// ===================== PHONE ACTION MENU =====================
+// Triggered from the small ⋯ button next to a phone in the captain list.
+// Captains use this when they recognize the voter personally and notice
+// the imported phone is either:
+//  - the wrong household member's phone (→ Reassign)
+//  - completely incorrect, not anyone they know (→ Mark as wrong)
+// Both actions go through the same password-unlock gate as edit/erase.
+
+function openPhoneActionMenu(voter) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:600;display:flex;align-items:center;justify-content:center;padding:1rem';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:400px;width:100%;padding:1.25rem';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px';
+  title.textContent = 'Phone number actions';
+  box.appendChild(title);
+
+  var subtitle = document.createElement('p');
+  subtitle.style.cssText = 'margin:0 0 1rem;color:#94a3b8;font-size:13px';
+  var nameTxt = ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim() || 'this voter';
+  subtitle.textContent = (voter.phone || '') + ' — listed for ' + nameTxt;
+  box.appendChild(subtitle);
+
+  // Action: Reassign to household member
+  var reassignBtn = document.createElement('button');
+  reassignBtn.style.cssText = 'display:block;width:100%;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:8px;padding:12px;font-size:14px;text-align:left;margin-bottom:8px;cursor:pointer';
+  reassignBtn.innerHTML = '<div style="font-weight:600">↪  Move to household member</div>' +
+    '<div style="font-size:12px;color:#94a3b8;margin-top:2px">Number actually belongs to a roommate / family member at the same address</div>';
+  reassignBtn.addEventListener('click', function() {
+    overlay.remove();
+    openReassignModal(voter);
+  });
+  box.appendChild(reassignBtn);
+
+  // Action: Mark as wrong
+  var wrongBtn = document.createElement('button');
+  wrongBtn.style.cssText = 'display:block;width:100%;background:transparent;color:#fca5a5;border:1px solid #7f1d1d;border-radius:8px;padding:12px;font-size:14px;text-align:left;margin-bottom:8px;cursor:pointer';
+  wrongBtn.innerHTML = '<div style="font-weight:600">✗  Mark this number as wrong</div>' +
+    '<div style="font-size:12px;color:#94a3b8;margin-top:2px">Number is completely incorrect — not anyone in this household</div>';
+  wrongBtn.addEventListener('click', function() {
+    overlay.remove();
+    openMarkWrongModal(voter);
+  });
+  box.appendChild(wrongBtn);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'display:block;width:100%;background:transparent;color:#64748b;border:none;border-radius:8px;padding:10px;font-size:13px;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  box.appendChild(cancelBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+// "Move to household member..." flow. Loads household via the existing
+// /captains/:id/household endpoint (already filters by address+unit). If
+// the household is empty there's nobody to reassign to, and we tell the
+// captain to use the regular edit flow instead.
+function openReassignModal(voter) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:610;display:flex;align-items:center;justify-content:center;padding:1rem';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#1e293b;border:1px solid #334155;border-radius:14px;max-width:440px;width:100%;padding:1.25rem;max-height:80vh;overflow:auto';
+
+  var title = document.createElement('h3');
+  title.style.cssText = 'margin:0 0 0.25rem;color:#f59e0b;font-size:16px';
+  title.textContent = 'Move phone to…';
+  box.appendChild(title);
+
+  var subtitle = document.createElement('p');
+  subtitle.style.cssText = 'margin:0 0 1rem;color:#94a3b8;font-size:13px';
+  subtitle.textContent = (voter.phone || '') + ' will move from ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim() + ' to whoever you select below.';
+  box.appendChild(subtitle);
+
+  var listEl = document.createElement('div');
+  listEl.style.cssText = 'margin-bottom:1rem;min-height:48px';
+  listEl.textContent = 'Loading household…';
+  box.appendChild(listEl);
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'display:block;width:100%;background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:8px;padding:10px;font-size:14px;cursor:pointer';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  box.appendChild(cancelBtn);
+
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  // Fetch household members at the same address + unit
+  api('/api/captains/' + captainState.captain.id + '/household?voter_id=' + voter.id)
+    .then(function(data) {
+      var household = (data && data.household) || [];
+      listEl.textContent = '';
+      if (household.length === 0) {
+        listEl.style.color = '#94a3b8';
+        listEl.style.fontSize = '13px';
+        listEl.textContent = 'No other voters found at this address + unit. To assign the number to someone outside this household, use the regular edit flow on their voter card.';
+        return;
+      }
+      household.forEach(function(member) {
+        var btn = document.createElement('button');
+        btn.style.cssText = 'display:block;width:100%;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 12px;font-size:14px;text-align:left;margin-bottom:6px;cursor:pointer';
+        var name = ((member.first_name || '') + ' ' + (member.last_name || '')).trim() || 'Unnamed voter';
+        var subtxt = '';
+        if (member.age) subtxt += 'age ' + member.age;
+        if (member.phone && (member.phone || '').trim()) subtxt += (subtxt ? ' · ' : '') + 'has phone: ' + member.phone;
+        btn.innerHTML = '<div style="font-weight:600">' + escHtmlSafe(name) + '</div>' +
+          (subtxt ? '<div style="font-size:12px;color:#94a3b8;margin-top:2px">' + escHtmlSafe(subtxt) + '</div>' : '');
+        btn.addEventListener('click', function() {
+          overlay.remove();
+          confirmReassign(voter, member);
+        });
+        listEl.appendChild(btn);
+      });
+    })
+    .catch(function(e) {
+      listEl.style.color = '#ef4444';
+      listEl.textContent = 'Could not load household: ' + ((e && e.error) || 'network error');
+    });
+}
+
+// Final confirm — single tap before we actually move the phone. The reassign
+// endpoint requires the phone-edit unlock, so we wrap in requirePhoneEditUnlocked.
+function confirmReassign(sourceVoter, targetMember) {
+  var targetName = ((targetMember.first_name || '') + ' ' + (targetMember.last_name || '')).trim() || 'this person';
+  if (!confirm('Move ' + (sourceVoter.phone || '') + ' from ' +
+    ((sourceVoter.first_name || '') + ' ' + (sourceVoter.last_name || '')).trim() +
+    ' to ' + targetName + '?')) return;
+
+  requirePhoneEditUnlocked(function() {
+    apiPost('/api/captains/' + captainState.captain.id + '/voters/' + sourceVoter.id + '/phone-reassign', {
+      target_voter_id: targetMember.id || targetMember.voterId
+    })
+      .then(function() {
+        if (typeof loadListVoters === 'function') { try { loadListVoters(); } catch(e) {} }
+        showToast('Phone moved to ' + targetName + ' (and verified).', 'success');
+      })
+      .catch(function(e) {
+        if (e && e.code === 'PASSWORD_CHANGED') {
+          _phoneEditUnlocked = false;
+          requirePhoneEditUnlocked(function() { confirmReassign(sourceVoter, targetMember); });
+          return;
+        }
+        alert('Could not move phone: ' + ((e && e.error) || 'unknown error'));
+      });
+  });
+}
+
+// "Mark this number as wrong" — confirm + post.
+function openMarkWrongModal(voter) {
+  if (!confirm('Mark ' + (voter.phone || '') + ' as wrong? It will be cleared from ' +
+    ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim() +
+    '. This is for numbers that don\'t belong to anyone in this household.')) return;
+  requirePhoneEditUnlocked(function() {
+    apiPost('/api/captains/' + captainState.captain.id + '/voters/' + voter.id + '/phone-mark-wrong', {})
+      .then(function() {
+        if (typeof loadListVoters === 'function') { try { loadListVoters(); } catch(e) {} }
+        showToast('Number marked wrong and cleared.', 'success');
+      })
+      .catch(function(e) {
+        if (e && e.code === 'PASSWORD_CHANGED') {
+          _phoneEditUnlocked = false;
+          requirePhoneEditUnlocked(function() { openMarkWrongModal(voter); });
+          return;
+        }
+        alert('Could not mark wrong: ' + ((e && e.error) || 'unknown error'));
+      });
+  });
+}
+
+// Tiny safe-HTML helper used by the modal (escapes <,>,&,",') so member
+// names with special chars don't break the inner HTML strings above. Some
+// other parts of the file have an `escHtml` already; we keep this local
+// fallback in case the call site is loaded before that one.
+function escHtmlSafe(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 </script>
 </body>
 </html>

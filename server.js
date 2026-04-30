@@ -244,6 +244,8 @@ app.use((req, res, next) => {
       req.path.match(/^\/api\/captains\/\d+\/update-phone$/) ||
       req.path.match(/^\/api\/captains\/\d+\/erase-phone$/) ||
       req.path.match(/^\/api\/captains\/\d+\/add-phone$/) ||
+      req.path.match(/^\/api\/captains\/\d+\/voters\/\d+\/phone-reassign$/) ||
+      req.path.match(/^\/api\/captains\/\d+\/voters\/\d+\/phone-mark-wrong$/) ||
       req.path.match(/^\/api\/captains\/\d+\/refresh/) ||
       req.path.match(/^\/api\/captains\/\d+\/lists/) ||
       req.path.match(/^\/api\/captains\/\d+\/assigned-lists/) ||
