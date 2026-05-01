@@ -1275,10 +1275,21 @@ function showCandidateVoterDetail(voter) {
     box.appendChild(bulkSection);
   }
 
-  // Household section
+  // Household section. The action hint that used to live as italic text
+  // INSIDE the household box ("Check boxes to nest them under [voter]")
+  // now lives in the section title itself — moved up at Luis's request so
+  // candidates see what to do without scanning into the box.
   var hhTitle = document.createElement('h4');
-  hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8;font-size:14px';
-  hhTitle.textContent = 'Household Members';
+  hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8;font-size:14px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap';
+  var hhTitleMain = document.createElement('span');
+  hhTitleMain.textContent = 'Household Members';
+  hhTitle.appendChild(hhTitleMain);
+  if (currentRightPanelListId) {
+    var hhTitleAction = document.createElement('span');
+    hhTitleAction.style.cssText = 'font-size:12px;font-weight:400;color:#fbbf24';
+    hhTitleAction.textContent = '— check to add under ' + (voter.first_name || 'voter');
+    hhTitle.appendChild(hhTitleAction);
+  }
   box.appendChild(hhTitle);
   var hhContainer = document.createElement('div');
   hhContainer.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px;min-height:36px';
@@ -1294,13 +1305,7 @@ function showCandidateVoterDetail(voter) {
       hhContainer.textContent = 'No other people found at this address.';
       return;
     }
-    // Hint depends on whether a list is open in the right panel.
-    var hhHint = document.createElement('div');
-    hhHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
-    hhHint.textContent = currentRightPanelListId
-      ? 'Tap a name to view. Check boxes to nest them under ' + voterFullName(voter) + '.'
-      : 'Tap a name to see their full info →';
-    hhContainer.appendChild(hhHint);
+    // (Italic hint removed — moved into the section title above.)
 
     var hhScroll = document.createElement('div');
     hhScroll.style.cssText = 'max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch';
