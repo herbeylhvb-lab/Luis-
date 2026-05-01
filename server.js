@@ -284,6 +284,10 @@ app.use((req, res, next) => {
       req.path === '/api/captain/preview-matches' ||
       req.path === '/api/captain/preview-confirm' ||
       req.path === '/api/captain/bulk-remove-from-list' ||
+      // Captain portals fetch admin-editable SMS templates here. The
+      // payload is non-secret (it's the body of outgoing texts) and
+      // captains don't have admin sessions, so we whitelist read-only.
+      req.path === '/api/captain/templates' ||
       req.path === '/api/voters-cities') {
     return next();
   }
@@ -381,6 +385,7 @@ app.use('/api', require('./routes/broadcast'));
 app.use('/api', require('./routes/rumbleup'));
 app.use('/api', require('./routes/trends'));
 app.use('/api', require('./routes/inbox-ai'));
+app.use('/api', require('./routes/templates'));
 
 // --- Core endpoints ---
 

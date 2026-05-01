@@ -3943,9 +3943,29 @@ function filterAlreadyProcessed(contacts) {
   return { fresh: fresh, skippedCount: skippedCount };
 }
 
+// Server-side templates fetched from /api/captain/templates whenever the
+// bulk-text modal opens. Lets the admin edit the GOTV text from the admin
+// UI and have it live for every captain on next modal-open. Falls back
+// to the hardcoded election-day defaults below if the fetch fails.
+var _serverTemplates = null;
+
+// Fetch admin-editable templates. Called at modal-open so an admin edit
+// goes live without forcing a page reload. Non-fatal if it fails \u2014 we
+// just use the hardcoded defaults.
+async function refreshServerTemplates() {
+  try {
+    var r = await fetch('/api/captain/templates', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    var data = await r.json();
+    if (data && data.templates) _serverTemplates = data.templates;
+  } catch (e) { /* fallback to hardcoded */ }
+}
+
 function getDefaultTextTemplate() {
-  var captainName = (captainState.captain && captainState.captain.name) || '';
-  return 'Hi {first_name}! It\u2019s ' + captainName.split(' ')[0] + '. Just a quick reminder to vote for {candidate} in the upcoming election. Your vote really matters to me. Reply here if you have questions \u2014 happy to help.';
+  if (_serverTemplates && _serverTemplates.captain_voter_individual) {
+    return _serverTemplates.captain_voter_individual;
+  }
+  return 'Hi {first_name}! It\u2019s {captain_first}. Today is Election Day \u2014 please go out and vote for my friend Luis Villarreal for Port Commissioner. He has the experience and wants to end the port property tax. Your vote really matters to me. Reply if you have questions or need a ride to the polls!';
 }
 
 // Default for GROUP mode — no {first_name} etc. since iOS won't
@@ -3953,8 +3973,10 @@ function getDefaultTextTemplate() {
 // "Vote for:" picker) so every group text names who voters should
 // support. Keep it short, team-ish, and actionable.
 function getDefaultGroupTextTemplate() {
-  var captainName = (captainState.captain && captainState.captain.name) || '';
-  return 'Hey team \u2014 it\u2019s ' + captainName.split(' ')[0] + '. Quick reminder to vote for {candidate} in the upcoming election. Your vote really matters. Reply here if you have questions or need a ride to the polls. \uD83D\uDDF3\uFE0F';
+  if (_serverTemplates && _serverTemplates.captain_voter_group) {
+    return _serverTemplates.captain_voter_group;
+  }
+  return 'Hey team \u2014 it\u2019s {captain_first}. Today is Election Day! Please go out and vote for my friend Luis Villarreal for Port Commissioner. He has the experience and wants to end the port property tax. Your vote really matters. Reply if you need a ride to the polls. \uD83D\uDDF3\uFE0F';
 }
 
 // Small indirection: which default/localStorage key to use for the
@@ -3981,12 +4003,18 @@ function fillTemplate(template, voter) {
   var candName  = cand ? (cand.name || '') : '';
   var candFirst = cand ? (cand.name || '').split(' ')[0] : '';
   var raceLbl   = cand ? raceLabelFor(cand) : '';
+  // Captain's own first name — replaces the old hardcoded JS string concat.
+  // Now the template is a pure string (admin-editable from the admin UI),
+  // so the captain's name has to come in via a placeholder.
+  var captainName = (captainState.captain && captainState.captain.name) || '';
+  var captainFirst = captainName ? captainName.split(' ')[0] : '';
   return (template || '')
     .replace(/\{first_name\}/g, (voter && voter.first_name) || '')
     .replace(/\{last_name\}/g, (voter && voter.last_name) || '')
     .replace(/\{full_name\}/g, (((voter && voter.first_name) || '') + ' ' + ((voter && voter.last_name) || '')).trim())
     .replace(/\{candidate\}/g, candName)
     .replace(/\{candidate_first\}/g, candFirst)
+    .replace(/\{captain_first\}/g, captainFirst)
     .replace(/\{race\}/g, raceLbl);
 }
 
@@ -4148,6 +4176,11 @@ window.startBulkTextAllFiltered = function() {
 // the modal. Applies auto-skips for invalid phones, landlines, and
 // recently-texted voters. Offers to resume a saved queue if one exists.
 function startBulkTextFromVoters(voters) {
+  // Pull fresh admin-editable templates so a server-side edit goes live
+  // the next time a captain opens the bulk-text modal — no app refresh
+  // required. Fire-and-forget; getDefault*Template() reads _serverTemplates
+  // when they're available, falls back to hardcoded defaults if not.
+  refreshServerTemplates();
   // Offer to resume a saved in-progress queue (pause-and-resume).
   // In individual mode, "remaining" is queue.length - index. In group
   // mode, it's the count of voters still in batches not yet sent.

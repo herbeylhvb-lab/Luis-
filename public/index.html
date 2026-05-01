@@ -362,6 +362,7 @@ tr:hover td{background:#1e293b80}
     <div class="nav-item" data-page="autoreply"><span class="icon">&#129302;</span><span>Auto-Reply AI</span></div>
     <div class="nav-item" data-page="rumbleup"><span class="icon">&#128225;</span><span>RumbleUp Hub</span></div>
     <div class="nav-item" data-page="knowledge"><span class="icon">&#128218;</span><span>Knowledge Base</span></div>
+    <div class="nav-item" data-page="templates"><span class="icon">&#9999;&#65039;</span><span>Captain Templates</span></div>
     <div class="sidebar-section">Admin</div>
     <div class="nav-item" data-page="candidates"><span class="icon">&#127891;</span><span>Candidates</span></div>
     <div class="nav-item" data-page="users"><span class="icon">&#128100;</span><span>Users &amp; Volunteers</span></div>
@@ -779,6 +780,22 @@ tr:hover td{background:#1e293b80}
         <p style="color:#94a3b8;margin-bottom:12px;font-size:13px">Fallback responses when AI can't generate a confident reply.</p>
         <div id="scriptsList"></div>
       </div>
+    </div>
+
+    <!-- ==================== CAPTAIN TEMPLATES ==================== -->
+    <div class="page" id="page-templates">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="margin:0">Captain Message Templates</h2>
+        <button class="btn btn-secondary btn-sm" onclick="loadCaptainTemplates()">Refresh</button>
+      </div>
+      <div class="card">
+        <p style="color:#94a3b8;font-size:13px;margin-bottom:0">
+          Edit the SMS bodies your captains see as defaults when they text voters and the
+          login-code message you share with new captains. Changes go live for every captain
+          the next time they open the bulk-text modal — no app update needed.
+        </p>
+      </div>
+      <div id="captainTemplatesList"></div>
     </div>
 
     <!-- ==================== RUMBLEUP HUB ==================== -->
@@ -3793,6 +3810,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
     if (page === 'inbox') { switchInboxTab('needs-response'); }
     if (page === 'dashboard') loadDashboard();
     if (page === 'knowledge') loadKnowledge();
+    if (page === 'templates') loadCaptainTemplates();
     if (page === 'p2p') { showP2pAdmin(); loadP2pContacts(); loadP2pLists(); populateMmsDropdown('p2pMmsProjectSelect'); }
     // Legacy redirect: page-manage-volunteers was merged into page-users
     // as a sub-tab.  Any code (or stale browser-history) that navigates
@@ -10008,6 +10026,161 @@ async function loadSentimentStats() {
   } catch (e) {}
 }
 
+// ===================== CAPTAIN MESSAGE TEMPLATES =====================
+// Edit defaults that captains use for outgoing voter SMS, plus the
+// invite-code message admins paste when sharing a captain login.
+// Each template lives as a row in the `settings` table prefixed `tmpl_`.
+// See routes/templates.js for the keys, defaults, and placeholders.
+const CAPTAIN_TEMPLATE_META = {
+  captain_voter_individual: {
+    label: 'Voter text — Individual mode',
+    desc: 'Captains tap "Bulk Text" → Individual. Sent one-at-a-time, can be personalized.',
+    placeholders: ['{first_name}', '{last_name}', '{full_name}', '{captain_first}', '{candidate}', '{candidate_first}', '{race}'],
+  },
+  captain_voter_group: {
+    label: 'Voter text — Group mode',
+    desc: 'Captains tap "Bulk Text" → Group. Sent to ~20 voters at once. Per-voter placeholders render empty in this mode.',
+    placeholders: ['{captain_first}', '{candidate}', '{candidate_first}', '{race}'],
+  },
+  captain_invite: {
+    label: 'Captain invite SMS (login code)',
+    desc: 'The message you share with new captains so they can log into the captain portal.',
+    placeholders: ['{captain_name}', '{captain_code}', '{portal_url}'],
+  },
+};
+
+window._adminTemplates = window._adminTemplates || {};
+
+async function loadCaptainTemplates() {
+  const container = document.getElementById('captainTemplatesList');
+  if (!container) return;
+  container.innerHTML = '<div class="card" style="color:#94a3b8">Loading templates…</div>';
+  try {
+    const data = await api('/api/admin/templates');
+    const tpls = (data && data.templates) || [];
+    // Cache for the captain-share modal to use without an extra fetch.
+    window._adminTemplates = {};
+    tpls.forEach(t => { window._adminTemplates[t.key] = t.current_body; });
+    container.innerHTML = '';
+    tpls.forEach(t => {
+      const meta = CAPTAIN_TEMPLATE_META[t.key] || { label: t.key, desc: '', placeholders: [] };
+      const card = document.createElement('div');
+      card.className = 'card';
+      const head = document.createElement('div');
+      head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px';
+      const title = document.createElement('h3');
+      title.style.cssText = 'margin:0;font-size:15px';
+      title.textContent = meta.label;
+      if (t.is_overridden) {
+        const badge = document.createElement('span');
+        badge.textContent = 'Custom';
+        badge.style.cssText = 'margin-left:8px;font-size:11px;background:#22c55e;color:#052e16;padding:2px 8px;border-radius:4px;font-weight:700;vertical-align:middle';
+        title.appendChild(badge);
+      }
+      head.appendChild(title);
+      card.appendChild(head);
+      if (meta.desc) {
+        const desc = document.createElement('p');
+        desc.textContent = meta.desc;
+        desc.style.cssText = 'color:#94a3b8;font-size:13px;margin:0 0 8px';
+        card.appendChild(desc);
+      }
+      if (meta.placeholders.length) {
+        const phRow = document.createElement('div');
+        phRow.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:8px';
+        phRow.appendChild(document.createTextNode('Placeholders: '));
+        meta.placeholders.forEach((p, i) => {
+          const code = document.createElement('code');
+          code.textContent = p;
+          code.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:4px;padding:1px 6px;color:#a5b4fc;cursor:pointer;font-size:12px;margin-right:4px';
+          code.title = 'Click to insert';
+          code.addEventListener('click', () => insertAtCursor(ta, p));
+          phRow.appendChild(code);
+        });
+        card.appendChild(phRow);
+      }
+      const ta = document.createElement('textarea');
+      ta.value = t.current_body;
+      ta.rows = Math.max(4, Math.min(10, (t.current_body.match(/\n/g) || []).length + 3));
+      ta.style.cssText = 'width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:10px;color:#e2e8f0;font-size:14px;font-family:inherit;resize:vertical';
+      ta.dataset.key = t.key;
+      card.appendChild(ta);
+      const counter = document.createElement('div');
+      counter.style.cssText = 'font-size:11px;color:#64748b;margin-top:4px;text-align:right';
+      const updateCounter = () => {
+        const len = ta.value.length;
+        const segs = Math.max(1, Math.ceil(len / 160));
+        counter.textContent = len + ' chars · ~' + segs + ' SMS segment' + (segs !== 1 ? 's' : '');
+      };
+      ta.addEventListener('input', updateCounter);
+      updateCounter();
+      card.appendChild(counter);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px';
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn btn-primary btn-sm';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => saveCaptainTemplate(t.key, ta.value, saveBtn));
+      btnRow.appendChild(saveBtn);
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn btn-secondary btn-sm';
+      resetBtn.textContent = 'Reset to default';
+      resetBtn.disabled = !t.is_overridden;
+      resetBtn.title = t.is_overridden ? 'Restore the built-in default' : 'No override to reset';
+      resetBtn.addEventListener('click', () => resetCaptainTemplate(t.key));
+      btnRow.appendChild(resetBtn);
+      const previewBtn = document.createElement('button');
+      previewBtn.className = 'btn btn-secondary btn-sm';
+      previewBtn.textContent = 'Show default';
+      previewBtn.title = 'See the built-in default text';
+      previewBtn.addEventListener('click', () => alert('Default:\n\n' + t.default_body));
+      btnRow.appendChild(previewBtn);
+      card.appendChild(btnRow);
+      container.appendChild(card);
+    });
+  } catch (e) {
+    container.innerHTML = '<div class="card" style="color:#ef4444">Could not load templates: ' + (e && e.message ? e.message : 'unknown error') + '</div>';
+  }
+}
+
+function insertAtCursor(ta, text) {
+  const start = ta.selectionStart || 0;
+  const end = ta.selectionEnd || 0;
+  ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = start + text.length;
+  ta.dispatchEvent(new Event('input'));
+}
+
+async function saveCaptainTemplate(key, body, btn) {
+  if (!body || !body.trim()) {
+    alert('Template cannot be empty. Use "Reset to default" to restore the built-in copy.');
+    return;
+  }
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    await apiPut('/api/admin/templates/' + encodeURIComponent(key), { body: body });
+    btn.textContent = '✓ Saved';
+    setTimeout(() => loadCaptainTemplates(), 800);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = orig;
+    alert('Save failed: ' + (e && e.message ? e.message : 'unknown error'));
+  }
+}
+
+async function resetCaptainTemplate(key) {
+  if (!confirm('Reset this template to the built-in default? Your custom text will be discarded.')) return;
+  try {
+    await apiDelete('/api/admin/templates/' + encodeURIComponent(key));
+    loadCaptainTemplates();
+  } catch (e) {
+    alert('Reset failed: ' + (e && e.message ? e.message : 'unknown error'));
+  }
+}
+
 // ===================== KNOWLEDGE BASE =====================
 async function loadKnowledge() {
   // Load API key and check status
@@ -14109,7 +14282,14 @@ function showCaptainCreatedModal(captainName, captainCode) {
 
 function showCaptainShareModal(captainName, captainCode, isNew) {
   var portalUrl = window.location.origin + '/captain';
-  var shareMsg = 'Hey ' + captainName + '! Here is your Block Captain login code: ' + captainCode + '\n\nGo to ' + portalUrl + ' and enter this code to get started.';
+  // Pull the admin-editable invite template if present, else fall back to
+  // the hardcoded copy. Edited from Setup → Captain Templates.
+  var tpl = (window._adminTemplates && window._adminTemplates.captain_invite) ||
+    'Hey {captain_name}! Here is your Block Captain login code: {captain_code}\n\nGo to {portal_url} and enter this code to get started.';
+  var shareMsg = tpl
+    .replace(/\{captain_name\}/g, captainName || '')
+    .replace(/\{captain_code\}/g, captainCode || '')
+    .replace(/\{portal_url\}/g, portalUrl);
 
   var existing = document.getElementById('captainShareOverlay');
   if (existing) existing.remove();
