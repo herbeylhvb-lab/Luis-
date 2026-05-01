@@ -154,22 +154,48 @@ router.delete('/candidates/:id', requireAuth, (req, res) => {
 
 // List captains for a candidate (admin view) — includes shared captains
 router.get('/candidates/:id/captains', (req, res) => {
+  // Own captains AND their full sub-captain tree (recursive). A captain's
+  // sub-captains are part of HER team, so when she's surfaced for the
+  // candidate, the whole team comes too.
   const ownCaptains = db.prepare(`
+    WITH RECURSIVE own_tree AS (
+      SELECT id FROM captains WHERE candidate_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN own_tree ot ON c.parent_captain_id = ot.id
+    )
     SELECT c.*, pc.name as parent_captain_name, 0 as is_shared
     FROM captains c
     LEFT JOIN captains pc ON c.parent_captain_id = pc.id
-    WHERE c.candidate_id = ?
+    WHERE c.id IN (SELECT id FROM own_tree)
     ORDER BY c.created_at DESC
   `).all(req.params.id);
+  // Shared captains — same recursive descent so the candidate sees the
+  // shared captain's sub-captains too. Luis: "their sub captains don't port
+  // over to the next candidate; they should because they're not the
+  // candidate's captain — they're the captain's captain. The candidate
+  // probably won't know the team members." This makes the shared
+  // captain's tree appear in full on the borrower's dashboard.
   const sharedCaptains = db.prepare(`
+    WITH RECURSIVE shared_tree AS (
+      SELECT c.id FROM captains c
+      JOIN captain_candidates cc ON c.id = cc.captain_id
+      WHERE cc.candidate_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN shared_tree st ON c.parent_captain_id = st.id
+    )
     SELECT c.*, pc.name as parent_captain_name, 1 as is_shared
     FROM captains c
     LEFT JOIN captains pc ON c.parent_captain_id = pc.id
-    JOIN captain_candidates cc ON c.id = cc.captain_id
-    WHERE cc.candidate_id = ?
+    WHERE c.id IN (SELECT id FROM shared_tree)
     ORDER BY c.created_at DESC
   `).all(req.params.id);
-  const captains = ownCaptains.concat(sharedCaptains);
+  // Dedup: if a captain happens to appear in both own and shared trees
+  // (rare but possible if data is weird), keep the "own" entry — owned is
+  // a stronger relationship than shared.
+  const seen = new Set();
+  const captains = [];
+  for (const c of ownCaptains) { if (!seen.has(c.id)) { seen.add(c.id); captains.push(c); } }
+  for (const c of sharedCaptains) { if (!seen.has(c.id)) { seen.add(c.id); captains.push(c); } }
 
   for (const c of captains) {
     c.lists = db.prepare(`
@@ -268,18 +294,36 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
 
   req.session.candidateId = candidate.id;
 
-  // Load dashboard data — own captains + shared captains
+  // Load dashboard data — own captains AND shared captains, both
+  // including the full sub-captain tree below each. See /candidates/:id/captains
+  // above for the rationale: shared captains bring their team with them.
   const ownCaptains = db.prepare(`
+    WITH RECURSIVE own_tree AS (
+      SELECT id FROM captains WHERE candidate_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN own_tree ot ON c.parent_captain_id = ot.id
+    )
     SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 0 as is_shared
-    FROM captains c WHERE c.candidate_id = ? ORDER BY c.name
+    FROM captains c WHERE c.id IN (SELECT id FROM own_tree)
+    ORDER BY c.name
   `).all(candidate.id);
   const sharedCaptainsLogin = db.prepare(`
+    WITH RECURSIVE shared_tree AS (
+      SELECT c.id FROM captains c
+      JOIN captain_candidates cc ON c.id = cc.captain_id
+      WHERE cc.candidate_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN shared_tree st ON c.parent_captain_id = st.id
+    )
     SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 1 as is_shared
-    FROM captains c
-    JOIN captain_candidates cc ON c.id = cc.captain_id
-    WHERE cc.candidate_id = ? ORDER BY c.name
+    FROM captains c WHERE c.id IN (SELECT id FROM shared_tree)
+    ORDER BY c.name
   `).all(candidate.id);
-  const captains = ownCaptains.concat(sharedCaptainsLogin);
+  // Dedup so a captain in both trees doesn't render twice.
+  const seenLoginIds = new Set();
+  const captains = [];
+  for (const c of ownCaptains) { if (!seenLoginIds.has(c.id)) { seenLoginIds.add(c.id); captains.push(c); } }
+  for (const c of sharedCaptainsLogin) { if (!seenLoginIds.has(c.id)) { seenLoginIds.add(c.id); captains.push(c); } }
 
   for (const c of captains) {
     // Captain-created lists + admin-assigned lists (same as portal endpoint)
@@ -392,9 +436,12 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
   const candidate = db.prepare('SELECT * FROM candidates WHERE id = ?').get(req.params.id);
   if (!candidate) return res.status(404).json({ error: 'Candidate not found.' });
 
-  // Own captains + shared captains
-  // Get captains for this candidate + full sub-captain tree (recursive)
-  // Sub-captains may have NULL candidate_id if created before inheritance was added
+  // Own captains + shared captains. Both queries traverse the full
+  // sub-captain tree so a candidate sees the entire team below each
+  // captain — own or shared.
+  // Sub-captains may have NULL candidate_id if created before inheritance
+  // was added; the recursive walk uses parent_captain_id so it doesn't
+  // miss them.
   const ownCapsPortal = db.prepare(`
     WITH RECURSIVE captain_tree AS (
       SELECT id FROM captains WHERE candidate_id = ?
@@ -405,13 +452,28 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     FROM captains c WHERE c.id IN (SELECT id FROM captain_tree)
     ORDER BY c.name
   `).all(candidate.id);
+  // Shared: walk the same tree below each captain in captain_candidates.
+  // Ensures that when a captain is shared with this candidate, all of
+  // her sub-captains (and theirs) come along. Luis: "they're not the
+  // candidate's captain, they're the captain's captain — the candidate
+  // probably won't know the team members."
   const sharedCapsPortal = db.prepare(`
+    WITH RECURSIVE shared_tree AS (
+      SELECT c.id FROM captains c
+      JOIN captain_candidates cc ON c.id = cc.captain_id
+      WHERE cc.candidate_id = ?
+      UNION ALL
+      SELECT c.id FROM captains c JOIN shared_tree st ON c.parent_captain_id = st.id
+    )
     SELECT c.id, c.name, c.code, c.phone, c.email, c.is_active, c.created_at, c.parent_captain_id, 1 as is_shared
-    FROM captains c
-    JOIN captain_candidates cc ON c.id = cc.captain_id
-    WHERE cc.candidate_id = ? ORDER BY c.name
+    FROM captains c WHERE c.id IN (SELECT id FROM shared_tree)
+    ORDER BY c.name
   `).all(candidate.id);
-  const captains = ownCapsPortal.concat(sharedCapsPortal);
+  // Dedup: prefer "own" entries (is_shared=0) when a captain is in both trees.
+  const seenPortalIds = new Set();
+  const captains = [];
+  for (const c of ownCapsPortal) { if (!seenPortalIds.has(c.id)) { seenPortalIds.add(c.id); captains.push(c); } }
+  for (const c of sharedCapsPortal) { if (!seenPortalIds.has(c.id)) { seenPortalIds.add(c.id); captains.push(c); } }
 
   // Backfill: set candidate_id on sub-captains that are missing it
   const fixOrphans = db.prepare('UPDATE captains SET candidate_id = ? WHERE id = ? AND candidate_id IS NULL');
