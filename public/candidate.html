@@ -373,12 +373,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 
       <!-- CENTER: Search -->
       <div class="center-panel" id="workspaceCenter">
-        <div class="list-selector">
-          <label>Add to:</label>
-          <select id="activeListSelect" onchange="onListSelectChange()">
-            <option value="">-- select a list --</option>
-          </select>
-        </div>
+        <!-- "Add to:" list selector removed — the sidebar list picker
+             on the left already performs this role. Kept the same id on
+             a hidden select so legacy code (populateListSelector,
+             onListSelectChange) keeps working without touching it. -->
+        <select id="activeListSelect" onchange="onListSelectChange()" style="display:none"></select>
         <div class="search-bar">
           <input type="text" id="voterSearch" placeholder="Search by name..." oninput="debounceSearch()">
           <span class="hint">Min 2 chars</span>
@@ -1223,22 +1222,24 @@ function showCandidateVoterDetail(voter) {
       return;
     }
     // Tap-to-drill hint so the candidate knows the rows are interactive.
+    // When a list is open in the right panel, the row also exposes a
+    // "+ Under" button to nest the household member under the current
+    // voter — including members already on the list (re-parents).
     var hhHint = document.createElement('div');
     hhHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
-    hhHint.textContent = 'Tap a name to see their full info →';
+    hhHint.textContent = currentRightPanelListId
+      ? 'Tap a name to see their info, or tap "+ Under" to nest under ' + voterFullName(voter) + '.'
+      : 'Tap a name to see their full info →';
     hhContainer.appendChild(hhHint);
 
     var hhScroll = document.createElement('div');
     hhScroll.style.cssText = 'max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch';
     household.forEach(function(h) {
       var row = document.createElement('div');
-      // Each row is now a tappable card — opens the same detail modal for
-      // the household member so the candidate can drill from one voter to
-      // another within a household without going back to the list. Hover +
-      // pointer cursor signal interactivity; the modal removes the current
-      // overlay before rendering the new one (showCandidateVoterDetail
-      // handles existing-modal cleanup at the top of the function).
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s';
+      // Each row is tappable — opens the same detail modal for the
+      // household member. The "+ Under" button (when shown) stops
+      // propagation so it doesn't also fire the row click.
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s;gap:8px';
       row.addEventListener('mouseenter', function() { row.style.background = '#1e293b'; });
       row.addEventListener('mouseleave', function() { row.style.background = ''; });
       row.addEventListener('click', (function(member) {
@@ -1246,7 +1247,7 @@ function showCandidateVoterDetail(voter) {
       })(h));
 
       var info = document.createElement('div');
-      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1';
       var nameSpan = document.createElement('span');
       nameSpan.style.cssText = 'color:#e2e8f0;font-weight:600';
       nameSpan.textContent = (h.first_name || '') + ' ' + (h.last_name || '');
@@ -1268,11 +1269,52 @@ function showCandidateVoterDetail(voter) {
       info.appendChild(evBadge);
       row.appendChild(info);
 
+      var rightCol = document.createElement('div');
+      rightCol.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
+
+      // "+ Under" — only when a list is currently selected in the right
+      // panel. Adds (or re-parents) this household member under the
+      // matched voter so the family tree groups them. Works for both new
+      // members and members already on the list.
+      if (currentRightPanelListId) {
+        var underBtn = document.createElement('button');
+        underBtn.className = 'btn btn-xs btn-primary';
+        underBtn.textContent = '+ Under';
+        underBtn.title = 'Nest ' + ((h.first_name || '') + ' ' + (h.last_name || '')).trim() + ' under ' + voterFullName(voter);
+        underBtn.addEventListener('click', (function(member, parent) {
+          return async function(ev) {
+            ev.stopPropagation();
+            underBtn.disabled = true;
+            underBtn.textContent = 'Adding…';
+            try {
+              var res = await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
+                voter_ids: [member.id],
+                parent_voter_id: parent.id
+              });
+              underBtn.textContent = '✓ Done';
+              if (typeof loadListVoters === 'function' && currentRightPanelListId) {
+                try { loadListVoters(currentRightPanelListId); } catch (e) {}
+              }
+              setTimeout(function() {
+                underBtn.disabled = false;
+                underBtn.textContent = '+ Under';
+              }, 1200);
+            } catch (e) {
+              alert('Could not nest: ' + (e && e.message ? e.message : 'unknown error'));
+              underBtn.disabled = false;
+              underBtn.textContent = '+ Under';
+            }
+          };
+        })(h, voter));
+        rightCol.appendChild(underBtn);
+      }
+
       // Right-side chevron — visual cue that this row drills into more info.
       var chev = document.createElement('span');
       chev.style.cssText = 'color:#64748b;font-size:14px;flex-shrink:0';
       chev.textContent = '›';
-      row.appendChild(chev);
+      rightCol.appendChild(chev);
+      row.appendChild(rightCol);
 
       hhScroll.appendChild(row);
     });
@@ -2045,6 +2087,24 @@ async function searchVoters() {
     voters.forEach(function(v) {
       var card = document.createElement('div');
       card.className = 'voter-card';
+      // Whole card is now tappable — opens the voter detail modal
+      // (matches captain-portal behavior). The "+ Add to List" and
+      // "Household" buttons inside stop propagation so a tap on them
+      // doesn't ALSO open the detail card.
+      card.style.cursor = 'pointer';
+      card.title = 'Tap to view details';
+      card.addEventListener('click', (function(voter) {
+        return function(ev) {
+          // If the click target is a button or link inside the card,
+          // those handle their own action — skip opening the modal.
+          var t = ev.target;
+          while (t && t !== card) {
+            if (t.tagName === 'BUTTON' || t.tagName === 'A' || t.tagName === 'INPUT') return;
+            t = t.parentNode;
+          }
+          showCandidateVoterDetail(voter);
+        };
+      })(v));
 
       var nameRow = document.createElement('div');
       nameRow.style.cssText = 'display:flex;align-items:center;gap:8px';
@@ -2108,8 +2168,15 @@ async function searchVoters() {
       addBtn.className = 'btn btn-sm btn-success';
       addBtn.textContent = '+ Add to List';
       // Open modal that also prompts for household members to nest under this voter
-      addBtn.onclick = (function(vObj) { return function() {
-        if (!selectedListId) { alert('Please select a list first from the "Add to" dropdown above.'); return; }
+      addBtn.onclick = (function(vObj) { return function(ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        // Either sidebar-selected list (selectedListId) or the right-panel
+        // list (currentRightPanelListId) is enough — both surface the same
+        // action. Without one of them set, we don't know where to add.
+        if (!selectedListId && !currentRightPanelListId) {
+          alert('Please pick a list in the sidebar on the left first.');
+          return;
+        }
         showAddVoterModal(vObj);
       }; })(v);
       actions.appendChild(addBtn);
@@ -2117,7 +2184,10 @@ async function searchVoters() {
       var hhLink = document.createElement('button');
       hhLink.className = 'btn btn-xs btn-secondary';
       hhLink.textContent = 'Household';
-      hhLink.onclick = function() { loadHousehold(v.id, card); };
+      hhLink.onclick = function(ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        loadHousehold(v.id, card);
+      };
       actions.appendChild(hhLink);
 
       card.appendChild(actions);

@@ -1120,29 +1120,50 @@ router.post('/candidates/:id/lists/:listId/bulk-upload', requireCandidateAuth, (
 router.post('/candidates/:id/lists/:listId/bulk-add-under', requireCandidateAuth, (req, res) => {
   const list = db.prepare('SELECT id FROM admin_lists WHERE id = ? AND candidate_id = ?').get(req.params.listId, req.params.id);
   if (!list) return res.status(404).json({ error: 'List not found.' });
-  const { identifiers, parent_voter_id } = req.body;
-  if (!identifiers || !identifiers.length) return res.status(400).json({ error: 'No identifiers provided.' });
+  // Accept EITHER `identifiers` (registration #, vanid, county_file_id) for
+  // the legacy paste-text-box flow OR `voter_ids` (numeric ids) for the new
+  // detail-card "Add under" button. Same INSERT-OR-IGNORE-then-UPDATE-parent
+  // logic for both inputs.
+  const { identifiers, voter_ids, parent_voter_id } = req.body;
+  const hasIdents = Array.isArray(identifiers) && identifiers.length > 0;
+  const hasVoterIds = Array.isArray(voter_ids) && voter_ids.length > 0;
+  if (!hasIdents && !hasVoterIds) return res.status(400).json({ error: 'No identifiers or voter_ids provided.' });
   if (!parent_voter_id) return res.status(400).json({ error: 'parent_voter_id required.' });
   const listId = req.params.listId;
   const parentOnList = db.prepare('SELECT id FROM admin_list_voters WHERE list_id = ? AND voter_id = ?').get(listId, parent_voter_id);
   if (!parentOnList) return res.status(400).json({ error: 'Parent voter not on this list.' });
   const lookup = db.prepare('SELECT id FROM voters WHERE registration_number = ? OR county_file_id = ? OR vanid = ?');
+  const lookupById = db.prepare('SELECT id FROM voters WHERE id = ?');
   const insert = db.prepare('INSERT OR IGNORE INTO admin_list_voters (list_id, voter_id, parent_voter_id) VALUES (?, ?, ?)');
   const setParent = db.prepare('UPDATE admin_list_voters SET parent_voter_id = ? WHERE list_id = ? AND voter_id = ?');
   let added = 0, duplicates = 0, nested = 0, notFound = [];
   const tx = db.transaction(() => {
-    for (const ident of identifiers) {
-      const trimmed = String(ident).trim();
-      if (!trimmed) continue;
-      const voter = lookup.get(trimmed, trimmed, trimmed);
-      if (!voter) { notFound.push(trimmed); continue; }
-      const r = insert.run(listId, voter.id, parent_voter_id);
-      if (r.changes) { added++; nested++; }
-      else { setParent.run(parent_voter_id, listId, voter.id); duplicates++; nested++; }
+    if (hasIdents) {
+      for (const ident of identifiers) {
+        const trimmed = String(ident).trim();
+        if (!trimmed) continue;
+        const voter = lookup.get(trimmed, trimmed, trimmed);
+        if (!voter) { notFound.push(trimmed); continue; }
+        const r = insert.run(listId, voter.id, parent_voter_id);
+        if (r.changes) { added++; nested++; }
+        else { setParent.run(parent_voter_id, listId, voter.id); duplicates++; nested++; }
+      }
+    }
+    if (hasVoterIds) {
+      for (const vid of voter_ids) {
+        const id = parseInt(vid, 10);
+        if (!id || id === parseInt(parent_voter_id, 10)) continue; // skip self-parenting
+        const voter = lookupById.get(id);
+        if (!voter) { notFound.push(String(vid)); continue; }
+        const r = insert.run(listId, voter.id, parent_voter_id);
+        if (r.changes) { added++; nested++; }
+        else { setParent.run(parent_voter_id, listId, voter.id); duplicates++; nested++; }
+      }
     }
   });
   tx();
-  res.json({ added, duplicates, nested, notFound, total: identifiers.length });
+  const total = (hasIdents ? identifiers.length : 0) + (hasVoterIds ? voter_ids.length : 0);
+  res.json({ added, duplicates, nested, notFound, total });
 });
 
 // Remove voter from a candidate's list
