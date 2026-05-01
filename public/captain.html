@@ -1626,8 +1626,9 @@ function populateTransferTargets() {
   var sel = document.getElementById('fabTargetList');
   if (!sel) return;
   while (sel.firstChild) sel.removeChild(sel.firstChild);
+
+  // Captain's OWN lists first (excluding the currently-selected one).
   var lists = (captainState.captain && captainState.captain.lists) || [];
-  // Add captain's own lists (excluding current)
   lists.forEach(function(l) {
     if (l.id === captainState.selectedListId && captainState.selectedListType === 'captain') return;
     var opt = document.createElement('option');
@@ -1635,7 +1636,22 @@ function populateTransferTargets() {
     opt.textContent = l.name + (l.team_member_name ? ' (' + l.team_member_name + ')' : '');
     sel.appendChild(opt);
   });
-  // Add assigned lists
+
+  // Sub-captain lists — captains in their team tree. These are stored on
+  // captainState._cachedSubCaptainLists by refreshSidebar (server returns
+  // them under data.sub_captain_lists). Without this loop, captains had
+  // no way to send voters to their sub-captains' lists from the transfer
+  // dropdown — the bug Luis hit when trying to move people to "lulu".
+  var subCaptainLists = (captainState && captainState._cachedSubCaptainLists) || [];
+  subCaptainLists.forEach(function(l) {
+    if (l.id === captainState.selectedListId && captainState.selectedListType === 'sub-captain') return;
+    var opt = document.createElement('option');
+    opt.value = 'captain:' + l.id; // server uses captain_lists.id regardless of who owns it
+    opt.textContent = l.name + (l.sub_captain_name ? ' — ' + l.sub_captain_name : '') + ' (sub-captain)';
+    sel.appendChild(opt);
+  });
+
+  // Admin-assigned lists last
   var assigned = (captainState.captain && captainState.captain.assigned_lists) || [];
   assigned.forEach(function(l) {
     if (l.id === captainState.selectedListId && captainState.selectedListType === 'assigned') return;
@@ -1644,6 +1660,7 @@ function populateTransferTargets() {
     opt.textContent = l.name + ' (admin)';
     sel.appendChild(opt);
   });
+
   if (sel.options.length === 0) {
     var opt = document.createElement('option');
     opt.value = '';
