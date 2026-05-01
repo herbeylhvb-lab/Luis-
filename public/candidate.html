@@ -1248,7 +1248,7 @@ function showCandidateVoterDetail(voter) {
     var hhHint = document.createElement('div');
     hhHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
     hhHint.textContent = currentRightPanelListId
-      ? 'Tap a name to see info. Check boxes + tap "Add Under" to nest under ' + voterFullName(voter) + '.'
+      ? 'Tap a name to view. Check boxes to nest them under ' + voterFullName(voter) + '.'
       : 'Tap a name to see their full info →';
     hhContainer.appendChild(hhHint);
 
@@ -1316,41 +1316,72 @@ function showCandidateVoterDetail(voter) {
     });
     hhContainer.appendChild(hhScroll);
 
-    // Single "Add Under" action at the bottom — applies to all checked rows.
-    // Replaces the per-row button (too bulky per Luis's feedback). Same
-    // checkbox-then-bulk-action pattern as the Add Voter modal's household
-    // section — see loadHouseholdForModal.
+    // Smart "+ Add" action at the bottom of the household section.
+    // One button, three behaviors based on state — no separate popup
+    // needed (Luis: "no need to prompt another page"):
+    //
+    //   - Voter NOT on list, no household checked → adds voter only.
+    //   - Voter NOT on list + N household checked → adds voter, then
+    //     nests the N household members under them. Done in one tap.
+    //   - Voter ON list + N household checked → just nests the N
+    //     household members under the existing list entry.
+    //
+    // Works whether voter is in the list or not; the first POST
+    // (/voters) is idempotent (INSERT OR IGNORE server-side), so it's
+    // safe to call regardless of current state.
     if (currentRightPanelListId) {
       var addUnderBar = document.createElement('div');
       addUnderBar.style.cssText = 'display:flex;align-items:center;gap:8px;padding-top:10px;margin-top:6px;border-top:1px solid #334155';
       var underBtn = document.createElement('button');
       underBtn.className = 'btn btn-sm btn-primary';
-      underBtn.textContent = '+ Add Under ' + (voter.first_name || 'voter');
       underBtn.style.cssText = 'flex:1';
+      var voterFirstName = voter.first_name || 'voter';
+      function setBtnLabel() {
+        var n = hhContainer.querySelectorAll('.hh-detail-checkbox:checked').length;
+        if (n === 0) underBtn.textContent = '+ Add ' + voterFirstName + ' to list';
+        else underBtn.textContent = '+ Add ' + voterFirstName + ' + ' + n + ' under';
+      }
+      setBtnLabel();
+      // Update label as the candidate ticks/unticks boxes — gives instant
+      // feedback on what the button will do.
+      hhContainer.addEventListener('change', function(ev) {
+        if (ev.target && ev.target.classList && ev.target.classList.contains('hh-detail-checkbox')) {
+          setBtnLabel();
+        }
+      });
+
       underBtn.addEventListener('click', async function() {
         var checked = hhContainer.querySelectorAll('.hh-detail-checkbox:checked');
-        if (checked.length === 0) { alert('Check at least one household member to add.'); return; }
         var voterIds = Array.from(checked).map(function(cb) { return parseInt(cb.dataset.voterId, 10); }).filter(Boolean);
         underBtn.disabled = true;
+        var origLabel = underBtn.textContent;
         underBtn.textContent = 'Adding…';
         try {
-          var res = await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
-            voter_ids: voterIds,
-            parent_voter_id: voter.id
+          // Step 1: ensure parent is on list (idempotent — server-side
+          // INSERT OR IGNORE, so adding an already-on-list voter is a no-op).
+          await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/voters', {
+            voterIds: [voter.id]
           });
-          underBtn.textContent = '✓ Added ' + (res.nested || voterIds.length);
+          // Step 2: nest checked household members under the parent.
+          if (voterIds.length > 0) {
+            await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
+              voter_ids: voterIds,
+              parent_voter_id: voter.id
+            });
+          }
+          underBtn.textContent = '✓ Added' + (voterIds.length > 0 ? ' (' + (voterIds.length + 1) + ')' : '');
           checked.forEach(function(cb) { cb.checked = false; });
           if (typeof loadListVoters === 'function' && currentRightPanelListId) {
             try { loadListVoters(currentRightPanelListId); } catch (e) {}
           }
           setTimeout(function() {
             underBtn.disabled = false;
-            underBtn.textContent = '+ Add Under ' + (voter.first_name || 'voter');
+            setBtnLabel();
           }, 1500);
         } catch (e) {
           alert('Could not add: ' + (e && e.message ? e.message : 'unknown error'));
           underBtn.disabled = false;
-          underBtn.textContent = '+ Add Under ' + (voter.first_name || 'voter');
+          underBtn.textContent = origLabel;
         }
       });
       addUnderBar.appendChild(underBtn);
@@ -1364,6 +1395,7 @@ function showCandidateVoterDetail(voter) {
         var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
         cbs.forEach(function(c) { c.checked = !allChecked; });
         allBtn.textContent = allChecked ? 'Select All' : 'Clear';
+        setBtnLabel();
       });
       addUnderBar.appendChild(allBtn);
       hhContainer.appendChild(addUnderBar);
