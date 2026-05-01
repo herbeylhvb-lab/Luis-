@@ -6,7 +6,13 @@
 <title>Candidate Portal</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
+/* iPad iOS auto-zooms when an input has font-size <16px. Avoid that
+   by guaranteeing 16px on form controls on coarse pointers. */
+@media (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]),
+  select, textarea { font-size: 16px !important; }
+}
 
 /* LOGIN */
 .login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
@@ -216,8 +222,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .mobile-tab.active{color:#818cf8}
 .mobile-tab .tab-icon{font-size:22px;margin-bottom:2px;line-height:1}
 
-/* Responsive */
-@media(max-width:900px){
+/* Responsive — phone (<=900px), iPad portrait (768x1024 fits here too),
+   AND any touch device up to 1366px (iPad Pro 12.9" landscape). The
+   pointer:coarse clause ensures iPad landscape (1024-1366px wide) also
+   gets the mobile-tab layout instead of a cramped 3-column workspace.
+   Desktop windows resized down to <=900px still get the same treatment;
+   non-touch desktops between 901-1366px keep the full 3-column layout. */
+@media (max-width: 900px), (pointer: coarse) and (max-width: 1366px) {
   .mobile-tabs{
     display:flex;
     position:fixed;
@@ -250,6 +261,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
   .app-header h1{font-size:16px}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .captain-stats{gap:16px}
+}
+
+/* Touch-device tap targets — Apple HIG recommends 44×44 minimum. Bump
+   small buttons up so they're reachable on a fast iPad scroll. */
+@media (pointer: coarse) {
+  .btn-sm { min-height: 36px; padding: 8px 14px; }
+  .btn { min-height: 40px; }
+  .list-item { padding: 12px 16px; }
+  .voter-card { padding: 14px; }
+  .voter-card button, .right-voter button { min-height: 36px; }
+  .modal-box { max-width: min(480px, calc(100vw - 32px)); }
+  .floating-action-bar .btn { min-height: 36px; padding: 8px 14px; }
 }
 
 </style>
@@ -1221,14 +1244,11 @@ function showCandidateVoterDetail(voter) {
       hhContainer.textContent = 'No other people found at this address.';
       return;
     }
-    // Tap-to-drill hint so the candidate knows the rows are interactive.
-    // When a list is open in the right panel, the row also exposes a
-    // "+ Under" button to nest the household member under the current
-    // voter — including members already on the list (re-parents).
+    // Hint depends on whether a list is open in the right panel.
     var hhHint = document.createElement('div');
     hhHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
     hhHint.textContent = currentRightPanelListId
-      ? 'Tap a name to see their info, or tap "+ Under" to nest under ' + voterFullName(voter) + '.'
+      ? 'Tap a name to see info. Check boxes + tap "Add Under" to nest under ' + voterFullName(voter) + '.'
       : 'Tap a name to see their full info →';
     hhContainer.appendChild(hhHint);
 
@@ -1236,24 +1256,38 @@ function showCandidateVoterDetail(voter) {
     hhScroll.style.cssText = 'max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch';
     household.forEach(function(h) {
       var row = document.createElement('div');
-      // Each row is tappable — opens the same detail modal for the
-      // household member. The "+ Under" button (when shown) stops
-      // propagation so it doesn't also fire the row click.
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s;gap:8px';
+      // Whole row: tap (away from checkbox) opens the household member's
+      // detail card. Checkbox toggles inclusion in the bulk "Add Under"
+      // action below — small, unobtrusive, lets the candidate select
+      // multiple at once and apply with one button.
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s';
       row.addEventListener('mouseenter', function() { row.style.background = '#1e293b'; });
       row.addEventListener('mouseleave', function() { row.style.background = ''; });
-      row.addEventListener('click', (function(member) {
+
+      // Checkbox first (only when there's a list to add to). Stops
+      // propagation so toggling doesn't also open the detail modal.
+      if (currentRightPanelListId) {
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'hh-detail-checkbox';
+        cb.dataset.voterId = h.id;
+        cb.style.cssText = 'flex-shrink:0';
+        cb.addEventListener('click', function(ev) { ev.stopPropagation(); });
+        row.appendChild(cb);
+      }
+
+      // Row body — opens the detail modal on tap.
+      var bodyClickArea = document.createElement('div');
+      bodyClickArea.style.cssText = 'flex:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px';
+      bodyClickArea.addEventListener('click', (function(member) {
         return function() { showCandidateVoterDetail(member); };
       })(h));
-
-      var info = document.createElement('div');
-      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1';
       var nameSpan = document.createElement('span');
       nameSpan.style.cssText = 'color:#e2e8f0;font-weight:600';
       nameSpan.textContent = (h.first_name || '') + ' ' + (h.last_name || '');
-      info.appendChild(nameSpan);
-      if (h.age) { var ageSpan = document.createElement('span'); ageSpan.style.cssText = 'font-size:11px;color:#a78bfa'; ageSpan.textContent = '(' + h.age + ')'; info.appendChild(ageSpan); }
-      if (h.party_score) { var psSpan = document.createElement('span'); psSpan.style.cssText = 'font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;background:#1e293b;color:#818cf8;border:1px solid #334155'; psSpan.textContent = h.party_score; info.appendChild(psSpan); }
+      bodyClickArea.appendChild(nameSpan);
+      if (h.age) { var ageSpan = document.createElement('span'); ageSpan.style.cssText = 'font-size:11px;color:#a78bfa'; ageSpan.textContent = '(' + h.age + ')'; bodyClickArea.appendChild(ageSpan); }
+      if (h.party_score) { var psSpan = document.createElement('span'); psSpan.style.cssText = 'font-size:10px;padding:1px 5px;border-radius:3px;font-weight:700;background:#1e293b;color:#818cf8;border:1px solid #334155'; psSpan.textContent = h.party_score; bodyClickArea.appendChild(psSpan); }
       var evBadge = document.createElement('span');
       if (h.early_voted) {
         var hbl = h.early_voted_ballot || '';
@@ -1266,59 +1300,74 @@ function showCandidateVoterDetail(voter) {
         evBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b';
         evBadge.textContent = 'Not Voted';
       }
-      info.appendChild(evBadge);
-      row.appendChild(info);
+      bodyClickArea.appendChild(evBadge);
+      row.appendChild(bodyClickArea);
 
-      var rightCol = document.createElement('div');
-      rightCol.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
-
-      // "+ Under" — only when a list is currently selected in the right
-      // panel. Adds (or re-parents) this household member under the
-      // matched voter so the family tree groups them. Works for both new
-      // members and members already on the list.
-      if (currentRightPanelListId) {
-        var underBtn = document.createElement('button');
-        underBtn.className = 'btn btn-xs btn-primary';
-        underBtn.textContent = '+ Under';
-        underBtn.title = 'Nest ' + ((h.first_name || '') + ' ' + (h.last_name || '')).trim() + ' under ' + voterFullName(voter);
-        underBtn.addEventListener('click', (function(member, parent) {
-          return async function(ev) {
-            ev.stopPropagation();
-            underBtn.disabled = true;
-            underBtn.textContent = 'Adding…';
-            try {
-              var res = await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
-                voter_ids: [member.id],
-                parent_voter_id: parent.id
-              });
-              underBtn.textContent = '✓ Done';
-              if (typeof loadListVoters === 'function' && currentRightPanelListId) {
-                try { loadListVoters(currentRightPanelListId); } catch (e) {}
-              }
-              setTimeout(function() {
-                underBtn.disabled = false;
-                underBtn.textContent = '+ Under';
-              }, 1200);
-            } catch (e) {
-              alert('Could not nest: ' + (e && e.message ? e.message : 'unknown error'));
-              underBtn.disabled = false;
-              underBtn.textContent = '+ Under';
-            }
-          };
-        })(h, voter));
-        rightCol.appendChild(underBtn);
-      }
-
-      // Right-side chevron — visual cue that this row drills into more info.
+      // Right-side chevron — visual cue that the row drills.
       var chev = document.createElement('span');
       chev.style.cssText = 'color:#64748b;font-size:14px;flex-shrink:0';
       chev.textContent = '›';
-      rightCol.appendChild(chev);
-      row.appendChild(rightCol);
+      chev.addEventListener('click', (function(member) {
+        return function(ev) { ev.stopPropagation(); showCandidateVoterDetail(member); };
+      })(h));
+      row.appendChild(chev);
 
       hhScroll.appendChild(row);
     });
     hhContainer.appendChild(hhScroll);
+
+    // Single "Add Under" action at the bottom — applies to all checked rows.
+    // Replaces the per-row button (too bulky per Luis's feedback). Same
+    // checkbox-then-bulk-action pattern as the Add Voter modal's household
+    // section — see loadHouseholdForModal.
+    if (currentRightPanelListId) {
+      var addUnderBar = document.createElement('div');
+      addUnderBar.style.cssText = 'display:flex;align-items:center;gap:8px;padding-top:10px;margin-top:6px;border-top:1px solid #334155';
+      var underBtn = document.createElement('button');
+      underBtn.className = 'btn btn-sm btn-primary';
+      underBtn.textContent = '+ Add Under ' + (voter.first_name || 'voter');
+      underBtn.style.cssText = 'flex:1';
+      underBtn.addEventListener('click', async function() {
+        var checked = hhContainer.querySelectorAll('.hh-detail-checkbox:checked');
+        if (checked.length === 0) { alert('Check at least one household member to add.'); return; }
+        var voterIds = Array.from(checked).map(function(cb) { return parseInt(cb.dataset.voterId, 10); }).filter(Boolean);
+        underBtn.disabled = true;
+        underBtn.textContent = 'Adding…';
+        try {
+          var res = await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
+            voter_ids: voterIds,
+            parent_voter_id: voter.id
+          });
+          underBtn.textContent = '✓ Added ' + (res.nested || voterIds.length);
+          checked.forEach(function(cb) { cb.checked = false; });
+          if (typeof loadListVoters === 'function' && currentRightPanelListId) {
+            try { loadListVoters(currentRightPanelListId); } catch (e) {}
+          }
+          setTimeout(function() {
+            underBtn.disabled = false;
+            underBtn.textContent = '+ Add Under ' + (voter.first_name || 'voter');
+          }, 1500);
+        } catch (e) {
+          alert('Could not add: ' + (e && e.message ? e.message : 'unknown error'));
+          underBtn.disabled = false;
+          underBtn.textContent = '+ Add Under ' + (voter.first_name || 'voter');
+        }
+      });
+      addUnderBar.appendChild(underBtn);
+
+      // Quick "Select All" toggle (matches the Add Voter modal pattern).
+      var allBtn = document.createElement('button');
+      allBtn.className = 'btn btn-xs btn-secondary';
+      allBtn.textContent = 'Select All';
+      allBtn.addEventListener('click', function() {
+        var cbs = hhContainer.querySelectorAll('.hh-detail-checkbox');
+        var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
+        cbs.forEach(function(c) { c.checked = !allChecked; });
+        allBtn.textContent = allChecked ? 'Select All' : 'Clear';
+      });
+      addUnderBar.appendChild(allBtn);
+      hhContainer.appendChild(addUnderBar);
+    }
   }).catch(function() { hhContainer.textContent = 'Could not load household.'; });
 
   // Bulk add section (if viewing a list)
