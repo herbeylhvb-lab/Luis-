@@ -1490,15 +1490,21 @@ function showCandidateVoterDetail(voter) {
             parent_voter_id: voter.id
           });
         }
-        primaryBtn.textContent = '\u2713 Added' + (voterIds.length > 0 ? ' (' + (voterIds.length + 1) + ')' : '');
-        checked.forEach(function(cb) { cb.checked = false; });
+        // Refresh the right-panel list so the new entries show.
         if (typeof loadListVoters === 'function' && currentRightPanelListId) {
           try { loadListVoters(currentRightPanelListId); } catch (e) {}
         }
-        setTimeout(function() {
-          primaryBtn.disabled = false;
-          refreshAddBtnLabel();
-        }, 1500);
+        // Brief success toast \u2014 the modal is about to close so the
+        // captain doesn't sit on a dead modal staring at "\u2713 Added".
+        if (typeof showToast === 'function') {
+          showToast('\u2713 Added ' + (voter.first_name || 'voter') + (voterIds.length > 0 ? ' + ' + voterIds.length + ' under' : '') + ' to list', 'success');
+        }
+        // Close the modal AND reset the search so the candidate can keep
+        // working on the next person without manual cleanup. Luis: "when
+        // I click add it added but it didn't close the page and reset
+        // the search for me to continue working."
+        overlay.remove();
+        if (typeof resetSearch === 'function') resetSearch();
       } catch (e) {
         alert('Could not add: ' + (e && e.message ? e.message : 'unknown error'));
         primaryBtn.disabled = false;

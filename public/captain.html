@@ -3484,147 +3484,24 @@ async function showVoterDetail(voter) {
     box.appendChild(gridDiv);
   }
 
-  // Captain notes section in detail modal
-  if (captainState.selectedListId) {
-    var notesTitle = document.createElement('h4');
-    notesTitle.style.cssText = 'margin-bottom:8px;color:#f59e0b';
-    notesTitle.textContent = 'My Notes';
-    box.appendChild(notesTitle);
-    var notesArea = document.createElement('textarea');
-    notesArea.style.cssText = 'width:100%;height:60px;background:#0f172a;border:1px solid #f59e0b;border-radius:6px;padding:8px;color:#e2e8f0;font-size:13px;resize:vertical;font-family:inherit;margin-bottom:4px;box-sizing:border-box';
-    notesArea.placeholder = 'How do you know this person? Personal reminders...';
-    notesArea.value = voter.captain_notes || '';
-    box.appendChild(notesArea);
-    var notesSaveBtn = document.createElement('button');
-    notesSaveBtn.className = 'btn btn-xs btn-captain';
-    notesSaveBtn.textContent = 'Save Note';
-    notesSaveBtn.style.marginBottom = '16px';
-    notesSaveBtn.addEventListener('click', function() {
-      apiPut(getListApiBase() + '/voters/' + voter.id + '/notes', { notes: notesArea.value.trim() }).then(function() {
-        voter.captain_notes = notesArea.value.trim();
-        notesSaveBtn.textContent = 'Saved!';
-        setTimeout(function() { notesSaveBtn.textContent = 'Save Note'; }, 1500);
-        renderListVoters();
-      }).catch(function() { alert('Failed to save note'); });
-    });
-    box.appendChild(notesSaveBtn);
-  }
-
-  // Household section
-  var hhTitle = document.createElement('h4');
-  hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8';
-  hhTitle.textContent = 'Household Members';
-  box.appendChild(hhTitle);
-
-  var hhContainer = document.createElement('div');
-  hhContainer.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px;min-height:40px';
-  hhContainer.textContent = 'Loading...';
-  box.appendChild(hhContainer);
-
-  // Load household async
-  api('/api/captains/' + captainState.captain.id + '/household?voter_id=' + voter.id).then(function(data) {
-    var household = data.household || [];
-    hhContainer.textContent = '';
-    if (household.length === 0) {
-      hhContainer.style.color = '#475569';
-      hhContainer.textContent = 'No other people found at this address.';
-      return;
-    }
-    // Tap-to-drill hint so the captain knows the rows are interactive.
-    var hhTapHint = document.createElement('div');
-    hhTapHint.style.cssText = 'font-size:11px;color:#64748b;margin-bottom:6px;font-style:italic';
-    hhTapHint.textContent = 'Tap a name to open their card \u2192';
-    hhContainer.appendChild(hhTapHint);
-
-    // Scrollable list - max 5 visible rows (~220px) to prevent freezing on mobile
-    var hhScroll = document.createElement('div');
-    hhScroll.style.cssText = 'max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch';
-    household.forEach(function(h) {
-      var row = document.createElement('div');
-      // Each row is now a tappable card that opens THAT household member's
-      // detail card. Lets captains hop between family members at the same
-      // address without going back to the list to search. The row's main
-      // click handler opens the detail; the "+ Add" button stops propagation
-      // so tapping it doesn't also fire the row click.
-      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s;gap:8px';
-      row.addEventListener('mouseenter', function() { row.style.background = '#1e293b'; });
-      row.addEventListener('mouseleave', function() { row.style.background = ''; });
-      row.addEventListener('click', (function(member) {
-        return function() {
-          // Close the current voter detail modal first, then open the new
-          // one for the picked household member. closeModal handles any
-          // stray DOM cleanup.
-          closeModal('voterDetailModal');
-          showVoterDetail(member);
-        };
-      })(h));
-
-      var info = document.createElement('div');
-      info.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1';
-      var hhNameSpan = document.createElement('span');
-      hhNameSpan.style.fontWeight = '600';
-      var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
-      if (h.party_score) nameText += ' \u2022 ' + h.party_score;
-      if (h.phone) nameText += ' \u2022 ' + h.phone;
-      hhNameSpan.textContent = nameText;
-      info.appendChild(hhNameSpan);
-      var hhDetailEvBadge = document.createElement('span');
-      if (h.early_voted) {
-        var dc = votedBadgeColor(h);
-        hhDetailEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:' + dc.bg + ';color:' + dc.color + ';border:1px solid ' + dc.border;
-        hhDetailEvBadge.textContent = votedLabel(h);
-      } else {
-        hhDetailEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b';
-        hhDetailEvBadge.textContent = 'Not Voted';
-      }
-      info.appendChild(hhDetailEvBadge);
-      row.appendChild(info);
-
-      var rightCol = document.createElement('div');
-      rightCol.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0';
-      var addBtn = document.createElement('button');
-      addBtn.className = 'btn btn-xs btn-captain';
-      addBtn.textContent = '+ Add';
-      addBtn.addEventListener('click', (function(hh) { return function(ev) {
-        // stopPropagation so tapping Add doesn't ALSO trigger the row's
-        // open-detail click \u2014 captain wanted to add, not navigate.
-        ev.stopPropagation();
-        if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
-        closeModal('voterDetailModal');
-        showAddVoterModal(hh);
-      }; })(h));
-      rightCol.appendChild(addBtn);
-      // Chevron \u2014 visual cue that the row drills into more info.
-      var chev = document.createElement('span');
-      chev.style.cssText = 'color:#64748b;font-size:14px';
-      chev.textContent = '\u203a';
-      rightCol.appendChild(chev);
-      row.appendChild(rightCol);
-      hhScroll.appendChild(row);
-    });
-    hhContainer.appendChild(hhScroll);
-    if (household.length > 5) {
-      var hint = document.createElement('div');
-      hint.style.cssText = 'text-align:center;font-size:11px;color:#64748b;padding:4px 0';
-      hint.textContent = '\u2191 Scroll to see all ' + household.length + ' residents';
-      hhContainer.appendChild(hint);
-    }
-  });
-
-  // Bulk add household members by Voter ID
+  // ─── Bulk add section (paste reg numbers) — moved ABOVE household ───
+  // Mirrors the candidate-side detail card. Captains who open the card
+  // and want to add the voter shouldn't have to scroll past household to
+  // find an action; the bulk-paste section's title doubles as a clear
+  // "this is how you add people under this voter" header.
   if (captainState.selectedListId) {
     var bulkSection = document.createElement('div');
-    bulkSection.style.cssText = 'margin-top:12px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px';
+    bulkSection.style.cssText = 'margin-bottom:16px;padding:12px;background:#0f172a;border:1px solid #334155;border-radius:8px';
     var bulkTitle = document.createElement('div');
     bulkTitle.style.cssText = 'font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:8px';
     bulkTitle.textContent = '📋 Add Members Under ' + ((voter.first_name || '') + ' ' + (voter.last_name || '')).trim();
     bulkSection.appendChild(bulkTitle);
     var bulkDesc = document.createElement('div');
     bulkDesc.style.cssText = 'font-size:11px;color:#94a3b8;margin-bottom:8px';
-    bulkDesc.textContent = 'Paste Registration Numbers (one per line or comma separated) to add them to the list grouped under this person.';
+    bulkDesc.textContent = 'Paste Registration Numbers (one per line or comma separated) to add them grouped under this person.';
     bulkSection.appendChild(bulkDesc);
     var bulkInput = document.createElement('textarea');
-    bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:8px;font-size:13px;resize:vertical;min-height:60px';
+    bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:8px;font-size:13px;resize:vertical;min-height:60px;box-sizing:border-box';
     bulkInput.placeholder = 'Paste Reg # here\n1072190019\n2208627937\n1151026401';
     bulkSection.appendChild(bulkInput);
     var bulkBtnRow = document.createElement('div');
@@ -3670,24 +3547,254 @@ async function showVoterDetail(voter) {
     box.appendChild(bulkSection);
   }
 
-  // Buttons
-  var btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px';
-  var addBtn = document.createElement('button');
-  addBtn.className = 'btn btn-captain';
-  addBtn.textContent = captainState.selectedListId ? 'Add to ' + (captainState.selectedListName || 'List') : '+ Add to List';
-  addBtn.addEventListener('click', function() {
-    if (!captainState.selectedListId) { alert('Please select a list first.'); return; }
-    closeModal('voterDetailModal');
-    showAddVoterModal(voter);
+  // ─── Household section ──────────────────────────────────────────────
+  // Title now carries the action prompt as a lighter-weight subtitle on
+  // the right ("— check to add under [voter]"). Mirrors candidate side.
+  var hhTitle = document.createElement('h4');
+  hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap';
+  var hhTitleMain = document.createElement('span');
+  hhTitleMain.textContent = 'Household Members';
+  hhTitle.appendChild(hhTitleMain);
+  if (captainState.selectedListId) {
+    var hhTitleAction = document.createElement('span');
+    hhTitleAction.style.cssText = 'font-size:12px;font-weight:400;color:#fbbf24';
+    hhTitleAction.textContent = '— check to add under ' + (voter.first_name || 'voter');
+    hhTitle.appendChild(hhTitleAction);
+  }
+  box.appendChild(hhTitle);
+
+  var hhContainer = document.createElement('div');
+  hhContainer.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px;min-height:40px';
+  hhContainer.textContent = 'Loading...';
+  box.appendChild(hhContainer);
+
+  // Load household async
+  api('/api/captains/' + captainState.captain.id + '/household?voter_id=' + voter.id).then(function(data) {
+    var household = data.household || [];
+    hhContainer.textContent = '';
+    if (household.length === 0) {
+      hhContainer.style.color = '#475569';
+      hhContainer.textContent = 'No other people found at this address.';
+      return;
+    }
+    // (Italic hint removed \u2014 moved into the section title above.)
+
+    // Scrollable list - max 5 visible rows (~220px) to prevent freezing on mobile
+    var hhScroll = document.createElement('div');
+    hhScroll.style.cssText = 'max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch';
+    household.forEach(function(h) {
+      var row = document.createElement('div');
+      // Each row: small checkbox on the left (toggles inclusion in the
+      // bulk Add at the bottom), tappable name area to drill into the
+      // household member's detail card. Replaces the per-row "+ Add"
+      // button \u2014 too bulky per Luis's feedback. Mirrors candidate side.
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #1e293b;cursor:pointer;border-radius:6px;transition:background 0.1s';
+      row.addEventListener('mouseenter', function() { row.style.background = '#1e293b'; });
+      row.addEventListener('mouseleave', function() { row.style.background = ''; });
+
+      // Checkbox first (only when there's a list to add to). Stops
+      // propagation so toggling doesn't also open the detail modal.
+      if (captainState.selectedListId) {
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'hh-detail-checkbox';
+        cb.dataset.voterId = h.id;
+        cb.style.cssText = 'flex-shrink:0;width:18px;height:18px;accent-color:#f59e0b';
+        cb.addEventListener('click', function(ev) { ev.stopPropagation(); });
+        row.appendChild(cb);
+      }
+
+      // Body \u2014 opens the detail card on tap.
+      var bodyClickArea = document.createElement('div');
+      bodyClickArea.style.cssText = 'flex:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px;cursor:pointer';
+      bodyClickArea.addEventListener('click', (function(member) {
+        return function() {
+          closeModal('voterDetailModal');
+          showVoterDetail(member);
+        };
+      })(h));
+      var hhNameSpan = document.createElement('span');
+      hhNameSpan.style.fontWeight = '600';
+      var nameText = (h.first_name || '') + ' ' + (h.last_name || '');
+      if (h.party_score) nameText += ' \u2022 ' + h.party_score;
+      if (h.phone) nameText += ' \u2022 ' + h.phone;
+      hhNameSpan.textContent = nameText;
+      bodyClickArea.appendChild(hhNameSpan);
+      var hhDetailEvBadge = document.createElement('span');
+      if (h.early_voted) {
+        var dc = votedBadgeColor(h);
+        hhDetailEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:' + dc.bg + ';color:' + dc.color + ';border:1px solid ' + dc.border;
+        hhDetailEvBadge.textContent = votedLabel(h);
+      } else {
+        hhDetailEvBadge.style.cssText = 'font-size:9px;padding:1px 6px;border-radius:3px;font-weight:700;background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid #f59e0b';
+        hhDetailEvBadge.textContent = 'Not Voted';
+      }
+      bodyClickArea.appendChild(hhDetailEvBadge);
+      row.appendChild(bodyClickArea);
+
+      // Chevron \u2014 visual cue that the row drills into more info.
+      var chev = document.createElement('span');
+      chev.style.cssText = 'color:#64748b;font-size:14px;flex-shrink:0';
+      chev.textContent = '\u203a';
+      chev.addEventListener('click', (function(member) {
+        return function(ev) { ev.stopPropagation(); closeModal('voterDetailModal'); showVoterDetail(member); };
+      })(h));
+      row.appendChild(chev);
+      hhScroll.appendChild(row);
+    });
+    hhContainer.appendChild(hhScroll);
+    if (household.length > 5) {
+      var hint = document.createElement('div');
+      hint.style.cssText = 'text-align:center;font-size:11px;color:#64748b;padding:4px 0';
+      hint.textContent = '\u2191 Scroll to see all ' + household.length + ' residents';
+      hhContainer.appendChild(hint);
+    }
+
+    // Select All toggle (only when there's a list \u2014 checkbox-only mode).
+    if (captainState.selectedListId) {
+      var selectAllRow = document.createElement('div');
+      selectAllRow.style.cssText = 'display:flex;justify-content:flex-end;padding-top:8px;margin-top:6px;border-top:1px solid #334155';
+      var allBtn = document.createElement('button');
+      allBtn.className = 'btn btn-xs btn-secondary';
+      allBtn.textContent = 'Select All';
+      allBtn.addEventListener('click', function() {
+        var cbs = hhContainer.querySelectorAll('.hh-detail-checkbox');
+        var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
+        cbs.forEach(function(c) { c.checked = !allChecked; });
+        allBtn.textContent = allChecked ? 'Select All' : 'Clear';
+        if (typeof window._refreshCaptainDetailAddBtn === 'function') window._refreshCaptainDetailAddBtn();
+      });
+      selectAllRow.appendChild(allBtn);
+      hhContainer.appendChild(selectAllRow);
+    }
   });
-  btnRow.appendChild(addBtn);
+
+  // (Old bulk-add-section moved above the household section earlier in
+  //  this function — see "Bulk add section moved BEFORE household".)
+
+  // ─── My Notes section ──────────────────────────────────────────────
+  // Personal reminders the captain keeps about this voter. Stored in
+  // captain_list_voters.notes (when this voter is on the captain's list).
+  if (captainState.selectedListId) {
+    var notesSection = document.createElement('div');
+    notesSection.style.cssText = 'background:#0f172a;border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:12px;margin-bottom:16px';
+    var notesTitle = document.createElement('div');
+    notesTitle.style.cssText = 'font-size:13px;font-weight:700;color:#f59e0b;margin-bottom:6px;display:flex;align-items:center;gap:6px';
+    notesTitle.innerHTML = '📝 My Notes <span style="font-weight:400;color:#94a3b8;font-size:11px">(only you see these)</span>';
+    notesSection.appendChild(notesTitle);
+    var notesArea = document.createElement('textarea');
+    notesArea.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:8px;font-size:13px;resize:vertical;min-height:60px;box-sizing:border-box';
+    notesArea.placeholder = 'How do you know this person? Personal reminders...';
+    notesArea.value = voter.captain_notes || '';
+    notesSection.appendChild(notesArea);
+    var notesRow = document.createElement('div');
+    notesRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';
+    var notesSaveBtn = document.createElement('button');
+    notesSaveBtn.className = 'btn btn-xs btn-captain';
+    notesSaveBtn.textContent = 'Save note';
+    var notesStatus = document.createElement('span');
+    notesStatus.style.cssText = 'font-size:11px;color:#94a3b8';
+    notesSaveBtn.addEventListener('click', function() {
+      var isOnList = captainState.voters && captainState.voters.some(function(v) { return v.id == voter.id; });
+      var ensureOnList = isOnList ? Promise.resolve() : apiPost(getListApiBase() + '/voters', { voter_id: voter.id });
+      notesSaveBtn.disabled = true; notesSaveBtn.textContent = 'Saving…';
+      ensureOnList
+        .then(function() {
+          return apiPut(getListApiBase() + '/voters/' + voter.id + '/notes', { notes: notesArea.value.trim() });
+        })
+        .then(function() {
+          voter.captain_notes = notesArea.value.trim();
+          notesSaveBtn.disabled = false; notesSaveBtn.textContent = 'Save note';
+          notesStatus.textContent = '✓ Saved'; notesStatus.style.color = '#22c55e';
+          setTimeout(function() { notesStatus.textContent = ''; }, 1500);
+          renderListVoters();
+        })
+        .catch(function(err) {
+          notesSaveBtn.disabled = false; notesSaveBtn.textContent = 'Save note';
+          notesStatus.textContent = 'Error: ' + (err.message || err); notesStatus.style.color = '#ef4444';
+        });
+    });
+    notesRow.appendChild(notesSaveBtn);
+    notesRow.appendChild(notesStatus);
+    notesSection.appendChild(notesRow);
+    box.appendChild(notesSection);
+  }
+
+  // ─── Sticky bottom action bar ──────────────────────────────────────
+  // Primary "+ Add Voter (+ N under)" action lives here — same pattern
+  // as the candidate detail card. Smart label tracks how many household
+  // checkboxes are ticked. On success: close modal + reset search.
+  var bottomBar = document.createElement('div');
+  bottomBar.style.cssText = 'display:flex;gap:8px;align-items:center;position:sticky;bottom:0;background:#1e293b;padding:10px 0 0;margin-top:8px;border-top:1px solid #334155';
+
+  if (captainState.selectedListId) {
+    var primaryBtn = document.createElement('button');
+    primaryBtn.className = 'btn btn-captain';
+    primaryBtn.style.cssText = 'flex:1;padding:12px';
+    var voterFirstName = voter.first_name || 'voter';
+    function refreshCaptainAddBtnLabel() {
+      var n = box.querySelectorAll('.hh-detail-checkbox:checked').length;
+      if (n === 0) primaryBtn.textContent = '+ Add ' + voterFirstName + ' to list';
+      else primaryBtn.textContent = '+ Add ' + voterFirstName + ' + ' + n + ' under';
+    }
+    refreshCaptainAddBtnLabel();
+    window._refreshCaptainDetailAddBtn = refreshCaptainAddBtnLabel;
+    box.addEventListener('change', function(ev) {
+      if (ev.target && ev.target.classList && ev.target.classList.contains('hh-detail-checkbox')) {
+        refreshCaptainAddBtnLabel();
+      }
+    });
+    primaryBtn.addEventListener('click', async function() {
+      var checked = box.querySelectorAll('.hh-detail-checkbox:checked');
+      var voterIds = Array.from(checked).map(function(cb) { return parseInt(cb.dataset.voterId, 10); }).filter(Boolean);
+      primaryBtn.disabled = true;
+      var origLabel = primaryBtn.textContent;
+      primaryBtn.textContent = 'Adding…';
+      try {
+        // Step 1: ensure parent voter is on list (idempotent — captain
+        // /voters endpoint takes singular voter_id, INSERT OR IGNORE).
+        var isOnList = captainState.voters && captainState.voters.some(function(v) { return v.id == voter.id; });
+        if (!isOnList) {
+          await apiPost(getListApiBase() + '/voters', { voter_id: voter.id });
+        }
+        // Step 2: nest checked household members.
+        if (voterIds.length > 0) {
+          await apiPost(getListApiBase() + '/bulk-add-under', {
+            voter_ids: voterIds,
+            parent_voter_id: voter.id
+          });
+        }
+        if (typeof loadListVoters === 'function') {
+          try { loadListVoters(); } catch (e) {}
+        }
+        if (typeof showToast === 'function') {
+          showToast('✓ Added ' + (voter.first_name || 'voter') + (voterIds.length > 0 ? ' + ' + voterIds.length + ' under' : '') + ' to list', 'success');
+        }
+        // Close modal + reset search so captain can keep working — same
+        // UX as candidate side. Luis: "when I click add it added but it
+        // didn't close the page and reset the search."
+        closeModal('voterDetailModal');
+        if (typeof clearSearchAfterAdd === 'function') clearSearchAfterAdd();
+        else {
+          var si = document.getElementById('captainSearch') || document.getElementById('voterSearch');
+          if (si) si.value = '';
+        }
+      } catch (e) {
+        alert('Could not add: ' + (e && e.message ? e.message : 'unknown error'));
+        primaryBtn.disabled = false;
+        primaryBtn.textContent = origLabel;
+      }
+    });
+    bottomBar.appendChild(primaryBtn);
+  }
+
   var closeBtn = document.createElement('button');
   closeBtn.className = 'btn btn-secondary';
+  closeBtn.style.cssText = captainState.selectedListId ? 'padding:12px 20px' : 'flex:1;padding:12px';
   closeBtn.textContent = 'Close';
   closeBtn.addEventListener('click', function() { closeModal('voterDetailModal'); });
-  btnRow.appendChild(closeBtn);
-  box.appendChild(btnRow);
+  bottomBar.appendChild(closeBtn);
+  box.appendChild(bottomBar);
 
   overlay.appendChild(box);
   document.body.appendChild(overlay);
