@@ -6546,6 +6546,29 @@ function renderCurrentContact() {
   var c = window._mcContacts[window._mcIndex];
   if (!c) return finishWizard();
 
+  // ── Phase 1 fast-path: defer anything that won't auto-match by phone ──
+  // Pre-flight (preview-matches) already told us per-contact:
+  //   _hasPhoneMatch — whether the contact's phone matches a voter
+  //   _hasPhone      — whether the contact even has a phone
+  // If we're in Phase 1 (still working through the easy 1-tap confirms)
+  // and this contact has no phone or no phone match, send it straight to
+  // the deferred queue without rendering the card or hitting the API.
+  // Captain picks which deferreds to manually search via the Phase 2
+  // selection screen (showPhase2Transition) once Phase 1 finishes.
+  //
+  // Without this fast-path, no-phone contacts pop the age+city form
+  // inline during Phase 1, which looks identical to "Phase 2 started
+  // without me picking" — the bug Luis reported.
+  var phoneDigits = String(c.phone || '').replace(/\D/g, '');
+  var hasPhone = phoneDigits.length >= 10;
+  var preflightNoMatch = c._hasPhoneMatch === false; // strict false (not undefined)
+  if (!window._mcPhase2 && (!hasPhone || preflightNoMatch)) {
+    window._mcDeferred = window._mcDeferred || [];
+    window._mcDeferred.push(c);
+    advance();
+    return;
+  }
+
   document.getElementById('mcContactProgress').textContent =
     'Contact ' + (window._mcIndex + 1) + ' of ' + window._mcContacts.length;
 
@@ -6566,11 +6589,10 @@ function renderCurrentContact() {
   clearChildren(document.getElementById('mcCandidateList'));
   document.getElementById('mcActionMenu').style.display = 'none';
 
-  // Auto-try phone match first. If contact has a phone with 10+ digits,
-  // hit the API with phone-only and see if it lands a perfect match.
-  // No captain action needed — the screen shows results or the age form.
-  var phoneDigits = String(c.phone || '').replace(/\D/g, '');
-  if (phoneDigits.length >= 10) {
+  // Auto-try phone match. (Phase 2 contacts always reach here with a phone
+  // because we showed them the age+city form when needed; Phase 1 contacts
+  // that get here have hasPhone === true and weren't pre-flight-rejected.)
+  if (hasPhone) {
     autoPhoneSearch(c);
   } else {
     showAgeCityForm('No phone on this contact — enter age and city to search:');
