@@ -1225,6 +1225,56 @@ function showCandidateVoterDetail(voter) {
     box.appendChild(gridDiv);
   }
 
+  // Bulk add section moved BEFORE household — Luis flagged that captains
+  // didn't know how to add the voter because the only bottom button was
+  // "Close." The paste-IDs flow used to live below household and felt
+  // hidden. With it on top, captains see the explicit "Add Members Under
+  // [voter]" header right after the voter info.
+  if (currentRightPanelListId) {
+    var bulkSection = document.createElement('div');
+    bulkSection.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px';
+    var bulkTitle = document.createElement('div');
+    bulkTitle.style.cssText = 'font-size:12px;font-weight:700;color:#818cf8;margin-bottom:6px';
+    bulkTitle.textContent = '📋 Add Members Under ' + voterFullName(voter);
+    bulkSection.appendChild(bulkTitle);
+    var bulkInput = document.createElement('textarea');
+    bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box';
+    bulkInput.placeholder = 'Paste Reg # (one per line or comma separated)';
+    bulkSection.appendChild(bulkInput);
+    var bulkBtnRow = document.createElement('div');
+    bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';
+    var bulkBtn = document.createElement('button');
+    bulkBtn.className = 'btn btn-sm btn-primary';
+    bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
+    var bulkStatus = document.createElement('span');
+    bulkStatus.style.cssText = 'font-size:11px;color:#94a3b8';
+    bulkBtn.onclick = async function() {
+      var raw = bulkInput.value.trim();
+      if (!raw) return;
+      var ids = raw.split(/[\n,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+      if (!ids.length) return;
+      bulkBtn.disabled = true; bulkBtn.textContent = 'Adding...';
+      try {
+        // Ensure voter is on list first (idempotent), then nest pasted IDs.
+        await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/voters', {
+          voterIds: [voter.id]
+        });
+        var data = await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', { identifiers: ids, parent_voter_id: voter.id });
+        bulkBtn.disabled = false; bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
+        bulkStatus.textContent = data.added + ' added, ' + data.nested + ' grouped' + (data.notFound && data.notFound.length ? ', ' + data.notFound.length + ' not found' : '');
+        bulkStatus.style.color = '#22c55e'; bulkInput.value = '';
+        if (currentRightPanelListId) loadListVoters(currentRightPanelListId);
+      } catch (err) {
+        bulkBtn.disabled = false; bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
+        bulkStatus.textContent = 'Error: ' + (err.message || err); bulkStatus.style.color = '#ef4444';
+      }
+    };
+    bulkBtnRow.appendChild(bulkBtn);
+    bulkBtnRow.appendChild(bulkStatus);
+    bulkSection.appendChild(bulkBtnRow);
+    box.appendChild(bulkSection);
+  }
+
   // Household section
   var hhTitle = document.createElement('h4');
   hhTitle.style.cssText = 'margin-bottom:8px;color:#94a3b8;font-size:14px';
@@ -1316,77 +1366,12 @@ function showCandidateVoterDetail(voter) {
     });
     hhContainer.appendChild(hhScroll);
 
-    // Smart "+ Add" action at the bottom of the household section.
-    // One button, three behaviors based on state — no separate popup
-    // needed (Luis: "no need to prompt another page"):
-    //
-    //   - Voter NOT on list, no household checked → adds voter only.
-    //   - Voter NOT on list + N household checked → adds voter, then
-    //     nests the N household members under them. Done in one tap.
-    //   - Voter ON list + N household checked → just nests the N
-    //     household members under the existing list entry.
-    //
-    // Works whether voter is in the list or not; the first POST
-    // (/voters) is idempotent (INSERT OR IGNORE server-side), so it's
-    // safe to call regardless of current state.
+    // Quick "Select All" toggle for the household checkboxes. The actual
+    // "+ Add Voter + N under" button now lives in the sticky bottom bar
+    // (see bottomBar below) where users naturally look for primary actions.
     if (currentRightPanelListId) {
-      var addUnderBar = document.createElement('div');
-      addUnderBar.style.cssText = 'display:flex;align-items:center;gap:8px;padding-top:10px;margin-top:6px;border-top:1px solid #334155';
-      var underBtn = document.createElement('button');
-      underBtn.className = 'btn btn-sm btn-primary';
-      underBtn.style.cssText = 'flex:1';
-      var voterFirstName = voter.first_name || 'voter';
-      function setBtnLabel() {
-        var n = hhContainer.querySelectorAll('.hh-detail-checkbox:checked').length;
-        if (n === 0) underBtn.textContent = '+ Add ' + voterFirstName + ' to list';
-        else underBtn.textContent = '+ Add ' + voterFirstName + ' + ' + n + ' under';
-      }
-      setBtnLabel();
-      // Update label as the candidate ticks/unticks boxes — gives instant
-      // feedback on what the button will do.
-      hhContainer.addEventListener('change', function(ev) {
-        if (ev.target && ev.target.classList && ev.target.classList.contains('hh-detail-checkbox')) {
-          setBtnLabel();
-        }
-      });
-
-      underBtn.addEventListener('click', async function() {
-        var checked = hhContainer.querySelectorAll('.hh-detail-checkbox:checked');
-        var voterIds = Array.from(checked).map(function(cb) { return parseInt(cb.dataset.voterId, 10); }).filter(Boolean);
-        underBtn.disabled = true;
-        var origLabel = underBtn.textContent;
-        underBtn.textContent = 'Adding…';
-        try {
-          // Step 1: ensure parent is on list (idempotent — server-side
-          // INSERT OR IGNORE, so adding an already-on-list voter is a no-op).
-          await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/voters', {
-            voterIds: [voter.id]
-          });
-          // Step 2: nest checked household members under the parent.
-          if (voterIds.length > 0) {
-            await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
-              voter_ids: voterIds,
-              parent_voter_id: voter.id
-            });
-          }
-          underBtn.textContent = '✓ Added' + (voterIds.length > 0 ? ' (' + (voterIds.length + 1) + ')' : '');
-          checked.forEach(function(cb) { cb.checked = false; });
-          if (typeof loadListVoters === 'function' && currentRightPanelListId) {
-            try { loadListVoters(currentRightPanelListId); } catch (e) {}
-          }
-          setTimeout(function() {
-            underBtn.disabled = false;
-            setBtnLabel();
-          }, 1500);
-        } catch (e) {
-          alert('Could not add: ' + (e && e.message ? e.message : 'unknown error'));
-          underBtn.disabled = false;
-          underBtn.textContent = origLabel;
-        }
-      });
-      addUnderBar.appendChild(underBtn);
-
-      // Quick "Select All" toggle (matches the Add Voter modal pattern).
+      var selectAllRow = document.createElement('div');
+      selectAllRow.style.cssText = 'display:flex;justify-content:flex-end;padding-top:8px;margin-top:6px;border-top:1px solid #334155';
       var allBtn = document.createElement('button');
       allBtn.className = 'btn btn-xs btn-secondary';
       allBtn.textContent = 'Select All';
@@ -1395,62 +1380,136 @@ function showCandidateVoterDetail(voter) {
         var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
         cbs.forEach(function(c) { c.checked = !allChecked; });
         allBtn.textContent = allChecked ? 'Select All' : 'Clear';
-        setBtnLabel();
+        // Tell the bottom-bar button to refresh its label.
+        if (typeof window._refreshDetailAddBtn === 'function') window._refreshDetailAddBtn();
       });
-      addUnderBar.appendChild(allBtn);
-      hhContainer.appendChild(addUnderBar);
+      selectAllRow.appendChild(allBtn);
+      hhContainer.appendChild(selectAllRow);
     }
   }).catch(function() { hhContainer.textContent = 'Could not load household.'; });
 
-  // Bulk add section (if viewing a list)
-  if (currentRightPanelListId) {
-    var bulkSection = document.createElement('div');
-    bulkSection.style.cssText = 'background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;margin-bottom:16px';
-    var bulkTitle = document.createElement('div');
-    bulkTitle.style.cssText = 'font-size:12px;font-weight:700;color:#818cf8;margin-bottom:6px';
-    bulkTitle.textContent = '\uD83D\uDCCB Add Members Under ' + voterFullName(voter);
-    bulkSection.appendChild(bulkTitle);
-    var bulkInput = document.createElement('textarea');
-    bulkInput.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box';
-    bulkInput.placeholder = 'Paste Reg # (one per line or comma separated)';
-    bulkSection.appendChild(bulkInput);
-    var bulkBtnRow = document.createElement('div');
-    bulkBtnRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';
-    var bulkBtn = document.createElement('button');
-    bulkBtn.className = 'btn btn-sm btn-primary';
-    bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
-    var bulkStatus = document.createElement('span');
-    bulkStatus.style.cssText = 'font-size:11px;color:#94a3b8';
-    bulkBtn.onclick = function() {
-      var raw = bulkInput.value.trim();
-      if (!raw) return;
-      var ids = raw.split(/[\n,]+/).map(function(s) { return s.trim(); }).filter(Boolean);
-      if (!ids.length) return;
-      bulkBtn.disabled = true; bulkBtn.textContent = 'Adding...';
-      apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', { identifiers: ids, parent_voter_id: voter.id })
-        .then(function(data) {
-          bulkBtn.disabled = false; bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
-          bulkStatus.textContent = data.added + ' added, ' + data.nested + ' grouped' + (data.notFound && data.notFound.length ? ', ' + data.notFound.length + ' not found' : '');
-          bulkStatus.style.color = '#22c55e'; bulkInput.value = '';
-          if (currentRightPanelListId) loadListVoters(currentRightPanelListId);
-        }).catch(function(err) {
-          bulkBtn.disabled = false; bulkBtn.textContent = '+ Add Under ' + (voter.first_name || 'Voter');
-          bulkStatus.textContent = 'Error: ' + (err.message || err); bulkStatus.style.color = '#ef4444';
-        });
+  // (Old bulk-add-section moved above the household section earlier in
+  //  this function \u2014 see "Bulk add section moved BEFORE household".)
+
+  // \u2500\u2500\u2500 My Notes section \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // Personal reminders the candidate keeps about a voter (e.g.,
+  // "supports our position on port", "wants yard sign Oct 15"). Stored
+  // server-side in admin_list_voters.notes (when this voter is on the
+  // candidate's list). Mirrors the captain side's captain_notes pattern.
+  // Only shown when the right-panel list is open AND it's the
+  // candidate's own admin_list (not a captain list view).
+  if (currentRightPanelListId && currentRightPanelListType !== 'captain') {
+    var notesSection = document.createElement('div');
+    notesSection.style.cssText = 'background:#0f172a;border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:12px;margin-bottom:16px';
+    var notesTitle = document.createElement('div');
+    notesTitle.style.cssText = 'font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:6px;display:flex;align-items:center;gap:6px';
+    notesTitle.innerHTML = '\uD83D\uDCDD My Notes <span style="font-weight:400;color:#94a3b8;font-size:11px">(only you see these)</span>';
+    notesSection.appendChild(notesTitle);
+    var notesArea = document.createElement('textarea');
+    notesArea.id = 'detailNotesArea_' + voter.id;
+    notesArea.style.cssText = 'width:100%;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e2e8f0;padding:8px;font-size:13px;resize:vertical;min-height:60px;box-sizing:border-box';
+    notesArea.placeholder = 'Add your notes \u2014 what they care about, follow-ups, etc.';
+    // list_notes is what the list-voters endpoint returns (alv.notes
+    // aliased so it doesn't shadow voters.notes). Falls back to '' when
+    // the voter isn't currently on the list.
+    notesArea.value = voter.list_notes || '';
+    notesSection.appendChild(notesArea);
+    var notesRow = document.createElement('div');
+    notesRow.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:6px';
+    var notesSaveBtn = document.createElement('button');
+    notesSaveBtn.className = 'btn btn-xs btn-primary';
+    notesSaveBtn.textContent = 'Save note';
+    var notesStatus = document.createElement('span');
+    notesStatus.style.cssText = 'font-size:11px;color:#94a3b8';
+    notesSaveBtn.onclick = async function() {
+      notesSaveBtn.disabled = true; notesSaveBtn.textContent = 'Saving\u2026';
+      try {
+        // Ensure voter is on list first (idempotent \u2014 INSERT OR IGNORE
+        // server-side, so safe whether they're already on or not). Then
+        // PUT the note onto admin_list_voters.notes.
+        await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/voters', { voterIds: [voter.id] });
+        await apiPut('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/voters/' + voter.id + '/notes', { notes: notesArea.value });
+        notesSaveBtn.disabled = false; notesSaveBtn.textContent = 'Save note';
+        notesStatus.textContent = '\u2713 Saved'; notesStatus.style.color = '#22c55e';
+        setTimeout(function() { notesStatus.textContent = ''; }, 1500);
+      } catch (err) {
+        notesSaveBtn.disabled = false; notesSaveBtn.textContent = 'Save note';
+        notesStatus.textContent = 'Error: ' + (err.message || err); notesStatus.style.color = '#ef4444';
+      }
     };
-    bulkBtnRow.appendChild(bulkBtn);
-    bulkBtnRow.appendChild(bulkStatus);
-    bulkSection.appendChild(bulkBtnRow);
-    box.appendChild(bulkSection);
+    notesRow.appendChild(notesSaveBtn);
+    notesRow.appendChild(notesStatus);
+    notesSection.appendChild(notesRow);
+    box.appendChild(notesSection);
   }
 
-  // Close button
+  // \u2500\u2500\u2500 Sticky bottom action bar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // Primary action lives here so users can't miss it. Smart label
+  // tracks how many household members are checked.
+  var bottomBar = document.createElement('div');
+  bottomBar.style.cssText = 'display:flex;gap:8px;align-items:center;position:sticky;bottom:0;background:#1e293b;padding:10px 0 0;margin-top:8px;border-top:1px solid #334155';
+
+  if (currentRightPanelListId) {
+    var primaryBtn = document.createElement('button');
+    primaryBtn.className = 'btn btn-primary';
+    primaryBtn.style.cssText = 'flex:1;padding:12px';
+    var voterFirstName = voter.first_name || 'voter';
+    function refreshAddBtnLabel() {
+      var n = box.querySelectorAll('.hh-detail-checkbox:checked').length;
+      if (n === 0) primaryBtn.textContent = '+ Add ' + voterFirstName + ' to list';
+      else primaryBtn.textContent = '+ Add ' + voterFirstName + ' + ' + n + ' under';
+    }
+    refreshAddBtnLabel();
+    // Expose so household checkbox changes can live-update the label
+    window._refreshDetailAddBtn = refreshAddBtnLabel;
+    box.addEventListener('change', function(ev) {
+      if (ev.target && ev.target.classList && ev.target.classList.contains('hh-detail-checkbox')) {
+        refreshAddBtnLabel();
+      }
+    });
+    primaryBtn.addEventListener('click', async function() {
+      var checked = box.querySelectorAll('.hh-detail-checkbox:checked');
+      var voterIds = Array.from(checked).map(function(cb) { return parseInt(cb.dataset.voterId, 10); }).filter(Boolean);
+      primaryBtn.disabled = true;
+      var origLabel = primaryBtn.textContent;
+      primaryBtn.textContent = 'Adding\u2026';
+      try {
+        // Step 1: ensure parent voter is on list (idempotent).
+        await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/voters', {
+          voterIds: [voter.id]
+        });
+        // Step 2: nest checked household members.
+        if (voterIds.length > 0) {
+          await apiPost('/api/candidates/' + candidateId + '/lists/' + currentRightPanelListId + '/bulk-add-under', {
+            voter_ids: voterIds,
+            parent_voter_id: voter.id
+          });
+        }
+        primaryBtn.textContent = '\u2713 Added' + (voterIds.length > 0 ? ' (' + (voterIds.length + 1) + ')' : '');
+        checked.forEach(function(cb) { cb.checked = false; });
+        if (typeof loadListVoters === 'function' && currentRightPanelListId) {
+          try { loadListVoters(currentRightPanelListId); } catch (e) {}
+        }
+        setTimeout(function() {
+          primaryBtn.disabled = false;
+          refreshAddBtnLabel();
+        }, 1500);
+      } catch (e) {
+        alert('Could not add: ' + (e && e.message ? e.message : 'unknown error'));
+        primaryBtn.disabled = false;
+        primaryBtn.textContent = origLabel;
+      }
+    });
+    bottomBar.appendChild(primaryBtn);
+  }
+
   var closeBtn = document.createElement('button');
   closeBtn.className = 'btn btn-secondary';
-  closeBtn.style.cssText = 'width:100%;padding:10px';
+  closeBtn.style.cssText = currentRightPanelListId ? 'padding:12px 20px' : 'flex:1;padding:12px';
   closeBtn.textContent = 'Close';
   closeBtn.onclick = function() { overlay.remove(); };
-  box.appendChild(closeBtn);
+  bottomBar.appendChild(closeBtn);
+  box.appendChild(bottomBar);
 
   overlay.appendChild(box);
   document.body.appendChild(overlay);
