@@ -25,6 +25,25 @@ const phoneEditAuthLimiter = rateLimit({
 // filter by — pulls from their primary candidate (captains.candidate_id) +
 // any shared candidates (captain_candidates). Dedupe by type+value so two
 // candidates in the same race don't produce two identical filter bars.
+// SQL fragment that walks the parent_captain_id chain from a captain up
+// to the root. Used by collectCaptainCandidates / collectCaptainRaces
+// so sub-captains inherit candidate/race access from their ancestors —
+// without it a sub-captain under a shared captain (e.g., Luis shared
+// from Steve to Herbey) would only ever see their inherited primary
+// (Steve), never the candidate the parent was shared with (Herbey).
+//
+// The chain INCLUDES the starting captain. ORDER is unspecified but
+// consumers don't care since they dedupe by id/key.
+const ANCESTOR_CHAIN_CTE = `
+  WITH RECURSIVE ancestor_chain(id, parent_captain_id, candidate_id) AS (
+    SELECT id, parent_captain_id, candidate_id FROM captains WHERE id = ?
+    UNION ALL
+    SELECT c.id, c.parent_captain_id, c.candidate_id
+    FROM captains c
+    JOIN ancestor_chain ac ON c.id = ac.parent_captain_id
+  )
+`;
+
 function collectCaptainRaces(captainId, primaryCandidateId) {
   const seen = new Set();
   const races = [];
@@ -35,19 +54,29 @@ function collectCaptainRaces(captainId, primaryCandidateId) {
     seen.add(key);
     races.push({ type, value });
   }
+  // Captain's own primary first so it's listed before ancestors' races
+  // (cosmetic only — caller doesn't sort).
   if (primaryCandidateId) {
     const primary = db.prepare('SELECT race_type, race_value FROM candidates WHERE id = ?').get(primaryCandidateId);
     if (primary) add(primary.race_type, primary.race_value);
   }
-  const shared = db.prepare(`
-    SELECT c.race_type, c.race_value
-    FROM captain_candidates cc
-    JOIN candidates c ON cc.candidate_id = c.id
-    WHERE cc.captain_id = ?
-      AND c.race_type IS NOT NULL AND c.race_type != ''
-      AND c.race_value IS NOT NULL AND c.race_value != ''
+  // Every ancestor's candidate_id PLUS every candidate any ancestor is
+  // shared with via captain_candidates — pulled in one query via the
+  // recursive ancestor chain.
+  const rows = db.prepare(ANCESTOR_CHAIN_CTE + `
+    SELECT DISTINCT cand.race_type, cand.race_value
+    FROM candidates cand
+    WHERE cand.race_type IS NOT NULL AND cand.race_type != ''
+      AND cand.race_value IS NOT NULL AND cand.race_value != ''
+      AND (
+        cand.id IN (SELECT candidate_id FROM ancestor_chain WHERE candidate_id IS NOT NULL)
+        OR cand.id IN (
+          SELECT cc.candidate_id FROM captain_candidates cc
+          WHERE cc.captain_id IN (SELECT id FROM ancestor_chain)
+        )
+      )
   `).all(captainId);
-  for (const r of shared) add(r.race_type, r.race_value);
+  for (const r of rows) add(r.race_type, r.race_value);
   return races;
 }
 
@@ -56,6 +85,13 @@ function collectCaptainRaces(captainId, primaryCandidateId) {
 // UI can show a "Vote for [candidate]" picker per name — two candidates in
 // the same race both show up. Primary candidate is flagged so the UI can
 // default-select it. Returns [{ id, name, race_type, race_value, is_primary }]
+//
+// Walks the ancestor chain so sub-captains inherit every candidate any
+// ancestor is associated with. Luis: "if they're shared, [sub-captains]
+// should at least have a choice for both [candidates]." Without this
+// walk, a sub-captain under Luis (shared Steve→Herbey) would only see
+// Steve in the picker — Herbey would be missing because the share row
+// lives on Luis, not on the sub-captain.
 function collectCaptainCandidates(captainId, primaryCandidateId) {
   const seen = new Set();
   const out = [];
@@ -70,18 +106,27 @@ function collectCaptainCandidates(captainId, primaryCandidateId) {
       is_primary: !!isPrimary,
     });
   }
+  // Captain's own primary first so the is_primary flag wins on dedup
+  // (the recursive query below would otherwise add the same candidate
+  // un-flagged via the ancestor walk).
   if (primaryCandidateId) {
     const primary = db.prepare('SELECT id, name, race_type, race_value FROM candidates WHERE id = ?').get(primaryCandidateId);
     add(primary, true);
   }
-  const shared = db.prepare(`
-    SELECT c.id, c.name, c.race_type, c.race_value
-    FROM captain_candidates cc
-    JOIN candidates c ON cc.candidate_id = c.id
-    WHERE cc.captain_id = ?
-    ORDER BY c.name COLLATE NOCASE
+  // Every candidate any ancestor (including this captain) is associated
+  // with — both their primary candidate_id AND any captain_candidates
+  // share rows. Result is the union of both, deduped by candidate id.
+  const rows = db.prepare(ANCESTOR_CHAIN_CTE + `
+    SELECT DISTINCT cand.id, cand.name, cand.race_type, cand.race_value
+    FROM candidates cand
+    WHERE cand.id IN (SELECT candidate_id FROM ancestor_chain WHERE candidate_id IS NOT NULL)
+       OR cand.id IN (
+         SELECT cc.candidate_id FROM captain_candidates cc
+         WHERE cc.captain_id IN (SELECT id FROM ancestor_chain)
+       )
+    ORDER BY cand.name COLLATE NOCASE
   `).all(captainId);
-  for (const r of shared) add(r, false);
+  for (const r of rows) add(r, false);
   return out;
 }
 
