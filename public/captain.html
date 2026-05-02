@@ -322,6 +322,22 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
 
 /* Multi-select & Transfer */
 .right-voter-checkbox{width:18px;height:18px;accent-color:#f59e0b;cursor:pointer;flex-shrink:0;margin-right:8px}
+/* Bigger hit area for per-row checkboxes — wraps the 18x18 visible
+   input in a 36x36 <label> so taps just off the box still register as
+   a check (instead of falling through to the info div, which opens
+   the voter card). Negative vertical margin keeps row height the
+   same; horizontal layout shifts are minimized via flex-shrink:0
+   on the parent stack. The select-all checkbox at the top of the
+   list stays unwrapped so its layout is unchanged. */
+.cb-hit{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;margin:-9px 0;cursor:pointer;flex-shrink:0;border-radius:6px;-webkit-tap-highlight-color:rgba(245,158,11,0.15)}
+.cb-hit:active{background:rgba(245,158,11,0.10)}
+.cb-hit > .right-voter-checkbox{margin:0}
+/* Vertical stack so the ungroup (↑) button sits BELOW the checkbox
+   rather than next to it. Small horizontal targets crammed side-by-side
+   were a source of mis-taps — vertical separation gives each its own
+   row in the user's visual scan. */
+.cb-stack{display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;margin-right:8px}
+.cb-stack .ungroup-btn{background:#475569;border:none;color:#e2e8f0;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;min-height:28px;line-height:1}
 .right-voter.selected{background:#1a2536;border-left:3px solid #f59e0b}
 .right-voter.dragging{opacity:0.5;background:#334155}
 .select-all-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;font-size:13px;color:#94a3b8}
@@ -2799,27 +2815,45 @@ function renderListVoters() {
         });
       }; })(v.id));
     }
-    if (isChild) {
-      // Click to ungroup
-      var unBtn = document.createElement('button');
-      unBtn.textContent = '↑';
-      unBtn.title = 'Ungroup';
-      unBtn.style.cssText = 'background:#475569;border:none;color:#e2e8f0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;margin-right:6px';
-      unBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        api(getListApiBase() + '/voters/' + v.id + '/parent', { method: 'DELETE' }).then(function() { loadListVoters(); });
-      });
-      row.appendChild(unBtn);
-    }
+    // Vertical stack: checkbox on top, ungroup ↑ button below (only when
+    // this voter is nested under another). Stacking instead of side-by-
+    // side stops captains from mis-tapping between the two small
+    // controls — Luis: "the thing next to taking a voter out of under
+    // a voter should be under the box not next to it so we don't have
+    // issue when clicking."
+    var cbStack = document.createElement('div');
+    cbStack.className = 'cb-stack';
 
-    // Checkbox
+    // Checkbox wrapped in a <label> with a 36×36 hit area. The visible
+    // 18×18 box is centered inside; tapping anywhere within the label
+    // forwards to the input via native HTML label-for behavior, so taps
+    // just off the box still register as a check.
+    var cbWrap = document.createElement('label');
+    cbWrap.className = 'cb-hit';
     var cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.className = 'right-voter-checkbox';
     cb.id = 'vcb_' + v.id;
     cb.checked = _selectedVoterIds.has(v.id);
     cb.addEventListener('change', (function(vid) { return function() { toggleVoterSelection(vid); }; })(v.id));
-    row.appendChild(cb);
+    cbWrap.appendChild(cb);
+    cbStack.appendChild(cbWrap);
+
+    if (isChild) {
+      // Ungroup button — sits BELOW the checkbox in the stack so it
+      // can't be mis-tapped while reaching for the box.
+      var unBtn = document.createElement('button');
+      unBtn.className = 'ungroup-btn';
+      unBtn.textContent = '↑';
+      unBtn.title = 'Ungroup';
+      unBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        api(getListApiBase() + '/voters/' + v.id + '/parent', { method: 'DELETE' }).then(function() { loadListVoters(); });
+      });
+      cbStack.appendChild(unBtn);
+    }
+
+    row.appendChild(cbStack);
 
     var info = document.createElement('div');
     info.style.cssText = 'cursor:pointer;flex:1;min-width:0';
