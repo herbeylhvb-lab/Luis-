@@ -504,8 +504,10 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
           <button type="button" id="fabTargetBtn"
             style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;min-width:180px;text-align:left;line-height:1.3"
             onclick="toggleFabTargetMenu()">Pick a list&hellip;</button>
+          <!-- position/left/right/bottom/width set by positionFabTargetMenu()
+               at open time — see captain.js. CSS here is just visual. -->
           <div id="fabTargetMenu"
-            style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:6px;background:#1e293b;border:1px solid #475569;border-radius:8px;padding:8px;width:300px;max-height:60vh;overflow-y:auto;box-shadow:0 -4px 16px rgba(0,0,0,0.5);z-index:60">
+            style="display:none;position:fixed;background:#1e293b;border:1px solid #475569;border-radius:8px;padding:8px;max-height:60vh;overflow-y:auto;box-shadow:0 -4px 16px rgba(0,0,0,0.5);z-index:60">
             <input id="fabTargetSearch" type="text" placeholder="Search list or captain&hellip;" autocomplete="off"
               style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;margin-bottom:8px;box-sizing:border-box"
               oninput="filterFabTargetItems()">
@@ -1763,14 +1765,57 @@ function toggleFabTargetMenu() {
   var open = menu.style.display !== 'none';
   if (open) {
     menu.style.display = 'none';
+    window.removeEventListener('resize', positionFabTargetMenu);
     document.removeEventListener('click', _fabTargetOutsideClick, true);
   } else {
     menu.style.display = 'block';
+    // Position the popover via JS — the previous absolute-anchored
+    // approach (`right: 0; bottom: 100%`) put the menu off-screen on
+    // iPhone because the FAB's flex-wrap can land the picker button
+    // anywhere on a row. Switch to fixed positioning clamped to the
+    // viewport so the menu always fits.
+    positionFabTargetMenu();
+    window.addEventListener('resize', positionFabTargetMenu);
     var search = document.getElementById('fabTargetSearch');
     if (search) { search.value = ''; filterFabTargetItems(); setTimeout(function() { search.focus(); }, 0); }
     // Defer attaching the outside-click listener so the click that opened
     // the menu doesn't immediately close it.
     setTimeout(function() { document.addEventListener('click', _fabTargetOutsideClick, true); }, 0);
+  }
+}
+
+// Compute (left, bottom, width) so the popover never renders off the
+// viewport regardless of where the picker button ended up after the
+// FAB's flex-wrap. Anchor the right edge of the menu to the right edge
+// of the button when there's room; otherwise clamp to the viewport's
+// padded edges. Always positioned above the button via fixed bottom.
+function positionFabTargetMenu() {
+  var menu = document.getElementById('fabTargetMenu');
+  var btn = document.getElementById('fabTargetBtn');
+  if (!menu || !btn) return;
+  var btnRect = btn.getBoundingClientRect();
+  var vw = window.innerWidth;
+  var vh = window.innerHeight;
+  var pad = 8;
+  var w = Math.min(340, vw - pad * 2);
+  var preferredLeft = btnRect.right - w;
+  var left = Math.max(pad, Math.min(preferredLeft, vw - pad - w));
+  // Place above the button. The +6px is the visual gap between button
+  // and menu — was the old `margin-bottom:6px` on the popover.
+  var bottomFromViewport = vh - btnRect.top + 6;
+  menu.style.position = 'fixed';
+  menu.style.left = left + 'px';
+  menu.style.right = '';
+  menu.style.top = '';
+  menu.style.bottom = bottomFromViewport + 'px';
+  menu.style.width = w + 'px';
+  // If the popover would overflow the top of the viewport (very rare —
+  // would require a tiny screen + fully-expanded list), flip to below
+  // the button instead so it doesn't get clipped.
+  var menuRect = menu.getBoundingClientRect();
+  if (menuRect.top < pad) {
+    menu.style.bottom = '';
+    menu.style.top = (btnRect.bottom + 6) + 'px';
   }
 }
 function _fabTargetOutsideClick(e) {
