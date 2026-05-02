@@ -316,9 +316,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <!-- STATS -->
       <div class="stats-grid" id="statsGrid"></div>
 
-      <!-- Go to Workspace button -->
-      <div style="text-align:center;margin-bottom:16px">
+      <!-- Go to Workspace + Print Report buttons -->
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:16px">
         <button class="btn btn-primary" onclick="switchView('workspace')" style="padding:14px 36px;font-size:16px">Open Workspace &#8594;</button>
+        <button class="btn btn-secondary" onclick="printCampaignReport()" style="padding:14px 24px;font-size:14px" title="Open a printable / PDF-ready summary of the campaign's overall and weekly activity">🖨️ Print Report</button>
       </div>
 
       <!-- Quick captain search — filters the captain list below as the
@@ -988,6 +989,174 @@ async function refreshDashboard() {
     renderDashboard(data);
     if (currentView === 'workspace') renderWorkspaceSidebar();
   } catch (e) { console.error('refresh error:', e); }
+}
+
+// ===================== PRINT / PDF CAMPAIGN REPORT =====================
+// Opens a new window with a printable summary the candidate can either
+// print on paper or save as PDF (iOS Files app supports "Save as PDF"
+// from the print dialog). Reads from candidateData already loaded by
+// refreshDashboard — no extra API call.
+//
+// Report contents:
+//   - Campaign totals (voters, voted%, captain count)
+//   - This week (last 7 days) — texts, calls, total outreach
+//   - All-time outreach — texts, calls, total
+//   - Per-captain table sorted by total activity (heaviest first)
+//   - Footer with timestamp + the "what is/isn't tracked" caveat
+function printCampaignReport() {
+  if (!candidateData || !candidateData.captains) {
+    alert('Dashboard data not loaded yet — give it a moment and try again.');
+    return;
+  }
+  var captains = candidateData.captains || [];
+  var candidate = candidateData.candidate || {};
+
+  // Aggregate across all captains. Zeros default when fields are missing
+  // so the math doesn't NaN.
+  var totals = captains.reduce(function(acc, c) {
+    acc.voters     += (c.total_voters || 0);
+    acc.voted      += (c.voted_count  || 0);
+    acc.texts7d    += (c.texts_7d     || 0);
+    acc.calls7d    += (c.calls_7d     || 0);
+    acc.textsTotal += (c.texts_total  || 0);
+    acc.callsTotal += (c.calls_total  || 0);
+    return acc;
+  }, { voters: 0, voted: 0, texts7d: 0, calls7d: 0, textsTotal: 0, callsTotal: 0 });
+
+  var votedPct = totals.voters > 0 ? Math.round((totals.voted / totals.voters) * 100) : 0;
+
+  // Sort captains for the table by total outreach desc — heaviest first
+  // so the candidate can spot leaders + laggards at a glance.
+  var sorted = captains.slice().sort(function(a, b) {
+    var aAct = (a.texts_total || 0) + (a.calls_total || 0);
+    var bAct = (b.texts_total || 0) + (b.calls_total || 0);
+    if (bAct !== aAct) return bAct - aAct;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; }
+  function fmt(n) { return Number(n || 0).toLocaleString(); }
+
+  var rows = sorted.map(function(c) {
+    var cVoted = c.voted_count || 0;
+    var cTotal = c.total_voters || 0;
+    var cPct = cTotal > 0 ? Math.round((cVoted / cTotal) * 100) : 0;
+    return '<tr>'
+      + '<td>' + esc(c.name) + (c.is_shared ? ' <span class="shared-tag">shared</span>' : '') + '</td>'
+      + '<td class="num">' + fmt(cTotal) + '</td>'
+      + '<td class="num">' + fmt(cVoted) + ' (' + cPct + '%)</td>'
+      + '<td class="num">' + fmt(c.texts_7d || 0) + '</td>'
+      + '<td class="num">' + fmt(c.texts_total || 0) + '</td>'
+      + '<td class="num">' + fmt(c.calls_7d || 0) + '</td>'
+      + '<td class="num">' + fmt(c.calls_total || 0) + '</td>'
+      + '</tr>';
+  }).join('');
+
+  var now = new Date();
+  var dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  var timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+  var html =
+    '<!DOCTYPE html>\n<html lang="en">\n<head>\n'
+    + '<meta charset="UTF-8">\n'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1.0">\n'
+    + '<title>Campaign Activity Report — ' + esc(candidate.name || 'Campaign') + '</title>\n'
+    + '<style>\n'
+    + '  @media print { body { margin: 0 } .no-print { display: none !important } @page { margin: 0.5in } }\n'
+    + '  * { box-sizing: border-box }\n'
+    + '  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 30px auto; padding: 0 20px; color: #111; background: #fff; line-height: 1.5 }\n'
+    + '  h1 { font-size: 26px; margin: 0 0 4px; color: #0f172a }\n'
+    + '  h2 { font-size: 16px; margin: 26px 0 10px; padding-bottom: 4px; border-bottom: 2px solid #334155; color: #0f172a; text-transform: uppercase; letter-spacing: 1px }\n'
+    + '  .meta { color: #64748b; font-size: 13px; margin-bottom: 18px }\n'
+    + '  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px }\n'
+    + '  .tile { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; background: #f8fafc }\n'
+    + '  .tile .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600 }\n'
+    + '  .tile .val { font-size: 24px; font-weight: 700; margin-top: 4px; color: #0f172a }\n'
+    + '  .tile .sub { font-size: 11px; color: #94a3b8; margin-top: 2px }\n'
+    + '  .tile.green .val { color: #15803d } .tile.blue .val { color: #1d4ed8 } .tile.amber .val { color: #b45309 }\n'
+    + '  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px }\n'
+    + '  th { text-align: left; padding: 8px 6px; background: #f1f5f9; border-bottom: 2px solid #cbd5e1; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; font-weight: 700 }\n'
+    + '  td { padding: 7px 6px; border-bottom: 1px solid #e2e8f0 }\n'
+    + '  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums }\n'
+    + '  tr:nth-child(even) td { background: #fafbfc }\n'
+    + '  .shared-tag { font-size: 9px; padding: 1px 5px; background: #ddd6fe; color: #5b21b6; border-radius: 3px; font-weight: 600; vertical-align: middle }\n'
+    + '  .print-bar { position: sticky; top: 0; padding: 12px 0; background: #fff; display: flex; justify-content: flex-end; gap: 8px; border-bottom: 1px solid #e2e8f0; margin-bottom: 16px }\n'
+    + '  .print-btn { background: #f59e0b; color: #000; border: 0; border-radius: 6px; padding: 10px 18px; font-weight: 600; cursor: pointer; font-size: 14px }\n'
+    + '  .close-btn { background: #e2e8f0; color: #475569; border: 0; border-radius: 6px; padding: 10px 16px; cursor: pointer; font-size: 14px }\n'
+    + '  .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #94a3b8; line-height: 1.5 }\n'
+    + '</style>\n</head>\n<body>\n'
+    + '<div class="print-bar no-print">\n'
+    + '  <button class="close-btn" onclick="window.close()">Close</button>\n'
+    + '  <button class="print-btn" onclick="window.print()">🖨️ Print or Save as PDF</button>\n'
+    + '</div>\n'
+    + '<h1>Campaign Activity Report</h1>\n'
+    + '<div class="meta"><strong>' + esc(candidate.name || 'Campaign') + '</strong> · Generated ' + esc(dateStr) + ' at ' + esc(timeStr) + '</div>\n'
+
+    + '<h2>Campaign Totals</h2>\n<div class="summary">\n'
+    + '  <div class="tile"><div class="label">Voters on All Lists</div><div class="val">' + fmt(totals.voters) + '</div></div>\n'
+    + '  <div class="tile green"><div class="label">Voted</div><div class="val">' + fmt(totals.voted) + ' <span style="font-size:14px;color:#64748b">(' + votedPct + '%)</span></div></div>\n'
+    + '  <div class="tile"><div class="label">Block Captains</div><div class="val">' + fmt(captains.length) + '</div></div>\n'
+    + '</div>\n'
+
+    + '<h2>This Week — Last 7 Days</h2>\n<div class="summary">\n'
+    + '  <div class="tile green"><div class="label">Texts Sent</div><div class="val">' + fmt(totals.texts7d) + '</div><div class="sub">in the last 7 days</div></div>\n'
+    + '  <div class="tile blue"><div class="label">Calls Made</div><div class="val">' + fmt(totals.calls7d) + '</div><div class="sub">in the last 7 days</div></div>\n'
+    + '  <div class="tile amber"><div class="label">Total Outreach</div><div class="val">' + fmt(totals.texts7d + totals.calls7d) + '</div><div class="sub">texts + calls combined</div></div>\n'
+    + '</div>\n'
+
+    + '<h2>All-Time Outreach</h2>\n<div class="summary">\n'
+    + '  <div class="tile green"><div class="label">Total Texts</div><div class="val">' + fmt(totals.textsTotal) + '</div><div class="sub">across the campaign</div></div>\n'
+    + '  <div class="tile blue"><div class="label">Total Calls</div><div class="val">' + fmt(totals.callsTotal) + '</div><div class="sub">across the campaign</div></div>\n'
+    + '  <div class="tile amber"><div class="label">Total Outreach</div><div class="val">' + fmt(totals.textsTotal + totals.callsTotal) + '</div><div class="sub">texts + calls combined</div></div>\n'
+    + '</div>\n'
+
+    + '<h2>Per-Captain Breakdown</h2>\n'
+    + '<p style="font-size:11px;color:#64748b;margin:0 0 6px">Sorted by all-time outreach (texts + calls). Heaviest contributors at the top.</p>\n'
+    + '<table>\n'
+    + '  <thead><tr>'
+    + '<th>Captain</th>'
+    + '<th class="num">Voters</th>'
+    + '<th class="num">Voted</th>'
+    + '<th class="num">Texts (7d)</th>'
+    + '<th class="num">Texts (Total)</th>'
+    + '<th class="num">Calls (7d)</th>'
+    + '<th class="num">Calls (Total)</th>'
+    + '</tr></thead>\n'
+    + '  <tbody>' + (rows || '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:16px">No captains yet</td></tr>') + '</tbody>\n'
+    + '</table>\n'
+
+    + '<div class="footer">\n'
+    + '  Generated ' + esc(dateStr) + ' at ' + esc(timeStr) + ' from CampaignText.app.<br>\n'
+    + '  Activity counters track texts and calls sent through the in-app buttons. '
+    + 'Texts/calls made directly from outside the app (e.g., from iOS Messages or the Phone app) are not counted.\n'
+    + '</div>\n'
+
+    + '</body>\n</html>\n';
+
+  // Build a Blob URL and open it in a new window. This avoids
+  // document.write (which has security warnings + reflows the new
+  // doc) and renders the same HTML reliably on iOS Safari + desktop.
+  // The blob URL is revoked after a delay so the window has time to
+  // load it before the URL is freed.
+  var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var w = null;
+  try { w = window.open(url, '_blank'); } catch (e) { w = null; }
+  if (!w) {
+    // Popup blocked — navigate current tab instead. The candidate can
+    // hit the back button to return to the dashboard.
+    window.location.href = url;
+    return;
+  }
+  w.focus();
+  // Auto-trigger the print dialog once the new doc loads. Wrapped in
+  // setTimeout because Safari needs a beat for the blob HTML to render
+  // before window.print() has anything to lay out.
+  setTimeout(function() {
+    try { w.print(); } catch (e) { /* fallthrough — the in-page button works */ }
+    // Revoke after print dialog is up; the document already has the bytes.
+    setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+  }, 800);
 }
 
 // ===================== VIEW SWITCHING =====================
@@ -1805,7 +1974,7 @@ function renderCaptainCards(captains) {
     // stats row to avoid wrapping on mobile. Tooltip shows full
     // 24h/7d/all-time breakdown.
     var activityLine = document.createElement('div');
-    activityLine.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px;padding:6px 10px;background:#0f172a;border-radius:6px;font-size:13px;line-height:1.4';
+    activityLine.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0 14px;padding:6px 10px;background:#0f172a;border-radius:6px;font-size:13px;line-height:1.4';
     activityLine.title = 'Captain activity (counts texts/calls sent through the in-app buttons)'
       + '\nLast 24h: ' + texts24h + ' texts, ' + calls24h + ' calls'
       + '\nLast 7d:  ' + texts7d  + ' texts, ' + calls7d  + ' calls'
