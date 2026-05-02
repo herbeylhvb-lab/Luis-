@@ -1726,49 +1726,17 @@ function renderCaptainCards(captains) {
     votedStat.appendChild(votedLabelEl);
     statsRow.appendChild(votedStat);
 
-    // Activity tiles: Texts and Calls in the last 7 days. Color is
-    // green / blue if active, gray if dormant — at a glance the
-    // candidate sees who's working their list and who isn't.
-    // Tooltips show 24h + total so the candidate can drill in mentally
-    // without leaving the dashboard.
+    // Activity counts captured here; they'll render BELOW the stats row
+    // (not as side-by-side tiles) — Luis: "the formatting on the mobile
+    // app is off with the new text/call section, put it under the
+    // percentage of people out instead of the side." A single inline
+    // line keeps mobile compact while still showing both metrics.
     var texts7d  = cap.texts_7d  || 0;
     var calls7d  = cap.calls_7d  || 0;
     var texts24h = cap.texts_24h || 0;
     var calls24h = cap.calls_24h || 0;
     var textsTotal = cap.texts_total || 0;
     var callsTotal = cap.calls_total || 0;
-
-    var textStat = document.createElement('div');
-    textStat.className = 'captain-stat';
-    var textNum = document.createElement('div');
-    textNum.className = 'num';
-    textNum.textContent = texts7d.toLocaleString();
-    textNum.style.color = texts7d > 0 ? '#22c55e' : '#475569';
-    textStat.appendChild(textNum);
-    var textLabel = document.createElement('div');
-    textLabel.className = 'label';
-    textLabel.textContent = 'Texts (7d)';
-    textStat.appendChild(textLabel);
-    textStat.title = 'Texts this captain sent\nLast 24h: ' + texts24h
-      + '\nLast 7d:  ' + texts7d
-      + '\nAll time: ' + textsTotal;
-    statsRow.appendChild(textStat);
-
-    var callStat = document.createElement('div');
-    callStat.className = 'captain-stat';
-    var callNum = document.createElement('div');
-    callNum.className = 'num';
-    callNum.textContent = calls7d.toLocaleString();
-    callNum.style.color = calls7d > 0 ? '#3b82f6' : '#475569';
-    callStat.appendChild(callNum);
-    var callLabel = document.createElement('div');
-    callLabel.className = 'label';
-    callLabel.textContent = 'Calls (7d)';
-    callStat.appendChild(callLabel);
-    callStat.title = 'Calls this captain made\nLast 24h: ' + calls24h
-      + '\nLast 7d:  ' + calls7d
-      + '\nAll time: ' + callsTotal;
-    statsRow.appendChild(callStat);
 
     var subs = childrenOf[cap.id] || [];
     if (subs.length > 0) {
@@ -1824,6 +1792,42 @@ function renderCaptainCards(captains) {
     }
 
     card.appendChild(statsRow);
+
+    // Activity line — under the headline stats so it doesn't fight for
+    // tile space on mobile. Compact inline format with emoji prefixes
+    // and color-coded counts. Hidden when both are zero (dormant) so
+    // the captain card stays clean for inactive captains.
+    if (texts7d > 0 || calls7d > 0 || textsTotal > 0 || callsTotal > 0) {
+      var activityLine = document.createElement('div');
+      activityLine.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px;padding:6px 10px;background:#0f172a;border-radius:6px;font-size:13px;line-height:1.4';
+      activityLine.title = 'Captain activity'
+        + '\nLast 24h: ' + texts24h + ' texts, ' + calls24h + ' calls'
+        + '\nLast 7d:  ' + texts7d  + ' texts, ' + calls7d  + ' calls'
+        + '\nAll time: ' + textsTotal + ' texts, ' + callsTotal + ' calls';
+
+      var textPart = document.createElement('span');
+      textPart.style.cssText = 'color:' + (texts7d > 0 ? '#22c55e' : '#64748b');
+      // Emoji + count + label, e.g. "💬 12 texts (7d)"
+      textPart.textContent = '💬 ' + texts7d + ' text' + (texts7d === 1 ? '' : 's');
+      activityLine.appendChild(textPart);
+
+      var sep = document.createElement('span');
+      sep.style.cssText = 'color:#475569';
+      sep.textContent = '·';
+      activityLine.appendChild(sep);
+
+      var callPart = document.createElement('span');
+      callPart.style.cssText = 'color:' + (calls7d > 0 ? '#3b82f6' : '#64748b');
+      callPart.textContent = '📞 ' + calls7d + ' call' + (calls7d === 1 ? '' : 's');
+      activityLine.appendChild(callPart);
+
+      var windowLabel = document.createElement('span');
+      windowLabel.style.cssText = 'color:#64748b;font-size:11px;margin-left:auto';
+      windowLabel.textContent = 'last 7 days';
+      activityLine.appendChild(windowLabel);
+
+      card.appendChild(activityLine);
+    }
 
     // Progress bar = voted percentage (votedCount / totalVoters), the
     // metric the candidate actually wants to compare across captains.
