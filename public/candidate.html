@@ -1726,6 +1726,50 @@ function renderCaptainCards(captains) {
     votedStat.appendChild(votedLabelEl);
     statsRow.appendChild(votedStat);
 
+    // Activity tiles: Texts and Calls in the last 7 days. Color is
+    // green / blue if active, gray if dormant — at a glance the
+    // candidate sees who's working their list and who isn't.
+    // Tooltips show 24h + total so the candidate can drill in mentally
+    // without leaving the dashboard.
+    var texts7d  = cap.texts_7d  || 0;
+    var calls7d  = cap.calls_7d  || 0;
+    var texts24h = cap.texts_24h || 0;
+    var calls24h = cap.calls_24h || 0;
+    var textsTotal = cap.texts_total || 0;
+    var callsTotal = cap.calls_total || 0;
+
+    var textStat = document.createElement('div');
+    textStat.className = 'captain-stat';
+    var textNum = document.createElement('div');
+    textNum.className = 'num';
+    textNum.textContent = texts7d.toLocaleString();
+    textNum.style.color = texts7d > 0 ? '#22c55e' : '#475569';
+    textStat.appendChild(textNum);
+    var textLabel = document.createElement('div');
+    textLabel.className = 'label';
+    textLabel.textContent = 'Texts (7d)';
+    textStat.appendChild(textLabel);
+    textStat.title = 'Texts this captain sent\nLast 24h: ' + texts24h
+      + '\nLast 7d:  ' + texts7d
+      + '\nAll time: ' + textsTotal;
+    statsRow.appendChild(textStat);
+
+    var callStat = document.createElement('div');
+    callStat.className = 'captain-stat';
+    var callNum = document.createElement('div');
+    callNum.className = 'num';
+    callNum.textContent = calls7d.toLocaleString();
+    callNum.style.color = calls7d > 0 ? '#3b82f6' : '#475569';
+    callStat.appendChild(callNum);
+    var callLabel = document.createElement('div');
+    callLabel.className = 'label';
+    callLabel.textContent = 'Calls (7d)';
+    callStat.appendChild(callLabel);
+    callStat.title = 'Calls this captain made\nLast 24h: ' + calls24h
+      + '\nLast 7d:  ' + calls7d
+      + '\nAll time: ' + callsTotal;
+    statsRow.appendChild(callStat);
+
     var subs = childrenOf[cap.id] || [];
     if (subs.length > 0) {
       var subStat = document.createElement('div');

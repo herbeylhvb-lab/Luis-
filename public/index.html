@@ -13263,7 +13263,20 @@ async function showCandidateDetail(id, name, code, raceType, raceValue) {
       statsSpan.style.cssText = 'font-size:12px;color:#64748b';
       var vc = c.voted_count || 0;
       var tv = c.total_voters || 0;
-      statsSpan.textContent = tv + ' voters \u00B7 ' + vc + ' voted';
+      // Activity counters appended only when the captain has actually
+      // texted or called in the last 7 days. Keeps the row compact for
+      // dormant captains while making active captains stand out. \uD83D\uDCAC = text,
+      // \uD83D\uDCDE = call. Hover for 24h / 7d / total breakdown.
+      var t7 = c.texts_7d || 0;
+      var c7 = c.calls_7d || 0;
+      var actStr = '';
+      if (t7 > 0) actStr += ' \u00B7 \uD83D\uDCAC ' + t7;
+      if (c7 > 0) actStr += ' \u00B7 \uD83D\uDCDE ' + c7;
+      if (actStr) actStr += ' (7d)';
+      statsSpan.textContent = tv + ' voters \u00B7 ' + vc + ' voted' + actStr;
+      statsSpan.title = 'Captain activity\nLast 24h: ' + (c.texts_24h || 0) + ' texts, ' + (c.calls_24h || 0) + ' calls'
+        + '\nLast 7d:  ' + t7 + ' texts, ' + c7 + ' calls'
+        + '\nAll time: ' + (c.texts_total || 0) + ' texts, ' + (c.calls_total || 0) + ' calls';
       left.appendChild(statsSpan);
 
       // Mini progress bar

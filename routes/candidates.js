@@ -481,7 +481,57 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     if (!c.candidate_id) fixOrphans.run(candidate.id, c.id);
   }
 
+  // Batch-load text + call activity for ALL captains in this portal
+  // result. voter_contacts.contacted_by stores the literal string
+  // 'Captain #N' for captain-initiated logs (see /text-log and
+  // /phone-log). We extract N, group by captain + type, and count
+  // 24h / 7d / total in one query so the candidate dashboard can show
+  // "is this captain actually working their list?" at a glance.
+  const captainIdsForActivity = captains.map(c => c.id);
+  const activityByCaptain = {};
+  if (captainIdsForActivity.length > 0) {
+    const labels = captainIdsForActivity.map(id => 'Captain #' + id);
+    const placeholders = labels.map(() => '?').join(',');
+    const activityRows = db.prepare(`
+      SELECT
+        CAST(SUBSTR(contacted_by, 10) AS INTEGER) AS captain_id,
+        contact_type,
+        SUM(CASE WHEN contacted_at >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS d1,
+        SUM(CASE WHEN contacted_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS d7,
+        COUNT(*) AS total
+      FROM voter_contacts
+      WHERE contacted_by IN (${placeholders})
+        AND contact_type IN ('Text', 'Call')
+      GROUP BY captain_id, contact_type
+    `).all(...labels);
+    for (const r of activityRows) {
+      if (!activityByCaptain[r.captain_id]) {
+        activityByCaptain[r.captain_id] = {
+          texts_24h: 0, texts_7d: 0, texts_total: 0,
+          calls_24h: 0, calls_7d: 0, calls_total: 0,
+        };
+      }
+      if (r.contact_type === 'Text') {
+        activityByCaptain[r.captain_id].texts_24h = r.d1;
+        activityByCaptain[r.captain_id].texts_7d = r.d7;
+        activityByCaptain[r.captain_id].texts_total = r.total;
+      } else if (r.contact_type === 'Call') {
+        activityByCaptain[r.captain_id].calls_24h = r.d1;
+        activityByCaptain[r.captain_id].calls_7d = r.d7;
+        activityByCaptain[r.captain_id].calls_total = r.total;
+      }
+    }
+  }
+
   for (const c of captains) {
+    // Activity counts (texts/calls the captain has personally sent).
+    // Defaults to all zeros for captains with no activity rows.
+    const a = activityByCaptain[c.id] || {
+      texts_24h: 0, texts_7d: 0, texts_total: 0,
+      calls_24h: 0, calls_7d: 0, calls_total: 0,
+    };
+    Object.assign(c, a);
+
     // Captain-created lists + admin-assigned lists
     const captainLists = db.prepare(`
       SELECT cl.id, cl.name, '' as description, 'captain' as source, COUNT(clv.id) as voter_count

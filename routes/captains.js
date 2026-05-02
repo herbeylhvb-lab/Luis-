@@ -235,11 +235,51 @@ router.get('/captains', (req, res) => {
       voterCountByCapt[vc.captain_id] = vc.c;
     }
 
+    // Batch-load text + call activity per captain. Same approach the
+    // candidate portal uses: parse 'Captain #N' label, group by id +
+    // contact_type, sum over 24h / 7d / all-time windows in one go.
+    // Surfaces "is this captain actually texting/calling their list?"
+    // on the admin captain card without needing a separate report.
+    const activityRows = db.prepare(`
+      SELECT
+        CAST(SUBSTR(contacted_by, 10) AS INTEGER) AS captain_id,
+        contact_type,
+        SUM(CASE WHEN contacted_at >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS d1,
+        SUM(CASE WHEN contacted_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS d7,
+        COUNT(*) AS total
+      FROM voter_contacts
+      WHERE contacted_by LIKE 'Captain #%'
+        AND contact_type IN ('Text', 'Call')
+      GROUP BY captain_id, contact_type
+    `).all();
+    const activityByCapt = {};
+    for (const r of activityRows) {
+      if (!activityByCapt[r.captain_id]) {
+        activityByCapt[r.captain_id] = {
+          texts_24h: 0, texts_7d: 0, texts_total: 0,
+          calls_24h: 0, calls_7d: 0, calls_total: 0,
+        };
+      }
+      if (r.contact_type === 'Text') {
+        activityByCapt[r.captain_id].texts_24h = r.d1;
+        activityByCapt[r.captain_id].texts_7d = r.d7;
+        activityByCapt[r.captain_id].texts_total = r.total;
+      } else if (r.contact_type === 'Call') {
+        activityByCapt[r.captain_id].calls_24h = r.d1;
+        activityByCapt[r.captain_id].calls_7d = r.d7;
+        activityByCapt[r.captain_id].calls_total = r.total;
+      }
+    }
+
     // Assign to each captain
     for (const c of captains) {
       c.team_members = teamByCapt[c.id] || [];
       c.lists = listsByCapt[c.id] || [];
       c.total_voters = voterCountByCapt[c.id] || 0;
+      Object.assign(c, activityByCapt[c.id] || {
+        texts_24h: 0, texts_7d: 0, texts_total: 0,
+        calls_24h: 0, calls_7d: 0, calls_total: 0,
+      });
     }
   }
 
