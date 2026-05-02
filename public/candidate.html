@@ -6,7 +6,14 @@
 <title>Candidate Portal</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden}
+/* Lock horizontal pan on iOS — `overflow-x:hidden` alone doesn't stop
+   rubber-band swipes or browser-back swipes. `touch-action:pan-y` tells
+   WebKit "only vertical scrolling, no horizontal", and
+   `overscroll-behavior-x:none` removes the elastic edge. `pinch-zoom`
+   stays on so accessibility zoom still works. Luis: "let's add a rule
+   that does not let us move the candidate left to right on the screen". */
+html{overflow-x:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;overflow-x:hidden;touch-action:pan-y pinch-zoom;overscroll-behavior-x:none}
 /* iPad iOS auto-zooms when an input has font-size <16px. Avoid that
    by guaranteeing 16px on form controls on coarse pointers. */
 @media (pointer: coarse) {
@@ -1793,41 +1800,38 @@ function renderCaptainCards(captains) {
 
     card.appendChild(statsRow);
 
-    // Activity line — under the headline stats so it doesn't fight for
-    // tile space on mobile. Compact inline format with emoji prefixes
-    // and color-coded counts. Hidden when both are zero (dormant) so
-    // the captain card stays clean for inactive captains.
-    if (texts7d > 0 || calls7d > 0 || textsTotal > 0 || callsTotal > 0) {
-      var activityLine = document.createElement('div');
-      activityLine.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px;padding:6px 10px;background:#0f172a;border-radius:6px;font-size:13px;line-height:1.4';
-      activityLine.title = 'Captain activity'
-        + '\nLast 24h: ' + texts24h + ' texts, ' + calls24h + ' calls'
-        + '\nLast 7d:  ' + texts7d  + ' texts, ' + calls7d  + ' calls'
-        + '\nAll time: ' + textsTotal + ' texts, ' + callsTotal + ' calls';
+    // Activity line — always rendered (even with zeros) so the candidate
+    // can spot dormant captains at a glance. Sits below the headline
+    // stats row to avoid wrapping on mobile. Tooltip shows full
+    // 24h/7d/all-time breakdown.
+    var activityLine = document.createElement('div');
+    activityLine.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:8px;padding:6px 10px;background:#0f172a;border-radius:6px;font-size:13px;line-height:1.4';
+    activityLine.title = 'Captain activity'
+      + '\nLast 24h: ' + texts24h + ' texts, ' + calls24h + ' calls'
+      + '\nLast 7d:  ' + texts7d  + ' texts, ' + calls7d  + ' calls'
+      + '\nAll time: ' + textsTotal + ' texts, ' + callsTotal + ' calls';
 
-      var textPart = document.createElement('span');
-      textPart.style.cssText = 'color:' + (texts7d > 0 ? '#22c55e' : '#64748b');
-      // Emoji + count + label, e.g. "💬 12 texts (7d)"
-      textPart.textContent = '💬 ' + texts7d + ' text' + (texts7d === 1 ? '' : 's');
-      activityLine.appendChild(textPart);
+    var textPart = document.createElement('span');
+    textPart.style.cssText = 'color:' + (texts7d > 0 ? '#22c55e' : '#64748b');
+    textPart.textContent = '💬 ' + texts7d + ' text' + (texts7d === 1 ? '' : 's');
+    activityLine.appendChild(textPart);
 
-      var sep = document.createElement('span');
-      sep.style.cssText = 'color:#475569';
-      sep.textContent = '·';
-      activityLine.appendChild(sep);
+    var sep = document.createElement('span');
+    sep.style.cssText = 'color:#475569';
+    sep.textContent = '·';
+    activityLine.appendChild(sep);
 
-      var callPart = document.createElement('span');
-      callPart.style.cssText = 'color:' + (calls7d > 0 ? '#3b82f6' : '#64748b');
-      callPart.textContent = '📞 ' + calls7d + ' call' + (calls7d === 1 ? '' : 's');
-      activityLine.appendChild(callPart);
+    var callPart = document.createElement('span');
+    callPart.style.cssText = 'color:' + (calls7d > 0 ? '#3b82f6' : '#64748b');
+    callPart.textContent = '📞 ' + calls7d + ' call' + (calls7d === 1 ? '' : 's');
+    activityLine.appendChild(callPart);
 
-      var windowLabel = document.createElement('span');
-      windowLabel.style.cssText = 'color:#64748b;font-size:11px;margin-left:auto';
-      windowLabel.textContent = 'last 7 days';
-      activityLine.appendChild(windowLabel);
+    var windowLabel = document.createElement('span');
+    windowLabel.style.cssText = 'color:#64748b;font-size:11px;margin-left:auto';
+    windowLabel.textContent = 'last 7 days';
+    activityLine.appendChild(windowLabel);
 
-      card.appendChild(activityLine);
-    }
+    card.appendChild(activityLine);
 
     // Progress bar = voted percentage (votedCount / totalVoters), the
     // metric the candidate actually wants to compare across captains.
