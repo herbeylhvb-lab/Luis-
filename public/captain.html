@@ -1547,6 +1547,45 @@ function toggleSelectAll() {
   updateSelectionUI();
 }
 
+// Select only the head-of-household for each family on the list,
+// skipping the nested family members underneath.
+//
+// Luis: "I want a new select-all that only selects the top person in
+// the household, not the tree — and if no tree, select the voter
+// — because it's very likely the captain doesn't know the people
+// under that voter."
+//
+// Definition of "head": a voter on this list whose parent_voter_id is
+// either null OR points to a voter that isn't on the list (orphaned →
+// treated as a head). Family members nested under another voter on the
+// list are skipped — these are usually voter-file matches the captain
+// has never met. Heads were typically added via knock-the-door
+// confirmation, so the captain knows their name and number.
+//
+// Toggle behavior mirrors Select All: if the current selection is
+// already exactly the visible heads, clicking clears it.
+function toggleSelectHeads() {
+  var allVoters = _currentListVoters || [];
+  var allIds = new Set(allVoters.map(function(v) { return v.id; }));
+  var filtered = getFilteredVoters();
+  function isHead(v) {
+    return !v.parent_voter_id || !allIds.has(v.parent_voter_id);
+  }
+  var heads = filtered.filter(isHead);
+  var headIds = new Set(heads.map(function(v) { return v.id; }));
+
+  // Toggle: if current selection is exactly the heads set (size match
+  // AND every selected id is in headIds), clear; else set to heads.
+  var sameSize = _selectedVoterIds.size === headIds.size;
+  var allCurrentAreHeads = sameSize && Array.from(_selectedVoterIds).every(function(id) { return headIds.has(id); });
+
+  _selectedVoterIds.clear();
+  if (!allCurrentAreHeads && heads.length > 0) {
+    heads.forEach(function(v) { _selectedVoterIds.add(v.id); });
+  }
+  updateSelectionUI();
+}
+
 function getFilteredVoters() {
   var voters = _currentListVoters;
   var tab = _currentListTab;
@@ -1578,6 +1617,35 @@ function updateSelectionUI() {
   if (selectAllCb) {
     selectAllCb.checked = filtered.length > 0 && _selectedVoterIds.size === filtered.length;
     selectAllCb.indeterminate = _selectedVoterIds.size > 0 && _selectedVoterIds.size < filtered.length;
+  }
+  // Update Heads-only button label + active state. We recompute the
+  // heads count here (cheap — O(filtered)) so the user sees what
+  // clicking would select before they tap.
+  var headsBtn = document.getElementById('selectHeadsBtn');
+  if (headsBtn) {
+    var allVoters = _currentListVoters || [];
+    var allIds = new Set(allVoters.map(function(v) { return v.id; }));
+    var heads = filtered.filter(function(v) {
+      return !v.parent_voter_id || !allIds.has(v.parent_voter_id);
+    });
+    var headIds = new Set(heads.map(function(v) { return v.id; }));
+    var sameSize = _selectedVoterIds.size === headIds.size;
+    var isHeadsOnlyActive = sameSize && heads.length > 0 &&
+      Array.from(_selectedVoterIds).every(function(id) { return headIds.has(id); });
+    headsBtn.textContent = isHeadsOnlyActive
+      ? '✓ Heads only (' + heads.length + ')'
+      : 'Heads only (' + heads.length + ')';
+    if (isHeadsOnlyActive) {
+      headsBtn.style.background = '#f59e0b';
+      headsBtn.style.color = '#0f172a';
+      headsBtn.style.borderColor = '#f59e0b';
+    } else {
+      headsBtn.style.background = '#1e293b';
+      headsBtn.style.color = '#e2e8f0';
+      headsBtn.style.borderColor = '#475569';
+    }
+    // Hide the button if every voter is already a head — adds no value.
+    headsBtn.style.display = (heads.length === filtered.length || filtered.length === 0) ? 'none' : '';
   }
   // Update count display
   var countEl = document.getElementById('selectCount');
@@ -2613,6 +2681,19 @@ function renderListVoters() {
   selectText.textContent = 'Select All';
   selectLabel.appendChild(selectText);
   selectBar.appendChild(selectLabel);
+
+  // "Heads only" — peer to Select All. Selects one voter per household
+  // (the top of the parent_voter_id tree) so captains can text just the
+  // people they actually know without spamming family members.
+  var headsBtn = document.createElement('button');
+  headsBtn.type = 'button';
+  headsBtn.id = 'selectHeadsBtn';
+  headsBtn.className = 'btn btn-xs';
+  headsBtn.style.cssText = 'margin-left:12px;background:#1e293b;border:1px solid #475569;color:#e2e8f0;padding:6px 10px;font-size:12px;border-radius:6px;cursor:pointer';
+  headsBtn.title = 'Select only the head of each household — skip the nested family members underneath that the captain may not know personally.';
+  headsBtn.addEventListener('click', toggleSelectHeads);
+  selectBar.appendChild(headsBtn);
+
   var countSpan = document.createElement('span');
   countSpan.className = 'sel-count';
   countSpan.id = 'selectCount';
