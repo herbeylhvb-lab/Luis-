@@ -316,11 +316,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
       <!-- STATS -->
       <div class="stats-grid" id="statsGrid"></div>
 
-      <!-- Go to Workspace + Print Report buttons -->
-      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:16px">
+      <!-- Go to Workspace + Print Report + Refresh buttons -->
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:8px">
         <button class="btn btn-primary" onclick="switchView('workspace')" style="padding:14px 36px;font-size:16px">Open Workspace &#8594;</button>
         <button class="btn btn-secondary" onclick="printCampaignReport()" style="padding:14px 24px;font-size:14px" title="Open a printable / PDF-ready summary of the campaign's overall and weekly activity">🖨️ Print Report</button>
+        <button class="btn btn-secondary" onclick="refreshDashboard()" style="padding:14px 18px;font-size:14px" title="Pull the latest activity counts from the server">🔄 Refresh</button>
       </div>
+
+      <!-- Campaign-wide activity total — sums all captains' last-7-day
+           texts + calls so the candidate can verify activity is being
+           tracked without hunting for a specific captain card. -->
+      <div id="campaignActivityRow" style="text-align:center;margin-bottom:16px;font-size:13px;color:#94a3b8"></div>
 
       <!-- Quick captain search — filters the captain list below as the
            candidate types. No API call, just a client-side show/hide of
@@ -990,6 +996,22 @@ async function refreshDashboard() {
     if (currentView === 'workspace') renderWorkspaceSidebar();
   } catch (e) { console.error('refresh error:', e); }
 }
+
+// Auto-refresh when the candidate returns to the dashboard tab. Without
+// this, the dashboard data is stuck on whatever it was at page load —
+// calls/texts the candidate made from the captain portal in another tab
+// don't show up until manual reload. visibilitychange covers tab switches,
+// app switches on iOS, and waking the device. Throttled to once every
+// 10s to avoid hammering the API on rapid context switches.
+var _lastDashRefreshAt = 0;
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState !== 'visible') return;
+  if (currentView !== 'dashboard') return;
+  var now = Date.now();
+  if (now - _lastDashRefreshAt < 10000) return;
+  _lastDashRefreshAt = now;
+  refreshDashboard();
+});
 
 // ===================== PRINT / PDF CAMPAIGN REPORT =====================
 // Opens a new window with a printable summary the candidate can either
@@ -1707,8 +1729,50 @@ function showCandidateVoterDetail(voter) {
 
 function renderDashboard(data) {
   renderStats(data.stats || {});
+  renderCampaignActivityRow(data.captains || []);
   renderCaptainCards(data.captains || []);
   renderListsOverview(data.lists || []);
+}
+
+// Sum activity across every captain in the candidate's tree and render
+// a one-line summary above the captain cards. This is the "smoke test"
+// the candidate can use to verify their own calls/texts are being
+// counted — make a call → refresh → numbers go up here.
+function renderCampaignActivityRow(captains) {
+  var row = document.getElementById('campaignActivityRow');
+  if (!row) return;
+  var totalTexts7d  = 0, totalCalls7d  = 0;
+  var totalTexts24h = 0, totalCalls24h = 0;
+  var totalTextsAll = 0, totalCallsAll = 0;
+  captains.forEach(function(c) {
+    totalTexts7d  += (c.texts_7d  || 0);
+    totalCalls7d  += (c.calls_7d  || 0);
+    totalTexts24h += (c.texts_24h || 0);
+    totalCalls24h += (c.calls_24h || 0);
+    totalTextsAll += (c.texts_total || 0);
+    totalCallsAll += (c.calls_total || 0);
+  });
+  // Build the inline summary safely (no innerHTML with user data).
+  while (row.firstChild) row.removeChild(row.firstChild);
+  function span(text, color) {
+    var s = document.createElement('span');
+    s.textContent = text;
+    if (color) s.style.color = color;
+    return s;
+  }
+  row.appendChild(span('Campaign-wide activity (last 7 days): '));
+  var t = span('💬 ' + totalTexts7d + ' text' + (totalTexts7d === 1 ? '' : 's'), totalTexts7d > 0 ? '#22c55e' : '#64748b');
+  t.style.fontWeight = '600';
+  row.appendChild(t);
+  row.appendChild(span(' · '));
+  var c = span('📞 ' + totalCalls7d + ' call' + (totalCalls7d === 1 ? '' : 's'), totalCalls7d > 0 ? '#3b82f6' : '#64748b');
+  c.style.fontWeight = '600';
+  row.appendChild(c);
+  // Tooltip: 24h + total breakdown so the candidate can drill in mentally.
+  row.title = 'Campaign-wide activity'
+    + '\nLast 24h: ' + totalTexts24h + ' texts, ' + totalCalls24h + ' calls'
+    + '\nLast 7d:  ' + totalTexts7d  + ' texts, ' + totalCalls7d  + ' calls'
+    + '\nAll time: ' + totalTextsAll + ' texts, ' + totalCallsAll + ' calls';
 }
 
 function renderStats(stats) {
