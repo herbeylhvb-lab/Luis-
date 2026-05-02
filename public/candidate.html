@@ -739,11 +739,15 @@ function onVoterDragStart(e, voterId) {
 var _touchDragState = null;
 var _touchGhost = null;
 
-function initCandidateTouchDrag(row, voterId, listId) {
+// listType: 'admin' (default) or 'captain'. Determines which list_type
+// the parent endpoint uses AND which reload function fires after the
+// drop completes.
+function initCandidateTouchDrag(row, voterId, listId, listType) {
+  var lt = listType || 'admin';
   var longPressTimer = null;
   row.addEventListener('touchstart', function(e) {
     longPressTimer = setTimeout(function() {
-      _touchDragState = { voterId: voterId, row: row, listId: listId };
+      _touchDragState = { voterId: voterId, row: row, listId: listId, listType: lt };
       row.style.opacity = '0.5';
       _touchGhost = document.createElement('div');
       _touchGhost.style.cssText = 'position:fixed;z-index:9999;background:#818cf8;color:#fff;padding:8px 16px;border-radius:8px;font-size:14px;font-weight:700;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
@@ -773,8 +777,16 @@ function initCandidateTouchDrag(row, voterId, listId) {
       var vr = target.closest('.right-voter');
       if (vr && vr.getAttribute('data-voter-id') != _touchDragState.voterId) {
         var targetVid = vr.getAttribute('data-voter-id');
-        var url = '/api/candidates/' + candidateId + '/lists/' + _touchDragState.listId + '/voters/' + _touchDragState.voterId + '/parent';
-        apiPut(url, { parent_voter_id: targetVid }).then(function() { loadListVoters(_touchDragState.listId); });
+        var savedListId = _touchDragState.listId;
+        var savedListType = _touchDragState.listType;
+        var url = '/api/candidates/' + candidateId + '/lists/' + savedListId + '/voters/' + _touchDragState.voterId + '/parent';
+        apiPut(url, { parent_voter_id: targetVid, list_type: savedListType }).then(function() {
+          if (savedListType === 'captain') {
+            loadCaptainListInRight(savedListId, document.getElementById('rightTitle').textContent);
+          } else {
+            loadListVoters(savedListId);
+          }
+        });
       }
     }
     _touchDragState = null;
@@ -3867,17 +3879,84 @@ function renderCaptainVoterRows(voters, container) {
   // Select all row
   addSelectAllRow(container);
 
+  // \u2500\u2500\u2500 Build parent \u2192 children index for nested rendering \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // Mirrors renderListVoters' tree behavior so the candidate sees the
+  // same household groupings the captain does. Drag-and-drop reparenting
+  // calls /lists/:listId/voters/:voterId/parent with list_type='captain'.
+  // Luis: "I can't see tree when I'm looking at my captain from the
+  // candidate's [side]" + "I should be able to put voters under voters
+  // like if I was logged in in their captain portal for them."
+  var childrenOf = {};
+  var voterIds = new Set(voters.map(function(v) { return v.id; }));
   voters.forEach(function(v) {
+    if (v.parent_voter_id && voterIds.has(v.parent_voter_id)) {
+      if (!childrenOf[v.parent_voter_id]) childrenOf[v.parent_voter_id] = [];
+      childrenOf[v.parent_voter_id].push(v);
+    }
+  });
+  var topLevel = voters.filter(function(v) {
+    return !v.parent_voter_id || !voterIds.has(v.parent_voter_id);
+  });
+
+  var listId = currentRightPanelListId;
+
+  function makeCapRow(v, isChild) {
     var row = document.createElement('div');
     row.className = 'right-voter';
     row.setAttribute('data-voter-id', v.id);
     row.setAttribute('draggable', 'true');
+    if (isChild) {
+      // Indented + thin border-left so the child is obviously nested.
+      row.style.cssText = (row.style.cssText || '') + ';border-left:3px solid #818cf8;margin-left:16px;background:#0f172a';
+    }
 
-    // Drag handlers
+    // \u2500\u2500 Drag handlers (drag a voter to drop on another voter) \u2500\u2500
     (function(voterId) {
       row.addEventListener('dragstart', function(e) { onVoterDragStart(e, voterId); });
-      row.addEventListener('dragend', function() { document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); }); });
+      row.addEventListener('dragend', function() {
+        document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
+      });
     })(v.id);
+
+    // Drop target only on top-level rows. We don't allow nesting under
+    // a child (would create a 3-deep tree) \u2014 server rejects this anyway
+    // via "cannot nest under a sub-member" but we hide the affordance.
+    if (!isChild) {
+      row.addEventListener('dragover', function(e) { e.preventDefault(); row.style.outline = '2px solid #818cf8'; });
+      row.addEventListener('dragleave', function() { row.style.outline = ''; });
+      row.addEventListener('drop', function(e) {
+        e.preventDefault(); row.style.outline = '';
+        var raw = e.dataTransfer.getData('text/plain');
+        var draggedIds; try { draggedIds = JSON.parse(raw); } catch (ex) { draggedIds = [raw]; }
+        if (!Array.isArray(draggedIds)) draggedIds = [draggedIds];
+        if (draggedIds.length !== 1) return;
+        var draggedId = String(draggedIds[0]);
+        if (draggedId == v.id) return;
+        apiPut('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + draggedId + '/parent',
+          { parent_voter_id: v.id, list_type: 'captain' })
+          .then(function() { loadCaptainListInRight(listId, document.getElementById('rightTitle').textContent); })
+          .catch(function(err) { alert('Could not group: ' + (err.message || err)); });
+      });
+    }
+
+    // Touch-drag for iPad \u2014 mirrors initCandidateTouchDrag for admin lists.
+    initCandidateTouchDrag(row, v.id, listId, 'captain');
+
+    // Ungroup button \u2014 only shown on child rows.
+    if (isChild) {
+      var unBtn = document.createElement('button');
+      unBtn.textContent = '\u2191';
+      unBtn.title = 'Ungroup';
+      unBtn.style.cssText = 'background:#475569;border:none;color:#e2e8f0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;margin-right:6px';
+      unBtn.onclick = function(e) {
+        e.stopPropagation();
+        api('/api/candidates/' + candidateId + '/lists/' + listId + '/voters/' + v.id + '/parent?list_type=captain',
+          { method: 'DELETE' })
+          .then(function() { loadCaptainListInRight(listId, document.getElementById('rightTitle').textContent); })
+          .catch(function(err) { alert('Could not ungroup: ' + (err.message || err)); });
+      };
+      row.appendChild(unBtn);
+    }
 
     // Checkbox
     var cb = document.createElement('input');
@@ -3893,7 +3972,6 @@ function renderCaptainVoterRows(voters, container) {
     info.style.cssText = 'flex:1;cursor:pointer;min-width:0';
     info.addEventListener('click', (function(voter) { return function() { showCandidateVoterDetail(voter); }; })(v));
 
-    // Name row with badges
     var nameRow = document.createElement('div');
     nameRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
     var nameEl = document.createElement('div');
@@ -3901,7 +3979,6 @@ function renderCaptainVoterRows(voters, container) {
     nameEl.textContent = voterFullName(v);
     nameRow.appendChild(nameEl);
 
-    // Reg # badge
     if (v.registration_number) {
       var idBadge = document.createElement('span');
       idBadge.style.cssText = 'font-size:10px;color:#64748b';
@@ -3909,10 +3986,8 @@ function renderCaptainVoterRows(voters, container) {
       nameRow.appendChild(idBadge);
     }
 
-    // Voted badge
     nameRow.appendChild(createVotedBadge(v));
 
-    // Age badge
     if (v.age) {
       var ageBadge = document.createElement('span');
       ageBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(139,92,246,0.15);color:#a78bfa;border:1px solid rgba(139,92,246,0.3)';
@@ -3920,7 +3995,6 @@ function renderCaptainVoterRows(voters, container) {
       nameRow.appendChild(ageBadge);
     }
 
-    // Party score badge
     if (v.party_score) {
       var pColors = { D:'#3b82f6', DD:'#3b82f6', DDD:'#3b82f6', R:'#ef4444', RR:'#ef4444', RRR:'#ef4444', SWING:'#a855f7' };
       var pc = pColors[v.party_score] || '#64748b';
@@ -3930,17 +4004,25 @@ function renderCaptainVoterRows(voters, container) {
       nameRow.appendChild(pBadge);
     }
 
+    // Children count badge \u2014 visible cue that this row HAS a tree below it
+    var childCount = childrenOf[v.id] ? childrenOf[v.id].length : 0;
+    if (childCount > 0 && !isChild) {
+      var hhBadge = document.createElement('span');
+      hhBadge.style.cssText = 'font-size:10px;padding:2px 6px;border-radius:4px;font-weight:700;background:rgba(34,197,94,0.15);color:#86efac;border:1px solid rgba(34,197,94,0.3)';
+      hhBadge.textContent = '+' + childCount + ' under';
+      hhBadge.title = childCount + ' household member' + (childCount === 1 ? '' : 's') + ' nested under this voter';
+      nameRow.appendChild(hhBadge);
+    }
+
     var rb2 = createRaceBadge(v);
     if (rb2) nameRow.appendChild(rb2);
     info.appendChild(nameRow);
 
-    // Address line
     var addrEl = document.createElement('div');
     addrEl.style.cssText = 'font-size:12px;color:#94a3b8;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     addrEl.textContent = (v.address || '') + (v.city ? ', ' + v.city : '') + (v.zip ? ' ' + v.zip : '');
     info.appendChild(addrEl);
 
-    // Phone + email line
     if (v.phone || v.email) {
       var contactEl = document.createElement('div');
       contactEl.style.cssText = 'font-size:11px;color:#818cf8;margin-top:1px';
@@ -3954,7 +4036,17 @@ function renderCaptainVoterRows(voters, container) {
     row.appendChild(info);
     if (v._in_race === false && (!_raceFilter || _raceFilter === 'all')) row.style.opacity = '0.5';
 
-    container.appendChild(row);
+    return row;
+  }
+
+  // Render top-level voters first, then their children indented under them.
+  topLevel.forEach(function(v) {
+    container.appendChild(makeCapRow(v, false));
+    if (childrenOf[v.id]) {
+      childrenOf[v.id].forEach(function(child) {
+        container.appendChild(makeCapRow(child, true));
+      });
+    }
   });
 }
 

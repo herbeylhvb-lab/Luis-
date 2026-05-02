@@ -16,6 +16,59 @@ function generateCaptainCode() {
   return randomBytes(3).toString('hex').toUpperCase().slice(0, 6);
 }
 
+// Mutates each captain object in-place, attaching texts_24h/7d/total +
+// calls_24h/7d/total fields by counting voter_contacts rows whose
+// contacted_by label points back at that captain.
+//
+// Called by BOTH /candidates/login and /candidates/:id/portal — they
+// have the same captain shape but used to compute different fields.
+// Without this helper the login response was missing activity stats,
+// so the dashboard showed 0/0 on first load until the candidate hit
+// "Refresh" (which fired /portal). Luis: "the text and call are not
+// updated when the page loads — I need to click the Refresh button.
+// Why does it not load itself?"
+function attachCaptainActivity(captains) {
+  if (!captains || captains.length === 0) return;
+  const labels = captains.map(c => 'Captain #' + c.id);
+  const placeholders = labels.map(() => '?').join(',');
+  const rows = db.prepare(`
+    SELECT
+      CAST(SUBSTR(contacted_by, 10) AS INTEGER) AS captain_id,
+      contact_type,
+      SUM(CASE WHEN contacted_at >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS d1,
+      SUM(CASE WHEN contacted_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS d7,
+      COUNT(*) AS total
+    FROM voter_contacts
+    WHERE contacted_by IN (${placeholders})
+      AND contact_type IN ('Text', 'Call')
+    GROUP BY captain_id, contact_type
+  `).all(...labels);
+  const byId = {};
+  for (const r of rows) {
+    if (!byId[r.captain_id]) {
+      byId[r.captain_id] = {
+        texts_24h: 0, texts_7d: 0, texts_total: 0,
+        calls_24h: 0, calls_7d: 0, calls_total: 0,
+      };
+    }
+    if (r.contact_type === 'Text') {
+      byId[r.captain_id].texts_24h = r.d1;
+      byId[r.captain_id].texts_7d  = r.d7;
+      byId[r.captain_id].texts_total = r.total;
+    } else if (r.contact_type === 'Call') {
+      byId[r.captain_id].calls_24h = r.d1;
+      byId[r.captain_id].calls_7d  = r.d7;
+      byId[r.captain_id].calls_total = r.total;
+    }
+  }
+  for (const c of captains) {
+    Object.assign(c, byId[c.id] || {
+      texts_24h: 0, texts_7d: 0, texts_total: 0,
+      calls_24h: 0, calls_7d: 0, calls_total: 0,
+    });
+  }
+}
+
 // Attach election vote history to voter objects (same pattern as captains.js)
 function attachElectionVotes(voters) {
   if (!voters || voters.length === 0) return;
@@ -325,6 +378,11 @@ router.post('/candidates/login', candidateLoginLimiter, (req, res) => {
   for (const c of ownCaptains) { if (!seenLoginIds.has(c.id)) { seenLoginIds.add(c.id); captains.push(c); } }
   for (const c of sharedCaptainsLogin) { if (!seenLoginIds.has(c.id)) { seenLoginIds.add(c.id); captains.push(c); } }
 
+  // Activity counts so the dashboard renders correct text/call
+  // numbers on initial load — without this the candidate had to
+  // click Refresh to see anything beyond zeros.
+  attachCaptainActivity(captains);
+
   for (const c of captains) {
     // Captain-created lists + admin-assigned lists (same as portal endpoint)
     const capLists = db.prepare(`
@@ -481,57 +539,12 @@ router.get('/candidates/:id/portal', requireCandidateAuth, (req, res) => {
     if (!c.candidate_id) fixOrphans.run(candidate.id, c.id);
   }
 
-  // Batch-load text + call activity for ALL captains in this portal
-  // result. voter_contacts.contacted_by stores the literal string
-  // 'Captain #N' for captain-initiated logs (see /text-log and
-  // /phone-log). We extract N, group by captain + type, and count
-  // 24h / 7d / total in one query so the candidate dashboard can show
-  // "is this captain actually working their list?" at a glance.
-  const captainIdsForActivity = captains.map(c => c.id);
-  const activityByCaptain = {};
-  if (captainIdsForActivity.length > 0) {
-    const labels = captainIdsForActivity.map(id => 'Captain #' + id);
-    const placeholders = labels.map(() => '?').join(',');
-    const activityRows = db.prepare(`
-      SELECT
-        CAST(SUBSTR(contacted_by, 10) AS INTEGER) AS captain_id,
-        contact_type,
-        SUM(CASE WHEN contacted_at >= datetime('now', '-1 day')  THEN 1 ELSE 0 END) AS d1,
-        SUM(CASE WHEN contacted_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS d7,
-        COUNT(*) AS total
-      FROM voter_contacts
-      WHERE contacted_by IN (${placeholders})
-        AND contact_type IN ('Text', 'Call')
-      GROUP BY captain_id, contact_type
-    `).all(...labels);
-    for (const r of activityRows) {
-      if (!activityByCaptain[r.captain_id]) {
-        activityByCaptain[r.captain_id] = {
-          texts_24h: 0, texts_7d: 0, texts_total: 0,
-          calls_24h: 0, calls_7d: 0, calls_total: 0,
-        };
-      }
-      if (r.contact_type === 'Text') {
-        activityByCaptain[r.captain_id].texts_24h = r.d1;
-        activityByCaptain[r.captain_id].texts_7d = r.d7;
-        activityByCaptain[r.captain_id].texts_total = r.total;
-      } else if (r.contact_type === 'Call') {
-        activityByCaptain[r.captain_id].calls_24h = r.d1;
-        activityByCaptain[r.captain_id].calls_7d = r.d7;
-        activityByCaptain[r.captain_id].calls_total = r.total;
-      }
-    }
-  }
+  // Activity counts (texts/calls each captain personally sent through
+  // the in-app buttons). Mutates captain objects in-place. See
+  // attachCaptainActivity() for query details.
+  attachCaptainActivity(captains);
 
   for (const c of captains) {
-    // Activity counts (texts/calls the captain has personally sent).
-    // Defaults to all zeros for captains with no activity rows.
-    const a = activityByCaptain[c.id] || {
-      texts_24h: 0, texts_7d: 0, texts_total: 0,
-      calls_24h: 0, calls_7d: 0, calls_total: 0,
-    };
-    Object.assign(c, a);
-
     // Captain-created lists + admin-assigned lists
     const captainLists = db.prepare(`
       SELECT cl.id, cl.name, '' as description, 'captain' as source, COUNT(clv.id) as voter_count
