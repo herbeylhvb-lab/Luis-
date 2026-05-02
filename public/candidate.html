@@ -1294,6 +1294,35 @@ function createVotedFilter(onChangeFn) {
   return select;
 }
 
+// Tab bar version of the voted filter — matches the captain portal's
+// "All / Not Voted / Voted" tabs with live counts and color-coded
+// active states. Built per-render so counts always reflect the current
+// dataset. Returns a DOM element ready to append inside the right-panel
+// content area. onChangeFn receives 'all' | 'not_voted' | 'voted'.
+function createVotedTabBar(allVoters, currentStatus, onChangeFn) {
+  var bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;border-bottom:2px solid #334155;background:#0f172a;border-radius:8px 8px 0 0;overflow:hidden;margin-bottom:8px';
+  var votedCount = allVoters.filter(function(v) { return v.early_voted === 1; }).length;
+  var notVotedCount = allVoters.length - votedCount;
+  var tabs = [
+    { key: 'all',       label: 'All ('       + allVoters.length    + ')', color: '#e2e8f0' },
+    { key: 'not_voted', label: 'Not Voted (' + notVotedCount       + ')', color: '#f59e0b' },
+    { key: 'voted',     label: 'Voted ('     + votedCount          + ')', color: '#22c55e' },
+  ];
+  tabs.forEach(function(t) {
+    var btn = document.createElement('button');
+    var isActive = currentStatus === t.key;
+    btn.style.cssText = 'flex:1;padding:10px 8px;border:none;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.15s;min-height:44px;' +
+      'background:' + (isActive ? '#1e293b' : 'transparent') + ';' +
+      'color:' + (isActive ? t.color : '#64748b') + ';' +
+      'border-bottom:3px solid ' + (isActive ? t.color : 'transparent');
+    btn.textContent = t.label;
+    btn.addEventListener('click', function() { onChangeFn(t.key); });
+    bar.appendChild(btn);
+  });
+  return bar;
+}
+
 function filterVotersByStatus(voters, status) {
   if (status === 'voted') return voters.filter(function(v) { return v.early_voted === 1; });
   if (status === 'not_voted') return voters.filter(function(v) { return v.early_voted !== 1; });
@@ -3808,18 +3837,21 @@ async function loadCaptainListInRight(listId, captainName) {
     function applyCapFilters() {
       var filtered = filterVotersByStatus(allCapVoters, _capVotedStatus);
       filtered = filterByRace(filtered, _capRaceFilter);
-      renderCaptainVoterRows(filtered, content);
+      // Pass allCapVoters + currentStatus so renderCaptainVoterRows can
+      // build the All/Not Voted/Voted tab bar with accurate counts.
+      renderCaptainVoterRows(filtered, content, allCapVoters, _capVotedStatus, function(newStatus) {
+        _capVotedStatus = newStatus;
+        selectedVoterIds.clear();
+        applyCapFilters();
+      });
       var sub2 = filtered.length + ' of ' + allCapVoters.length + ' voter' + (allCapVoters.length !== 1 ? 's' : '');
       if (race) sub2 += ' \u00B7 ' + allCapVoters.filter(function(v) { return v._in_race; }).length + ' in race';
       document.getElementById('rightSub').textContent = sub2;
     }
 
-    var votedFilter = createVotedFilter(function(status) {
-      _capVotedStatus = status;
-      applyCapFilters();
-    });
-    controls.appendChild(votedFilter);
-
+    // Voted filter is now a tab bar at the top of the voter list (built
+    // inside renderCaptainVoterRows). Race filter stays in the controls
+    // row since it's race-specific and not as primary.
     if (race) {
       var raceFilterEl = createRaceFilter(race, function(val) {
         _capRaceFilter = val;
@@ -3854,19 +3886,36 @@ async function loadCaptainListInRight(listId, captainName) {
 
     headerArea.appendChild(controls);
 
-    renderCaptainVoterRows(voters, content);
+    // First render: pass allCapVoters + initial 'all' status so the tab
+    // bar appears with counts immediately. Subsequent re-renders go
+    // through applyCapFilters which threads the same params.
+    renderCaptainVoterRows(voters, content, allCapVoters, _capVotedStatus, function(newStatus) {
+      _capVotedStatus = newStatus;
+      selectedVoterIds.clear();
+      applyCapFilters();
+    });
   } catch (e) {
     document.getElementById('rightSub').textContent = 'Error loading voters';
     console.error(e);
   }
 }
 
-function renderCaptainVoterRows(voters, container) {
+function renderCaptainVoterRows(voters, container, allVoters, currentStatus, onTabChange) {
   container.textContent = '';
   selectedVoterIds.clear();
   currentRightPanelVoters = voters;
   // For captain views, currentRightPanelListId is set by loadCaptainListInRight
   updateFloatingBar();
+
+  // ─── All / Not Voted / Voted tab bar ────────────────────────────
+  // Same layout as the captain portal so the candidate has parity
+  // when viewing a captain's list. Counts come from the unfiltered
+  // allVoters set so they don't shift as the user clicks tabs.
+  // Built BEFORE the empty-state check because the user still wants
+  // to see the tab counts when one tab is empty (e.g., Voted = 0).
+  if (allVoters && onTabChange) {
+    container.appendChild(createVotedTabBar(allVoters, currentStatus || 'all', onTabChange));
+  }
 
   if (voters.length === 0) {
     var emptyDiv = document.createElement('div');
