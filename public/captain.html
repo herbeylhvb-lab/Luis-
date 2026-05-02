@@ -496,7 +496,23 @@ html.is-capacitor .app-header{padding:max(12px, env(safe-area-inset-top, 12px)) 
         <button class="btn btn-xs" style="background:#22c55e;border-color:#16a34a;color:#fff" onclick="startBulkTextFlow()" title="Send a personal text to each selected voter from your phone">&#128172; Text</button>
         <button class="btn btn-xs" style="background:#3b82f6;border-color:#2563eb;color:#fff" onclick="startBulkPhoneBankFlow()" title="Call each selected voter one at a time from your phone">&#128222; Phone Bank</button>
         <span style="color:#64748b;font-size:13px">Send to &rarr;</span>
-        <select id="fabTargetList"></select>
+        <!-- Searchable destination picker. The visible button + popover lets
+             captains type to filter when their team has many sub-captains;
+             the hidden &lt;select&gt; underneath keeps existing
+             transferVoters() unchanged (it reads sel.value). -->
+        <div id="fabTargetWrap" style="position:relative;display:inline-block">
+          <button type="button" id="fabTargetBtn"
+            style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;min-width:180px;text-align:left;line-height:1.3"
+            onclick="toggleFabTargetMenu()">Pick a list&hellip;</button>
+          <div id="fabTargetMenu"
+            style="display:none;position:absolute;bottom:100%;right:0;margin-bottom:6px;background:#1e293b;border:1px solid #475569;border-radius:8px;padding:8px;width:300px;max-height:60vh;overflow-y:auto;box-shadow:0 -4px 16px rgba(0,0,0,0.5);z-index:60">
+            <input id="fabTargetSearch" type="text" placeholder="Search list or captain&hellip;" autocomplete="off"
+              style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:13px;margin-bottom:8px;box-sizing:border-box"
+              oninput="filterFabTargetItems()">
+            <div id="fabTargetItems"></div>
+          </div>
+          <select id="fabTargetList" style="display:none"></select>
+        </div>
         <button class="btn btn-xs btn-captain" onclick="transferVoters(false)">Copy</button>
         <button class="btn btn-xs btn-primary" onclick="transferVoters(true)">Move</button>
         <!-- Bulk delete: only visible when "Select All" is engaged. Requires
@@ -1622,51 +1638,181 @@ async function bulkDeleteSelected() {
   }
 }
 
+// Build the destination picker (hidden <select> + searchable popover).
+// Three groups, each sorted alphabetically:
+//   1. Captain's OWN lists
+//   2. Sub-captain lists (label leads with captain name so sort clusters by captain)
+//   3. Admin-assigned lists
+// Both the hidden <select> and the visible <div id="fabTargetItems"> are
+// populated in lockstep; transferVoters() reads from the <select> so the
+// custom dropdown is purely UI sugar over the same data.
 function populateTransferTargets() {
   var sel = document.getElementById('fabTargetList');
-  if (!sel) return;
+  var menuItems = document.getElementById('fabTargetItems');
+  var btn = document.getElementById('fabTargetBtn');
+  if (!sel || !menuItems) return;
   while (sel.firstChild) sel.removeChild(sel.firstChild);
+  while (menuItems.firstChild) menuItems.removeChild(menuItems.firstChild);
 
-  // Captain's OWN lists first (excluding the currently-selected one).
+  // Empty placeholder at index 0 — the existing transferVoters() guard
+  // checks `!sel.value` to block actions before a target is picked.
+  // Without this, sel.value would default to the first real option and
+  // an accidental Move/Copy would silently land on the wrong list.
+  var placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '';
+  sel.appendChild(placeholder);
+
+  var entries = []; // [{ value, label, group, sortKey }]
+
+  // Group 1: Captain's OWN lists (excluding the currently-selected one).
   var lists = (captainState.captain && captainState.captain.lists) || [];
   lists.forEach(function(l) {
     if (l.id === captainState.selectedListId && captainState.selectedListType === 'captain') return;
-    var opt = document.createElement('option');
-    opt.value = 'captain:' + l.id;
-    opt.textContent = l.name + (l.team_member_name ? ' (' + l.team_member_name + ')' : '');
-    sel.appendChild(opt);
+    var label = l.name + (l.team_member_name ? ' (' + l.team_member_name + ')' : '');
+    entries.push({ value: 'captain:' + l.id, label: label, group: 'My lists', sortKey: label });
   });
 
-  // Sub-captain lists — captains in their team tree. These are stored on
-  // captainState._cachedSubCaptainLists by refreshSidebar (server returns
-  // them under data.sub_captain_lists). Without this loop, captains had
-  // no way to send voters to their sub-captains' lists from the transfer
-  // dropdown — the bug Luis hit when trying to move people to "lulu".
+  // Group 2: Sub-captain lists. Label leads with the SUB-CAPTAIN'S NAME so
+  // alphabetical sort clusters all of one captain's lists together — Luis:
+  // "the captain section should be alphabetical [and] we should be able to
+  // search if there are too many captains."
   var subCaptainLists = (captainState && captainState._cachedSubCaptainLists) || [];
   subCaptainLists.forEach(function(l) {
     if (l.id === captainState.selectedListId && captainState.selectedListType === 'sub-captain') return;
-    var opt = document.createElement('option');
-    opt.value = 'captain:' + l.id; // server uses captain_lists.id regardless of who owns it
-    opt.textContent = l.name + (l.sub_captain_name ? ' — ' + l.sub_captain_name : '') + ' (sub-captain)';
-    sel.appendChild(opt);
+    var capName = l.sub_captain_name || '(no name)';
+    var label = capName + ' — ' + l.name;
+    entries.push({
+      value: 'captain:' + l.id, // server uses captain_lists.id regardless of who owns it
+      label: label,
+      group: 'Sub-captains',
+      sortKey: capName + '' + l.name, // captain first, then list —  keeps boundary unambiguous
+    });
   });
 
-  // Admin-assigned lists last
+  // Group 3: Admin-assigned lists.
   var assigned = (captainState.captain && captainState.captain.assigned_lists) || [];
   assigned.forEach(function(l) {
     if (l.id === captainState.selectedListId && captainState.selectedListType === 'assigned') return;
-    var opt = document.createElement('option');
-    opt.value = 'assigned:' + l.id;
-    opt.textContent = l.name + ' (admin)';
-    sel.appendChild(opt);
+    entries.push({ value: 'assigned:' + l.id, label: l.name, group: 'Admin lists', sortKey: l.name });
   });
 
-  if (sel.options.length === 0) {
-    var opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = 'No other lists available';
-    sel.appendChild(opt);
+  // Sort within each group, locale-aware (case-insensitive, Spanish-friendly).
+  function localeSort(a, b) {
+    return String(a.sortKey).localeCompare(String(b.sortKey), undefined, { sensitivity: 'base' });
   }
+  var grouped = { 'My lists': [], 'Sub-captains': [], 'Admin lists': [] };
+  entries.forEach(function(e) { grouped[e.group].push(e); });
+  ['My lists', 'Sub-captains', 'Admin lists'].forEach(function(g) { grouped[g].sort(localeSort); });
+
+  // Populate the hidden <select> in the same group order so transferVoters()
+  // reads consistent options, AND build the visible filterable menu below.
+  ['My lists', 'Sub-captains', 'Admin lists'].forEach(function(g) {
+    var groupEntries = grouped[g];
+    if (groupEntries.length === 0) return;
+
+    // Visible menu: group header
+    var hdr = document.createElement('div');
+    hdr.textContent = g;
+    hdr.className = 'fab-target-group';
+    hdr.style.cssText = 'font-size:11px;font-weight:700;color:#a5b4fc;text-transform:uppercase;letter-spacing:0.6px;padding:6px 4px 4px;border-top:1px solid #334155;margin-top:4px';
+    if (menuItems.children.length === 0) hdr.style.borderTop = 'none'; // first group: no top border
+    menuItems.appendChild(hdr);
+
+    groupEntries.forEach(function(e) {
+      // Hidden <select> option
+      var opt = document.createElement('option');
+      opt.value = e.value;
+      opt.textContent = e.label + (g === 'Sub-captains' ? ' (sub-captain)' :
+                                   g === 'Admin lists'  ? ' (admin)' : '');
+      sel.appendChild(opt);
+
+      // Visible menu item
+      var item = document.createElement('div');
+      item.className = 'fab-target-item';
+      item.dataset.value = e.value;
+      item.dataset.label = opt.textContent;
+      item.dataset.search = (e.label + ' ' + g).toLowerCase();
+      item.textContent = e.label;
+      item.style.cssText = 'padding:8px 10px;cursor:pointer;border-radius:6px;color:#e2e8f0;font-size:13px;line-height:1.3;min-height:36px';
+      item.addEventListener('mouseenter', function() { item.style.background = '#334155'; });
+      item.addEventListener('mouseleave', function() { item.style.background = 'transparent'; });
+      item.addEventListener('click', function() { selectFabTarget(e.value, opt.textContent); });
+      menuItems.appendChild(item);
+    });
+  });
+
+  // sel always has the placeholder (length 1) so check for real entries by
+  // looking at how many we built into the visible menu instead.
+  var realCount = entries.length;
+  if (realCount === 0) {
+    var emptyMsg = document.createElement('div');
+    emptyMsg.textContent = 'No other lists available';
+    emptyMsg.style.cssText = 'padding:12px;color:#64748b;font-size:13px;text-align:center';
+    menuItems.appendChild(emptyMsg);
+    if (btn) btn.textContent = 'No other lists';
+  } else if (btn) {
+    btn.textContent = 'Pick a list…';
+  }
+}
+
+// ── Searchable destination picker UI helpers ────────────────────────
+function toggleFabTargetMenu() {
+  var menu = document.getElementById('fabTargetMenu');
+  if (!menu) return;
+  var open = menu.style.display !== 'none';
+  if (open) {
+    menu.style.display = 'none';
+    document.removeEventListener('click', _fabTargetOutsideClick, true);
+  } else {
+    menu.style.display = 'block';
+    var search = document.getElementById('fabTargetSearch');
+    if (search) { search.value = ''; filterFabTargetItems(); setTimeout(function() { search.focus(); }, 0); }
+    // Defer attaching the outside-click listener so the click that opened
+    // the menu doesn't immediately close it.
+    setTimeout(function() { document.addEventListener('click', _fabTargetOutsideClick, true); }, 0);
+  }
+}
+function _fabTargetOutsideClick(e) {
+  var wrap = document.getElementById('fabTargetWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    var menu = document.getElementById('fabTargetMenu');
+    if (menu) menu.style.display = 'none';
+    document.removeEventListener('click', _fabTargetOutsideClick, true);
+  }
+}
+function filterFabTargetItems() {
+  var q = (document.getElementById('fabTargetSearch').value || '').trim().toLowerCase();
+  var items = document.querySelectorAll('#fabTargetItems .fab-target-item');
+  var visibleByGroup = {};
+  items.forEach(function(it) {
+    var match = !q || (it.dataset.search || '').indexOf(q) !== -1;
+    it.style.display = match ? '' : 'none';
+    if (match) {
+      var prevHdr = it.previousElementSibling;
+      while (prevHdr && !prevHdr.classList.contains('fab-target-group')) prevHdr = prevHdr.previousElementSibling;
+      if (prevHdr) visibleByGroup[prevHdr.textContent] = true;
+    }
+  });
+  // Hide group headers with zero visible items.
+  document.querySelectorAll('#fabTargetItems .fab-target-group').forEach(function(hdr) {
+    hdr.style.display = visibleByGroup[hdr.textContent] ? '' : 'none';
+  });
+}
+function selectFabTarget(value, label) {
+  var sel = document.getElementById('fabTargetList');
+  if (sel) {
+    sel.value = value;
+    // Force selectedIndex update (some Safari versions don't auto-sync on .value).
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === value) { sel.selectedIndex = i; break; }
+    }
+  }
+  var btn = document.getElementById('fabTargetBtn');
+  if (btn) btn.textContent = label;
+  var menu = document.getElementById('fabTargetMenu');
+  if (menu) menu.style.display = 'none';
+  document.removeEventListener('click', _fabTargetOutsideClick, true);
 }
 
 // Transfer voters (copy or move)
