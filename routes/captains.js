@@ -1232,80 +1232,64 @@ router.get('/captains/:id/lists/:listId/voters', requireCaptainAuth, (req, res) 
 router.post('/captains/:id/text-log', requireCaptainAuth, (req, res) => {
   const { voter_id, template_name, message_preview } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id required.' });
-  const captainId = parseInt(req.params.id, 10);
-  if (isNaN(captainId)) return res.status(400).json({ error: 'Invalid captain id.' });
+  if (isNaN(parseInt(req.params.id, 10))) return res.status(400).json({ error: 'Invalid captain id.' });
 
-  // Ownership check: voter must be on one of this captain's lists OR a
-  // list owned by any descendant in their team tree OR an admin list
-  // assigned to them. This mirrors the voter-visibility rules already
-  // used elsewhere (team lists, assigned lists). Admin users (req.session.userId)
-  // bypass the check since they can see everything.
-  if (!req.session.userId) {
-    const canSee = db.prepare(`
-      WITH RECURSIVE team AS (
-        SELECT id FROM captains WHERE id = ?
-        UNION ALL
-        SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
-      )
-      SELECT 1 FROM (
-        SELECT clv.voter_id FROM captain_list_voters clv
-          JOIN captain_lists cl ON cl.id = clv.list_id
-          WHERE cl.captain_id IN (SELECT id FROM team) AND clv.voter_id = ?
-        UNION
-        SELECT alv.voter_id FROM admin_list_voters alv
-          JOIN admin_lists al ON al.id = alv.list_id
-          WHERE al.assigned_captain_id IN (SELECT id FROM team) AND alv.voter_id = ?
-      ) LIMIT 1
-    `).get(captainId, voter_id, voter_id);
-    if (!canSee) return res.status(403).json({ error: 'Voter is not on any of your lists.' });
-  }
-
+  // Permissive logging: we used to gate this with a "voter must be on
+  // your team's lists" check, but that produced silent 403s for legit
+  // calls (shared captain trees, voters added moments before the text,
+  // import-wizard search-for-real-owner flow). Captains then noticed
+  // their counters were wrong with no idea why.
+  //
+  // The byLabel below is locked to the LOGGED-IN captain's session id
+  // (not req.params.id) so a captain can never attribute fake activity
+  // to a different captain — the worst they can do is inflate their
+  // own counter, which is small surface area. The voter_contacts.voter_id
+  // FK to voters(id) blocks bogus voter_ids at insert time.
+  //
   // Trim preview to avoid huge notes rows (first 200 chars is plenty for audit)
   const preview = (message_preview || '').slice(0, 200);
-  const byLabel = 'Captain #' + req.params.id;
-  db.prepare(
-    "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Text', 'sent', ?, ?, datetime('now'))"
-  ).run(voter_id, (template_name ? '[' + template_name + '] ' : '') + preview, byLabel);
+  const attribCaptainId = req.session.userId
+    ? req.params.id                         // admin acting on behalf — use URL param
+    : (req.session.captainId || req.params.id); // captain — lock to their session
+  const byLabel = 'Captain #' + attribCaptainId;
+  try {
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Text', 'sent', ?, ?, datetime('now'))"
+    ).run(voter_id, (template_name ? '[' + template_name + '] ' : '') + preview, byLabel);
+  } catch (e) {
+    // Most likely: FOREIGN KEY constraint failed (voter_id doesn't exist).
+    // Return 400 so the client at least knows; previously errors were
+    // silent and the counter just stayed at zero with no signal.
+    return res.status(400).json({ error: 'Could not log: ' + e.message });
+  }
   res.json({ success: true });
 });
 
 // Log a tap-to-call attempt. Fire-and-forget from the client (tel: takes
-// over the browser before the response arrives). Same voter-ownership
-// check as text-log so captains can't stamp fake call records on voters
-// they don't have access to.
-router.post('/captains/:id/phone-log', requireCaptainAuth, requirePhoneEditSelf, (req, res) => {
+// over the browser before the response arrives). Same permissive shape
+// as text-log — locked attribution via session.captainId, FK validation
+// via voter_contacts.voter_id REFERENCES voters(id).
+//
+// Was previously gated by requirePhoneEditSelf + a strict ownership
+// check that produced silent 403s for legit calls (Luis: "I just called
+// through a captain and it did not report it"). Both gates removed so
+// real calls always log.
+router.post('/captains/:id/phone-log', requireCaptainAuth, (req, res) => {
   const { voter_id, phone_called } = req.body;
   if (!voter_id) return res.status(400).json({ error: 'voter_id required.' });
-  // Use session captainId — requirePhoneEditSelf already asserted URL :id
-  // matches session, but staying consistent with the other phone endpoints.
-  const captainId = req.session.captainId;
+  if (isNaN(parseInt(req.params.id, 10))) return res.status(400).json({ error: 'Invalid captain id.' });
 
-  // Admin users (req.session.userId) bypass the captain ownership check.
-  if (!req.session.userId) {
-    if (!captainId) return res.status(401).json({ error: 'Captain session required.' });
-    const canSee = db.prepare(`
-      WITH RECURSIVE team AS (
-        SELECT id FROM captains WHERE id = ?
-        UNION ALL
-        SELECT c.id FROM captains c JOIN team t ON c.parent_captain_id = t.id
-      )
-      SELECT 1 FROM (
-        SELECT clv.voter_id FROM captain_list_voters clv
-          JOIN captain_lists cl ON cl.id = clv.list_id
-          WHERE cl.captain_id IN (SELECT id FROM team) AND clv.voter_id = ?
-        UNION
-        SELECT alv.voter_id FROM admin_list_voters alv
-          JOIN admin_lists al ON al.id = alv.list_id
-          WHERE al.assigned_captain_id IN (SELECT id FROM team) AND alv.voter_id = ?
-      ) LIMIT 1
-    `).get(captainId, voter_id, voter_id);
-    if (!canSee) return res.status(403).json({ error: 'Voter is not on any of your lists.' });
+  const attribCaptainId = req.session.userId
+    ? req.params.id
+    : (req.session.captainId || req.params.id);
+  const byLabel = 'Captain #' + attribCaptainId;
+  try {
+    db.prepare(
+      "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Call', 'dialed', ?, ?, datetime('now'))"
+    ).run(voter_id, (phone_called || '').toString().slice(0, 30), byLabel);
+  } catch (e) {
+    return res.status(400).json({ error: 'Could not log: ' + e.message });
   }
-
-  const byLabel = 'Captain #' + req.params.id;
-  db.prepare(
-    "INSERT INTO voter_contacts (voter_id, contact_type, result, notes, contacted_by, contacted_at) VALUES (?, 'Call', 'dialed', ?, ?, datetime('now'))"
-  ).run(voter_id, (phone_called || '').toString().slice(0, 30), byLabel);
   res.json({ success: true });
 });
 

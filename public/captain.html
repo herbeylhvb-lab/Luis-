@@ -3046,7 +3046,7 @@ function renderListVoters() {
         try {
           apiPost('/api/captains/' + captainState.captain.id + '/phone-log', {
             voter_id: v.id, phone_called: phoneDigits
-          }).catch(function() {});
+          }).catch(function(err) { console.warn('phone-log failed:', err); });
         } catch(e) {}
         var full = (phoneDigits.length === 10) ? '+1' + phoneDigits : '+' + phoneDigits;
         window.location.href = 'tel:' + full;
@@ -5250,7 +5250,7 @@ function sendTextToVoter(voter, overrideBody) {
       voter_id: voter.id,
       template_name: 'bulk',
       message_preview: body
-    }).catch(function() { /* non-fatal */ });
+    }).catch(function(err) { console.warn('text-log failed:', err); });
   } catch (e) { /* non-fatal */ }
   _captainSendSms([phoneDigits], body);
 }
@@ -5507,7 +5507,7 @@ function renderBulkPhoneModal() {
       try {
         apiPost('/api/captains/' + captainState.captain.id + '/phone-log', {
           voter_id: voter.id, phone_called: digits
-        }).catch(function() {});
+        }).catch(function(err) { console.warn('phone-log failed:', err); });
       } catch (e) {}
       var full = (digits.length === 10) ? '+1' + digits : '+' + digits;
       window.location.href = 'tel:' + full;
